@@ -118,11 +118,7 @@ describe("officeSession", () => {
   });
 
   it("taskTitle solo per i tab dei worker", () => {
-    const w = officeSession(
-      { ...base, automation: { status: "completed", title: "Fix login" } },
-      false,
-      "Fix login",
-    );
+    const w = officeSession({ ...base, automation: { status: "completed", title: "Fix login" } }, false, "Fix login");
     assert.equal(w.taskTitle, "Fix login");
     assert.equal(w.activity, "completed");
     assert.equal(officeSession(base, false, "Bolt").taskTitle, undefined);
@@ -136,7 +132,16 @@ const ses = (key, workspaceId = "w1") => ({ key, workspaceId });
 describe("assignDesks", () => {
   it("assegna in ordine le scrivanie, una numerazione per workspace", () => {
     const d = assignDesks(new Map(), [ses("a"), ses("b"), ses("x", "w2"), ses("c"), ses("y", "w2")]);
-    assert.deepEqual([...d], [["a", 0], ["b", 1], ["x", 0], ["c", 2], ["y", 1]]);
+    assert.deepEqual(
+      [...d],
+      [
+        ["a", 0],
+        ["b", 1],
+        ["x", 0],
+        ["c", 2],
+        ["y", 1],
+      ],
+    );
   });
 
   it("aprire o chiudere altri tab non sposta nessuno", () => {
@@ -194,22 +199,39 @@ describe("officeRooms", () => {
     const sessions = [full("a", "w2"), full("b", "w1"), full("c", "w2")];
     const desks = assignDesks(new Map(), sessions);
     const rooms = officeRooms(sessions, ["w3", "w1", "w2"], desks);
-    assert.deepEqual(rooms.map((r) => r.workspaceId), ["w1", "w2"]);
+    assert.deepEqual(
+      rooms.map((r) => r.workspaceId),
+      ["w1", "w2"],
+    );
   });
 
   it("i workspace sconosciuti vanno in coda nell'ordine di comparsa", () => {
     const sessions = [full("a", "wz"), full("b", "w1"), full("c", "wy")];
     const desks = assignDesks(new Map(), sessions);
     const rooms = officeRooms(sessions, ["w1"], desks);
-    assert.deepEqual(rooms.map((r) => r.workspaceId), ["w1", "wz", "wy"]);
+    assert.deepEqual(
+      rooms.map((r) => r.workspaceId),
+      ["w1", "wz", "wy"],
+    );
   });
 
   it("nome del workspace e bot ordinati per scrivania", () => {
     const sessions = [full("a", "w1", "App"), full("b", "w1", "App"), full("c", "w1", "App")];
-    const desks = new Map([["a", 2], ["b", 0], ["c", 1]]);
+    const desks = new Map([
+      ["a", 2],
+      ["b", 0],
+      ["c", 1],
+    ]);
     const [room] = officeRooms(sessions, ["w1"], desks);
     assert.equal(room.name, "App");
-    assert.deepEqual(room.bots.map((b) => [b.key, b.desk]), [["b", 0], ["c", 1], ["a", 2]]);
+    assert.deepEqual(
+      room.bots.map((b) => [b.key, b.desk]),
+      [
+        ["b", 0],
+        ["c", 1],
+        ["a", 2],
+      ],
+    );
   });
 
   it("deskCount: minimo 4, poi multipli di 4", () => {
@@ -232,7 +254,10 @@ describe("officeRooms", () => {
   it("ignora le sessioni senza scrivania", () => {
     const sessions = [full("a", "w1"), full("b", "w2")];
     const rooms = officeRooms(sessions, ["w1", "w2"], new Map([["a", 0]]));
-    assert.deepEqual(rooms.map((r) => r.workspaceId), ["w1"]);
+    assert.deepEqual(
+      rooms.map((r) => r.workspaceId),
+      ["w1"],
+    );
   });
 
   it("nessuna sessione, nessuna stanza", () => {
@@ -294,7 +319,9 @@ describe("roomLayout", () => {
   }
 
   it("gli spot del divano sono distanti quanto un nome (i nomi non si sovrappongono)", () => {
-    const sofa = roomLayout(4).spots.filter((s) => s.kind === "sofa").sort((a, b) => a.x - b.x);
+    const sofa = roomLayout(4)
+      .spots.filter((s) => s.kind === "sofa")
+      .sort((a, b) => a.x - b.x);
     assert.equal(sofa.length, 3);
     for (let i = 1; i < sofa.length; i++) {
       assert.equal(sofa[i].y, sofa[i - 1].y);
@@ -345,7 +372,10 @@ function checkPlan(layout, idle, goals, now) {
       assert.equal(g.kind, "chat");
       groups.set(g.chat, [...(groups.get(g.chat) ?? []), g]);
     } else {
-      assert.ok(layout.spots.some((s) => s.id === g.spotId), g.spotId);
+      assert.ok(
+        layout.spots.some((s) => s.id === g.spotId),
+        g.spotId,
+      );
     }
   }
   for (const [chat, members] of groups) {

@@ -26,8 +26,7 @@ export default function DetailDependencyPicker({ idPrefix, options, selected, on
     return <p className="text-xs text-muted-foreground">Nessun task da cui dipendere.</p>;
   }
 
-  const toggle = (id: string) =>
-    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  const toggle = (id: string) => onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -41,10 +40,7 @@ export default function DetailDependencyPicker({ idPrefix, options, selected, on
           className="h-8 w-full rounded-md border border-input bg-transparent px-2.5 text-xs outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring"
         />
       )}
-      <ul
-        aria-label="Dipendenze"
-        className="max-h-40 overflow-y-auto rounded-md border border-input"
-      >
+      <ul aria-label="Dipendenze" className="max-h-40 overflow-y-auto rounded-md border border-input">
         {shown.map((t) => {
           const id = `${idPrefix}-dep-${t.id}`;
           return (
@@ -66,7 +62,10 @@ export default function DetailDependencyPicker({ idPrefix, options, selected, on
                 />
                 <span className="min-w-0 flex-1 truncate">{t.title}</span>
                 <span className="flex-shrink-0 font-mono text-[11px] text-faint">{t.id}</span>
-                <span className={cn("h-1.5 w-1.5 flex-shrink-0 rounded-full", statusDotClass(t.status))} aria-hidden="true" />
+                <span
+                  className={cn("h-1.5 w-1.5 flex-shrink-0 rounded-full", statusDotClass(t.status))}
+                  aria-hidden="true"
+                />
                 <span className="sr-only">{statusLabel(t.status)}</span>
               </label>
             </li>
@@ -76,7 +75,8 @@ export default function DetailDependencyPicker({ idPrefix, options, selected, on
       </ul>
       {selected.length > 0 && (
         <p className="text-[11px] text-muted-foreground">
-          {selected.length === 1 ? "1 dipendenza" : `${selected.length} dipendenze`}: il task parte quando sono tutte Fatte.
+          {selected.length === 1 ? "1 dipendenza" : `${selected.length} dipendenze`}: il task parte quando sono tutte
+          Fatte.
         </p>
       )}
     </div>

@@ -17,8 +17,7 @@ import {
 /** Immagine da una funzione (x, y) -> [r, g, b, a]. */
 function make(width, height, fn) {
   const data = new Uint8ClampedArray(width * height * 4);
-  for (let y = 0; y < height; y++)
-    for (let x = 0; x < width; x++) data.set(fn(x, y), (y * width + x) * 4);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) data.set(fn(x, y), (y * width + x) * 4);
   return { data, width, height };
 }
 const solid = (w, h, p) => make(w, h, () => p);
@@ -96,8 +95,7 @@ describe("resample", () => {
     const out = resample(solid(1, 1, [10, 20, 30, 255]), { w: 3, h: 3 });
     assert.equal(out.width, 3);
     assert.equal(out.height, 3);
-    for (let y = 0; y < 3; y++)
-      for (let x = 0; x < 3; x++) assert.deepEqual(px(out, x, y), [10, 20, 30, 255]);
+    for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) assert.deepEqual(px(out, x, y), [10, 20, 30, 255]);
   });
   it("uscita trasparente ha rgb 0 e la dimensione richiesta", () => {
     const out = resample(solid(4, 4, [9, 9, 9, 0]), { w: 2, h: 3 });

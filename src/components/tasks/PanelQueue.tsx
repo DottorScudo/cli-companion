@@ -32,8 +32,7 @@ export default function PanelQueue({ queue, allTasks, onOpen, onMove }: PanelQue
 
   const ids = queue.map((t) => t.id);
   // Lo slot è valido solo se produce davvero uno spostamento.
-  const indicator =
-    dragId !== null && slot !== null && moveBeforeId(ids, dragId, slot) !== undefined ? slot : null;
+  const indicator = dragId !== null && slot !== null && moveBeforeId(ids, dragId, slot) !== undefined ? slot : null;
 
   const onDragOver = (e: DragEvent<HTMLDivElement>, index: number) => {
     if (dragId === null) return;
@@ -56,7 +55,10 @@ export default function PanelQueue({ queue, allTasks, onOpen, onMove }: PanelQue
   const line = (edge: "top" | "bottom") => (
     <div
       aria-hidden="true"
-      className={cn("pointer-events-none absolute inset-x-0 h-0.5 rounded bg-primary", edge === "top" ? "-top-px" : "-bottom-px")}
+      className={cn(
+        "pointer-events-none absolute inset-x-0 h-0.5 rounded bg-primary",
+        edge === "top" ? "-top-px" : "-bottom-px",
+      )}
     />
   );
 

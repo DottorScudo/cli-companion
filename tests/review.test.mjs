@@ -50,8 +50,7 @@ describe("verdictBadge", () => {
 });
 
 describe("reviewFindings", () => {
-  const withReport = (verdict, findings) =>
-    review({ report: { status: "completed", summary: "", verdict, findings } });
+  const withReport = (verdict, findings) => review({ report: { status: "completed", summary: "", verdict, findings } });
   it("issues: Problemi trovati con tono di avviso e findings non vuoti", () => {
     assert.deepEqual(reviewFindings(review()), {
       title: "Problemi trovati",

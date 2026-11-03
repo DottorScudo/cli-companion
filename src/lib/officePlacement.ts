@@ -45,12 +45,13 @@ export function botPlacement(
   serverSlot: number,
 ): Placement {
   const desk = layout.desks[bot.desk] ?? layout.desks[0];
-  const at = (
-    p: Point,
-    pose: BotPose,
-    facing: Facing = desk.facing,
-    speed: BotSpeed = "walk",
-  ): Placement => ({ x: p.x, y: p.y, facing, pose, speed });
+  const at = (p: Point, pose: BotPose, facing: Facing = desk.facing, speed: BotSpeed = "walk"): Placement => ({
+    x: p.x,
+    y: p.y,
+    facing,
+    pose,
+    speed,
+  });
 
   switch (bot.activity) {
     case "working":

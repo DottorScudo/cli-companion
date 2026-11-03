@@ -171,7 +171,10 @@ describe("automazione: più tab Intake nello stesso workspace", () => {
     { key: "b", workspace: { id: "w1" }, launchId: INTAKE_LAUNCH_ID },
   ];
   it("ogni tab Intake ha il badge INTAKE", () => {
-    assert.deepEqual(tabs.map((t) => tabBadge(t)?.text), ["INTAKE", "INTAKE"]);
+    assert.deepEqual(
+      tabs.map((t) => tabBadge(t)?.text),
+      ["INTAKE", "INTAKE"],
+    );
   });
   it("tutti i tab Intake sono persistibili", () => {
     assert.equal(persistableTabs(tabs).length, 2);

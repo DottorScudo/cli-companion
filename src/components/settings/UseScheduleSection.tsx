@@ -23,9 +23,8 @@ export default function UseScheduleSection({ workspace, onWorkspaceUpdated }: Pr
         Rispetta le fasce orarie
       </label>
       <p className="text-[11px] text-muted-foreground">
-        Con le fasce orarie attive (Impostazioni › Fasce orarie) la coda di questo workspace fa
-        partire nuovi task solo dentro le fasce; quelli già in corso finiscono. Spento: la coda
-        parte sempre.
+        Con le fasce orarie attive (Impostazioni › Fasce orarie) la coda di questo workspace fa partire nuovi task solo
+        dentro le fasce; quelli già in corso finiscono. Spento: la coda parte sempre.
       </p>
       {error && <p className="text-[11px] text-destructive">{error}</p>}
     </Section>

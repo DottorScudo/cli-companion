@@ -63,11 +63,7 @@ function KanbanCard({
       onDragOver={onDragOver ? (e) => onDragOver(e, task) : undefined}
       className={cn(
         "flex w-full flex-shrink-0 flex-col gap-2 rounded-lg border bg-surface px-3 py-[11px] text-left text-foreground transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        attention
-          ? "border-status-attention/50"
-          : task.status === "failed"
-            ? "border-destructive/40"
-            : "border-border",
+        attention ? "border-status-attention/50" : task.status === "failed" ? "border-destructive/40" : "border-border",
         selected && "bg-surface-2 ring-1 ring-primary",
         draggable && "cursor-grab active:cursor-grabbing",
         dragging && "opacity-40",
@@ -89,9 +85,7 @@ function KanbanCard({
           <span className="max-w-full truncate rounded border border-border-strong px-1.5 py-px">{waiting}</span>
         )}
         {showRepo && (
-          <span className="max-w-[10rem] truncate rounded bg-surface-2 px-1.5 py-px font-mono">
-            {task.repo || "."}
-          </span>
+          <span className="max-w-[10rem] truncate rounded bg-surface-2 px-1.5 py-px font-mono">{task.repo || "."}</span>
         )}
         {sub && <span className={sub.className}>{sub.text}</span>}
         <span className="truncate">{kanbanMeta(task, now).join(" · ")}</span>

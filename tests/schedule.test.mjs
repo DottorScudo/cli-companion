@@ -67,14 +67,8 @@ describe("schedule: fasce", () => {
     assert.equal(scheduleError(sched()), null);
     assert.match(scheduleError(sched({ windows: [] })), /almeno una/);
     assert.equal(scheduleError(sched({ enabled: false, windows: [] })), null);
-    assert.match(
-      scheduleError(sched({ windows: [{ start: "20:00", end: "20:00" }] })),
-      /Fascia 1/,
-    );
-    assert.match(
-      scheduleError(sched({ windows: Array(13).fill({ start: "01:00", end: "02:00" }) })),
-      /massimo/i,
-    );
+    assert.match(scheduleError(sched({ windows: [{ start: "20:00", end: "20:00" }] })), /Fascia 1/);
+    assert.match(scheduleError(sched({ windows: Array(13).fill({ start: "01:00", end: "02:00" }) })), /massimo/i);
   });
   it("normalizeSchedule e sameSchedule", () => {
     const n = normalizeSchedule(sched({ windows: [{ start: "9:00", end: "13:00" }] }));

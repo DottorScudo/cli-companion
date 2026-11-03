@@ -1,12 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "./ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import AgentSettingsTab from "./AgentSettingsTab";
 import UpdateCheck from "./UpdateCheck";
 import ScheduleSettings from "./ScheduleSettings";
@@ -51,8 +45,7 @@ const WORKSPACE_TABS: { id: SettingsTab; label: string }[] = [
   { id: "repos", label: "Repository" },
 ];
 
-const GROUP_LABEL =
-  "px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint";
+const GROUP_LABEL = "px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint";
 
 interface Props {
   isOpen: boolean;
@@ -126,8 +119,7 @@ export default function SettingsDialog({
   }, [initialTab, initialWorkspaceId]);
 
   // Se il workspace selezionato sparisce, ripiega sul primo disponibile.
-  const selected =
-    workspaces.find((w) => w.id === workspaceId) ?? workspaces[0] ?? undefined;
+  const selected = workspaces.find((w) => w.id === workspaceId) ?? workspaces[0] ?? undefined;
 
   const navButton = (t: { id: SettingsTab; label: string }, disabled = false) => (
     <button
@@ -156,9 +148,7 @@ export default function SettingsDialog({
   );
 
   const noWorkspace = (
-    <p className="text-[13px] text-muted-foreground">
-      Nessun workspace. Aggiungi una cartella per configurarlo.
-    </p>
+    <p className="text-[13px] text-muted-foreground">Nessun workspace. Aggiungi una cartella per configurarlo.</p>
   );
 
   const renderPage = () => {
@@ -193,10 +183,7 @@ export default function SettingsDialog({
         );
       case "updates":
         return (
-          <SettingsPage
-            title="Aggiornamenti"
-            description="Controlla e installa le nuove versioni dell’app."
-          >
+          <SettingsPage title="Aggiornamenti" description="Controlla e installa le nuove versioni dell’app.">
             <UpdateCheck onAvailable={onUpdateAvailable} />
           </SettingsPage>
         );
@@ -241,9 +228,7 @@ export default function SettingsDialog({
         onCloseAutoFocus={(e) => {
           // Nessun trigger a cui tornare: il focus va al terminale attivo.
           e.preventDefault();
-          document
-            .querySelector<HTMLElement>('[data-focused="true"] .xterm-helper-textarea')
-            ?.focus();
+          document.querySelector<HTMLElement>('[data-focused="true"] .xterm-helper-textarea')?.focus();
           // Rete di sicurezza: se nessun layer Radix e' aperto ma il body e'
           // rimasto con pointer-events bloccato, lo ripristina.
           if (
@@ -282,9 +267,7 @@ export default function SettingsDialog({
               </select>
               {WORKSPACE_TABS.map((t) => navButton(t, !selected))}
               {!selected && (
-                <p className="px-2 pt-1 text-[11px] text-muted-foreground">
-                  Aggiungi un workspace per configurarlo.
-                </p>
+                <p className="px-2 pt-1 text-[11px] text-muted-foreground">Aggiungi un workspace per configurarlo.</p>
               )}
             </div>
           </nav>

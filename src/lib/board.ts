@@ -645,14 +645,7 @@ export function updatedLabel(task: Pick<Task, "updated_at">, now: number): strin
 export function matchesQuery(task: Task, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (q === "") return true;
-  const haystack = [
-    task.title,
-    task.task,
-    task.report?.summary,
-    task.note,
-    task.last_report,
-    task.id,
-  ];
+  const haystack = [task.title, task.task, task.report?.summary, task.note, task.last_report, task.id];
   return haystack.some((h) => typeof h === "string" && h.toLowerCase().includes(q));
 }
 

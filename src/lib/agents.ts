@@ -28,9 +28,7 @@ export function agentEnvState(env: Pick<AgentEnvLike, "found" | "installed">): A
 }
 
 /** Testo di stato, con la versione se nota (anche per i non installati). */
-export function agentEnvStateText(
-  env: Pick<AgentEnvLike, "found" | "installed" | "version">,
-): string {
+export function agentEnvStateText(env: Pick<AgentEnvLike, "found" | "installed" | "version">): string {
   const text = {
     installed: "Installato",
     "not-installed": "Non installato",
@@ -113,10 +111,7 @@ export interface AgentEventLike {
  * session-start e' sfuggito. Eventi sconosciuti (es. `test`): stato invariato.
  * L'id di sessione si aggiorna a ogni evento che lo porta.
  */
-export function applyAgentEvent(
-  prev: AgentTabState | undefined,
-  ev: AgentEventLike,
-): AgentTabState | undefined {
+export function applyAgentEvent(prev: AgentTabState | undefined, ev: AgentEventLike): AgentTabState | undefined {
   if (ev.event === "session-end") {
     if (!prev) return prev;
     return { ...prev, phase: "idle", ended: true };
@@ -145,10 +140,7 @@ export function applyAgentEvent(
  * toglie ✓/❗ riportando a idle. Tab non-agente: invariato. Ritorna lo stesso
  * oggetto se nulla cambia (per evitare re-render).
  */
-export function applyUserInput(
-  prev: AgentTabState | undefined,
-  enter: boolean,
-): AgentTabState | undefined {
+export function applyUserInput(prev: AgentTabState | undefined, enter: boolean): AgentTabState | undefined {
   if (!prev || prev.ended) return prev;
   if (enter) return prev.phase === "running" ? prev : { ...prev, phase: "running" };
   if (prev.phase === "finished" || prev.phase === "needs-input") {
@@ -219,11 +211,7 @@ export function shouldSystemNotify(event: string): boolean {
 }
 
 /** Testo della notifica di sistema: "<tab>: ha finito" / "<tab>: aspetta una risposta". */
-export function notificationBody(
-  event: string,
-  tabLabel: string,
-  message?: string | null,
-): string {
+export function notificationBody(event: string, tabLabel: string, message?: string | null): string {
   if (event === "needs-input") {
     const m = message?.trim();
     return `${tabLabel}: ${m ? m : "aspetta una risposta"}`;
@@ -259,9 +247,7 @@ export function resolveInputOverride(
 ): string | null {
   if (!agentId) return null;
   const rules = profiles.find((p) => p.agent_id === agentId)?.input_profile.rules ?? [];
-  const rule = rules.find(
-    (r) => r.event === event && (r.env_kind === null || r.env_kind === envKind),
-  );
+  const rule = rules.find((r) => r.event === event && (r.env_kind === null || r.env_kind === envKind));
   return rule ? rule.send : null;
 }
 

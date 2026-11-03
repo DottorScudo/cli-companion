@@ -49,16 +49,12 @@ export default function ArchivedPage({ workspaces, onWorkspaceUpdated, onRemove 
                   <span
                     className={cn(
                       "flex-shrink-0 rounded border px-1 py-px font-mono text-[10px] font-medium",
-                      wsl
-                        ? "border-primary/40 text-primary"
-                        : "border-border-strong text-muted-foreground",
+                      wsl ? "border-primary/40 text-primary" : "border-border-strong text-muted-foreground",
                     )}
                   >
                     {wsl ? "WSL" : "WIN"}
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                    {ws.name}
-                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{ws.name}</span>
                   <Button
                     size="sm"
                     variant="secondary"
@@ -82,21 +78,13 @@ export default function ArchivedPage({ workspaces, onWorkspaceUpdated, onRemove 
                     Elimina
                   </Button>
                 </div>
-                <p
-                  className="truncate font-mono text-[11px] text-muted-foreground"
-                  title={ws.path}
-                >
+                <p className="truncate font-mono text-[11px] text-muted-foreground" title={ws.path}>
                   {wsl && ws.distro ? `${ws.distro} · ${ws.path}` : ws.path}
                 </p>
                 {confirmingId === ws.id && (
                   <div className="flex items-center gap-1.5">
                     <span className="flex-1 text-xs">Rimuovere?</span>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      disabled={removing}
-                      onClick={() => void remove(ws.id)}
-                    >
+                    <Button size="sm" variant="destructive" disabled={removing} onClick={() => void remove(ws.id)}>
                       Sì
                     </Button>
                     <Button size="sm" variant="secondary" onClick={() => setConfirmingId(null)}>

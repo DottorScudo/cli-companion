@@ -116,7 +116,11 @@ export function parseInline(s: string): MdInline[] {
       if (close !== -1 && s[close + 1] === "(") {
         const end = findParen(s, close + 1);
         if (end !== -1) {
-          let url = s.slice(close + 2, end).trim().split(/\s+/)[0] ?? "";
+          let url =
+            s
+              .slice(close + 2, end)
+              .trim()
+              .split(/\s+/)[0] ?? "";
           if (url.startsWith("<") && url.endsWith(">")) url = url.slice(1, -1);
           const children = parseInline(s.slice(i + 1, close));
           const href = safeHref(url);

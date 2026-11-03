@@ -67,12 +67,8 @@ export function formatReset(iso: string | null | undefined, now: Date = new Date
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
   const sameDay =
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate();
-  return sameDay
-    ? `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
-    : `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}`;
+    d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  return sameDay ? `${pad2(d.getHours())}:${pad2(d.getMinutes())}` : `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}`;
 }
 
 /** Data e ora complete del reset, per il tooltip. */
@@ -95,13 +91,7 @@ export interface LimitItem {
   title: string;
 }
 
-function windowItem(
-  key: "5h" | "7d",
-  short: string,
-  long: string,
-  w: LimitWindowLike,
-  now: Date,
-): LimitItem {
+function windowItem(key: "5h" | "7d", short: string, long: string, w: LimitWindowLike, now: Date): LimitItem {
   const pct = Math.round(w.used_percentage);
   const reset = formatReset(w.resets_at, now);
   const full = formatResetFull(w.resets_at);
@@ -165,8 +155,7 @@ export function limitGroupText(group: LimitGroup): string {
 // Intestazione del pannello
 // ---------------------------------------------------------------------------
 
-const sumInput = (t: TokenTotalsLike) =>
-  t.input_tokens + t.cache_read_tokens + t.cache_creation_tokens;
+const sumInput = (t: TokenTotalsLike) => t.input_tokens + t.cache_read_tokens + t.cache_creation_tokens;
 
 /** `↑ 1,2M ↓ 45k · ctx 82k` (input comprensivo della cache). */
 export function usageText(u: SessionUsageLike): string {
@@ -186,9 +175,7 @@ export function usageTooltip(u: SessionUsageLike): string {
   lines.push(`Messaggi: ${u.messages}`);
   const s = u.subagents;
   if (sumInput(s) + s.output_tokens > 0) {
-    lines.push(
-      `Subagent: ↑ ${formatTokens(sumInput(s))} ↓ ${formatTokens(s.output_tokens)}`,
-    );
+    lines.push(`Subagent: ↑ ${formatTokens(sumInput(s))} ↓ ${formatTokens(s.output_tokens)}`);
   }
   return lines.join("\n");
 }

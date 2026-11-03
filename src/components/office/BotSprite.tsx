@@ -93,10 +93,7 @@ export default function BotSprite({ name, image, pose, facing, intake, running }
   const look = useMemo(() => botLook(name), [name]);
   const head = useMemo(() => botPixels(look), [look]);
   const fills = useMemo(() => fillsOf(image?.color ?? look.color), [image?.color, look.color]);
-  const box = useMemo(
-    () => (image ? imageBodyBox(pngSize(image.png) ?? FALLBACK_IMAGE_SIZE) : undefined),
-    [image],
-  );
+  const box = useMemo(() => (image ? imageBodyBox(pngSize(image.png) ?? FALLBACK_IMAGE_SIZE) : undefined), [image]);
   const shift = useMemo(() => (box ? armShiftOf(box) : undefined), [box]);
   const seated = isSeated(pose);
   const arms = armsOf(pose);

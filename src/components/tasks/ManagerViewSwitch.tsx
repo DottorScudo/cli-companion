@@ -19,9 +19,7 @@ export default function ManagerViewSwitch({ view, onView }: Props) {
           onClick={() => onView(v.id)}
           className={cn(
             "h-7 rounded-md px-3 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-            view === v.id
-              ? "bg-surface-2 font-medium text-foreground"
-              : "text-text-secondary hover:text-foreground",
+            view === v.id ? "bg-surface-2 font-medium text-foreground" : "text-text-secondary hover:text-foreground",
           )}
         >
           {v.label}

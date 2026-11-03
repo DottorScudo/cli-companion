@@ -91,9 +91,8 @@ export default function ScheduleSettings() {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-[11px] text-muted-foreground">
-        I workspace che rispettano le fasce orarie (Impostazioni › Worker) fanno
-        partire i task in coda solo dentro le fasce; fuori non parte nessun
-        nuovo task e quelli in corso finiscono.
+        I workspace che rispettano le fasce orarie (Impostazioni › Worker) fanno partire i task in coda solo dentro le
+        fasce; fuori non parte nessun nuovo task e quelli in corso finiscono.
       </p>
 
       <label className="flex items-center gap-2 text-[13px] font-medium">
@@ -121,9 +120,7 @@ export default function ScheduleSettings() {
           </Button>
         </div>
 
-        {draft.windows.length === 0 && (
-          <p className="text-xs text-muted-foreground">Nessuna fascia configurata.</p>
-        )}
+        {draft.windows.length === 0 && <p className="text-xs text-muted-foreground">Nessuna fascia configurata.</p>}
         {draft.windows.map((w, i) => {
           const err = windowError(w);
           return (
@@ -173,9 +170,8 @@ export default function ScheduleSettings() {
           );
         })}
         <p className="text-[11px] text-muted-foreground">
-          Ora locale, massimo {MAX_WINDOWS} fasce. Se la fine è prima dell’inizio
-          la fascia prosegue oltre la mezzanotte (es. 20:00–13:00 = dalla sera alle
-          13:00 del giorno dopo). Le fasce sovrapposte valgono insieme.
+          Ora locale, massimo {MAX_WINDOWS} fasce. Se la fine è prima dell’inizio la fascia prosegue oltre la mezzanotte
+          (es. 20:00–13:00 = dalla sera alle 13:00 del giorno dopo). Le fasce sovrapposte valgono insieme.
         </p>
       </div>
 
@@ -190,8 +186,7 @@ export default function ScheduleSettings() {
           Impedisci lo standby
         </label>
         <p className="mt-1 pl-5 text-[11px] text-muted-foreground">
-          Il computer non va in standby finché c’è almeno un task in corso in
-          un workspace.
+          Il computer non va in standby finché c’è almeno un task in corso in un workspace.
         </p>
       </div>
 
@@ -199,9 +194,7 @@ export default function ScheduleSettings() {
         {scheduleStatusText(state)}
       </p>
 
-      {(error ?? problem) && dirty && (
-        <p className="text-xs text-destructive">{error ?? problem}</p>
-      )}
+      {(error ?? problem) && dirty && <p className="text-xs text-destructive">{error ?? problem}</p>}
 
       <div>
         <Button size="sm" disabled={saving || !dirty || problem !== null} onClick={() => void save()}>

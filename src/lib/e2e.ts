@@ -99,7 +99,10 @@ export function specE2eBadge(spec: { e2e?: boolean }): E2eBadge | null {
 const ROOT_KEY = ".";
 
 /** Il repository (null/vuoto/"." = la root) ha gli E2E configurati? `repos` e' `Workspace.repos`. */
-export function repoHasE2e(repos: Record<string, { e2e?: unknown }> | undefined, repo: string | null | undefined): boolean {
+export function repoHasE2e(
+  repos: Record<string, { e2e?: unknown }> | undefined,
+  repo: string | null | undefined,
+): boolean {
   return Boolean(repos?.[repo || ROOT_KEY]?.e2e);
 }
 

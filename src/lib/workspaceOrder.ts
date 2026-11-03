@@ -17,12 +17,7 @@ export type DropPosition = "before" | "after";
  * Nuovo ordine dopo aver rilasciato `dragId` prima/dopo `targetId`.
  * Id sconosciuti, rilascio su se stesso o posizione invariata: stessa istanza.
  */
-export function dropOrder(
-  ids: string[],
-  dragId: string,
-  targetId: string,
-  position: DropPosition,
-): string[] {
+export function dropOrder(ids: string[], dragId: string, targetId: string, position: DropPosition): string[] {
   const from = ids.indexOf(dragId);
   if (from < 0 || dragId === targetId || !ids.includes(targetId)) return ids;
   const rest = ids.filter((id) => id !== dragId);

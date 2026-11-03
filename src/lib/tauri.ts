@@ -2,15 +2,7 @@ import { invoke, type Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { WorkerPermission } from "./workerPermission";
 import type { BotImage } from "./bots";
-import type {
-  BoardView,
-  Delivery,
-  E2eRun,
-  NewTaskSpec,
-  TaskAction,
-  TaskNotifyEvent,
-  TaskPatch,
-} from "./board";
+import type { BoardView, Delivery, E2eRun, NewTaskSpec, TaskAction, TaskNotifyEvent, TaskPatch } from "./board";
 import type { Schedule, ScheduleState } from "./schedule";
 
 /** Esito di `settings_proposal_decide`: `workspace` solo se la proposta è stata applicata. */
@@ -241,26 +233,20 @@ export const api = {
       shell: w.shell && w.shell.trim() !== "" ? w.shell : null,
     }),
 
-  renameWorkspace: (id: string, name: string) =>
-    invoke<Workspace>("rename_workspace", { id, name }),
+  renameWorkspace: (id: string, name: string) => invoke<Workspace>("rename_workspace", { id, name }),
 
-  setWorkerModel: (id: string, model: string | null) =>
-    invoke<Workspace>("set_worker_model", { id, model }),
+  setWorkerModel: (id: string, model: string | null) => invoke<Workspace>("set_worker_model", { id, model }),
   setWorkerPermissionRules: (id: string, allow: string[], deny: string[]) =>
     invoke<Workspace>("set_worker_permission_rules", { id, allow, deny }),
-  setWorkerPermission: (id: string, mode: WorkerPermission) =>
-    invoke<Workspace>("set_worker_permission", { id, mode }),
+  setWorkerPermission: (id: string, mode: WorkerPermission) => invoke<Workspace>("set_worker_permission", { id, mode }),
 
-  setWorkerRules: (workspaceId: string, rules: string) =>
-    invoke<Workspace>("set_worker_rules", { workspaceId, rules }),
+  setWorkerRules: (workspaceId: string, rules: string) => invoke<Workspace>("set_worker_rules", { workspaceId, rules }),
 
   /** Modalita' di consegna dei task del workspace. */
-  setDelivery: (id: string, delivery: Delivery) =>
-    invoke<Workspace>("set_delivery", { id, delivery }),
+  setDelivery: (id: string, delivery: Delivery) => invoke<Workspace>("set_delivery", { id, delivery }),
 
   /** La coda del workspace rispetta (o no) le fasce orarie globali. */
-  setUseSchedule: (id: string, value: boolean) =>
-    invoke<Workspace>("set_use_schedule", { id, value }),
+  setUseSchedule: (id: string, value: boolean) => invoke<Workspace>("set_use_schedule", { id, value }),
 
   /** Imposta (o con null rimuove) la configurazione di un repository del workspace. */
   setRepoConfig: (workspaceId: string, repo: string, config: RepoConfig | null) =>
@@ -297,8 +283,7 @@ export const api = {
 
   listWslDistros: () => invoke<string[]>("list_wsl_distros"),
 
-  checkWslPath: (distro: string, path: string) =>
-    invoke<boolean>("check_wsl_path", { distro, path }),
+  checkWslPath: (distro: string, path: string) => invoke<boolean>("check_wsl_path", { distro, path }),
 
   // Nota: Tauri v2 converte i nomi degli argomenti in camelCase
   // (workspace_id -> workspaceId): le chiavi qui devono esserlo già.
@@ -309,14 +294,11 @@ export const api = {
     rows: number,
     onEvent: Channel<PtyEvent>,
     cwd?: string | null,
-  ) =>
-    invoke<number>("pty_spawn", { workspaceId, tabId, cols, rows, onEvent, cwd: cwd ?? null }),
+  ) => invoke<number>("pty_spawn", { workspaceId, tabId, cols, rows, onEvent, cwd: cwd ?? null }),
 
-  ptyWrite: (sessionId: number, data: string) =>
-    invoke<void>("pty_write", { sessionId, data }),
+  ptyWrite: (sessionId: number, data: string) => invoke<void>("pty_write", { sessionId, data }),
 
-  ptyResize: (sessionId: number, cols: number, rows: number) =>
-    invoke<void>("pty_resize", { sessionId, cols, rows }),
+  ptyResize: (sessionId: number, cols: number, rows: number) => invoke<void>("pty_resize", { sessionId, cols, rows }),
 
   ptyClose: (sessionId: number) => invoke<void>("pty_close", { sessionId }),
 
@@ -330,18 +312,15 @@ export const api = {
 
   getBotSettings: () => invoke<BotSettings>("get_bot_settings"),
 
-  setBotSettings: (enabled: boolean, names: string[]) =>
-    invoke<BotSettings>("set_bot_settings", { enabled, names }),
+  setBotSettings: (enabled: boolean, names: string[]) => invoke<BotSettings>("set_bot_settings", { enabled, names }),
 
   resetBotNames: () => invoke<BotSettings>("reset_bot_names"),
 
-  setBotImage: (name: string, png: string, color: string) =>
-    invoke<BotSettings>("set_bot_image", { name, png, color }),
+  setBotImage: (name: string, png: string, color: string) => invoke<BotSettings>("set_bot_image", { name, png, color }),
 
   removeBotImage: (name: string) => invoke<BotSettings>("remove_bot_image", { name }),
 
-  agentUsageLimits: (agentId: string, env: string) =>
-    invoke<UsageLimitsReply>("agent_usage_limits", { agentId, env }),
+  agentUsageLimits: (agentId: string, env: string) => invoke<UsageLimitsReply>("agent_usage_limits", { agentId, env }),
 
   agentSessionUsage: (agentId: string, env: string, transcriptPath: string) =>
     invoke<SessionUsage | null>("agent_session_usage", { agentId, env, transcriptPath }),
@@ -350,15 +329,13 @@ export const api = {
 
   agentEnvStatus: () => invoke<AgentEnvStatus[]>("agent_env_status"),
 
-  installAgentPlugin: (agentId: string, envKey: string) =>
-    invoke<string>("install_agent_plugin", { agentId, envKey }),
+  installAgentPlugin: (agentId: string, envKey: string) => invoke<string>("install_agent_plugin", { agentId, envKey }),
 
   agentPluginsOutdated: () => invoke<OutdatedPlugin[]>("agent_plugins_outdated"),
 
   agentPluginsUpdate: () => invoke<PluginUpdateResult[]>("agent_plugins_update"),
 
-  removeAgentPlugin: (agentId: string, envKey: string) =>
-    invoke<string>("remove_agent_plugin", { agentId, envKey }),
+  removeAgentPlugin: (agentId: string, envKey: string) => invoke<string>("remove_agent_plugin", { agentId, envKey }),
 
   // Sessioni automatiche (backend: src-tauri/src/automation.rs).
   /** Un tab automatico e' stato chiuso (utente, app o shell uscita). */
@@ -373,16 +350,14 @@ export const api = {
   e2eRunRepo: (workspaceId: string, repo: string) => invoke<E2eRun>("e2e_run_repo", { workspaceId, repo }),
 
   /** Ultimo esito manuale degli E2E di un repository, se c'è. */
-  e2eLastResult: (workspaceId: string, repo: string) =>
-    invoke<E2eRun | null>("e2e_last_result", { workspaceId, repo }),
+  e2eLastResult: (workspaceId: string, repo: string) => invoke<E2eRun | null>("e2e_last_result", { workspaceId, repo }),
 
   /** Apre il report JUnit dell'ultima esecuzione E2E del task, o senza `taskId` di quella manuale del repository. */
   e2eOpenReport: (workspaceId: string, taskId?: string, repo?: string) =>
     invoke<void>("e2e_open_report", { workspaceId, taskId, repo }),
 
   /** Repository del workspace: "." se la root è un repo, più le sottocartelle con un .git. */
-  workspaceDetectRepos: (workspaceId: string) =>
-    invoke<string[]>("workspace_detect_repos", { workspaceId }),
+  workspaceDetectRepos: (workspaceId: string) => invoke<string[]>("workspace_detect_repos", { workspaceId }),
 
   boardSet: (workspaceId: string, settings: { maxParallel?: number; paused?: boolean }) =>
     invoke<BoardView>("board_set", {
@@ -392,8 +367,7 @@ export const api = {
     }),
 
   /** Task manuale (senza proposta); l'id lo genera il backend dal titolo. */
-  taskCreate: (workspaceId: string, spec: NewTaskSpec) =>
-    invoke<BoardView>("task_create", { workspaceId, spec }),
+  taskCreate: (workspaceId: string, spec: NewTaskSpec) => invoke<BoardView>("task_create", { workspaceId, spec }),
 
   /** Solo i task Da fare / Falliti; `repo` e `model` a null tornano al valore predefinito. */
   taskUpdate: (workspaceId: string, taskId: string, patch: TaskPatch) =>
@@ -424,8 +398,7 @@ export const api = {
 
   saveSession: (data: string) => invoke<void>("save_session", { data }),
 
-  saveScrollback: (tabId: string, data: string) =>
-    invoke<void>("save_scrollback", { tabId, data }),
+  saveScrollback: (tabId: string, data: string) => invoke<void>("save_scrollback", { tabId, data }),
 
   loadScrollback: (tabId: string) => invoke<string | null>("load_scrollback", { tabId }),
 
@@ -435,9 +408,7 @@ export const api = {
 };
 
 export function onNotificationActivated(cb: (tabId: string) => void) {
-  return listen<{ tab_id: string }>("notification-activated", (event) =>
-    cb(event.payload.tab_id),
-  );
+  return listen<{ tab_id: string }>("notification-activated", (event) => cb(event.payload.tab_id));
 }
 
 export function onAutomationSpawn(cb: (e: AutomationSpawn) => void) {

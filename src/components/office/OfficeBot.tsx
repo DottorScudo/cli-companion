@@ -45,12 +45,7 @@ interface Props {
 function OfficeBot(p: Props) {
   const trip = useBotTrip(p.x, p.y, p.facing, p.speed, p.reduced);
   const bubble = botBubble(p.activity, p.pose, p.name, p.taskTitle);
-  const tooltip = [
-    p.name,
-    p.workspaceName,
-    p.label,
-    `Stato: ${ACTIVITY_LABELS[p.activity]}`,
-  ].join("\n");
+  const tooltip = [p.name, p.workspaceName, p.label, `Stato: ${ACTIVITY_LABELS[p.activity]}`].join("\n");
   const style = {
     left: percent(p.x, ROOM_WIDTH),
     top: percent(p.y, p.roomHeight),

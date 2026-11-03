@@ -1,13 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  ChevronDown,
-  Ellipsis,
-  FolderOpen,
-  ListChecks,
-  Pin,
-  Plus,
-  Star,
-} from "lucide-react";
+import { ChevronDown, Ellipsis, FolderOpen, ListChecks, Pin, Plus, Star } from "lucide-react";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -85,8 +77,7 @@ interface Props {
 const ICON_BTN =
   "flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-[5px] text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring [&_svg]:size-[13px]";
 
-const MENU_ITEM =
-  "rounded-md px-2.5 py-[7px] text-[13px] text-text-secondary focus:bg-surface-2 focus:text-foreground";
+const MENU_ITEM = "rounded-md px-2.5 py-[7px] text-[13px] text-text-secondary focus:bg-surface-2 focus:text-foreground";
 
 const MENU_CONTENT = "w-[220px] rounded-[10px] border-border-strong bg-surface p-1";
 
@@ -127,12 +118,7 @@ function LaunchItems({
 }) {
   const defId = resolveDefaultLaunch(ws, builtins, globalLaunch)?.id;
   const item = (l: Launch | BuiltinLaunch) => (
-    <DropdownMenuItem
-      key={l.id}
-      title={l.command}
-      onSelect={() => onSpawn(ws, l)}
-      className={MENU_ITEM}
-    >
+    <DropdownMenuItem key={l.id} title={l.command} onSelect={() => onSpawn(ws, l)} className={MENU_ITEM}>
       <span className="min-w-0 flex-1 truncate font-mono text-xs">{l.name}</span>
       {l.id === defId && (
         <span className="flex items-center gap-1 text-[10px] text-primary">
@@ -148,9 +134,7 @@ function LaunchItems({
         Avvii
       </DropdownMenuLabel>
       {builtins.map(item)}
-      {builtins.length > 0 && ws.launches.length > 0 && (
-        <DropdownMenuSeparator className="mx-1.5 bg-border" />
-      )}
+      {builtins.length > 0 && ws.launches.length > 0 && <DropdownMenuSeparator className="mx-1.5 bg-border" />}
       {ws.launches.map(item)}
       {builtins.length === 0 && ws.launches.length === 0 && (
         <DropdownMenuItem disabled className={MENU_ITEM}>
@@ -287,12 +271,7 @@ export default function Sidebar({
         // prendere il focus sull'input.
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
-        <LaunchItems
-          ws={ws}
-          builtins={builtinLaunches}
-          globalLaunch={globalLaunch}
-          onSpawn={onSpawn}
-        />
+        <LaunchItems ws={ws} builtins={builtinLaunches} globalLaunch={globalLaunch} onSpawn={onSpawn} />
         <DropdownMenuSeparator className="mx-1.5 bg-border" />
         <DropdownMenuItem onSelect={() => manage(ws)} className={MENU_ITEM}>
           Gestisci avvii…
@@ -405,9 +384,7 @@ export default function Sidebar({
             )}
           />
         )}
-        <div
-          className={cn("flex flex-col gap-0.5 px-2.5", expanded ? "pb-1 pt-1.5" : "py-2")}
-        >
+        <div className={cn("flex flex-col gap-0.5 px-2.5", expanded ? "pb-1 pt-1.5" : "py-2")}>
           <div className="flex min-h-6 items-center gap-2">
             <EnvChip ws={ws} />
             <span
@@ -476,10 +453,7 @@ export default function Sidebar({
               </>
             )}
           </div>
-          <p
-            className="truncate pl-9 font-mono text-[11px] text-muted-foreground"
-            title={wsPath(ws)}
-          >
+          <p className="truncate pl-9 font-mono text-[11px] text-muted-foreground" title={wsPath(ws)}>
             {wsPath(ws)}
           </p>
         </div>
@@ -504,17 +478,11 @@ export default function Sidebar({
         {archivingId === ws.id && (
           <div className="flex flex-col gap-1.5 px-2.5 pb-1.5 pt-1">
             <span className="text-xs">
-              Archiviare {ws.name}?
-              {list.length > 0 &&
-                ` Verranno chiusi i suoi ${list.length} terminali aperti e`}
+              Archiviare {ws.name}?{list.length > 0 && ` Verranno chiusi i suoi ${list.length} terminali aperti e`}
               {list.length > 0 ? " la" : " La"} coda resterà ferma finché non lo ripristini.
             </span>
             <div className="flex items-center gap-1.5">
-              <Button
-                size="sm"
-                disabled={busyId === ws.id}
-                onClick={() => void confirmArchive(ws.id)}
-              >
+              <Button size="sm" disabled={busyId === ws.id} onClick={() => void confirmArchive(ws.id)}>
                 Sì
               </Button>
               <Button size="sm" variant="secondary" onClick={() => setArchivingId(null)}>
@@ -610,17 +578,8 @@ export default function Sidebar({
                     <ChevronDown className="h-3 w-3" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  className={MENU_CONTENT}
-                  onCloseAutoFocus={(e) => e.preventDefault()}
-                >
-                  <LaunchItems
-          ws={ws}
-          builtins={builtinLaunches}
-          globalLaunch={globalLaunch}
-          onSpawn={onSpawn}
-        />
+                <DropdownMenuContent align="end" className={MENU_CONTENT} onCloseAutoFocus={(e) => e.preventDefault()}>
+                  <LaunchItems ws={ws} builtins={builtinLaunches} globalLaunch={globalLaunch} onSpawn={onSpawn} />
                   <DropdownMenuSeparator className="mx-1.5 bg-border" />
                   <DropdownMenuItem onSelect={() => manage(ws)} className={MENU_ITEM}>
                     Gestisci avvii…
@@ -637,9 +596,7 @@ export default function Sidebar({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex items-center justify-between pb-2 pl-4 pr-3 pt-3.5">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
-          Workspace
-        </span>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">Workspace</span>
         <button
           type="button"
           onClick={onAdd}
@@ -651,9 +608,7 @@ export default function Sidebar({
         </button>
       </div>
 
-      {(error ?? notice) && (
-        <p className="px-4 pb-2 text-xs text-destructive">{error ?? notice}</p>
-      )}
+      {(error ?? notice) && <p className="px-4 pb-2 text-xs text-destructive">{error ?? notice}</p>}
 
       <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
         {workspaces.length === 0 && (

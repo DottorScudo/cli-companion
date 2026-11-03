@@ -182,8 +182,7 @@ export function dominantColor(img: PixelImage): string | null {
     const r = img.data[i + R];
     const g = img.data[i + G];
     const b = img.data[i + B];
-    const key =
-      (((r >> COLOR_SHIFT) << COLOR_BITS) | (g >> COLOR_SHIFT)) * (1 << COLOR_BITS) + (b >> COLOR_SHIFT);
+    const key = (((r >> COLOR_SHIFT) << COLOR_BITS) | (g >> COLOR_SHIFT)) * (1 << COLOR_BITS) + (b >> COLOR_SHIFT);
     const bucket = buckets.get(key);
     if (bucket) {
       bucket.n++;
@@ -229,7 +228,6 @@ export function pngSize(base64: string): Size | null {
   const bytes = Array.from(raw.slice(0, PNG_HEADER_BYTES), (c) => c.charCodeAt(0));
   const matches = (expected: number[], offset: number) => expected.every((v, i) => bytes[offset + i] === v);
   if (!matches(PNG_SIGNATURE, 0) || !matches(PNG_IHDR, PNG_IHDR_OFFSET)) return null;
-  const u32 = (o: number) =>
-    ((bytes[o] << 24) | (bytes[o + 1] << 16) | (bytes[o + 2] << 8) | bytes[o + 3]) >>> 0;
+  const u32 = (o: number) => ((bytes[o] << 24) | (bytes[o + 1] << 16) | (bytes[o + 2] << 8) | bytes[o + 3]) >>> 0;
   return { w: u32(PNG_WIDTH_OFFSET), h: u32(PNG_HEIGHT_OFFSET) };
 }

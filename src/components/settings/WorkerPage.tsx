@@ -19,8 +19,7 @@ import { Field, Section, SettingsPage, selectClass, useWorkspaceOp } from "./sha
 const rulesAreaClass =
   "w-full resize-y rounded-md border border-input bg-transparent px-2 py-1.5 font-mono text-[12px] outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50";
 
-const sameList = (a: readonly string[], b: readonly string[]) =>
-  a.length === b.length && a.every((x, i) => x === b[i]);
+const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 interface Props {
   workspace: Workspace;
@@ -79,11 +78,7 @@ export default function WorkerPage({ workspace, onWorkspaceUpdated }: Props) {
           <select
             value={permission}
             disabled={saving}
-            onChange={(e) =>
-              void run(() =>
-                api.setWorkerPermission(workspace.id, e.target.value as WorkerPermission),
-              )
-            }
+            onChange={(e) => void run(() => api.setWorkerPermission(workspace.id, e.target.value as WorkerPermission))}
             className={selectClass}
           >
             {WORKER_PERMISSIONS.map((m) => (
@@ -94,9 +89,8 @@ export default function WorkerPage({ workspace, onWorkspaceUpdated }: Props) {
           </select>
           {permission === "bypass" && (
             <p className="mt-1 text-[11px] text-destructive">
-              I worker eseguiranno qualsiasi comando senza conferma. Claude Code
-              mostra una conferma una tantum, a meno che in
-              ~/.claude/settings.json ci sia skipDangerousModePermissionPrompt: true.
+              I worker eseguiranno qualsiasi comando senza conferma. Claude Code mostra una conferma una tantum, a meno
+              che in ~/.claude/settings.json ci sia skipDangerousModePermissionPrompt: true.
             </p>
           )}
         </Field>
@@ -109,8 +103,8 @@ export default function WorkerPage({ workspace, onWorkspaceUpdated }: Props) {
         >
           {permission === "bypass" && (
             <p className="mb-2 text-[11px] text-muted-foreground">
-              Con i permessi a bypass i worker non chiedono mai conferma: i Consentiti non servono,
-              i Vietati restano in vigore.
+              Con i permessi a bypass i worker non chiedono mai conferma: i Consentiti non servono, i Vietati restano in
+              vigore.
             </p>
           )}
           <div className="grid gap-3 md:grid-cols-2">
@@ -125,9 +119,7 @@ export default function WorkerPage({ workspace, onWorkspaceUpdated }: Props) {
                 placeholder={"Bash(git:*)\nBash(npm run:*)\nBash(docker exec freud-manager:*)"}
                 className={rulesAreaClass}
               />
-              {allowParsed.error && (
-                <p className="mt-1 text-[11px] text-destructive">{allowParsed.error}</p>
-              )}
+              {allowParsed.error && <p className="mt-1 text-[11px] text-destructive">{allowParsed.error}</p>}
             </div>
             <div>
               <div className="mb-1 text-[11px] font-medium">Vietati</div>
@@ -139,25 +131,16 @@ export default function WorkerPage({ workspace, onWorkspaceUpdated }: Props) {
                 placeholder={"Bash(rm -rf:*)\nBash(git push:*)\nRead(./.env)"}
                 className={rulesAreaClass}
               />
-              {denyParsed.error && (
-                <p className="mt-1 text-[11px] text-destructive">{denyParsed.error}</p>
-              )}
+              {denyParsed.error && <p className="mt-1 text-[11px] text-destructive">{denyParsed.error}</p>}
             </div>
           </div>
           <div className="mt-2">
             <Button
               size="sm"
               variant="secondary"
-              disabled={
-                saving ||
-                allowParsed.error !== null ||
-                denyParsed.error !== null ||
-                !rulesChanged
-              }
+              disabled={saving || allowParsed.error !== null || denyParsed.error !== null || !rulesChanged}
               onClick={() =>
-                void run(() =>
-                  api.setWorkerPermissionRules(workspace.id, allowParsed.rules, denyParsed.rules),
-                )
+                void run(() => api.setWorkerPermissionRules(workspace.id, allowParsed.rules, denyParsed.rules))
               }
             >
               Salva
@@ -189,9 +172,7 @@ export default function WorkerPage({ workspace, onWorkspaceUpdated }: Props) {
                 modelError(workerModelDraft) !== null ||
                 sanitizeModel(workerModelDraft) === (workspace.worker_model ?? null)
               }
-              onClick={() =>
-                void run(() => api.setWorkerModel(workspace.id, sanitizeModel(workerModelDraft)))
-              }
+              onClick={() => void run(() => api.setWorkerModel(workspace.id, sanitizeModel(workerModelDraft)))}
             >
               Salva
             </Button>

@@ -101,7 +101,9 @@ function SettingsRowView({ row }: { row: SettingsRow }) {
         sensitive ? "border-status-attention/60 bg-status-attention/10" : "border-border bg-base/40"
       }`}
     >
-      {row.kind !== "remove" && <span className="break-words text-[11px] font-medium text-text-secondary">{row.label}</span>}
+      {row.kind !== "remove" && (
+        <span className="break-words text-[11px] font-medium text-text-secondary">{row.label}</span>
+      )}
       <RowBody row={row} />
       {row.sensitive && <SensitiveNote note={row.sensitive} />}
     </li>

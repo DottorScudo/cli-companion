@@ -98,12 +98,7 @@ export interface OfficeTabLike {
 }
 
 /** Sessione dell'ufficio di un tab, con la shell occupata e l'etichetta gia' calcolate. */
-export function officeSession(
-  tab: OfficeTabLike,
-  busy: boolean,
-  label: string,
-  botImage?: BotImage,
-): OfficeSession {
+export function officeSession(tab: OfficeTabLike, busy: boolean, label: string, botImage?: BotImage): OfficeSession {
   return {
     key: tab.key,
     bot: tab.bot,
@@ -180,10 +175,7 @@ function deskCountFor(bots: readonly OfficeRoomBot[]): number {
 }
 
 /** Sessioni con scrivania raggruppate per workspace, nell'ordine di comparsa. */
-function groupByWorkspace(
-  sessions: readonly OfficeSession[],
-  desks: DeskMap,
-): Map<string, OfficeRoomBot[]> {
+function groupByWorkspace(sessions: readonly OfficeSession[], desks: DeskMap): Map<string, OfficeRoomBot[]> {
   const groups = new Map<string, OfficeRoomBot[]>();
   for (const s of sessions) {
     const desk = desks.get(s.key);
@@ -295,11 +287,7 @@ interface Free {
   areas: ChatArea[];
 }
 
-function freeResources(
-  layout: RoomLayout,
-  idle: readonly string[],
-  kept: ReadonlyMap<string, IdleGoal>,
-): Free {
+function freeResources(layout: RoomLayout, idle: readonly string[], kept: ReadonlyMap<string, IdleGoal>): Free {
   const occupied = new Set<string>();
   for (const goal of kept.values()) {
     occupied.add(goal.spotId);
@@ -308,19 +296,12 @@ function freeResources(
   return {
     bots: idle.filter((key) => !kept.has(key)),
     spots: layout.spots.filter((s) => !occupied.has(s.id)),
-    areas: layout.chatAreas.filter(
-      (a) => !occupied.has(a.id) && !a.seats.some((s) => occupied.has(s.id)),
-    ),
+    areas: layout.chatAreas.filter((a) => !occupied.has(a.id) && !a.seats.some((s) => occupied.has(s.id))),
   };
 }
 
 /** Prova a formare una chiacchierata col bot (gia' tolto da `free.bots`); restituisce le mete dei membri. */
-function formChat(
-  bot: string,
-  free: Free,
-  now: number,
-  random: () => number,
-): Map<string, IdleGoal> | null {
+function formChat(bot: string, free: Free, now: number, random: () => number): Map<string, IdleGoal> | null {
   if (free.bots.length === 0 || free.areas.length === 0 || random() >= CHAT_CHANCE) return null;
   const size = free.bots.length >= PAIR && random() < TRIO_CHANCE ? TRIO : PAIR;
   const area = takeRandom(free.areas, random);
@@ -348,12 +329,7 @@ function pickSpot(free: Free, previous: string | undefined, random: () => number
 }
 
 /** Meta a uno spot singolo; lo toglie dagli spot liberi. */
-function soloGoal(
-  free: Free,
-  previous: IdleGoal | undefined,
-  now: number,
-  random: () => number,
-): IdleGoal | null {
+function soloGoal(free: Free, previous: IdleGoal | undefined, now: number, random: () => number): IdleGoal | null {
   const spot = pickSpot(free, previous?.spotId, random);
   if (!spot) return null;
   free.spots = free.spots.filter((s) => s.id !== spot.id);

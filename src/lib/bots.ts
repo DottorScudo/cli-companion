@@ -25,8 +25,7 @@ export function pickBotName(
 ): string {
   const used = new Set<string>();
   for (const name of taken) used.add(nameKey(name));
-  const pickFrom = (list: readonly string[]) =>
-    list[Math.min(list.length - 1, Math.floor(random() * list.length))];
+  const pickFrom = (list: readonly string[]) => list[Math.min(list.length - 1, Math.floor(random() * list.length))];
 
   const free = pool.filter((n) => !used.has(nameKey(n)));
   if (free.length > 0) return pickFrom(free);

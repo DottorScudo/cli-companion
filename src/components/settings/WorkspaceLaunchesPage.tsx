@@ -12,14 +12,7 @@ import {
   sanitizeLaunchCommand,
 } from "../../lib/launch";
 import { cn } from "../../lib/utils";
-import {
-  BuiltinBadge,
-  Field,
-  Section,
-  SettingsPage,
-  selectClass,
-  useWorkspaceOp,
-} from "./shared";
+import { BuiltinBadge, Field, Section, SettingsPage, selectClass, useWorkspaceOp } from "./shared";
 
 interface Props {
   workspace: Workspace;
@@ -29,12 +22,7 @@ interface Props {
 }
 
 /** Workspace › Avvii: avvio predefinito, avvii integrati e personalizzati. */
-export default function WorkspaceLaunchesPage({
-  workspace,
-  builtins,
-  globalLaunch,
-  onWorkspaceUpdated,
-}: Props) {
+export default function WorkspaceLaunchesPage({ workspace, builtins, globalLaunch, onWorkspaceUpdated }: Props) {
   const { run, saving, error, setError } = useWorkspaceOp(onWorkspaceUpdated);
 
   // Form di aggiunta.
@@ -49,17 +37,12 @@ export default function WorkspaceLaunchesPage({
 
   const own = workspace.default_launch ?? null;
   // Il valore del select: un id stantio equivale a "eredita".
-  const known = [
-    SHELL_LAUNCH_ID,
-    ...builtins.map((b) => b.id),
-    ...workspace.launches.map((l) => l.id),
-  ];
+  const known = [SHELL_LAUNCH_ID, ...builtins.map((b) => b.id), ...workspace.launches.map((l) => l.id)];
   const selectValue = own !== null && known.includes(own) ? own : "";
   const inherited = builtins.find((b) => b.id === globalLaunch);
   const effectiveId = resolveDefaultLaunch(workspace, builtins, globalLaunch)?.id;
 
-  const setDefault = (launchId: string | null) =>
-    void run(() => api.setDefaultLaunch(workspace.id, launchId));
+  const setDefault = (launchId: string | null) => void run(() => api.setDefaultLaunch(workspace.id, launchId));
 
   // Stella: se è già il predefinito del workspace torna a ereditare.
   const toggleDefault = (id: string) => setDefault(own === id ? null : id);
@@ -83,14 +66,11 @@ export default function WorkspaceLaunchesPage({
   };
 
   const saveEdit = async (l: Launch) => {
-    const saved = await run(() =>
-      api.updateLaunch(workspace.id, l.id, editName, sanitizeLaunchCommand(editCommand)),
-    );
+    const saved = await run(() => api.updateLaunch(workspace.id, l.id, editName, sanitizeLaunchCommand(editCommand)));
     if (saved) setEditingId(null);
   };
 
-  const canAdd =
-    !saving && newName.trim() !== "" && sanitizeLaunchCommand(newCommand) !== "";
+  const canAdd = !saving && newName.trim() !== "" && sanitizeLaunchCommand(newCommand) !== "";
 
   const starButton = (id: string) => {
     const on = own === id;
@@ -113,9 +93,7 @@ export default function WorkspaceLaunchesPage({
 
   const defaultTag = (id: string) =>
     effectiveId === id && (
-      <span className="text-[10px] font-normal text-primary">
-        predefinito{own === id ? "" : " (ereditato)"}
-      </span>
+      <span className="text-[10px] font-normal text-primary">predefinito{own === id ? "" : " (ereditato)"}</span>
     );
 
   return (
@@ -134,9 +112,7 @@ export default function WorkspaceLaunchesPage({
             onChange={(e) => setDefault(e.target.value === "" ? null : e.target.value)}
             className={selectClass}
           >
-            <option value="">
-              Eredita dalle impostazioni generali ({inherited?.name ?? "Shell vuota"})
-            </option>
+            <option value="">Eredita dalle impostazioni generali ({inherited?.name ?? "Shell vuota"})</option>
             <option value={SHELL_LAUNCH_ID}>Shell vuota</option>
             {builtins.map((b) => (
               <option key={b.id} value={b.id}>
@@ -156,20 +132,14 @@ export default function WorkspaceLaunchesPage({
         <p className="text-xs font-semibold">Avvii del workspace</p>
         <div className="flex flex-col gap-2">
           {builtins.map((b) => (
-            <div
-              key={b.id}
-              className="flex items-center gap-2 rounded-md border bg-background/40 p-2.5"
-            >
+            <div key={b.id} className="flex items-center gap-2 rounded-md border bg-background/40 p-2.5">
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-2 text-[13px] font-semibold">
                   <span className="truncate">{b.name}</span>
                   <BuiltinBadge />
                   {defaultTag(b.id)}
                 </p>
-                <code
-                  className="block truncate font-mono text-[11px] text-muted-foreground"
-                  title={b.command}
-                >
+                <code className="block truncate font-mono text-[11px] text-muted-foreground" title={b.command}>
                   {b.command}
                 </code>
               </div>
@@ -177,16 +147,11 @@ export default function WorkspaceLaunchesPage({
             </div>
           ))}
           {workspace.launches.length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              Nessun avvio personalizzato. Aggiungine uno qui sotto.
-            </p>
+            <p className="text-xs text-muted-foreground">Nessun avvio personalizzato. Aggiungine uno qui sotto.</p>
           )}
           {workspace.launches.map((l) =>
             editingId === l.id ? (
-              <div
-                key={l.id}
-                className="flex flex-col gap-2 rounded-md border bg-background/40 p-2.5"
-              >
+              <div key={l.id} className="flex flex-col gap-2 rounded-md border bg-background/40 p-2.5">
                 <Input
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
@@ -212,19 +177,13 @@ export default function WorkspaceLaunchesPage({
                 </div>
               </div>
             ) : (
-              <div
-                key={l.id}
-                className="flex items-center gap-2 rounded-md border bg-background/40 p-2.5"
-              >
+              <div key={l.id} className="flex items-center gap-2 rounded-md border bg-background/40 p-2.5">
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-2 text-[13px] font-semibold">
                     <span className="truncate">{l.name}</span>
                     {defaultTag(l.id)}
                   </p>
-                  <code
-                    className="block truncate font-mono text-[11px] text-muted-foreground"
-                    title={l.command}
-                  >
+                  <code className="block truncate font-mono text-[11px] text-muted-foreground" title={l.command}>
                     {l.command}
                   </code>
                 </div>

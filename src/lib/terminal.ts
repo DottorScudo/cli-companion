@@ -48,9 +48,7 @@ export function clipboardKeyAction(
 export const PASTE_FALLBACK_KEY = "\x16";
 
 /** Decisione presa dopo aver letto gli appunti per un'azione "incolla". */
-export type PasteResolution =
-  | { kind: "paste"; text: string }
-  | { kind: "forward-key"; key: string };
+export type PasteResolution = { kind: "paste"; text: string } | { kind: "forward-key"; key: string };
 
 /**
  * Decide cosa fare con il contenuto testuale degli appunti dopo un gesto
@@ -78,10 +76,7 @@ export interface BusyTracker {
  * Semaforo busy/idle con debounce: busy=true su output/enter, busy=false
  * dopo `idleMs` di silenzio. `onChange` è chiamata solo sul cambio di stato.
  */
-export function createBusyTracker(opts: {
-  idleMs: number;
-  onChange: (busy: boolean) => void;
-}): BusyTracker {
+export function createBusyTracker(opts: { idleMs: number; onChange: (busy: boolean) => void }): BusyTracker {
   const { idleMs, onChange } = opts;
   let busy = false;
   let timer: ReturnType<typeof setTimeout> | undefined;

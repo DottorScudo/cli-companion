@@ -30,9 +30,7 @@ export function dependencyLabels(
   tasks: Pick<Task, "id" | "title">[],
   specs: Pick<TaskSpec, "id" | "title">[] = [],
 ): string[] {
-  return (ids ?? []).map(
-    (id) => tasks.find((t) => t.id === id)?.title ?? specs.find((t) => t.id === id)?.title ?? id,
-  );
+  return (ids ?? []).map((id) => tasks.find((t) => t.id === id)?.title ?? specs.find((t) => t.id === id)?.title ?? id);
 }
 
 /** "Dipende da A, B" oppure null se non ha dipendenze. */
@@ -74,11 +72,7 @@ export function dropSlot(overIndex: number, after: boolean): number {
  * `undefined` = nessuno spostamento da fare (stessa posizione o id sconosciuto);
  * `null` = in fondo alla coda; altrimenti l'id dell'elemento davanti a cui inserire.
  */
-export function moveBeforeId(
-  queueIds: string[],
-  draggedId: string,
-  slot: number,
-): string | null | undefined {
+export function moveBeforeId(queueIds: string[], draggedId: string, slot: number): string | null | undefined {
   const from = queueIds.indexOf(draggedId);
   if (from < 0) return undefined;
   const s = Math.min(Math.max(slot, 0), queueIds.length);

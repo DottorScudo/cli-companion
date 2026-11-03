@@ -70,7 +70,10 @@ describe("usage: barra di stato", () => {
     const [g] = limitGroups([{ envKey: "windows", label: "WIN", reply: ok }], now);
     assert.equal(g.prefix, null);
     assert.equal(limitGroupText(g), "5h 45% · 14:20 │ sett. 2% · 28/10");
-    assert.deepEqual(g.items.map((i) => i.severity), ["normal", "normal"]);
+    assert.deepEqual(
+      g.items.map((i) => i.severity),
+      ["normal", "normal"],
+    );
   });
 
   it("prefisso solo con piu' ambienti visibili", () => {
@@ -83,7 +86,10 @@ describe("usage: barra di stato", () => {
       ],
       now,
     );
-    assert.deepEqual(two.map((g) => g.prefix), ["WIN", "Ubuntu"]);
+    assert.deepEqual(
+      two.map((g) => g.prefix),
+      ["WIN", "Ubuntu"],
+    );
     assert.ok(limitGroupText(two[1]).startsWith("Ubuntu 5h 45%"));
   });
 
@@ -107,7 +113,12 @@ describe("usage: barra di stato", () => {
 
 describe("usage: intestazione del pannello", () => {
   const u = {
-    main: totals({ input_tokens: 200, output_tokens: 45_000, cache_read_tokens: 1_000_000, cache_creation_tokens: 34_000 }),
+    main: totals({
+      input_tokens: 200,
+      output_tokens: 45_000,
+      cache_read_tokens: 1_000_000,
+      cache_creation_tokens: 34_000,
+    }),
     subagents: totals(),
     context_tokens: 82_000,
     model: "claude-opus",

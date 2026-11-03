@@ -33,7 +33,20 @@ describe("sessione: serializzazione e lettura", () => {
   });
 
   it("tollera garbage e versioni sconosciute", () => {
-    for (const raw of [null, undefined, "", "   ", "non json", "[]", "null", "42", '"x"', "{}", doc({ version: 2, tabs: [tab("a", "w")] }), JSON.stringify({ tabs: [tab("a", "w")] })]) {
+    for (const raw of [
+      null,
+      undefined,
+      "",
+      "   ",
+      "non json",
+      "[]",
+      "null",
+      "42",
+      '"x"',
+      "{}",
+      doc({ version: 2, tabs: [tab("a", "w")] }),
+      JSON.stringify({ tabs: [tab("a", "w")] }),
+    ]) {
       assert.equal(parseSession(raw, ["w"]), null, String(raw));
     }
     assert.equal(parseSession(doc({ tabs: "x", groups: 5 }), ["w"]), null);
@@ -47,10 +60,22 @@ describe("sessione: serializzazione e lettura", () => {
         { workspaceId: "gone", order: ["x"], activeTabId: "x" },
         { workspaceId: "w", order: ["a", "bad id", "a", "x"], activeTabId: "a" },
       ],
-      tabs: [tab("x", "gone"), tab("a", "w"), tab("bad id", "w"), tab("../e", "w"), tab("a", "w", { command: "dup" }), 7, null, "s"],
+      tabs: [
+        tab("x", "gone"),
+        tab("a", "w"),
+        tab("bad id", "w"),
+        tab("../e", "w"),
+        tab("a", "w", { command: "dup" }),
+        7,
+        null,
+        "s",
+      ],
     });
     const p = parseSession(raw, ["w"]);
-    assert.deepEqual(p.tabs.map((t) => t.tabId), ["a"]);
+    assert.deepEqual(
+      p.tabs.map((t) => t.tabId),
+      ["a"],
+    );
     assert.equal(p.tabs[0].command, "");
     assert.deepEqual(p.groups, [{ workspaceId: "w", order: ["a"], activeTabId: "a", maximizedTabId: null }]);
     assert.equal(p.activeWorkspaceId, "w");
@@ -76,12 +101,20 @@ describe("sessione: serializzazione e lettura", () => {
       tabs: [tab("a", "w1"), tab("b", "w2")],
     });
     const p = parseSession(raw, ["w1", "w2"]);
-    assert.deepEqual(p.groups.map((g) => [g.workspaceId, g.order]), [["w1", ["a"]], ["w2", ["b"]]]);
+    assert.deepEqual(
+      p.groups.map((g) => [g.workspaceId, g.order]),
+      [
+        ["w1", ["a"]],
+        ["w2", ["b"]],
+      ],
+    );
   });
 
   it("ignora un agentSessionId non sicuro e tronca i campi lunghi", () => {
     const p = parseSession(
-      doc({ tabs: [tab("a", "w", { agentSessionId: "x; rm -rf /", command: "c".repeat(5000), title: "t".repeat(500) })] }),
+      doc({
+        tabs: [tab("a", "w", { agentSessionId: "x; rm -rf /", command: "c".repeat(5000), title: "t".repeat(500) })],
+      }),
       ["w"],
     );
     assert.equal(p.tabs[0].agentSessionId, undefined);
@@ -97,7 +130,8 @@ describe("sessione: id sicuri", () => {
   });
   it("agent session id", () => {
     assert.ok(isSafeAgentSessionId("0b9e8c1a-1234-4abc-9def-0123456789ab"));
-    for (const bad of ["", "a b", "a;b", "$(x)", "a`b", "x".repeat(101), undefined]) assert.ok(!isSafeAgentSessionId(bad), String(bad));
+    for (const bad of ["", "a b", "a;b", "$(x)", "a`b", "x".repeat(101), undefined])
+      assert.ok(!isSafeAgentSessionId(bad), String(bad));
   });
 });
 
@@ -128,7 +162,7 @@ describe("restoreCommand", () => {
       ["claude --resume=old", "claude"],
       ["claude --resume --model opus", "claude --model opus"],
       ["claude --model opus -c", "claude --model opus"],
-      ["claude --append-system-prompt \"a b\" -r x", "claude --append-system-prompt \"a b\""],
+      ['claude --append-system-prompt "a b" -r x', 'claude --append-system-prompt "a b"'],
     ];
     for (const [command, base] of cases) {
       assert.equal(restoreCommand({ command, agentSessionId: SID }), `${base} --resume ${SID}`, command);
@@ -146,7 +180,10 @@ describe("restoreCommand", () => {
     assert.equal(restoreCommand({ command: "", agentSessionId: SID }), `claude --resume ${SID}`);
     assert.equal(restoreCommand({ command: "npm run dev", agentSessionId: SID }), `claude --resume ${SID}`);
     assert.equal(restoreCommand({ command: "claudette", agentSessionId: SID }), `claude --resume ${SID}`);
-    assert.equal(restoreCommand({ command: "x", agentId: "claude-code", agentSessionId: SID }), `claude --resume ${SID}`);
+    assert.equal(
+      restoreCommand({ command: "x", agentId: "claude-code", agentSessionId: SID }),
+      `claude --resume ${SID}`,
+    );
   });
 
   it("agentSessionId non sicuro: ignorato", () => {
@@ -209,16 +246,18 @@ describe("sessione: vista globale", () => {
   });
 
   it("tab di un workspace rimosso esce anche dalla vista globale", () => {
-    const p = parseSession(
-      doc({ tabs, activeView: "global", global: { order: ["c", "a"], activeTabId: "c" } }),
-      ["w1"],
-    );
+    const p = parseSession(doc({ tabs, activeView: "global", global: { order: ["c", "a"], activeTabId: "c" } }), [
+      "w1",
+    ]);
     assert.deepEqual(p.global.order, ["a"]);
     assert.equal(p.global.activeTabId, "a");
   });
 
   it("activeView global senza tab fissati: workspace; valori strani ignorati", () => {
-    assert.equal(parseSession(doc({ tabs, activeView: "global", global: { order: [] } }), ["w1", "w2"]).activeView, "workspace");
+    assert.equal(
+      parseSession(doc({ tabs, activeView: "global", global: { order: [] } }), ["w1", "w2"]).activeView,
+      "workspace",
+    );
     assert.equal(parseSession(doc({ tabs, activeView: "boh", global: "x" }), ["w1", "w2"]).activeView, "workspace");
     assert.equal(parseSession(doc({ tabs, global: [1] }), ["w1", "w2"]).global.order.length, 0);
   });

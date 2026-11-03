@@ -108,9 +108,8 @@ export default function AgentSettingsTab({ onEnvs, onShowUsage }: Props) {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-[11px] text-muted-foreground">
-        Il plugin è globale: avvisa cli-companion quando un agente avviato in un
-        suo terminale finisce o aspetta una risposta. Va installato in ogni
-        ambiente usato, quindi in ogni distro WSL in cui lanci l'agente.
+        Il plugin è globale: avvisa cli-companion quando un agente avviato in un suo terminale finisce o aspetta una
+        risposta. Va installato in ogni ambiente usato, quindi in ogni distro WSL in cui lanci l'agente.
       </p>
 
       {groupByAgent(envs).map((group) => (
@@ -121,10 +120,7 @@ export default function AgentSettingsTab({ onEnvs, onShowUsage }: Props) {
             const busy = busyKey === agentRowKey(env);
             const installLabel = agentInstallLabel(env);
             return (
-              <div
-                key={agentRowKey(env)}
-                className="flex items-center gap-2 rounded-lg border bg-card p-2.5"
-              >
+              <div key={agentRowKey(env)} className="flex items-center gap-2 rounded-lg border bg-card p-2.5">
                 <Badge variant="secondary" className="font-mono">
                   {agentEnvBadge(env)}
                 </Badge>
@@ -138,30 +134,14 @@ export default function AgentSettingsTab({ onEnvs, onShowUsage }: Props) {
                         : "bg-muted-foreground/40",
                   )}
                 />
-                <span className="min-w-0 flex-1 truncate text-xs">
-                  {agentEnvStateText(env)}
-                </span>
+                <span className="min-w-0 flex-1 truncate text-xs">{agentEnvStateText(env)}</span>
                 {installLabel && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => void run(env, "install")}
-                  >
-                    {busy ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      installLabel
-                    )}
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void run(env, "install")}>
+                    {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : installLabel}
                   </Button>
                 )}
                 {state === "installed" && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={busy}
-                    onClick={() => void run(env, "remove")}
-                  >
+                  <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(env, "remove")}>
                     Rimuovi
                   </Button>
                 )}
@@ -182,18 +162,12 @@ export default function AgentSettingsTab({ onEnvs, onShowUsage }: Props) {
           Mostra utilizzo (limiti 5h/settimanali e token per sessione)
         </label>
         <p className="mt-1 text-[11px] text-muted-foreground">
-          I limiti arrivano da un endpoint non documentato di Claude e potrebbero smettere di
-          funzionare.
+          I limiti arrivano da un endpoint non documentato di Claude e potrebbero smettere di funzionare.
         </p>
       </div>
 
       <div>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={testing}
-          onClick={() => void test()}
-        >
+        <Button size="sm" variant="outline" disabled={testing} onClick={() => void test()}>
           {testing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           Prova notifica
         </Button>
@@ -207,9 +181,7 @@ export default function AgentSettingsTab({ onEnvs, onShowUsage }: Props) {
           {log}
         </pre>
       )}
-      {error && (
-        <p className="whitespace-pre-wrap text-xs text-destructive">{error}</p>
-      )}
+      {error && <p className="whitespace-pre-wrap text-xs text-destructive">{error}</p>}
     </div>
   );
 }

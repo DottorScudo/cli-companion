@@ -17,7 +17,5 @@ export function sanitizeModel(raw: string): string | null {
 export function modelError(raw: string): string | null {
   const m = raw.trim();
   if (m === "") return null;
-  return MODEL_RE.test(m)
-    ? null
-    : `Il modello deve avere 1-${MODEL_MAX} caratteri tra lettere, cifre, '.', '_' e '-'`;
+  return MODEL_RE.test(m) ? null : `Il modello deve avere 1-${MODEL_MAX} caratteri tra lettere, cifre, '.', '_' e '-'`;
 }

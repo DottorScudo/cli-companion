@@ -38,8 +38,7 @@ export default function BotsPage({ settings, onSettingsChange }: Props) {
     }
   };
 
-  const setEnabled = (enabled: boolean) =>
-    save(() => api.setBotSettings(enabled, settings.names));
+  const setEnabled = (enabled: boolean) => save(() => api.setBotSettings(enabled, settings.names));
 
   const removeName = (name: string) =>
     save(() =>
@@ -61,9 +60,7 @@ export default function BotsPage({ settings, onSettingsChange }: Props) {
   const addName = async (e: FormEvent) => {
     e.preventDefault();
     if (newName.trim() === "") return;
-    const added = await save(() =>
-      api.setBotSettings(settings.enabled, [...settings.names, newName]),
-    );
+    const added = await save(() => api.setBotSettings(settings.enabled, [...settings.names, newName]));
     if (added) setNewName("");
   };
 
@@ -134,9 +131,7 @@ export default function BotsPage({ settings, onSettingsChange }: Props) {
         )}
 
         {settings.names.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            Nessun nome: le sessioni si chiameranno “Bot 1”, “Bot 2”...
-          </p>
+          <p className="text-xs text-muted-foreground">Nessun nome: le sessioni si chiameranno “Bot 1”, “Bot 2”...</p>
         ) : (
           <ul className="grid grid-cols-2 gap-1.5">
             {settings.names.map((name) => (
@@ -156,9 +151,7 @@ export default function BotsPage({ settings, onSettingsChange }: Props) {
         <div className="flex items-center gap-2">
           {confirmingReset ? (
             <>
-              <span className="text-[11px] text-muted-foreground">
-                Sostituire l’elenco con quello predefinito?
-              </span>
+              <span className="text-[11px] text-muted-foreground">Sostituire l’elenco con quello predefinito?</span>
               <Button size="sm" variant="destructive" disabled={saving} onClick={() => void resetNames()}>
                 Ripristina
               </Button>
@@ -167,12 +160,7 @@ export default function BotsPage({ settings, onSettingsChange }: Props) {
               </Button>
             </>
           ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={saving}
-              onClick={() => setConfirmingReset(true)}
-            >
+            <Button size="sm" variant="outline" disabled={saving} onClick={() => setConfirmingReset(true)}>
               Ripristina nomi predefiniti
             </Button>
           )}

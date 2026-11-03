@@ -7,11 +7,7 @@ import type { RefObject } from "react";
  * `enabled` falso (bot spenti) non registra niente. L'azione si legge da un
  * ref: il listener si registra una volta per cambio di `enabled`.
  */
-export function useOfficeShortcut(
-  enabled: boolean,
-  modalOpenRef: RefObject<boolean>,
-  toggle: () => void,
-): void {
+export function useOfficeShortcut(enabled: boolean, modalOpenRef: RefObject<boolean>, toggle: () => void): void {
   const toggleRef = useRef(toggle);
   toggleRef.current = toggle;
 

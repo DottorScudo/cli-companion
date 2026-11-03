@@ -25,12 +25,7 @@ export const SESSION_SAVE_MAX_MS = 2000;
  * `maxWaitMs` dalla prima modifica in sospeso (`pendingSince`). Cosi' i
  * cambi frequenti (titoli OSC) non rimandano il salvataggio all'infinito.
  */
-export function debounceDelay(
-  now: number,
-  pendingSince: number,
-  waitMs: number,
-  maxWaitMs: number,
-): number {
+export function debounceDelay(now: number, pendingSince: number, waitMs: number, maxWaitMs: number): number {
   return Math.max(0, Math.min(waitMs, pendingSince + maxWaitMs - now));
 }
 /** Tempo massimo di attesa dei salvataggi alla chiusura dell'app. */
@@ -91,8 +86,7 @@ export function serializeSession(data: Omit<SessionData, "version">): string {
   return JSON.stringify(full);
 }
 
-const isObj = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 const optStr = (v: unknown, max: number): string | undefined =>
   typeof v === "string" && v.trim() !== "" ? v.slice(0, max) : undefined;
@@ -126,10 +120,7 @@ function parseTab(raw: unknown, workspaceIds: Set<string>): SessionTab | null {
  * gruppi si ricostruiscono dai tab sopravvissuti (un tab fuori da ogni
  * `order` viene accodato al gruppo del suo workspace).
  */
-export function parseSession(
-  raw: string | null | undefined,
-  workspaceIds: Iterable<string>,
-): SessionData | null {
+export function parseSession(raw: string | null | undefined, workspaceIds: Iterable<string>): SessionData | null {
   if (typeof raw !== "string" || raw.trim() === "") return null;
   let doc: unknown;
   try {
@@ -168,14 +159,9 @@ export function parseSession(
     groups.push({
       workspaceId: g.workspaceId,
       order,
-      activeTabId:
-        typeof g.activeTabId === "string" && order.includes(g.activeTabId)
-          ? g.activeTabId
-          : order[0],
+      activeTabId: typeof g.activeTabId === "string" && order.includes(g.activeTabId) ? g.activeTabId : order[0],
       maximizedTabId:
-        typeof g.maximizedTabId === "string" && order.includes(g.maximizedTabId)
-          ? g.maximizedTabId
-          : null,
+        typeof g.maximizedTabId === "string" && order.includes(g.maximizedTabId) ? g.maximizedTabId : null,
     });
   }
   for (const tab of tabs) {
@@ -193,8 +179,7 @@ export function parseSession(
   }
 
   const active =
-    typeof doc.activeWorkspaceId === "string" &&
-    groups.some((g) => g.workspaceId === doc.activeWorkspaceId)
+    typeof doc.activeWorkspaceId === "string" && groups.some((g) => g.workspaceId === doc.activeWorkspaceId)
       ? doc.activeWorkspaceId
       : groups[0].workspaceId;
 
@@ -255,11 +240,7 @@ function stripResumeFlags(command: string): string {
  * Un agente diverso da Claude Code non viene mai ripreso con `claude`.
  * Il risultato non va passato da `sanitizeLaunchCommand` (1000 caratteri).
  */
-export function restoreCommand(tab: {
-  command: string;
-  agentId?: string;
-  agentSessionId?: string;
-}): string {
+export function restoreCommand(tab: { command: string; agentId?: string; agentSessionId?: string }): string {
   const original = (tab.command ?? "").trim();
   const sid = tab.agentSessionId;
   const claudeAgent = tab.agentId === undefined || tab.agentId === CLAUDE_AGENT_ID;

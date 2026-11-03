@@ -54,11 +54,7 @@ function Tab({
       type="button"
       onClick={onClick}
       title={global ? "Vista globale: terminali fissati di tutti i workspace" : tab.name}
-      aria-label={
-        global
-          ? `Vista globale: ${tab.count} terminali`
-          : `${tab.name}: ${tab.count} terminali`
-      }
+      aria-label={global ? `Vista globale: ${tab.count} terminali` : `${tab.name}: ${tab.count} terminali`}
       aria-current={active ? "page" : undefined}
       className={cn(
         "relative z-10 flex h-9 flex-shrink-0 cursor-pointer select-none items-center gap-2 rounded-t-lg border border-b-0 px-3 text-[13px] transition-colors",
@@ -73,14 +69,8 @@ function Tab({
       ) : (
         active && <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
       )}
-      <span className={cn("whitespace-nowrap", active && "font-medium")}>
-        {global ? "Globale" : tab.name}
-      </span>
-      <span
-        className={cn("font-mono text-[11px]", active ? "text-muted-foreground" : "text-faint")}
-      >
-        {tab.count}
-      </span>
+      <span className={cn("whitespace-nowrap", active && "font-medium")}>{global ? "Globale" : tab.name}</span>
+      <span className={cn("font-mono text-[11px]", active ? "text-muted-foreground" : "text-faint")}>{tab.count}</span>
       {tab.status && <StatusIcon status={tab.status} />}
     </button>
   );
@@ -134,21 +124,13 @@ export default function TitleBar({
   }, []);
 
   return (
-    <div
-      data-tauri-drag-region
-      className="relative flex h-11 flex-shrink-0 select-none items-stretch bg-base"
-    >
+    <div data-tauri-drag-region className="relative flex h-11 flex-shrink-0 select-none items-stretch bg-base">
       {/* Linea di base: i tab attivi la coprono per fondersi col contenuto. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border" />
 
-      <div
-        data-tauri-drag-region
-        className="flex w-[260px] flex-shrink-0 items-center gap-2.5 border-r px-4"
-      >
+      <div data-tauri-drag-region className="flex w-[260px] flex-shrink-0 items-center gap-2.5 border-r px-4">
         <Logo size={20} className="pointer-events-none" />
-        <span className="pointer-events-none text-[13px] font-semibold tracking-tight">
-          cli-companion
-        </span>
+        <span className="pointer-events-none text-[13px] font-semibold tracking-tight">cli-companion</span>
       </div>
 
       <div
@@ -158,9 +140,7 @@ export default function TitleBar({
         }}
         className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {globalTab && (
-          <Tab tab={globalTab} global active={globalActive} onClick={onSelectGlobal} />
-        )}
+        {globalTab && <Tab tab={globalTab} global active={globalActive} onClick={onSelectGlobal} />}
         {groups.map((g) => (
           <Tab
             key={g.id}

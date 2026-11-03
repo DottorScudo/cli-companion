@@ -85,8 +85,7 @@ export default function TaskDetail({
   }, [editing, task]);
 
   const session = task.session ?? "";
-  const tabAvailable =
-    canOpenTerminal(task) && (task.status === "running" || (isTabOpen ? isTabOpen(session) : true));
+  const tabAvailable = canOpenTerminal(task) && (task.status === "running" || (isTabOpen ? isTabOpen(session) : true));
 
   const act = (action: TaskAction) => void run(() => api.taskAction(workspaceId, task.id, action));
 

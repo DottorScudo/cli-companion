@@ -37,7 +37,17 @@ export function textToLines(text: string): string[] {
 }
 
 export function emptyDraft(): RepoDraft {
-  return { base_branch: "", container_root: "", copy_ignored: "", setup: "", cleanup: "", remove_force: false, e2e_command: "", e2e_junit: "", e2e_timeout: "" };
+  return {
+    base_branch: "",
+    container_root: "",
+    copy_ignored: "",
+    setup: "",
+    cleanup: "",
+    remove_force: false,
+    e2e_command: "",
+    e2e_junit: "",
+    e2e_timeout: "",
+  };
 }
 
 export function draftFromConfig(cfg: RepoConfig | null | undefined): RepoDraft {
@@ -120,7 +130,7 @@ function e2eFromDraft(d: RepoDraft): { e2e: E2eConfig | null } | { error: string
 export function configFromDraft(d: RepoDraft): { config: RepoConfig; error: null } | { config: null; error: string } {
   const base = d.base_branch.trim();
   if (base && !validBranch(base)) {
-    return { config: null, error: "Branch base non valido (lettere, cifre, . _ - /; niente spazi né \"..\")." };
+    return { config: null, error: 'Branch base non valido (lettere, cifre, . _ - /; niente spazi né "..").' };
   }
   const container = d.container_root.trim();
   const copy: string[] = [];

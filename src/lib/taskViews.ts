@@ -248,11 +248,7 @@ export function readPrefs(storage: StorageLike | null | undefined, workspaceId: 
 }
 
 /** Salva le preferenze del workspace; gli errori di storage sono ignorati. */
-export function writePrefs(
-  storage: StorageLike | null | undefined,
-  workspaceId: string,
-  prefs: WorkspacePrefs,
-): void {
+export function writePrefs(storage: StorageLike | null | undefined, workspaceId: string, prefs: WorkspacePrefs): void {
   try {
     storage?.setItem(MANAGER_PREFS_KEY, JSON.stringify({ ...readAll(storage), [workspaceId]: prefs }));
   } catch {

@@ -21,15 +21,33 @@ const POOL = ["Bolt", "Pixel", "Gizmo"];
 
 describe("pickBotName", () => {
   it("sceglie dalla pool in base al generatore casuale", () => {
-    assert.equal(pickBotName(POOL, [], () => 0), "Bolt");
-    assert.equal(pickBotName(POOL, [], () => 0.5), "Pixel");
-    assert.equal(pickBotName(POOL, [], () => 0.99), "Gizmo");
-    assert.equal(pickBotName(POOL, [], () => 1), "Gizmo");
+    assert.equal(
+      pickBotName(POOL, [], () => 0),
+      "Bolt",
+    );
+    assert.equal(
+      pickBotName(POOL, [], () => 0.5),
+      "Pixel",
+    );
+    assert.equal(
+      pickBotName(POOL, [], () => 0.99),
+      "Gizmo",
+    );
+    assert.equal(
+      pickBotName(POOL, [], () => 1),
+      "Gizmo",
+    );
   });
 
   it("salta i nomi usati dai tab aperti, senza badare alle maiuscole", () => {
-    assert.equal(pickBotName(POOL, ["Bolt", "PIXEL"], () => 0), "Gizmo");
-    assert.equal(pickBotName(POOL, new Set(["bolt"]), () => 0), "Pixel");
+    assert.equal(
+      pickBotName(POOL, ["Bolt", "PIXEL"], () => 0),
+      "Gizmo",
+    );
+    assert.equal(
+      pickBotName(POOL, new Set(["bolt"]), () => 0),
+      "Pixel",
+    );
   });
 
   it("non ripete mai un nome finche la pool ne ha di liberi", () => {
@@ -39,9 +57,18 @@ describe("pickBotName", () => {
   });
 
   it("a pool esaurita aggiunge un suffisso numerico libero", () => {
-    assert.equal(pickBotName(POOL, POOL, () => 0), "Bolt 2");
-    assert.equal(pickBotName(POOL, [...POOL, "Bolt 2"], () => 0), "Bolt 3");
-    assert.equal(pickBotName(["Bolt"], ["bolt", "BOLT 2"], () => 0), "Bolt 3");
+    assert.equal(
+      pickBotName(POOL, POOL, () => 0),
+      "Bolt 2",
+    );
+    assert.equal(
+      pickBotName(POOL, [...POOL, "Bolt 2"], () => 0),
+      "Bolt 3",
+    );
+    assert.equal(
+      pickBotName(["Bolt"], ["bolt", "BOLT 2"], () => 0),
+      "Bolt 3",
+    );
   });
 
   it("a pool vuota usa Bot 1, Bot 2...", () => {
@@ -51,7 +78,10 @@ describe("pickBotName", () => {
   });
 
   it("un nome con suffisso non occupa il nome semplice", () => {
-    assert.equal(pickBotName(["Bolt"], ["Bolt 2"], () => 0), "Bolt");
+    assert.equal(
+      pickBotName(["Bolt"], ["Bolt 2"], () => 0),
+      "Bolt",
+    );
   });
 });
 
@@ -108,11 +138,7 @@ describe("assignRestoredNames", () => {
   });
 
   it("i tab senza nome (sessioni vecchie) ne ricevono uno, tutti distinti", () => {
-    const names = assignRestoredNames(
-      [{ tabId: "a" }, { tabId: "b", botName: "Bolt" }, { tabId: "c" }],
-      POOL,
-      () => 0,
-    );
+    const names = assignRestoredNames([{ tabId: "a" }, { tabId: "b", botName: "Bolt" }, { tabId: "c" }], POOL, () => 0);
     assert.equal(names.get("b"), "Bolt");
     assert.equal(new Set(names.values()).size, 3);
   });
@@ -140,10 +166,7 @@ describe("botLook", () => {
       assert.ok(Number.isInteger(look.head) && look.head >= 0 && look.head < HEAD_SHAPES, name);
       assert.ok(Number.isInteger(look.antenna) && look.antenna >= 0 && look.antenna < ANTENNAS, name);
       assert.ok(Number.isInteger(look.eyes) && look.eyes >= 0 && look.eyes < EYE_STYLES, name);
-      assert.ok(
-        Number.isInteger(look.accessory) && look.accessory >= 0 && look.accessory < ACCESSORIES,
-        name,
-      );
+      assert.ok(Number.isInteger(look.accessory) && look.accessory >= 0 && look.accessory < ACCESSORIES, name);
     }
   });
 

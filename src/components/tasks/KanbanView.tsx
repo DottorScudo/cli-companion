@@ -52,10 +52,7 @@ export default function KanbanView({
   onShowAllDone,
 }: Props) {
   const cols = useMemo(() => kanbanColumns(board.tasks, query, now), [board.tasks, query, now]);
-  const queueIds = useMemo(
-    () => board.tasks.filter((t) => t.status === "queued").map((t) => t.id),
-    [board.tasks],
-  );
+  const queueIds = useMemo(() => board.tasks.filter((t) => t.status === "queued").map((t) => t.id), [board.tasks]);
   const runningTotal = useMemo(() => board.tasks.filter((t) => t.status === "running").length, [board.tasks]);
   const hasDone = useMemo(() => board.tasks.some((t) => t.status === "done"), [board.tasks]);
 

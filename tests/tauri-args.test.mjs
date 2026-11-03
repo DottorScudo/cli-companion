@@ -8,21 +8,26 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const RS = path.join(root, "src-tauri", "src");
 
 // Tipi iniettati da Tauri (non arrivano dal JSON): esclusi dal confronto.
-const INJECTED = new Set([
-  "AppHandle",
-  "App",
-  "Window",
-  "WebviewWindow",
-  "Webview",
-  "State",
-  "EventId",
-]);
+const INJECTED = new Set(["AppHandle", "App", "Window", "WebviewWindow", "Webview", "State", "EventId"]);
 
 const toCamel = (s) => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
 function rustCommands() {
   const out = new Map();
-  for (const file of ["pty.rs", "workspaces.rs", "wsl.rs", "updater.rs", "agent_notify.rs", "toast.rs", "agents/mod.rs", "session.rs", "automation.rs", "automation/auto.rs", "launch_settings.rs", "bots.rs"]) {
+  for (const file of [
+    "pty.rs",
+    "workspaces.rs",
+    "wsl.rs",
+    "updater.rs",
+    "agent_notify.rs",
+    "toast.rs",
+    "agents/mod.rs",
+    "session.rs",
+    "automation.rs",
+    "automation/auto.rs",
+    "launch_settings.rs",
+    "bots.rs",
+  ]) {
     const src = readFileSync(path.join(RS, file), "utf8");
     const re = /#\[tauri::command\]\s*pub (?:async )?fn (\w+)\s*\(([^)]*)\)/g;
     for (const m of src.matchAll(re)) {

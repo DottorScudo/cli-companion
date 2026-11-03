@@ -5,12 +5,7 @@
 export type WorkerPermission = "plan" | "default" | "accept-edits" | "bypass";
 
 /** Dal piu' restrittivo al piu' permissivo. */
-export const WORKER_PERMISSIONS: readonly WorkerPermission[] = [
-  "plan",
-  "default",
-  "accept-edits",
-  "bypass",
-];
+export const WORKER_PERMISSIONS: readonly WorkerPermission[] = ["plan", "default", "accept-edits", "bypass"];
 
 export const DEFAULT_WORKER_PERMISSION: WorkerPermission = "accept-edits";
 

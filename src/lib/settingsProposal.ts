@@ -239,14 +239,20 @@ function workerRows(ctx: Ctx, patch: SettingsPatch, current: SettingsPatch): Set
   }
   if (patch.worker_model !== undefined) {
     const before = current.worker_model === undefined ? null : textOrEmpty(current.worker_model, MODEL_DEFAULT_TEXT);
-    rows.push(valueRow(ctx, "worker_model", LABEL.worker_model, before, textOrEmpty(patch.worker_model, MODEL_DEFAULT_TEXT)));
+    rows.push(
+      valueRow(ctx, "worker_model", LABEL.worker_model, before, textOrEmpty(patch.worker_model, MODEL_DEFAULT_TEXT)),
+    );
   }
   if (patch.worker_permission !== undefined) {
     const before = current.worker_permission === undefined ? null : permissionText(current.worker_permission);
-    rows.push(valueRow(ctx, "worker_permission", LABEL.worker_permission, before, permissionText(patch.worker_permission)));
+    rows.push(
+      valueRow(ctx, "worker_permission", LABEL.worker_permission, before, permissionText(patch.worker_permission)),
+    );
   }
-  if (patch.worker_allow) rows.push(listRow(ctx, "worker_allow", LABEL.worker_allow, current.worker_allow, patch.worker_allow));
-  if (patch.worker_deny) rows.push(listRow(ctx, "worker_deny", LABEL.worker_deny, current.worker_deny, patch.worker_deny));
+  if (patch.worker_allow)
+    rows.push(listRow(ctx, "worker_allow", LABEL.worker_allow, current.worker_allow, patch.worker_allow));
+  if (patch.worker_deny)
+    rows.push(listRow(ctx, "worker_deny", LABEL.worker_deny, current.worker_deny, patch.worker_deny));
   return rows;
 }
 
@@ -256,10 +262,20 @@ function deliveryRows(ctx: Ctx, patch: SettingsPatch, current: SettingsPatch): S
   const now = current.delivery ?? {};
   const rows: SettingsRow[] = [];
   if (next.mode !== undefined) {
-    rows.push(valueRow(ctx, "delivery.mode", LABEL.mode, now.mode ? deliveryLabel(now.mode) : null, deliveryLabel(next.mode)));
+    rows.push(
+      valueRow(ctx, "delivery.mode", LABEL.mode, now.mode ? deliveryLabel(now.mode) : null, deliveryLabel(next.mode)),
+    );
   }
   if (next.parallel !== undefined) {
-    rows.push(valueRow(ctx, "delivery.parallel", LABEL.parallel, now.parallel === undefined ? null : flagText(now.parallel), flagText(next.parallel)));
+    rows.push(
+      valueRow(
+        ctx,
+        "delivery.parallel",
+        LABEL.parallel,
+        now.parallel === undefined ? null : flagText(now.parallel),
+        flagText(next.parallel),
+      ),
+    );
   }
   if (next.merge_method !== undefined) {
     const before = now.merge_method ? mergeMethodLabel(now.merge_method) : null;
@@ -278,14 +294,21 @@ function launchRows(ctx: Ctx, patch: SettingsPatch, current: SettingsPatch): Set
   if (launches) rows.push(launches);
   if (patch.default_launch !== undefined) {
     const after = launchChoiceText(ctx, patch.default_launch) ?? LAUNCH_INHERIT_TEXT;
-    rows.push(valueRow(ctx, "default_launch", LABEL.default_launch, launchChoiceText(ctx, current.default_launch), after));
+    rows.push(
+      valueRow(ctx, "default_launch", LABEL.default_launch, launchChoiceText(ctx, current.default_launch), after),
+    );
   }
   return rows;
 }
 
 // ---------------------------------------------------------------- repository
 
-function repoRows(ctx: Ctx, key: string, patch: RepoPatch | null, current: RepoPatch | null | undefined): SettingsRow[] {
+function repoRows(
+  ctx: Ctx,
+  key: string,
+  patch: RepoPatch | null,
+  current: RepoPatch | null | undefined,
+): SettingsRow[] {
   const group = repoGroupTitle(key);
   const field = (name: string) => `repos[${key}].${name}`;
   if (patch === null) {
@@ -297,13 +320,32 @@ function repoRows(ctx: Ctx, key: string, patch: RepoPatch | null, current: RepoP
   const rows: SettingsRow[] = [];
   if (patch.base_branch !== undefined) {
     const before = known ? textOrEmpty(now.base_branch, BRANCH_DEFAULT_TEXT) : null;
-    rows.push(valueRow(ctx, field("base_branch"), LABEL.base_branch, before, textOrEmpty(patch.base_branch, BRANCH_DEFAULT_TEXT), group));
+    rows.push(
+      valueRow(
+        ctx,
+        field("base_branch"),
+        LABEL.base_branch,
+        before,
+        textOrEmpty(patch.base_branch, BRANCH_DEFAULT_TEXT),
+        group,
+      ),
+    );
   }
   if (patch.container_root !== undefined) {
     const before = known ? textOrEmpty(now.container_root, CONTAINER_ROOT_NONE_TEXT) : null;
-    rows.push(valueRow(ctx, field("container_root"), LABEL.container_root, before, textOrEmpty(patch.container_root, CONTAINER_ROOT_NONE_TEXT), group));
+    rows.push(
+      valueRow(
+        ctx,
+        field("container_root"),
+        LABEL.container_root,
+        before,
+        textOrEmpty(patch.container_root, CONTAINER_ROOT_NONE_TEXT),
+        group,
+      ),
+    );
   }
-  if (patch.copy_ignored) rows.push(listRow(ctx, field("copy_ignored"), LABEL.copy_ignored, now.copy_ignored, patch.copy_ignored, group));
+  if (patch.copy_ignored)
+    rows.push(listRow(ctx, field("copy_ignored"), LABEL.copy_ignored, now.copy_ignored, patch.copy_ignored, group));
   if (patch.setup) rows.push(listRow(ctx, field("setup"), LABEL.setup, now.setup, patch.setup, group));
   if (patch.cleanup) rows.push(listRow(ctx, field("cleanup"), LABEL.cleanup, now.cleanup, patch.cleanup, group));
   if (patch.remove_force !== undefined) {

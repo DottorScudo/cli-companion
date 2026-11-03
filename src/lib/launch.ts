@@ -90,9 +90,10 @@ export function resolveDefaultLaunch<T extends LaunchLike, B extends LaunchLike>
  * Comandi di un avvio: `command` è ciò che si salva nel tab (per gli
  * integrati il `restore_command`), `startCommand` ciò che si esegue ora.
  */
-export function launchCommands(
-  launch: (LaunchLike & { restore_command?: string }) | undefined,
-): { command: string; startCommand: string } {
+export function launchCommands(launch: (LaunchLike & { restore_command?: string }) | undefined): {
+  command: string;
+  startCommand: string;
+} {
   if (!launch) return { command: "", startCommand: "" };
   if (launch.restore_command !== undefined) {
     return { command: launch.restore_command, startCommand: launch.command };

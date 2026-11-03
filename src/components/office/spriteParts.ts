@@ -35,11 +35,7 @@ export type SpritePose = BotPose | "walking";
 const SEATED: ReadonlySet<SpritePose> = new Set<SpritePose>(["typing", "slumped", "sitting"]);
 export const isSeated = (pose: SpritePose): boolean => SEATED.has(pose);
 
-export const TORSO: readonly Part[] = [
-  p(4, 10, 8, 7, "body"),
-  p(6, 12, 4, 2, "light"),
-  p(4, 16, 8, 1, "dark"),
-];
+export const TORSO: readonly Part[] = [p(4, 10, 8, 7, "body"), p(6, 12, 4, 2, "light"), p(4, 16, 8, 1, "dark")];
 
 /** Gambe in piedi: sinistra e destra animate a parte (passo, battito del piede). */
 export const LEG_LEFT: readonly Part[] = [p(5, 17, 2, 5, "shade"), p(5, 22, 3, 2, "dark")];

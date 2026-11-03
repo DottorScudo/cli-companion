@@ -46,7 +46,10 @@ function ListRow({ task, subtitle, now, selected, showRepo, onSelect }: Props) {
         {status === "attention" ? (
           <TriangleAlert className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
         ) : (
-          <span className={cn("h-[7px] w-[7px] flex-shrink-0 rounded-full", statusDotClass(status))} aria-hidden="true" />
+          <span
+            className={cn("h-[7px] w-[7px] flex-shrink-0 rounded-full", statusDotClass(status))}
+            aria-hidden="true"
+          />
         )}
         <span className="truncate">{statusLabel(status)}</span>
       </span>

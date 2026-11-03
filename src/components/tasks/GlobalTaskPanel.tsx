@@ -3,12 +3,7 @@ import { AlertTriangle, ChevronsLeft, ListOrdered, Loader2, Sparkles, XCircle } 
 import type { BoardView } from "../../lib/board";
 import type { Workspace } from "../../lib/tauri";
 import type { BotImage } from "../../lib/bots";
-import {
-  activityGroups,
-  activityTotals,
-  groupSummary,
-  proposalsText,
-} from "../../lib/taskPanel";
+import { activityGroups, activityTotals, groupSummary, proposalsText } from "../../lib/taskPanel";
 import EnvChip from "../EnvChip";
 import PanelHeaderButton from "./PanelHeaderButton";
 import PanelRail from "./PanelRail";
@@ -55,7 +50,13 @@ export default function GlobalTaskPanel({
 
   if (collapsed) {
     const items: PanelRailItem[] = [
-      { key: "proposals", icon: Sparkles, count: totals.proposals, label: "proposte in attesa", className: "text-primary" },
+      {
+        key: "proposals",
+        icon: Sparkles,
+        count: totals.proposals,
+        label: "proposte in attesa",
+        className: "text-primary",
+      },
       {
         key: "running",
         icon: Loader2,
@@ -70,7 +71,13 @@ export default function GlobalTaskPanel({
         label: "task richiedono attenzione",
         className: "text-status-attention",
       },
-      { key: "queued", icon: ListOrdered, count: totals.queued, label: "task in coda", className: "text-muted-foreground" },
+      {
+        key: "queued",
+        icon: ListOrdered,
+        count: totals.queued,
+        label: "task in coda",
+        className: "text-muted-foreground",
+      },
       { key: "failed", icon: XCircle, count: totals.failed, label: "task falliti", className: "text-destructive" },
     ];
     return (

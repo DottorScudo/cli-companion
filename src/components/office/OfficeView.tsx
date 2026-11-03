@@ -43,9 +43,7 @@ export default function OfficeView({ sessions, workspaceOrder, desks, onOpenBot,
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-5">
           <Logo size={40} />
           <span className="text-[13px] font-medium">L'ufficio è vuoto</span>
-          <span className="text-center text-xs text-muted-foreground">
-            Apri un terminale: il suo bot arriverà qui
-          </span>
+          <span className="text-center text-xs text-muted-foreground">Apri un terminale: il suo bot arriverà qui</span>
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -53,9 +51,7 @@ export default function OfficeView({ sessions, workspaceOrder, desks, onOpenBot,
             className="mx-auto grid items-start gap-4"
             style={{
               maxWidth: single ? SINGLE_ROOM_MAX_WIDTH : undefined,
-              gridTemplateColumns: single
-                ? undefined
-                : `repeat(auto-fit, minmax(min(100%, ${ROOM_MIN_WIDTH}px), 1fr))`,
+              gridTemplateColumns: single ? undefined : `repeat(auto-fit, minmax(min(100%, ${ROOM_MIN_WIDTH}px), 1fr))`,
             }}
           >
             {rooms.map((room) => (

@@ -121,15 +121,33 @@ describe("board: selettori", () => {
     ],
   };
   it("da fare e in corso nell'ordine dell'array", () => {
-    assert.deepEqual(queuedTasks(board).map((t) => t.id), ["q1", "q2"]);
-    assert.deepEqual(runningTasks(board).map((t) => t.id), ["r1", "r2"]);
-    assert.deepEqual(failedTasks(board).map((t) => t.id), ["f1"]);
+    assert.deepEqual(
+      queuedTasks(board).map((t) => t.id),
+      ["q1", "q2"],
+    );
+    assert.deepEqual(
+      runningTasks(board).map((t) => t.id),
+      ["r1", "r2"],
+    );
+    assert.deepEqual(
+      failedTasks(board).map((t) => t.id),
+      ["f1"],
+    );
   });
   it("fatti: ultimi 7 giorni, dal piu' recente; senza limite tutti", () => {
     assert.equal(DONE_RECENT_DAYS, 7);
-    assert.deepEqual(doneTasks(board, NOW).map((t) => t.id), ["d-new", "d-mid"]);
-    assert.deepEqual(doneTasks(board, NOW, null).map((t) => t.id), ["d-new", "d-mid", "d-old"]);
-    assert.deepEqual(doneTasks(board, NOW, 1).map((t) => t.id), ["d-new"]);
+    assert.deepEqual(
+      doneTasks(board, NOW).map((t) => t.id),
+      ["d-new", "d-mid"],
+    );
+    assert.deepEqual(
+      doneTasks(board, NOW, null).map((t) => t.id),
+      ["d-new", "d-mid", "d-old"],
+    );
+    assert.deepEqual(
+      doneTasks(board, NOW, 1).map((t) => t.id),
+      ["d-new"],
+    );
   });
   it("un fatto senza finished_at usa updated_at", () => {
     const b = { tasks: [task({ status: "done", finished_at: null, updated_at: NOW - DAY })] };
@@ -157,7 +175,10 @@ describe("board: selettori", () => {
     assert.deepEqual(progress([]), { done: 0, total: 0 });
   });
   it("dipendenze possibili: tutto tranne i fatti", () => {
-    assert.deepEqual(dependencyCandidates(board).map((t) => t.id), ["q1", "r1", "q2", "f1", "r2"]);
+    assert.deepEqual(
+      dependencyCandidates(board).map((t) => t.id),
+      ["q1", "r1", "q2", "f1", "r2"],
+    );
   });
   it("repository dei task (root come '.')", () => {
     assert.deepEqual(taskRepos([{ repo: null }, { repo: "api" }, {}, { repo: "api" }]), [".", "api"]);
@@ -169,8 +190,14 @@ describe("board: selettori", () => {
     assert.equal(clampMaxParallel(NaN), 1);
   });
   it("chiave degli id: indipendente da ordine e stato", () => {
-    const a = [{ id: "a", status: "queued" }, { id: "b", status: "queued" }];
-    const b = [{ id: "b", status: "done" }, { id: "a", status: "running" }];
+    const a = [
+      { id: "a", status: "queued" },
+      { id: "b", status: "queued" },
+    ];
+    const b = [
+      { id: "b", status: "done" },
+      { id: "a", status: "running" },
+    ];
     assert.equal(taskIdsKey(a), taskIdsKey(b));
     assert.notEqual(taskIdsKey(a), taskIdsKey([...a, { id: "c" }]));
     assert.equal(taskIdsKey([]), "");
@@ -232,10 +259,18 @@ describe("board: azioni", () => {
     assert.deepEqual(cascadeDelete("a", { tasks }), { dependents: ["b", "c", "d"], running: ["c", "d"] });
     assert.deepEqual(cascadeDelete("a", { tasks: [task({ id: "a" })] }).running, []);
     // depends_on assente (vista parziale): nessun dipendente
-    assert.deepEqual(cascadeDelete("a", { tasks: [{ id: "a", status: "queued" }, { id: "b", status: "queued" }] }), {
-      dependents: [],
-      running: [],
-    });
+    assert.deepEqual(
+      cascadeDelete("a", {
+        tasks: [
+          { id: "a", status: "queued" },
+          { id: "b", status: "queued" },
+        ],
+      }),
+      {
+        dependents: [],
+        running: [],
+      },
+    );
   });
   it("apri terminale solo con una sessione", () => {
     assert.equal(canOpenTerminal({ session: "t1" }), true);
@@ -329,13 +364,22 @@ describe("board: ricerca e filtri", () => {
     task({ id: "d", status: "done", title: "Alfa due", repo: "api" }),
   ];
   it("filtro per stato (selezione multipla), repo e testo", () => {
-    assert.deepEqual(filterTasks(tasks, EMPTY_FILTER).map((x) => x.id), ["a", "b", "c", "d"]);
+    assert.deepEqual(
+      filterTasks(tasks, EMPTY_FILTER).map((x) => x.id),
+      ["a", "b", "c", "d"],
+    );
     assert.deepEqual(
       filterTasks(tasks, { ...EMPTY_FILTER, statuses: ["queued", "failed"] }).map((x) => x.id),
       ["a", "c"],
     );
-    assert.deepEqual(filterTasks(tasks, { ...EMPTY_FILTER, repos: ["api"] }).map((x) => x.id), ["b", "d"]);
-    assert.deepEqual(filterTasks(tasks, { ...EMPTY_FILTER, repos: ["."] }).map((x) => x.id), ["a"]);
+    assert.deepEqual(
+      filterTasks(tasks, { ...EMPTY_FILTER, repos: ["api"] }).map((x) => x.id),
+      ["b", "d"],
+    );
+    assert.deepEqual(
+      filterTasks(tasks, { ...EMPTY_FILTER, repos: ["."] }).map((x) => x.id),
+      ["a"],
+    );
     assert.deepEqual(
       filterTasks(tasks, { query: "alfa", statuses: ["done"], repos: [] }).map((x) => x.id),
       ["d"],
@@ -351,8 +395,14 @@ describe("board: ricerca e filtri", () => {
   });
   it("ordine per aggiornamento: discendente di default, senza mutare l'input", () => {
     const x = [task({ id: "o", updated_at: 1 }), task({ id: "n", updated_at: 9 })];
-    assert.deepEqual(sortByUpdated(x).map((t2) => t2.id), ["n", "o"]);
-    assert.deepEqual(sortByUpdated(x, false).map((t2) => t2.id), ["o", "n"]);
+    assert.deepEqual(
+      sortByUpdated(x).map((t2) => t2.id),
+      ["n", "o"],
+    );
+    assert.deepEqual(
+      sortByUpdated(x, false).map((t2) => t2.id),
+      ["o", "n"],
+    );
     assert.equal(x[0].id, "o");
   });
 });
@@ -382,7 +432,10 @@ describe("board: consegna", () => {
   it("consegna effettiva: assente = solo commit seriale", () => {
     assert.deepEqual(effectiveDelivery({}), DEFAULT_DELIVERY);
     assert.deepEqual(effectiveDelivery({ delivery: null }), DEFAULT_DELIVERY);
-    assert.equal(effectiveDelivery({ delivery: { mode: "pr", parallel: true, merge_method: "rebase" } }).merge_method, "rebase");
+    assert.equal(
+      effectiveDelivery({ delivery: { mode: "pr", parallel: true, merge_method: "rebase" } }).merge_method,
+      "rebase",
+    );
     assert.equal(DEFAULT_DELIVERY.mode, "commit");
   });
 });

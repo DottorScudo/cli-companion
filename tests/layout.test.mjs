@@ -110,7 +110,10 @@ describe("gruppi", () => {
     let s = open(EMPTY_LAYOUT, "w1", "a");
     s = open(s, "w2", "b");
     s = open(s, "w1", "c");
-    assert.deepEqual(s.groups.map((g) => g.workspaceId), ["w1", "w2"]);
+    assert.deepEqual(
+      s.groups.map((g) => g.workspaceId),
+      ["w1", "w2"],
+    );
     assert.deepEqual(s.groups[0].order, ["a", "c"]);
     assert.equal(s.groups[0].activeTabId, "c");
     assert.equal(s.activeWorkspaceId, "w1");
@@ -130,7 +133,10 @@ describe("gruppi", () => {
     s = open(s, "w3", "c");
     s = selectGroup(s, "w2");
     s = closeTabIn(s, "b");
-    assert.deepEqual(s.groups.map((g) => g.workspaceId), ["w1", "w3"]);
+    assert.deepEqual(
+      s.groups.map((g) => g.workspaceId),
+      ["w1", "w3"],
+    );
     assert.equal(s.activeWorkspaceId, "w3");
     s = closeTabIn(s, "c");
     assert.equal(s.activeWorkspaceId, "w1");
@@ -210,7 +216,10 @@ describe("gruppi", () => {
 describe("indicatore di gruppo", () => {
   const dot = (tone) => ({ icon: "dot", tone });
   it("priorita': alert > check > busy > none", () => {
-    assert.equal(groupIndicator([dot("busy"), { icon: "check", tone: "done" }, { icon: "alert", tone: "attention" }]), "alert");
+    assert.equal(
+      groupIndicator([dot("busy"), { icon: "check", tone: "done" }, { icon: "alert", tone: "attention" }]),
+      "alert",
+    );
     assert.equal(groupIndicator([dot("busy"), { icon: "check", tone: "done" }]), "check");
     assert.equal(groupIndicator([dot("idle"), dot("busy")]), "busy");
     assert.equal(groupIndicator([dot("idle")]), "none");

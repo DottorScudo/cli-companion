@@ -21,7 +21,14 @@ export default function OpenE2eReportButton({ workspaceId, taskId, repo, disable
   };
   return (
     <div className="flex flex-col items-start gap-1">
-      <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={open} className="h-7 bg-transparent px-2.5 text-xs">
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={disabled}
+        onClick={open}
+        className="h-7 bg-transparent px-2.5 text-xs"
+      >
         <FileText className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
         Apri report
       </Button>

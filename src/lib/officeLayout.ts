@@ -177,9 +177,7 @@ const range = (n: number): number[] => Array.from({ length: n }, (_, i) => i);
 /** Aree chiacchiere: due fisse nella zona relax, una per ogni fila oltre la prima. */
 function chatAreas(rows: number): ChatArea[] {
   const lounge = LOUNGE_CHAT_CENTERS.map((cx, i) => chatArea(`chat-${i}`, cx, CHAT_ROW_SEATS_Y));
-  const aisles = range(rows - 1).map((k) =>
-    chatArea(`chat-${k + 2}`, DESK_CHAT_CENTER, rowTop(k + 1) - DESK_CHAT_DY),
-  );
+  const aisles = range(rows - 1).map((k) => chatArea(`chat-${k + 2}`, DESK_CHAT_CENTER, rowTop(k + 1) - DESK_CHAT_DY));
   return [...lounge, ...aisles];
 }
 
@@ -200,8 +198,5 @@ export function roomLayout(deskCount: number): RoomLayout {
 
 /** Spot o posto di una chiacchierata con quell'id, se esiste nella stanza. */
 export function findSpot(layout: RoomLayout, id: string): Spot | undefined {
-  return (
-    layout.spots.find((s) => s.id === id) ??
-    layout.chatAreas.flatMap((a) => a.seats).find((s) => s.id === id)
-  );
+  return layout.spots.find((s) => s.id === id) ?? layout.chatAreas.flatMap((a) => a.seats).find((s) => s.id === id);
 }

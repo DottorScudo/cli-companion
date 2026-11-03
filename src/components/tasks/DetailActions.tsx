@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { ArrowUpToLine, CheckCheck, ExternalLink, Pencil, RotateCw, SquareTerminal, Trash2, OctagonX } from "lucide-react";
-import { Button } from "../ui/button";
 import {
-  ACTION_LABELS,
-  canEditTask,
-  cascadeDelete,
-  prUrl,
-  queuedTasks,
-} from "../../lib/board";
+  ArrowUpToLine,
+  CheckCheck,
+  ExternalLink,
+  Pencil,
+  RotateCw,
+  SquareTerminal,
+  Trash2,
+  OctagonX,
+} from "lucide-react";
+import { Button } from "../ui/button";
+import { ACTION_LABELS, canEditTask, cascadeDelete, prUrl, queuedTasks } from "../../lib/board";
 import type { BoardView, Task, TaskAction } from "../../lib/board";
 
 interface Props {
@@ -61,7 +64,9 @@ export default function DetailActions({
 
   if (confirm) {
     const confirmText =
-      confirm === "delete_cascade" ? cascadeConfirmText(dependentTitles(cascade.dependents, board)) : CONFIRM_TEXT[confirm];
+      confirm === "delete_cascade"
+        ? cascadeConfirmText(dependentTitles(cascade.dependents, board))
+        : CONFIRM_TEXT[confirm];
     return (
       <div
         role="alertdialog"
@@ -111,7 +116,9 @@ export default function DetailActions({
       type="button"
       variant="outline"
       disabled={busy || deleteBlocked}
-      title={deleteBlocked ? `Prima ferma i task in esecuzione che ne dipendono: ${cascade.running.join(", ")}` : undefined}
+      title={
+        deleteBlocked ? `Prima ferma i task in esecuzione che ne dipendono: ${cascade.running.join(", ")}` : undefined
+      }
       onClick={() => setConfirm(hasDependents ? "delete_cascade" : "delete")}
       className={`${ghost} text-destructive hover:text-destructive`}
     >
@@ -140,13 +147,7 @@ export default function DetailActions({
       {task.status === "running" && (
         <>
           {terminal}
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy}
-            onClick={() => setConfirm("stop")}
-            className={ghost}
-          >
+          <Button type="button" variant="outline" disabled={busy} onClick={() => setConfirm("stop")} className={ghost}>
             <OctagonX /> {ACTION_LABELS.stop}
           </Button>
         </>
@@ -161,7 +162,13 @@ export default function DetailActions({
           <Button type="button" disabled={busy} onClick={() => onAction("retry")} className={btn}>
             <RotateCw /> {ACTION_LABELS.retry}
           </Button>
-          <Button type="button" variant="outline" disabled={busy} onClick={() => setConfirm("mark_done")} className={ghost}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy}
+            onClick={() => setConfirm("mark_done")}
+            className={ghost}
+          >
             <CheckCheck /> {ACTION_LABELS.mark_done}
           </Button>
           {edit}

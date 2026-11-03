@@ -137,9 +137,7 @@ interface Tab {
 function tabLabel(t: Tab, builtins: BuiltinLaunch[]): string {
   // Un worker mostra il titolo del task: il titolo OSC dell'agente cambia di continuo.
   if (t.automation?.title) return t.automation.title;
-  const launchName = t.launchId
-    ? allLaunches(t.workspace, builtins).find((l) => l.id === t.launchId)?.name
-    : undefined;
+  const launchName = t.launchId ? allLaunches(t.workspace, builtins).find((l) => l.id === t.launchId)?.name : undefined;
   return t.title ?? launchName ?? t.workspace.name;
 }
 
@@ -293,21 +291,19 @@ export default function App() {
         const byId = new Map(workspaces.map((w) => [w.id, w]));
         const botNames = assignRestoredNames(data.tabs, bots.names);
         setTabs(
-          data.tabs.map(
-            (t): Tab => ({
-              key: t.tabId,
-              workspace: byId.get(t.workspaceId)!,
-              launchId: t.launchId,
-              command: t.command,
-              startCommand: restoreCommand(t),
-              bot: botNames.get(t.tabId)!,
-              restored: true,
-              title: t.title,
-              agent: t.agentSessionId
-                ? { phase: "idle", agentSessionId: t.agentSessionId, agentId: t.agentId }
-                : undefined,
-            }),
-          ),
+          data.tabs.map((t): Tab => ({
+            key: t.tabId,
+            workspace: byId.get(t.workspaceId)!,
+            launchId: t.launchId,
+            command: t.command,
+            startCommand: restoreCommand(t),
+            bot: botNames.get(t.tabId)!,
+            restored: true,
+            title: t.title,
+            agent: t.agentSessionId
+              ? { phase: "idle", agentSessionId: t.agentSessionId, agentId: t.agentId }
+              : undefined,
+          })),
         );
         setLayout({
           groups: data.groups,
@@ -318,9 +314,7 @@ export default function App() {
       }
       // Via lo scrollback dei tab che non esistono più (solo se la lettura è riuscita).
       if (loaded) {
-        void api
-          .pruneScrollback(data ? data.tabs.map((t) => t.tabId) : [])
-          .catch(() => undefined);
+        void api.pruneScrollback(data ? data.tabs.map((t) => t.tabId) : []).catch(() => undefined);
       }
       setSaveEnabled(loaded);
       setSessionReady(true);
@@ -357,12 +351,7 @@ export default function App() {
     }
     const now = Date.now();
     if (pendingSinceRef.current === null) pendingSinceRef.current = now;
-    const delay = debounceDelay(
-      now,
-      pendingSinceRef.current,
-      SESSION_SAVE_MS,
-      SESSION_SAVE_MAX_MS,
-    );
+    const delay = debounceDelay(now, pendingSinceRef.current, SESSION_SAVE_MS, SESSION_SAVE_MAX_MS);
     const id = setTimeout(() => {
       pendingSinceRef.current = null;
       savedJsonRef.current = sessionJson;
@@ -375,13 +364,10 @@ export default function App() {
 
   // Salvataggi dello scrollback registrati dai TerminalView.
   const flushersRef = useRef(new Map<string, () => Promise<void>>());
-  const registerFlush = useCallback(
-    (tabId: string, flush: (() => Promise<void>) | null) => {
-      if (flush) flushersRef.current.set(tabId, flush);
-      else flushersRef.current.delete(tabId);
-    },
-    [],
-  );
+  const registerFlush = useCallback((tabId: string, flush: (() => Promise<void>) | null) => {
+    if (flush) flushersRef.current.set(tabId, flush);
+    else flushersRef.current.delete(tabId);
+  }, []);
 
   // Alla chiusura della finestra: salva sessione e scrollback, con un tetto di
   // tempo così la chiusura non resta mai appesa. Senza preventDefault Tauri
@@ -393,15 +379,10 @@ export default function App() {
   const flushBeforeExit = useCallback(async () => {
     closingRef.current = true;
     const work = Promise.all([
-      saveEnabledRef.current
-        ? api.saveSession(buildSessionRef.current(true))
-        : Promise.resolve(),
+      saveEnabledRef.current ? api.saveSession(buildSessionRef.current(true)) : Promise.resolve(),
       ...[...flushersRef.current.values()].map((f) => f()),
     ]).catch(() => undefined);
-    await Promise.race([
-      work,
-      new Promise((resolve) => setTimeout(resolve, CLOSE_FLUSH_TIMEOUT_MS)),
-    ]);
+    await Promise.race([work, new Promise((resolve) => setTimeout(resolve, CLOSE_FLUSH_TIMEOUT_MS))]);
   }, []);
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -425,8 +406,7 @@ export default function App() {
 
   // Workspace mostrato e modalità: il Tasks Manager copre l'area del pannello
   // Task e dei terminali di quel workspace (mai nella vista Globale).
-  const viewWorkspaceId =
-    focusedWorkspaceId ?? (layout.activeView === "global" ? null : layout.activeWorkspaceId);
+  const viewWorkspaceId = focusedWorkspaceId ?? (layout.activeView === "global" ? null : layout.activeWorkspaceId);
   const managerShown = viewWorkspaceId !== null && managerOpen[viewWorkspaceId] === true;
   // L'Ufficio e' globale (non per workspace) e vive solo con i bot attivi.
   const [officeOpen, setOfficeOpen] = useState(false);
@@ -582,11 +562,7 @@ export default function App() {
       }
       const tab = tabsRef.current.find((t) => t.key === ev.tab_id);
       if (!tab) return;
-      setTabs((prev) =>
-        prev.map((t) =>
-          t.key === tab.key ? { ...t, agent: applyAgentEvent(t.agent, ev) } : t,
-        ),
-      );
+      setTabs((prev) => prev.map((t) => (t.key === tab.key ? { ...t, agent: applyAgentEvent(t.agent, ev) } : t)));
       usageEventRef.current(tab.key, ev.event, ev.transcript_path, ev.agent);
       const sound = soundForEvent(ev.event);
       if (sound === "attention") playAttention();
@@ -641,25 +617,28 @@ export default function App() {
     [],
   );
 
-  const spawnTab = useCallback((ws: Workspace, launch?: Launch | BuiltinLaunch) => {
-    const chosen = launch ?? resolveDefaultLaunch(ws, builtinLaunches, globalLaunch);
-    const key = newTabKey();
-    // Per gli integrati si salva il comando di ripristino, si esegue quello di avvio.
-    const { command, startCommand } = launchCommands(chosen);
-    showTerminalsOf(ws.id);
-    const tab: Tab = {
-      key,
-      workspace: ws,
-      launchId: chosen?.id,
-      command,
-      startCommand,
-      bot: newBotName(),
-    };
-    // Aggiornamento sincrono del ref: due tab aperti di seguito non prendono lo stesso nome.
-    tabsRef.current = [...tabsRef.current, tab];
-    setTabs((prev) => [...prev, tab]);
-    setLayout((l) => openTab(l, ws.id, key));
-  }, [showTerminalsOf, builtinLaunches, globalLaunch, newBotName]);
+  const spawnTab = useCallback(
+    (ws: Workspace, launch?: Launch | BuiltinLaunch) => {
+      const chosen = launch ?? resolveDefaultLaunch(ws, builtinLaunches, globalLaunch);
+      const key = newTabKey();
+      // Per gli integrati si salva il comando di ripristino, si esegue quello di avvio.
+      const { command, startCommand } = launchCommands(chosen);
+      showTerminalsOf(ws.id);
+      const tab: Tab = {
+        key,
+        workspace: ws,
+        launchId: chosen?.id,
+        command,
+        startCommand,
+        bot: newBotName(),
+      };
+      // Aggiornamento sincrono del ref: due tab aperti di seguito non prendono lo stesso nome.
+      tabsRef.current = [...tabsRef.current, tab];
+      setTabs((prev) => [...prev, tab]);
+      setLayout((l) => openTab(l, ws.id, key));
+    },
+    [showTerminalsOf, builtinLaunches, globalLaunch, newBotName],
+  );
 
   // Avviso temporaneo nella sidebar.
   const showNotice = useCallback((text: string) => {
@@ -699,7 +678,10 @@ export default function App() {
 
   // Avvii integrati e avvio predefinito globale: una volta, errori silenziosi.
   useEffect(() => {
-    api.builtinLaunches().then(setBuiltinLaunches).catch(() => undefined);
+    api
+      .builtinLaunches()
+      .then(setBuiltinLaunches)
+      .catch(() => undefined);
     api
       .getLaunchSettings()
       .then((s) => {
@@ -849,9 +831,7 @@ export default function App() {
       onAutomationUpdate((ev) =>
         setTabs((prev) =>
           prev.map((t) =>
-            t.key === ev.tab_id && t.automation
-              ? { ...t, automation: applyAutomationUpdate(t.automation, ev) }
-              : t,
+            t.key === ev.tab_id && t.automation ? { ...t, automation: applyAutomationUpdate(t.automation, ev) } : t,
           ),
         ),
       ),
@@ -866,9 +846,7 @@ export default function App() {
         setTabs((prev) =>
           prev.map((t) => {
             const info = byKey.get(t.key);
-            return info && t.automation
-              ? { ...t, automation: applyAutomationUpdate(t.automation, info) }
-              : t;
+            return info && t.automation ? { ...t, automation: applyAutomationUpdate(t.automation, info) } : t;
           }),
         );
       })
@@ -916,14 +894,8 @@ export default function App() {
     setDrag({ from: id, over: null });
   }, []);
 
-  const handleActivate = useCallback(
-    (key: string) => setLayout((l) => setActivePane(l, key)),
-    [],
-  );
-  const handleToggleMaximize = useCallback(
-    (key: string) => setLayout((l) => toggleMaximize(l, key)),
-    [],
-  );
+  const handleActivate = useCallback((key: string) => setLayout((l) => setActivePane(l, key)), []);
+  const handleToggleMaximize = useCallback((key: string) => setLayout((l) => toggleMaximize(l, key)), []);
   const handleTogglePin = useCallback((key: string) => setLayout((l) => togglePin(l, key)), []);
   const handlePaneDragLeave = useCallback(
     (key: string) => setDrag((d) => (d.over === key ? { ...d, over: null } : d)),
@@ -938,10 +910,7 @@ export default function App() {
   const handlePaneDragOver = useCallback((id: string) => {
     const from = dragFromRef.current;
     const pl = paneLayoutsRef.current;
-    const ok =
-      from !== null &&
-      from !== id &&
-      pl[from]?.groupWorkspaceId === pl[id]?.groupWorkspaceId;
+    const ok = from !== null && from !== id && pl[from]?.groupWorkspaceId === pl[id]?.groupWorkspaceId;
     const over = ok ? id : null;
     setDrag((d) => (d.over === over ? d : { ...d, over }));
   }, []);
@@ -963,11 +932,7 @@ export default function App() {
   // modifica degli avvii) anche nei tab già aperti.
   const handleWorkspaceUpdated = useCallback((updated: Workspace) => {
     setWorkspaces((prev) => prev.map((w) => (w.id === updated.id ? updated : w)));
-    setTabs((prev) =>
-      prev.map((t) =>
-        t.workspace.id === updated.id ? { ...t, workspace: updated } : t,
-      ),
-    );
+    setTabs((prev) => prev.map((t) => (t.workspace.id === updated.id ? { ...t, workspace: updated } : t)));
   }, []);
 
   const handleRename = useCallback(
@@ -1011,9 +976,7 @@ export default function App() {
       }
       if (viewWorkspaceIdRef.current === id || layoutRef.current.activeWorkspaceId === id) {
         const others = workspacesRef.current.filter((w) => !w.archived && w.id !== id);
-        const next =
-          others.find((w) => layoutRef.current.groups.some((g) => g.workspaceId === w.id)) ??
-          others[0];
+        const next = others.find((w) => layoutRef.current.groups.some((g) => g.workspaceId === w.id)) ?? others[0];
         setFocusedWorkspaceId(null);
         if (next) handleSelectWorkspace(next.id);
       }
@@ -1049,8 +1012,7 @@ export default function App() {
       : null;
   const groupTabs: TitleTab[] = layout.groups.map((g) => ({
     id: g.workspaceId,
-    name:
-      tabs.find((t) => t.workspace.id === g.workspaceId)?.workspace.name ?? g.workspaceId,
+    name: tabs.find((t) => t.workspace.id === g.workspaceId)?.workspace.name ?? g.workspaceId,
     count: g.order.length,
     status: indicatorStatus(g.order),
   }));
@@ -1063,8 +1025,7 @@ export default function App() {
     const t = tabByKey.get(tabId);
     return t && shownBot(t);
   };
-  const shownBotImage = (t: Tab): BotImage | undefined =>
-    botSettings.enabled ? botImageFor(t.bot) : undefined;
+  const shownBotImage = (t: Tab): BotImage | undefined => (botSettings.enabled ? botImageFor(t.bot) : undefined);
   const botImageOfTab = (tabId: string): BotImage | undefined => {
     const t = tabByKey.get(tabId);
     return t && shownBotImage(t);
@@ -1100,9 +1061,7 @@ export default function App() {
   const officeSessions = useMemo(
     () =>
       officeShown
-        ? tabs.map((t) =>
-            officeSession(t, busyByKey[t.key] === true, tabLabel(t, builtinLaunches), botImageFor(t.bot)),
-          )
+        ? tabs.map((t) => officeSession(t, busyByKey[t.key] === true, tabLabel(t, builtinLaunches), botImageFor(t.bot)))
         : [],
     [officeShown, tabs, busyByKey, builtinLaunches, botImageFor],
   );
@@ -1191,9 +1150,7 @@ export default function App() {
               )}
             </Button>
             {botSettings.enabled && <OfficeButton shown={officeShown} onToggle={toggleOffice} />}
-            {appVersion && (
-              <span className="font-mono text-[11px] text-faint">v{appVersion}</span>
-            )}
+            {appVersion && <span className="font-mono text-[11px] text-faint">v{appVersion}</span>}
           </div>
         </aside>
 
@@ -1282,12 +1239,7 @@ export default function App() {
                     tabId={t.key}
                     workspace={t.workspace}
                     initialCommand={t.startCommand}
-                    imagePasteSeq={resolveInputOverride(
-                      agentProfiles,
-                      tabAgentId(t),
-                      t.workspace.kind,
-                      "image-paste",
-                    )}
+                    imagePasteSeq={resolveInputOverride(agentProfiles, tabAgentId(t), t.workspace.kind, "image-paste")}
                     restore={t.restored}
                     rect={pl?.rect ?? null}
                     active={pl?.visible ?? false}
@@ -1295,9 +1247,7 @@ export default function App() {
                     label={tabLabel(t, builtinLaunches)}
                     bot={shownBot(t)}
                     botImage={shownBotImage(t)}
-                    labelPrefix={
-                      pl?.groupWorkspaceId === GLOBAL_ID ? t.workspace.name : undefined
-                    }
+                    labelPrefix={pl?.groupWorkspaceId === GLOBAL_ID ? t.workspace.name : undefined}
                     status={statusOf(t)}
                     cwd={t.automation?.cwd}
                     launchId={t.launchId}
@@ -1381,16 +1331,8 @@ export default function App() {
         limits={limitEntries}
       />
 
-      <AddWorkspaceDialog
-        isOpen={dialogOpen}
-        onClose={() => setDialogOpen(false)}
-        onAdded={handleAdded}
-      />
-      <PluginUpdateDialog
-        outdated={outdatedPlugins}
-        onClose={closePluginUpdate}
-        onBeforeRestart={flushBeforeExit}
-      />
+      <AddWorkspaceDialog isOpen={dialogOpen} onClose={() => setDialogOpen(false)} onAdded={handleAdded} />
+      <PluginUpdateDialog outdated={outdatedPlugins} onClose={closePluginUpdate} onBeforeRestart={flushBeforeExit} />
       <SettingsDialog
         isOpen={settingsOpen}
         initialTab={settingsTab}

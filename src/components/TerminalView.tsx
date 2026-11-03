@@ -9,28 +9,14 @@ import { api } from "../lib/tauri";
 import { isTerminalReply } from "../lib/agents";
 import type { TabStatus } from "../lib/agents";
 import type { Rect } from "../lib/layout";
-import {
-  RESTORE_SEPARATOR,
-  SCROLLBACK_LINES,
-  SCROLLBACK_SAVE_MS,
-} from "../lib/session";
+import { RESTORE_SEPARATOR, SCROLLBACK_LINES, SCROLLBACK_SAVE_MS } from "../lib/session";
 import { cn } from "../lib/utils";
 import PaneHeader from "./PaneHeader";
 import type { PtyEvent, Workspace } from "../lib/tauri";
 import type { BotImage } from "../lib/bots";
-import {
-  clipboardKeyAction,
-  createBusyTracker,
-  resolvePasteAction,
-  sanitizeTerminalTitle,
-} from "../lib/terminal";
+import { clipboardKeyAction, createBusyTracker, resolvePasteAction, sanitizeTerminalTitle } from "../lib/terminal";
 import { TERMINAL_THEME } from "../lib/terminalTheme";
-import {
-  LAUNCH_AFTER_OUTPUT_MS,
-  LAUNCH_FALLBACK_MS,
-  buildLaunchInput,
-  shouldInjectLaunch,
-} from "../lib/launch";
+import { LAUNCH_AFTER_OUTPUT_MS, LAUNCH_FALLBACK_MS, buildLaunchInput, shouldInjectLaunch } from "../lib/launch";
 
 interface Props {
   /** Chiave del tab: diventa `CLI_COMPANION_SESSION` per gli hook degli agenti. */
@@ -258,9 +244,7 @@ function TerminalView({
       const s = sessionRef.current;
       if (s === 0 || !shouldInjectLaunch(wantedCommand)) return;
       injected = true;
-      void api
-        .ptyWrite(s, buildLaunchInput(wantedCommand))
-        .catch(() => undefined);
+      void api.ptyWrite(s, buildLaunchInput(wantedCommand)).catch(() => undefined);
       status.markEnter();
     };
 
@@ -317,10 +301,7 @@ function TerminalView({
           // l'agente del tab ha un tasto proprio (profilo di input, es.
           // Alt+V di Claude Code su Windows) si invia quello.
           const s = sessionRef.current;
-          if (s !== 0)
-            void api
-              .ptyWrite(s, imagePasteSeqRef.current ?? resolved.key)
-              .catch(() => undefined);
+          if (s !== 0) void api.ptyWrite(s, imagePasteSeqRef.current ?? resolved.key).catch(() => undefined);
         })();
         return false;
       }
@@ -381,25 +362,11 @@ function TerminalView({
               void flush();
             }, SCROLLBACK_SAVE_MS);
           }
-          if (
-            !injected &&
-            injectTimer === undefined &&
-            shouldInjectLaunch(wantedCommand)
-          ) {
-            injectTimer = setTimeout(
-              injectLaunch,
-              LAUNCH_AFTER_OUTPUT_MS,
-            );
+          if (!injected && injectTimer === undefined && shouldInjectLaunch(wantedCommand)) {
+            injectTimer = setTimeout(injectLaunch, LAUNCH_AFTER_OUTPUT_MS);
           }
         };
-        const id = await api.ptySpawn(
-          workspace.id,
-          tabId,
-          initialCols,
-          initialRows,
-          channel,
-          cwdRef.current,
-        );
+        const id = await api.ptySpawn(workspace.id, tabId, initialCols, initialRows, channel, cwdRef.current);
         if (disposed) {
           void api.ptyClose(id).catch(() => undefined);
           return;
@@ -412,10 +379,7 @@ function TerminalView({
         // Lo spawn e' avvenuto con la dimensione iniziale: e' gia' quella nota al pty.
         lastSizeRef.current = { session: id, cols: initialCols, rows: initialRows };
         if (shouldInjectLaunch(wantedCommand)) {
-          fallbackTimer = setTimeout(
-            injectLaunch,
-            LAUNCH_FALLBACK_MS,
-          );
+          fallbackTimer = setTimeout(injectLaunch, LAUNCH_FALLBACK_MS);
         }
         // Recupera eventuali resize avvenuti prima dello spawn (il
         // ResizeObserver li ignora finché la sessione è 0): riadatta xterm

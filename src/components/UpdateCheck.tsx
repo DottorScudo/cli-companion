@@ -7,14 +7,7 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
 
-type Phase =
-  | "idle"
-  | "checking"
-  | "available"
-  | "uptodate"
-  | "downloading"
-  | "installing"
-  | "error";
+type Phase = "idle" | "checking" | "available" | "uptodate" | "downloading" | "installing" | "error";
 
 function shortNotes(notes: string, max = 220): string {
   const oneLine = notes.replace(/\s+/g, " ").trim();
@@ -42,25 +35,30 @@ export default function UpdateCheck({ onAvailable }: Props) {
   const [percent, setPercent] = useState<number | null>(null);
 
   useEffect(() => {
-    getVersion().then(setVersion).catch(() => undefined);
+    getVersion()
+      .then(setVersion)
+      .catch(() => undefined);
   }, []);
 
-  const checkNow = useCallback(async (silent: boolean) => {
-    setError(null);
-    if (!silent) setPhase("checking");
-    try {
-      const found = await check();
-      setUpdate(found);
-      setPhase(found ? "available" : "uptodate");
-      onAvailable?.(found !== null);
-    } catch (e) {
-      // Controllo silenzioso: rete assente o nessuna release non fanno rumore.
-      if (!silent) {
-        setPhase("error");
-        setError(String(e));
+  const checkNow = useCallback(
+    async (silent: boolean) => {
+      setError(null);
+      if (!silent) setPhase("checking");
+      try {
+        const found = await check();
+        setUpdate(found);
+        setPhase(found ? "available" : "uptodate");
+        onAvailable?.(found !== null);
+      } catch (e) {
+        // Controllo silenzioso: rete assente o nessuna release non fanno rumore.
+        if (!silent) {
+          setPhase("error");
+          setError(String(e));
+        }
       }
-    }
-  }, [onAvailable]);
+    },
+    [onAvailable],
+  );
 
   // Controllo silenzioso all'avvio: mostra il badge solo se c'è un update.
   useEffect(() => {
@@ -96,19 +94,13 @@ export default function UpdateCheck({ onAvailable }: Props) {
     }
   };
 
-  const busy =
-    phase === "checking" || phase === "downloading" || phase === "installing";
+  const busy = phase === "checking" || phase === "downloading" || phase === "installing";
   const date = formatDate(update?.date);
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => void checkNow(false)}
-          disabled={busy}
-        >
+        <Button size="sm" variant="outline" onClick={() => void checkNow(false)} disabled={busy}>
           <RefreshCw className={cn("h-3.5 w-3.5", busy && "animate-spin")} />
           {phase === "checking"
             ? "Controllo…"
@@ -118,45 +110,27 @@ export default function UpdateCheck({ onAvailable }: Props) {
                 ? "Installazione…"
                 : "Controlla aggiornamenti"}
         </Button>
-        {version && (
-          <span className="text-[11px] text-muted-foreground">v{version}</span>
-        )}
-        {update && phase !== "uptodate" && (
-          <Badge>Nuova: {update.version}</Badge>
-        )}
+        {version && <span className="text-[11px] text-muted-foreground">v{version}</span>}
+        {update && phase !== "uptodate" && <Badge>Nuova: {update.version}</Badge>}
       </div>
 
-      {phase === "uptodate" && (
-        <p className="text-xs text-muted-foreground">
-          Aggiornato alla versione {version}.
-        </p>
-      )}
+      {phase === "uptodate" && <p className="text-xs text-muted-foreground">Aggiornato alla versione {version}.</p>}
 
       {update && (phase === "available" || busy) && (
         <div className="flex flex-col gap-2 rounded-lg border bg-card p-2.5">
           <p className="text-xs font-semibold">
             Versione {update.version} disponibile
-            {date && (
-              <span className="font-normal text-muted-foreground"> · {date}</span>
-            )}
+            {date && <span className="font-normal text-muted-foreground"> · {date}</span>}
           </p>
-          {update.body && (
-            <p className="text-[11px] text-muted-foreground">
-              {shortNotes(update.body)}
-            </p>
-          )}
+          {update.body && <p className="text-[11px] text-muted-foreground">{shortNotes(update.body)}</p>}
           <p className="text-[11px] text-muted-foreground">
-            L'app si chiuderà e si riaprirà da sola. I server MCP delle sessioni
-            agent aperte verranno riavviati.
+            L'app si chiuderà e si riaprirà da sola. I server MCP delle sessioni agent aperte verranno riavviati.
           </p>
           {(phase === "downloading" || phase === "installing") && (
             <div className="flex items-center gap-2">
               <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
-                  className={cn(
-                    "h-full bg-primary transition-[width]",
-                    percent === null && "w-1/3 animate-pulse",
-                  )}
+                  className={cn("h-full bg-primary transition-[width]", percent === null && "w-1/3 animate-pulse")}
                   style={percent === null ? undefined : { width: `${percent}%` }}
                 />
               </div>

@@ -67,15 +67,30 @@ describe("kanban", () => {
   ];
   it("colonne: coda in ordine, fatti degli ultimi 7 giorni dal più recente, falliti dal più recente", () => {
     const c = kanbanColumns(tasks, "", NOW);
-    assert.deepEqual(c.queued.map((t) => t.id), ["q1", "q2"]);
-    assert.deepEqual(c.running.map((t) => t.id), ["r1"]);
-    assert.deepEqual(c.done.map((t) => t.id), ["d-newer", "d-new"]);
+    assert.deepEqual(
+      c.queued.map((t) => t.id),
+      ["q1", "q2"],
+    );
+    assert.deepEqual(
+      c.running.map((t) => t.id),
+      ["r1"],
+    );
+    assert.deepEqual(
+      c.done.map((t) => t.id),
+      ["d-newer", "d-new"],
+    );
     assert.equal(c.doneOlder, 1);
-    assert.deepEqual(c.failed.map((t) => t.id), ["f2", "f1"]);
+    assert.deepEqual(
+      c.failed.map((t) => t.id),
+      ["f2", "f1"],
+    );
   });
   it("la ricerca filtra le card", () => {
     const c = kanbanColumns(tasks, "importa", NOW);
-    assert.deepEqual(c.queued.map((t) => t.id), ["q2"]);
+    assert.deepEqual(
+      c.queued.map((t) => t.id),
+      ["q2"],
+    );
     assert.equal(c.running.length, 0);
     assert.equal(c.doneOlder, 0);
   });
@@ -110,10 +125,10 @@ describe("kanban", () => {
       ["sonnet", "12m"],
     );
     assert.deepEqual(kanbanMeta(task("a", { status: "done", finished_at: NOW - 2 * 3_600_000 }), NOW), ["2 h fa"]);
-    assert.deepEqual(
-      kanbanMeta(task("a", { status: "failed", attempts: 1, updated_at: NOW - 5 * 60_000 }), NOW),
-      ["tentativo 1", "aggiornato 5 min fa"],
-    );
+    assert.deepEqual(kanbanMeta(task("a", { status: "failed", attempts: 1, updated_at: NOW - 5 * 60_000 }), NOW), [
+      "tentativo 1",
+      "aggiornato 5 min fa",
+    ]);
   });
 });
 
@@ -125,13 +140,28 @@ describe("lista", () => {
     task("d", { title: "Delta", updated_at: 5, status: "failed", started_at: 1000, finished_at: 31_000 }),
   ];
   it("ordinamento di default: aggiornati per primi", () => {
-    assert.deepEqual(sortTasks(tasks, DEFAULT_SORT, NOW).map((t) => t.id), ["b", "c", "a", "d"]);
-    assert.deepEqual(tasks.map((t) => t.id), ["a", "b", "c", "d"]);
+    assert.deepEqual(
+      sortTasks(tasks, DEFAULT_SORT, NOW).map((t) => t.id),
+      ["b", "c", "a", "d"],
+    );
+    assert.deepEqual(
+      tasks.map((t) => t.id),
+      ["a", "b", "c", "d"],
+    );
   });
   it("per titolo ignora le maiuscole; per durata i senza durata vanno sempre in fondo", () => {
-    assert.deepEqual(sortTasks(tasks, { key: "title", desc: false }, NOW).map((t) => t.id), ["b", "c", "d", "a"]);
-    assert.deepEqual(sortTasks(tasks, { key: "duration", desc: true }, NOW).map((t) => t.id), ["d", "b", "a", "c"]);
-    assert.deepEqual(sortTasks(tasks, { key: "duration", desc: false }, NOW).map((t) => t.id), ["a", "b", "d", "c"]);
+    assert.deepEqual(
+      sortTasks(tasks, { key: "title", desc: false }, NOW).map((t) => t.id),
+      ["b", "c", "d", "a"],
+    );
+    assert.deepEqual(
+      sortTasks(tasks, { key: "duration", desc: true }, NOW).map((t) => t.id),
+      ["d", "b", "a", "c"],
+    );
+    assert.deepEqual(
+      sortTasks(tasks, { key: "duration", desc: false }, NOW).map((t) => t.id),
+      ["a", "b", "d", "c"],
+    );
   });
   it("toggleSort", () => {
     assert.deepEqual(toggleSort(DEFAULT_SORT, "updated"), { key: "updated", desc: false });
@@ -145,7 +175,10 @@ describe("lista", () => {
   });
   it("righe: filtri e ordinamento", () => {
     const rows = listRows(tasks, { query: "", statuses: ["done", "failed"], repos: [] }, DEFAULT_SORT, NOW);
-    assert.deepEqual(rows.map((t) => t.id), ["a", "d"]);
+    assert.deepEqual(
+      rows.map((t) => t.id),
+      ["a", "d"],
+    );
   });
   it("sottotitolo per stato", () => {
     const all = [task("x"), task("y", { waiting_on: ["x"] }), task("z")];
@@ -157,7 +190,10 @@ describe("lista", () => {
       listSubtitle(task("d", { status: "done", report: { status: "completed", summary: "ok" } }), all, pos),
       "ok",
     );
-    assert.equal(listSubtitle(task("f", { status: "failed", note: "stopped by the user" }), all, pos), "stopped by the user");
+    assert.equal(
+      listSubtitle(task("f", { status: "failed", note: "stopped by the user" }), all, pos),
+      "stopped by the user",
+    );
   });
 });
 
@@ -215,7 +251,10 @@ describe("tastiera", () => {
 
 describe("form task", () => {
   it("validazione", () => {
-    assert.equal(hasErrors(validateTaskForm({ title: "x", task: "y", model: "", depends_on: [], kind: "work" })), false);
+    assert.equal(
+      hasErrors(validateTaskForm({ title: "x", task: "y", model: "", depends_on: [], kind: "work" })),
+      false,
+    );
     const e = validateTaskForm({ title: "  ", task: "", model: "no good!", depends_on: [], kind: "work" });
     assert.ok(e.title && e.task && e.model);
     assert.ok(validateTaskForm({ title: "x".repeat(81), task: "y", model: "", depends_on: [], kind: "work" }).title);
@@ -228,12 +267,24 @@ describe("form task", () => {
       task("d"),
       task("e", { status: "done" }),
     ];
-    assert.deepEqual(dependencyOptions(ts, null).map((t) => t.id), ["a", "b", "c", "d"]);
+    assert.deepEqual(
+      dependencyOptions(ts, null).map((t) => t.id),
+      ["a", "b", "c", "d"],
+    );
     // Per "a": b e c dipendono da lui (anche indirettamente).
-    assert.deepEqual(dependencyOptions(ts, "a").map((t) => t.id), ["d"]);
-    assert.deepEqual(dependencyOptions(ts, "c").map((t) => t.id), ["a", "b", "d"]);
+    assert.deepEqual(
+      dependencyOptions(ts, "a").map((t) => t.id),
+      ["d"],
+    );
+    assert.deepEqual(
+      dependencyOptions(ts, "c").map((t) => t.id),
+      ["a", "b", "d"],
+    );
     // Un Fatto già selezionato resta disponibile per essere tolto.
-    assert.deepEqual(dependencyOptions(ts, "d", ["e"]).map((t) => t.id), ["a", "b", "c", "e"]);
+    assert.deepEqual(
+      dependencyOptions(ts, "d", ["e"]).map((t) => t.id),
+      ["a", "b", "c", "e"],
+    );
   });
   it("repository", () => {
     assert.deepEqual(repoOptions([{ repo: "web" }, { repo: null }], ["api", "."]), [".", "api", "web"]);

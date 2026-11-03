@@ -5,14 +5,7 @@
 
 /** Stati di un worker (vedi `WorkerStatus` in automation/state.rs). */
 export type WorkerStatus =
-  | "starting"
-  | "running"
-  | "background"
-  | "needs_input"
-  | "idle"
-  | "completed"
-  | "failed"
-  | "closed";
+  "starting" | "running" | "background" | "needs_input" | "idle" | "completed" | "failed" | "closed";
 
 /** Metadati di un tab automatico (worker di un task). `status` e' una stringa: il backend puo' aggiungerne. */
 export interface AutomationMeta {
@@ -44,10 +37,7 @@ export function isIntakeLaunch(launchId: string | null | undefined): boolean {
  * Badge dell'intestazione di un tab: AUTO per i worker, INTAKE per i tab avviati
  * dal preset Task Intake, nessuno per gli altri.
  */
-export function tabBadge(tab: {
-  automation?: unknown;
-  launchId?: string;
-}): TabBadge | null {
+export function tabBadge(tab: { automation?: unknown; launchId?: string }): TabBadge | null {
   if (tab.automation) return { text: "AUTO", title: "Sessione automatica", kind: "auto" };
   if (isIntakeLaunch(tab.launchId)) {
     return { text: "INTAKE", title: "Task Intake: propone task per la coda", kind: "intake" };
@@ -119,10 +109,7 @@ export interface AutomationUpdateLike {
  * Applica un aggiornamento ai metadati. Il report assente non cancella
  * l'ultimo noto; un titolo vuoto lascia quello attuale.
  */
-export function applyAutomationUpdate(
-  meta: AutomationMeta,
-  u: AutomationUpdateLike,
-): AutomationMeta {
+export function applyAutomationUpdate(meta: AutomationMeta, u: AutomationUpdateLike): AutomationMeta {
   const title = u.title.trim() !== "" ? u.title : meta.title;
   const lastReport = u.last_report ? u.last_report : meta.lastReport;
   if (title === meta.title && lastReport === meta.lastReport && u.status === meta.status) {

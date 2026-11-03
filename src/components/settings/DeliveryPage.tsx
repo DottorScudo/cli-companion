@@ -26,9 +26,7 @@ export default function DeliveryPage({ workspace, onWorkspaceUpdated }: Props) {
 
   // Ogni cambio salva subito la consegna intera; il backend la normalizza.
   const save = (patch: Partial<Delivery>) =>
-    void run(() =>
-      api.setDelivery(workspace.id, normalizeDelivery({ ...delivery, ...patch })),
-    );
+    void run(() => api.setDelivery(workspace.id, normalizeDelivery({ ...delivery, ...patch })));
 
   return (
     <SettingsPage
@@ -105,19 +103,17 @@ export default function DeliveryPage({ workspace, onWorkspaceUpdated }: Props) {
       <Section>
         <p className="text-xs font-semibold">Prerequisiti</p>
         <ul className="flex list-disc flex-col gap-1 pl-4 text-[11px] text-muted-foreground">
-          <li
-            className={cn(delivery.mode === "pr" && "text-foreground")}
-          >
+          <li className={cn(delivery.mode === "pr" && "text-foreground")}>
             <span className="font-medium">Branch + PR + merge</span>: serve la CLI <code className="font-mono">gh</code>{" "}
             autenticata nell’ambiente del workspace (<code className="font-mono">gh auth status</code>).
           </li>
           <li className={cn(delivery.mode === "local_merge" && "text-foreground")}>
-            <span className="font-medium">Branch + merge locale</span>: il checkout del repository deve
-            stare sulla branch base finché la coda lavora, altrimenti il task fallisce all’avvio.
+            <span className="font-medium">Branch + merge locale</span>: il checkout del repository deve stare sulla
+            branch base finché la coda lavora, altrimenti il task fallisce all’avvio.
           </li>
           <li>
-            Le modalità con branch e il parallelo richiedono un repository git; la branch base si
-            sceglie per repository in Repository.
+            Le modalità con branch e il parallelo richiedono un repository git; la branch base si sceglie per repository
+            in Repository.
           </li>
         </ul>
       </Section>

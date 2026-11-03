@@ -38,13 +38,7 @@ export interface BotTrip {
  * transizione CSS su left/top: nessun timer, nessun frame. La camminata finisce
  * quando la transizione termina. Con il movimento ridotto il bot si teletrasporta.
  */
-export function useBotTrip(
-  x: number,
-  y: number,
-  facing: Facing,
-  speed: BotSpeed,
-  reduced: boolean,
-): BotTrip {
+export function useBotTrip(x: number, y: number, facing: Facing, speed: BotSpeed, reduced: boolean): BotTrip {
   const [trip, setTrip] = useState<Trip>({ x, y, walking: false, heading: facing, durationMs: 0 });
 
   // Meta cambiata: si ricalcola il tragitto durante il render (derivato dalle props).

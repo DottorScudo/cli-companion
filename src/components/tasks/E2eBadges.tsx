@@ -4,7 +4,8 @@ import { e2eBadge, specE2eBadge } from "../../lib/e2e";
 import type { E2eBadge } from "../../lib/e2e";
 import type { Task, TaskSpec } from "../../lib/board";
 
-const BADGE_BASE = "inline-flex flex-shrink-0 items-center gap-1 rounded border border-current/40 px-1.5 py-px font-medium";
+const BADGE_BASE =
+  "inline-flex flex-shrink-0 items-center gap-1 rounded border border-current/40 px-1.5 py-px font-medium";
 
 function Badge({ badge, className }: { badge: E2eBadge | null; className?: string }) {
   if (!badge) return null;

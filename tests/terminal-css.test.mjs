@@ -13,9 +13,7 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 describe("terminale: chrome scrollbar nativa", () => {
   it("index.css nasconde i pulsanti webkit dentro .terminal-pane", () => {
     const css = readFileSync(path.join(root, "src", "index.css"), "utf8");
-    const rule = css.match(
-      /\.terminal-pane\s*::-webkit-scrollbar-button\s*\{([^}]*)\}/,
-    );
+    const rule = css.match(/\.terminal-pane\s*::-webkit-scrollbar-button\s*\{([^}]*)\}/);
     assert.ok(rule, "regola .terminal-pane ::-webkit-scrollbar-button mancante");
     assert.match(rule[1], /display\s*:\s*none/, "il pulsante deve essere display:none");
   });

@@ -13,8 +13,7 @@ export type RoomGoals = ReadonlyMap<string, IdleGoals>;
 export const NO_GOALS: IdleGoals = new Map();
 const NO_ROOM_GOALS: RoomGoals = new Map();
 
-const idleKeys = (room: OfficeRoom): string[] =>
-  room.bots.filter((b) => b.activity === "idle").map((b) => b.key);
+const idleKeys = (room: OfficeRoom): string[] => room.bots.filter((b) => b.activity === "idle").map((b) => b.key);
 
 /** Una passata su tutte le stanze; stessa istanza di `prev` se nessuna stanza e' cambiata. */
 function planRooms(
@@ -48,11 +47,7 @@ function planRooms(
  * posti fissi, nessun timer. Le stanze e i layout piu' recenti si leggono da un
  * ref, cosi' l'intervallo non si ricrea a ogni render.
  */
-export function useIdleGoals(
-  rooms: readonly OfficeRoom[],
-  layoutFor: LayoutFor,
-  reduced: boolean,
-): RoomGoals {
+export function useIdleGoals(rooms: readonly OfficeRoom[], layoutFor: LayoutFor, reduced: boolean): RoomGoals {
   const [goals, setGoals] = useState<RoomGoals>(NO_ROOM_GOALS);
   const goalsRef = useRef(goals);
   goalsRef.current = goals;
@@ -64,13 +59,7 @@ export function useIdleGoals(
   useEffect(() => {
     if (reduced || !hasIdle) return;
     const tick = () => {
-      const next = planRooms(
-        goalsRef.current,
-        latest.current.rooms,
-        latest.current.layoutFor,
-        Date.now(),
-        Math.random,
-      );
+      const next = planRooms(goalsRef.current, latest.current.rooms, latest.current.layoutFor, Date.now(), Math.random);
       if (next !== goalsRef.current) setGoals(next);
     };
     tick();

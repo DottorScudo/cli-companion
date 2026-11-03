@@ -184,7 +184,9 @@ export default function TasksManager({
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
           {!board ? (
             <div className="flex h-full items-center justify-center p-6">
-              <p className="text-[13px] text-muted-foreground">{loadError ? "Coda non disponibile." : "Caricamento…"}</p>
+              <p className="text-[13px] text-muted-foreground">
+                {loadError ? "Coda non disponibile." : "Caricamento…"}
+              </p>
             </div>
           ) : prefs.view === "kanban" ? (
             <KanbanView

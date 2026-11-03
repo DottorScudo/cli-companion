@@ -147,8 +147,8 @@ const RepoCard = memo(function RepoCard({ workspaceId, repo, saved, missing, onW
             <div>
               <h4 className="text-[12px] font-semibold">Test E2E</h4>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                Facoltativi: senza comando nessun task viene verificato. L’app esegue il comando nella cartella del
-                task e legge il report JUnit. Il server di sviluppo del task deve ascoltare sulla porta in{" "}
+                Facoltativi: senza comando nessun task viene verificato. L’app esegue il comando nella cartella del task
+                e legge il report JUnit. Il server di sviluppo del task deve ascoltare sulla porta in{" "}
                 <span className="font-mono">CLI_COMPANION_E2E_PORT</span>. Il blocco vale solo per i task marcati E2E.
               </p>
             </div>
@@ -169,7 +169,10 @@ const RepoCard = memo(function RepoCard({ workspaceId, repo, saved, missing, onW
                   className="h-8 font-mono text-[12px]"
                 />
               </Field>
-              <Field label="Timeout (minuti)" help={`Da ${MIN_E2E_TIMEOUT_MIN} a ${MAX_E2E_TIMEOUT_MIN}; vuoto = ${DEFAULT_E2E_TIMEOUT_MIN}.`}>
+              <Field
+                label="Timeout (minuti)"
+                help={`Da ${MIN_E2E_TIMEOUT_MIN} a ${MAX_E2E_TIMEOUT_MIN}; vuoto = ${DEFAULT_E2E_TIMEOUT_MIN}.`}
+              >
                 <Input
                   type="number"
                   min={MIN_E2E_TIMEOUT_MIN}
@@ -183,9 +186,7 @@ const RepoCard = memo(function RepoCard({ workspaceId, repo, saved, missing, onW
             </div>
             {saved?.e2e && <RepoE2eRun workspaceId={workspaceId} repo={repo} />}
           </div>
-          {(validation ?? error) && (
-            <p className={cn("text-[11px] text-destructive")}>{validation ?? error}</p>
-          )}
+          {(validation ?? error) && <p className={cn("text-[11px] text-destructive")}>{validation ?? error}</p>}
           <div className="flex gap-2">
             <Button size="sm" variant="secondary" disabled={saving || unchanged} onClick={save}>
               Salva
@@ -250,15 +251,14 @@ export default function RepoPage({ workspace, onWorkspaceUpdated }: Props) {
             <span className="font-mono">cmd /C</span> su Windows. Variabili disponibili:{" "}
             <span className="font-mono">$REPO</span> (cartella del repository),{" "}
             <span className="font-mono">$WORKTREE</span>, <span className="font-mono">$CONTAINER_WORKTREE</span>{" "}
-            (percorso nel container, vuoto senza «Percorso nel container»),{" "}
-            <span className="font-mono">$TASK_ID</span>, <span className="font-mono">$BRANCH</span>,{" "}
-            <span className="font-mono">$BASE</span>. Su Windows si scrivono <span className="font-mono">%REPO%</span>{" "}
-            ecc.
+            (percorso nel container, vuoto senza «Percorso nel container»), <span className="font-mono">$TASK_ID</span>,{" "}
+            <span className="font-mono">$BRANCH</span>, <span className="font-mono">$BASE</span>. Su Windows si scrivono{" "}
+            <span className="font-mono">%REPO%</span> ecc.
           </p>
           <p className="mt-1">
-            Il setup parte solo sui worktree creati dall’app (consegna con worker in parallelo); un worktree riusato dopo un
-            retry non lo rifà, a meno che il setup precedente non fosse finito male. Ogni comando ha 10 minuti. La
-            branch base ha la precedenza su origin/HEAD (modalità PR) e sulla branch corrente del checkout.
+            Il setup parte solo sui worktree creati dall’app (consegna con worker in parallelo); un worktree riusato
+            dopo un retry non lo rifà, a meno che il setup precedente non fosse finito male. Ogni comando ha 10 minuti.
+            La branch base ha la precedenza su origin/HEAD (modalità PR) e sulla branch corrente del checkout.
           </p>
         </div>
       </Section>

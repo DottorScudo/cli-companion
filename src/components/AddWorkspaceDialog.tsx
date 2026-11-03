@@ -2,13 +2,7 @@ import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Loader2 } from "lucide-react";
 import { Button } from "./ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { api } from "../lib/tauri";
 import type { Workspace } from "../lib/tauri";
@@ -141,11 +135,7 @@ export default function AddWorkspaceDialog({ isOpen, onClose, onAdded }: Props) 
 
           <div>
             <p className="mb-1 text-xs font-semibold">Nome (opzionale)</p>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Default: nome cartella"
-            />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Default: nome cartella" />
           </div>
 
           {kind === "windows" ? (
@@ -172,9 +162,7 @@ export default function AddWorkspaceDialog({ isOpen, onClose, onAdded }: Props) 
                 ) : distroError ? (
                   <p className="text-xs text-destructive">{distroError}</p>
                 ) : distros.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    Nessuna distro trovata. Installa WSL2 e riprova.
-                  </p>
+                  <p className="text-xs text-muted-foreground">Nessuna distro trovata. Installa WSL2 e riprova.</p>
                 ) : (
                   <div className="flex flex-row flex-wrap gap-1.5">
                     {distros.map((d) => (
@@ -214,13 +202,9 @@ export default function AddWorkspaceDialog({ isOpen, onClose, onAdded }: Props) 
                     {checking ? "…" : "Verifica"}
                   </Button>
                 </div>
-                {checkOk === true && (
-                  <p className="mt-1 text-xs text-status-finished">Cartella trovata.</p>
-                )}
+                {checkOk === true && <p className="mt-1 text-xs text-status-finished">Cartella trovata.</p>}
                 {checkOk === false && (
-                  <p className="mt-1 text-xs text-destructive">
-                    Cartella non trovata nella distro.
-                  </p>
+                  <p className="mt-1 text-xs text-destructive">Cartella non trovata nella distro.</p>
                 )}
               </div>
             </div>

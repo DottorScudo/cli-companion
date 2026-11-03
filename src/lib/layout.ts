@@ -111,11 +111,7 @@ export function activePaneId(state: LayoutState): string | null {
   return state.groups.find((g) => g.workspaceId === state.activeWorkspaceId)?.activeTabId ?? null;
 }
 
-function mapGroup(
-  state: LayoutState,
-  workspaceId: string,
-  fn: (g: GroupState) => GroupState,
-): LayoutState {
+function mapGroup(state: LayoutState, workspaceId: string, fn: (g: GroupState) => GroupState): LayoutState {
   return {
     ...state,
     groups: state.groups.map((g) => (g.workspaceId === workspaceId ? fn(g) : g)),
@@ -140,10 +136,7 @@ export function openTab(state: LayoutState, workspaceId: string, tabId: string):
           ? { ...g, order: [...g.order, tabId], activeTabId: tabId, maximizedTabId: null }
           : g,
       )
-    : [
-        ...state.groups,
-        { workspaceId, order: [tabId], activeTabId: tabId, maximizedTabId: null },
-      ];
+    : [...state.groups, { workspaceId, order: [tabId], activeTabId: tabId, maximizedTabId: null }];
   return { ...state, groups, activeWorkspaceId: workspaceId, activeView: "workspace" };
 }
 
@@ -153,21 +146,12 @@ export function openTab(state: LayoutState, workspaceId: string, tabId: string):
  * maximize. Il gruppo, se manca, nasce in coda; diventa quello attivo solo se
  * non ce n'e' nessuno. Pannello gia' presente: stato invariato.
  */
-export function openTabBackground(
-  state: LayoutState,
-  workspaceId: string,
-  tabId: string,
-): LayoutState {
+export function openTabBackground(state: LayoutState, workspaceId: string, tabId: string): LayoutState {
   if (findGroupOfTab(state, tabId)) return state;
   const exists = state.groups.some((g) => g.workspaceId === workspaceId);
   const groups = exists
-    ? state.groups.map((g) =>
-        g.workspaceId === workspaceId ? { ...g, order: [...g.order, tabId] } : g,
-      )
-    : [
-        ...state.groups,
-        { workspaceId, order: [tabId], activeTabId: tabId, maximizedTabId: null },
-      ];
+    ? state.groups.map((g) => (g.workspaceId === workspaceId ? { ...g, order: [...g.order, tabId] } : g))
+    : [...state.groups, { workspaceId, order: [tabId], activeTabId: tabId, maximizedTabId: null }];
   return { ...state, groups, activeWorkspaceId: state.activeWorkspaceId ?? workspaceId };
 }
 
@@ -198,10 +182,7 @@ function closeInGroup(state: LayoutState, tabId: string): LayoutState {
     return { ...state, groups, activeWorkspaceId };
   }
 
-  const activeTabId =
-    group.activeTabId === tabId
-      ? order[Math.min(idx, order.length - 1)]
-      : group.activeTabId;
+  const activeTabId = group.activeTabId === tabId ? order[Math.min(idx, order.length - 1)] : group.activeTabId;
   const maximizedTabId = group.maximizedTabId === tabId ? null : group.maximizedTabId;
   return mapGroup(state, group.workspaceId, (g) => ({
     ...g,
@@ -334,8 +315,7 @@ export function unpinTab(state: LayoutState, tabId: string): LayoutState {
   const order = g.order.filter((id) => id !== tabId);
   const global: ViewState = {
     order,
-    activeTabId:
-      g.activeTabId === tabId ? (order[Math.min(idx, order.length - 1)] ?? null) : g.activeTabId,
+    activeTabId: g.activeTabId === tabId ? (order[Math.min(idx, order.length - 1)] ?? null) : g.activeTabId,
     maximizedTabId: g.maximizedTabId === tabId ? null : g.maximizedTabId,
   };
   return {
@@ -389,8 +369,7 @@ export function computePaneLayouts(state: LayoutState): Record<string, PaneLayou
   const out: Record<string, PaneLayout> = {};
   for (const g of state.groups) {
     const rects = paneRects(g);
-    const groupActive =
-      state.activeView === "workspace" && g.workspaceId === state.activeWorkspaceId;
+    const groupActive = state.activeView === "workspace" && g.workspaceId === state.activeWorkspaceId;
     for (const id of g.order) {
       const rect = rects[id] ?? null;
       const visible = groupActive && rect !== null;
@@ -430,9 +409,7 @@ export function computePaneLayouts(state: LayoutState): Record<string, PaneLayou
 /** Stato mostrato su un gruppo: ❗ > ✓ > in corso (pallino giallo) > nulla. */
 export type GroupIndicator = "alert" | "check" | "busy" | "none";
 
-export function groupIndicator(
-  statuses: Array<{ icon: "dot" | "check" | "alert"; tone: string }>,
-): GroupIndicator {
+export function groupIndicator(statuses: Array<{ icon: "dot" | "check" | "alert"; tone: string }>): GroupIndicator {
   if (statuses.some((s) => s.icon === "alert")) return "alert";
   if (statuses.some((s) => s.icon === "check")) return "check";
   if (statuses.some((s) => s.tone === "busy")) return "busy";

@@ -123,7 +123,13 @@ export default function TaskPanel({
 
   if (collapsed) {
     const items: PanelRailItem[] = [
-      { key: "proposals", icon: Sparkles, count: counts.proposals, label: "proposte in attesa", className: "text-primary" },
+      {
+        key: "proposals",
+        icon: Sparkles,
+        count: counts.proposals,
+        label: "proposte in attesa",
+        className: "text-primary",
+      },
       {
         key: "running",
         icon: Loader2,
@@ -138,7 +144,13 @@ export default function TaskPanel({
         label: "task richiedono attenzione",
         className: "text-status-attention",
       },
-      { key: "queued", icon: ListOrdered, count: counts.queued, label: "task in coda", className: "text-muted-foreground" },
+      {
+        key: "queued",
+        icon: ListOrdered,
+        count: counts.queued,
+        label: "task in coda",
+        className: "text-muted-foreground",
+      },
       { key: "failed", icon: XCircle, count: counts.failed, label: "task falliti", className: "text-destructive" },
     ];
     return (

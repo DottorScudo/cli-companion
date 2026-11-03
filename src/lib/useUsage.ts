@@ -67,30 +67,33 @@ export function useUsage(enabled: boolean, agentEnvs: AgentEnvStatus[], tabs: Us
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, envSig]);
 
-  const refreshSession = useCallback((key: string, transcriptOverride?: string | null, agentOverride?: string | null) => {
-    if (!enabledRef.current) return;
-    const tab = tabsRef.current.find((t) => t.key === key);
-    // Su session-start lo stato del tab non ha ancora id agente e transcript:
-    // arrivano dall'evento.
-    const agentId = agentOverride?.trim() || tab?.agent?.agentId;
-    const transcript = transcriptOverride?.trim() || tab?.agent?.transcriptPath;
-    if (!tab || !agentId || !transcript) return;
-    api
-      .agentSessionUsage(agentId, workspaceEnvKey(tab.workspace), transcript)
-      .then((u) => {
-        if (!enabledRef.current) return;
-        setSessions((p) => {
-          if (u === null) {
-            if (!(key in p)) return p;
-            const { [key]: _drop, ...rest } = p;
-            return rest;
-          }
-          if (key in p && sameJson(p[key], u)) return p;
-          return { ...p, [key]: u };
-        });
-      })
-      .catch(() => undefined);
-  }, []);
+  const refreshSession = useCallback(
+    (key: string, transcriptOverride?: string | null, agentOverride?: string | null) => {
+      if (!enabledRef.current) return;
+      const tab = tabsRef.current.find((t) => t.key === key);
+      // Su session-start lo stato del tab non ha ancora id agente e transcript:
+      // arrivano dall'evento.
+      const agentId = agentOverride?.trim() || tab?.agent?.agentId;
+      const transcript = transcriptOverride?.trim() || tab?.agent?.transcriptPath;
+      if (!tab || !agentId || !transcript) return;
+      api
+        .agentSessionUsage(agentId, workspaceEnvKey(tab.workspace), transcript)
+        .then((u) => {
+          if (!enabledRef.current) return;
+          setSessions((p) => {
+            if (u === null) {
+              if (!(key in p)) return p;
+              const { [key]: _drop, ...rest } = p;
+              return rest;
+            }
+            if (key in p && sameJson(p[key], u)) return p;
+            return { ...p, [key]: u };
+          });
+        })
+        .catch(() => undefined);
+    },
+    [],
+  );
 
   /** Da chiamare a ogni evento dell'agente di un tab. */
   const onAgentEvent = useCallback(

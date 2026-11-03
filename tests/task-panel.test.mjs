@@ -118,7 +118,10 @@ describe("vista Globale", () => {
   };
   it("include solo i workspace con attività", () => {
     const groups = activityGroups(ws, boards);
-    assert.deepEqual(groups.map((g) => g.workspace.id), ["w1", "w2"]);
+    assert.deepEqual(
+      groups.map((g) => g.workspace.id),
+      ["w1", "w2"],
+    );
     assert.equal(groups[0].running.length, 2);
     assert.equal(groups[0].queued.length, 2);
     assert.equal(groups[0].next.id, "q2");

@@ -28,18 +28,8 @@ export function SettingsPage({
 }
 
 /** Sezione a scheda di una pagina. */
-export function Section({
-  className,
-  children,
-}: {
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className={cn("flex flex-col gap-3 rounded-lg border bg-card p-3", className)}>
-      {children}
-    </section>
-  );
+export function Section({ className, children }: { className?: string; children: ReactNode }) {
+  return <section className={cn("flex flex-col gap-3 rounded-lg border bg-card p-3", className)}>{children}</section>;
 }
 
 /** Campo: etichetta, controllo, testo d'aiuto. */
@@ -69,11 +59,7 @@ export function Field({
 
 /** Etichetta "integrato" degli avvii predefiniti dell'app. */
 export function BuiltinBadge() {
-  return (
-    <span className="rounded border px-1 py-px text-[10px] font-normal text-muted-foreground">
-      integrato
-    </span>
-  );
+  return <span className="rounded border px-1 py-px text-[10px] font-normal text-muted-foreground">integrato</span>;
 }
 
 /**

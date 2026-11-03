@@ -28,7 +28,9 @@ export interface TaskFormValues {
 export type TaskFormErrors = Partial<Record<"title" | "task" | "model" | "depends_on", string>>;
 
 /** Errori di campo del form (vuoto = valido). */
-export function validateTaskForm(v: Pick<TaskFormValues, "title" | "task" | "model" | "depends_on" | "kind">): TaskFormErrors {
+export function validateTaskForm(
+  v: Pick<TaskFormValues, "title" | "task" | "model" | "depends_on" | "kind">,
+): TaskFormErrors {
   const errors: TaskFormErrors = {};
   const title = v.title.trim();
   if (title === "") errors.title = "Il titolo è obbligatorio";
@@ -62,7 +64,7 @@ export function dependencyOptions<T extends Pick<Task, "id" | "status" | "depend
   if (selfId !== null) {
     blocked.add(selfId);
     // Chiusura dei dipendenti di `selfId`.
-    for (let grew = true; grew; ) {
+    for (let grew = true; grew;) {
       grew = false;
       for (const t of tasks) {
         if (!blocked.has(t.id) && (t.depends_on ?? []).some((d) => blocked.has(d))) {

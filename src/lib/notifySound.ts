@@ -43,9 +43,7 @@ function playSequence(sequence: DingNote[]): void {
   try {
     if (typeof window === "undefined") return;
     const AC =
-      window.AudioContext ??
-      (window as unknown as { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
+      window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AC) return;
     if (!ctx) ctx = new AC();
     if (ctx.state === "suspended") void ctx.resume();

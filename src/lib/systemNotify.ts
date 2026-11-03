@@ -3,11 +3,7 @@
 
 import { api } from "./tauri";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import {
-  isPermissionGranted,
-  requestPermission,
-  sendNotification,
-} from "@tauri-apps/plugin-notification";
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 
 /** `true` se la finestra dell'app ha il focus (altrimenti: notifica di sistema). */
 async function appHasFocus(): Promise<boolean> {
@@ -37,11 +33,7 @@ export async function notifyPlainIfUnfocused(title: string, body: string): Promi
  * Mostra una notifica di sistema se la finestra non e' in primo piano.
  * Sicura da chiamare ovunque: permessi negati o plugin assente = nessun errore.
  */
-export async function notifyIfUnfocused(
-  tabId: string,
-  title: string,
-  body: string,
-): Promise<void> {
+export async function notifyIfUnfocused(tabId: string, title: string, body: string): Promise<void> {
   try {
     if (await appHasFocus()) return;
     try {

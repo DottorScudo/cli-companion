@@ -10,11 +10,7 @@ interface Props {
 }
 
 /** Generale › Avvii: avvio predefinito globale e avvii integrati. */
-export default function GeneralLaunchesPage({
-  builtins,
-  globalLaunch,
-  onGlobalLaunchChange,
-}: Props) {
+export default function GeneralLaunchesPage({ builtins, globalLaunch, onGlobalLaunchChange }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,10 +28,7 @@ export default function GeneralLaunchesPage({
   };
 
   return (
-    <SettingsPage
-      title="Avvii"
-      description="Cosa parte quando apri un nuovo terminale con “+ Terminale”."
-    >
+    <SettingsPage title="Avvii" description="Cosa parte quando apri un nuovo terminale con “+ Terminale”.">
       <Section>
         <Field
           label="Avvio predefinito per tutti i workspace"
@@ -62,23 +55,17 @@ export default function GeneralLaunchesPage({
         <div>
           <p className="text-xs font-semibold">Avvii integrati</p>
           <p className="mt-0.5 text-[11px] text-muted-foreground">
-            Compaiono nel menu degli avvii di ogni workspace, prima di quelli
-            personalizzati.
+            Compaiono nel menu degli avvii di ogni workspace, prima di quelli personalizzati.
           </p>
         </div>
-        {builtins.length === 0 && (
-          <p className="text-xs text-muted-foreground">Nessun avvio integrato.</p>
-        )}
+        {builtins.length === 0 && <p className="text-xs text-muted-foreground">Nessun avvio integrato.</p>}
         {builtins.map((b) => (
           <div key={b.id} className="min-w-0 rounded-md border bg-background/40 p-2.5">
             <p className="flex items-center gap-2 text-[13px] font-semibold">
               <span className="truncate">{b.name}</span>
               <BuiltinBadge />
             </p>
-            <code
-              className="block truncate font-mono text-[11px] text-muted-foreground"
-              title={b.command}
-            >
+            <code className="block truncate font-mono text-[11px] text-muted-foreground" title={b.command}>
               {b.command}
             </code>
           </div>

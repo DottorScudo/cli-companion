@@ -20,18 +20,11 @@ const SEVERITY_CLASS: Record<LimitItem["severity"], string> = {
 };
 
 /** Barra di stato (26px): conteggi a sinistra, limiti e plugin installati a destra. */
-export default function StatusBar({
-  terminalCount,
-  attentionCount,
-  agentsSummary,
-  limits = [],
-}: Props) {
+export default function StatusBar({ terminalCount, attentionCount, agentsSummary, limits = [] }: Props) {
   return (
     <div className="flex h-[26px] flex-shrink-0 items-center gap-4 border-t bg-base px-3 font-mono text-[11px] text-muted-foreground">
       <span>{terminalCountText(terminalCount)}</span>
-      {attentionCount > 0 && (
-        <span className="text-status-attention">{attentionCount} in attesa di risposta</span>
-      )}
+      {attentionCount > 0 && <span className="text-status-attention">{attentionCount} in attesa di risposta</span>}
       <span className="flex-1" />
       {limits.map((g) => (
         <span key={g.envKey} className="flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap">

@@ -11,39 +11,21 @@ describe("terminale: tasti copia/incolla", () => {
   });
 
   it("Ctrl+Shift+C = copia, Ctrl+V e Ctrl+Shift+V = incolla", () => {
-    assert.equal(
-      clipboardKeyAction(key({ ctrlKey: true, shiftKey: true }), false),
-      "copy",
-    );
-    assert.equal(
-      clipboardKeyAction(key({ key: "v", ctrlKey: true }), false),
-      "paste",
-    );
-    assert.equal(
-      clipboardKeyAction(key({ key: "V", ctrlKey: true, shiftKey: true }), true),
-      "paste",
-    );
+    assert.equal(clipboardKeyAction(key({ ctrlKey: true, shiftKey: true }), false), "copy");
+    assert.equal(clipboardKeyAction(key({ key: "v", ctrlKey: true }), false), "paste");
+    assert.equal(clipboardKeyAction(key({ key: "V", ctrlKey: true, shiftKey: true }), true), "paste");
   });
 
   it("Ctrl+Ins = copia, Shift+Ins = incolla, Ins solo = null", () => {
-    assert.equal(
-      clipboardKeyAction(key({ key: "Insert", ctrlKey: true }), true),
-      "copy",
-    );
-    assert.equal(
-      clipboardKeyAction(key({ key: "Insert", shiftKey: true }), false),
-      "paste",
-    );
+    assert.equal(clipboardKeyAction(key({ key: "Insert", ctrlKey: true }), true), "copy");
+    assert.equal(clipboardKeyAction(key({ key: "Insert", shiftKey: true }), false), "paste");
     assert.equal(clipboardKeyAction(key({ key: "Insert" }), false), null);
   });
 
   it("altri tasti = null", () => {
     assert.equal(clipboardKeyAction(key({}), false), null);
     assert.equal(clipboardKeyAction(key({ key: "c" }), true), null);
-    assert.equal(
-      clipboardKeyAction(key({ key: "x", ctrlKey: true }), true),
-      null,
-    );
+    assert.equal(clipboardKeyAction(key({ key: "x", ctrlKey: true }), true), null);
   });
 });
 

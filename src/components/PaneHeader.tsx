@@ -81,9 +81,7 @@ export default function PaneHeader({
       </span>
       {prefix && (
         <>
-          <span className="max-w-[40%] flex-shrink truncate text-xs text-muted-foreground">
-            {prefix}
-          </span>
+          <span className="max-w-[40%] flex-shrink truncate text-xs text-muted-foreground">{prefix}</span>
           <span className="text-faint" aria-hidden="true">
             /
           </span>
@@ -117,11 +115,7 @@ export default function PaneHeader({
           {badge.text}
         </span>
       )}
-      {word && (
-        <span className={cn("flex-shrink-0 whitespace-nowrap text-[11px]", word.className)}>
-          {word.text}
-        </span>
-      )}
+      {word && <span className={cn("flex-shrink-0 whitespace-nowrap text-[11px]", word.className)}>{word.text}</span>}
       <span className="flex-1" />
       {usage && (
         <span
@@ -148,11 +142,7 @@ export default function PaneHeader({
         title={maximized ? "Ripristina (Ctrl+Maiusc+M)" : "Massimizza (Ctrl+Maiusc+M)"}
         aria-label={maximized ? "Ripristina" : "Massimizza"}
       >
-        {maximized ? (
-          <Minimize2 className="h-[13px] w-[13px]" />
-        ) : (
-          <Maximize2 className="h-[13px] w-[13px]" />
-        )}
+        {maximized ? <Minimize2 className="h-[13px] w-[13px]" /> : <Maximize2 className="h-[13px] w-[13px]" />}
       </button>
       <button
         onClick={onClose}

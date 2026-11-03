@@ -51,10 +51,7 @@ describe("agenti: stato per ambiente", () => {
     assert.equal(agentInstallLabel(env({ installed: true })), "Reinstalla");
     assert.equal(agentInstallLabel(env({ found: false })), null);
     assert.equal(agentEnvBadge(env()), "WIN");
-    assert.equal(
-      agentEnvBadge(env({ env_kind: "wsl", env_label: "Ubuntu-24.04" })),
-      "Ubuntu-24.04",
-    );
+    assert.equal(agentEnvBadge(env({ env_kind: "wsl", env_label: "Ubuntu-24.04" })), "Ubuntu-24.04");
   });
 
   it("raggruppa per agente mantenendo l'ordine", () => {
@@ -125,7 +122,14 @@ describe("agenti: macchina a stati del tab", () => {
   });
 
   it("riconosce le risposte automatiche del terminale", () => {
-    for (const reply of ["\x1b[I", "\x1b[O", "\x1b[12;40R", "\x1b[?62;4c", "\x1b[>0;276;0c", "\x1b]11;rgb:0000/0000/0000\x07"]) {
+    for (const reply of [
+      "\x1b[I",
+      "\x1b[O",
+      "\x1b[12;40R",
+      "\x1b[?62;4c",
+      "\x1b[>0;276;0c",
+      "\x1b]11;rgb:0000/0000/0000\x07",
+    ]) {
       assert.equal(isTerminalReply(reply), true, JSON.stringify(reply));
     }
     for (const key of ["a", "\r", "\x1b", "\x1b[A", "\x1b[3~", "\x03", "ciao"]) {
@@ -261,10 +265,7 @@ describe("profili di input", () => {
     assert.equal(tabAgentId({ startCommand: "claude --resume x" }), "claude-code");
     assert.equal(tabAgentId({ startCommand: "" }), null);
     assert.equal(tabAgentId({}), null);
-    assert.equal(
-      tabAgentId({ agent: { agentId: "claude-code", ended: true }, startCommand: "claude" }),
-      null,
-    );
+    assert.equal(tabAgentId({ agent: { agentId: "claude-code", ended: true }, startCommand: "claude" }), null);
     // Stato agente senza id (evento senza agente): ripiega sul comando.
     assert.equal(tabAgentId({ agent: {}, startCommand: "claude" }), "claude-code");
   });
@@ -290,10 +291,7 @@ describe("barra di stato", () => {
       "Claude Code · Windows, Ubuntu-24.04",
     );
     assert.equal(
-      installedAgentsSummary([
-        env("a", "A", "Windows", true, true),
-        env("b", "B", "Windows", true, true),
-      ]),
+      installedAgentsSummary([env("a", "A", "Windows", true, true), env("b", "B", "Windows", true, true)]),
       "A · Windows; B · Windows",
     );
   });
@@ -304,10 +302,7 @@ describe("barra di stato", () => {
   });
 
   it("countNeedingInput e terminalCountText", () => {
-    assert.equal(
-      countNeedingInput([{ icon: "alert" }, { icon: "dot" }, { icon: "alert" }, { icon: "check" }]),
-      2,
-    );
+    assert.equal(countNeedingInput([{ icon: "alert" }, { icon: "dot" }, { icon: "alert" }, { icon: "check" }]), 2);
     assert.equal(countNeedingInput([]), 0);
     assert.equal(terminalCountText(0), "0 terminali");
     assert.equal(terminalCountText(1), "1 terminale");

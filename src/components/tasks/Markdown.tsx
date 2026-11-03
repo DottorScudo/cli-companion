@@ -79,7 +79,11 @@ function Block({ block }: { block: MdBlock }) {
   switch (block.t) {
     case "heading":
       return (
-        <p role="heading" aria-level={block.level + 2} className={`pt-1 ${HEADING_CLASS[block.level] ?? "text-[13px] font-medium text-foreground"}`}>
+        <p
+          role="heading"
+          aria-level={block.level + 2}
+          className={`pt-1 ${HEADING_CLASS[block.level] ?? "text-[13px] font-medium text-foreground"}`}
+        >
           <Inline nodes={block.children} />
         </p>
       );
@@ -123,4 +127,3 @@ export default function Markdown({ source }: { source: string }) {
     </div>
   );
 }
-

@@ -40,9 +40,7 @@ export default function BotAvatar({ name, size = 18, image, className }: Props) 
           style={{ imageRendering: "pixelated" }}
         />
       ) : (
-        botPixels(look).map((r, i) => (
-          <rect key={i} x={r.x} y={r.y} width={r.w} height={r.h} fill={fill[r.tone]} />
-        ))
+        botPixels(look).map((r, i) => <rect key={i} x={r.x} y={r.y} width={r.w} height={r.h} fill={fill[r.tone]} />)
       )}
     </svg>
   );

@@ -50,12 +50,7 @@ export default function ManagerHeader(p: Props) {
       </div>
       <ManagerSearch value={p.query} onChange={p.onQuery} inputRef={p.searchRef} />
       <div className="ml-auto flex flex-wrap items-center gap-2">
-        <ManagerWorkers
-          board={p.board}
-          busy={p.busy}
-          onMaxParallel={p.onMaxParallel}
-          onTogglePause={p.onTogglePause}
-        />
+        <ManagerWorkers board={p.board} busy={p.busy} onMaxParallel={p.onMaxParallel} onTogglePause={p.onTogglePause} />
         <Button
           type="button"
           variant="outline"

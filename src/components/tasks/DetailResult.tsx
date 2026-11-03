@@ -49,7 +49,9 @@ function Body({ report, task }: { report: TaskReport; task: Task }) {
   return (
     <>
       {findings && (
-        <div className={cn("flex flex-col gap-1 rounded-md border px-2.5 py-2 text-xs", FINDINGS_TONE[findings.tone].box)}>
+        <div
+          className={cn("flex flex-col gap-1 rounded-md border px-2.5 py-2 text-xs", FINDINGS_TONE[findings.tone].box)}
+        >
           <span className={cn("font-medium", FINDINGS_TONE[findings.tone].title)}>{findings.title}</span>
           <ul className="list-disc pl-4 text-text-secondary">
             {findings.items.map((f, i) => (
@@ -60,7 +62,9 @@ function Body({ report, task }: { report: TaskReport; task: Task }) {
           </ul>
         </div>
       )}
-      {report.summary && <p className="whitespace-pre-line break-words leading-relaxed text-text-secondary">{report.summary}</p>}
+      {report.summary && (
+        <p className="whitespace-pre-line break-words leading-relaxed text-text-secondary">{report.summary}</p>
+      )}
       {(report.commit || pr) && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
           {report.commit && (

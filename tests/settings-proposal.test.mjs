@@ -33,7 +33,12 @@ describe("settingsProposalRows: valori singoli", () => {
       [
         ["worker_rules", "Regole per i worker", EMPTY_TEXT, "Niente test"],
         ["worker_model", "Modello dei worker", "opus", MODEL_DEFAULT_TEXT],
-        ["worker_permission", "Permessi dei worker automatici", "Approva modifiche ai file", "Nessuna conferma (bypass)"],
+        [
+          "worker_permission",
+          "Permessi dei worker automatici",
+          "Approva modifiche ai file",
+          "Nessuna conferma (bypass)",
+        ],
       ],
     );
   });
@@ -125,10 +130,13 @@ describe("settingsProposalRows: avvii", () => {
 
   it("senza avvii attuali sono tutti nuovi; due omonimi non si confondono", () => {
     assert.deepEqual(diffLaunches(undefined, [{ name: "A", command: "a" }]).added, ["A: a"]);
-    const d = diffLaunches([{ id: "x", name: "A", command: "1" }], [
-      { name: "A", command: "1" },
-      { name: "A", command: "2" },
-    ]);
+    const d = diffLaunches(
+      [{ id: "x", name: "A", command: "1" }],
+      [
+        { name: "A", command: "1" },
+        { name: "A", command: "2" },
+      ],
+    );
     assert.deepEqual(d.added, ["A: 2"]);
     assert.deepEqual(d.removed, []);
   });
@@ -146,7 +154,7 @@ describe("settingsProposalRows: avvii", () => {
 });
 
 describe("settingsProposalRows: repository", () => {
-  it("un gruppo per chiave, \".\" = root, liste e valori", () => {
+  it('un gruppo per chiave, "." = root, liste e valori', () => {
     const r = rows(
       {
         repos: {
@@ -212,13 +220,7 @@ describe("settingsProposalRows: campi sensibili", () => {
     launches: [{ name: "A", command: "x" }],
     repos: { ".": { setup: ["s"], cleanup: ["c"], base_branch: "b" }, gone: null },
   };
-  const sensitive = [
-    "worker_permission",
-    "worker_allow",
-    "launches",
-    "repos[.].setup",
-    "repos[.].cleanup",
-  ];
+  const sensitive = ["worker_permission", "worker_allow", "launches", "repos[.].setup", "repos[.].cleanup"];
 
   it("evidenzia solo i campi elencati dal backend, con la nota giusta", () => {
     const r = rows(patch, {}, sensitive);

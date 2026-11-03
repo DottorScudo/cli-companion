@@ -75,9 +75,7 @@ export default function ProposalCard({ workspaceId, proposal, board, onBoard }: 
             {isReview(single) && <ReviewBadge className="ml-2 align-middle text-[10px]" />}
             <SpecE2eBadge spec={single} className="ml-2 align-middle text-[10px]" />
           </div>
-          {excerpt && (
-            <p className="line-clamp-3 break-words text-xs leading-normal text-text-secondary">{excerpt}</p>
-          )}
+          {excerpt && <p className="line-clamp-3 break-words text-xs leading-normal text-text-secondary">{excerpt}</p>}
           <SpecMeta spec={single} board={board} siblings={specs} />
         </>
       ) : (
@@ -111,7 +109,9 @@ export default function ProposalCard({ workspaceId, proposal, board, onBoard }: 
           onClick={() => void decide(false)}
           className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-border-strong text-xs text-text-secondary transition-colors hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
         >
-          {pending === "discard" && <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+          {pending === "discard" && (
+            <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+          )}
           Scarta
         </button>
         <button
@@ -120,7 +120,9 @@ export default function ProposalCard({ workspaceId, proposal, board, onBoard }: 
           onClick={() => void decide(true)}
           className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-primary text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
         >
-          {pending === "accept" && <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+          {pending === "accept" && (
+            <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+          )}
           Accetta
         </button>
       </div>

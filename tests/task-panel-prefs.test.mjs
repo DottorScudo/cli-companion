@@ -1,11 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import {
-  TASK_PANEL_STORAGE_KEY,
-  readCollapsed,
-  withCollapsed,
-  writeCollapsed,
-} from "../src/lib/taskPanelPrefs.ts";
+import { TASK_PANEL_STORAGE_KEY, readCollapsed, withCollapsed, writeCollapsed } from "../src/lib/taskPanelPrefs.ts";
 
 const memory = (initial) => {
   const data = new Map(initial === undefined ? [] : [[TASK_PANEL_STORAGE_KEY, initial]]);
