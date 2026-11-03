@@ -44,7 +44,6 @@ export const WORKER_RULE_MAX_CHARS = 300;
 /** Forma `Nome` o `Nome(...)`, Nome = [A-Za-z0-9_*-]+ ; `null` se valida. */
 export function workerRuleError(rule: string): string | null {
   if (rule.length > WORKER_RULE_MAX_CHARS) return `più lunga di ${WORKER_RULE_MAX_CHARS} caratteri.`;
-  // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f-\u009f]/.test(rule)) return "contiene caratteri di controllo.";
   const m = /^([A-Za-z0-9_*-]+)(\(.+\))?$/.exec(rule);
   if (!m) return "forma attesa: Nome oppure Nome(...), es. Bash(git:*).";

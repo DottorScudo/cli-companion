@@ -203,6 +203,8 @@ function TerminalView({
       .then(() => document.fonts.ready)
       .then(() => {
         if (disposed) return;
+        // Riassegnare la stessa fontFamily fa rimisurare le celle a xterm: l'auto-assegnazione e' voluta.
+        // eslint-disable-next-line no-self-assign
         term.options.fontFamily = term.options.fontFamily;
         fit.fit();
       })
