@@ -112,14 +112,9 @@ fn targets_with(
     let distros = distros_in_use(&env_dirs, &installed);
     let home = &home;
     let dirs: Vec<Result<PathBuf, String>> = std::thread::scope(|scope| {
-        let handles: Vec<_> = distros
-            .iter()
-            .map(|d| scope.spawn(move || home(d).and_then(|h| wsl_skills_dir(d, &h))))
-            .collect();
-        handles
-            .into_iter()
-            .map(|h| h.join().unwrap_or_else(|_| Err("Home resolution panicked.".to_string())))
-            .collect()
+        let handles: Vec<_> =
+            distros.iter().map(|d| scope.spawn(move || home(d).and_then(|h| wsl_skills_dir(d, &h)))).collect();
+        handles.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("Home resolution panicked.".to_string()))).collect()
     });
     targets.extend(distros.into_iter().zip(dirs).map(|(env, dir)| SkillTarget { env, dir }));
     targets

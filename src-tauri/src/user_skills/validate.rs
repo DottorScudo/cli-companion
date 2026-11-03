@@ -28,9 +28,7 @@ pub fn validate(input: &SkillInput) -> Result<(), String> {
 pub fn is_slug(name: &str) -> bool {
     let mut chars = name.chars();
     let ok_char = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit();
-    chars.next().is_some_and(ok_char)
-        && name.len() <= MAX_NAME_LEN
-        && name.chars().all(|c| ok_char(c) || c == '-')
+    chars.next().is_some_and(ok_char) && name.len() <= MAX_NAME_LEN && name.chars().all(|c| ok_char(c) || c == '-')
 }
 
 /// Slug richiesto per ogni operazione che costruisce un path dal nome.

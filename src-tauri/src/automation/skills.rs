@@ -20,8 +20,7 @@ pub(super) fn rpc<H: Host>(host: &H, method: &str, params: &Value) -> Result<Val
 }
 
 fn save_skill<H: Host>(host: &H, params: &Value) -> Result<Value, String> {
-    let input: SkillInput =
-        serde_json::from_value(params.clone()).map_err(|e| format!("invalid parameters: {e}"))?;
+    let input: SkillInput = serde_json::from_value(params.clone()).map_err(|e| format!("invalid parameters: {e}"))?;
     user_skills::validate(&input)?;
     let targets = host.skill_targets();
     // Prima di scrivere qualunque cosa: una skill scritta a mano non si tocca.

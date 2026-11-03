@@ -250,7 +250,13 @@ pub fn validate_graph(tasks: &[Task]) -> Result<(), String> {
         }
     }
     // DFS con colori: 0 = nuovo, 1 = nel percorso, 2 = chiuso.
-    fn visit(i: usize, tasks: &[Task], idx: &HashMap<&str, usize>, color: &mut [u8], path: &mut Vec<usize>) -> Option<Vec<usize>> {
+    fn visit(
+        i: usize,
+        tasks: &[Task],
+        idx: &HashMap<&str, usize>,
+        color: &mut [u8],
+        path: &mut Vec<usize>,
+    ) -> Option<Vec<usize>> {
         color[i] = 1;
         path.push(i);
         for d in &tasks[i].depends_on {

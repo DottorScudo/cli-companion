@@ -102,10 +102,7 @@ impl E2eRuns {
         inner.counter += 1;
         let run_id = format!("e2e-{now}-{}", inner.counter);
         let (cancel, done) = (CancelFlag::default(), Done::default());
-        inner.active.insert(
-            folder.clone(),
-            ActiveRun { run_id: run_id.clone(), owner, cancel: cancel.clone(), done },
-        );
+        inner.active.insert(folder.clone(), ActiveRun { run_id: run_id.clone(), owner, cancel: cancel.clone(), done });
         Ok(RunGuard { runs: Arc::clone(self), folder, run_id, port, cancel })
     }
 

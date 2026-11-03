@@ -144,7 +144,8 @@ mod timer {
 
     fn timer() -> &'static Timer {
         TIMER.get_or_init(|| {
-            let t: &'static Timer = Box::leak(Box::new(Timer { queue: Mutex::new(Queue::default()), wake: Condvar::new() }));
+            let t: &'static Timer =
+                Box::leak(Box::new(Timer { queue: Mutex::new(Queue::default()), wake: Condvar::new() }));
             std::thread::Builder::new()
                 .name("automation-timer".to_string())
                 .spawn(move || t.run())
@@ -307,11 +308,7 @@ impl Host for TauriHost {
 
     fn local_minute(&self, now: i64) -> u16 {
         use chrono::{Local, TimeZone, Timelike};
-        Local
-            .timestamp_millis_opt(now)
-            .single()
-            .map(|t| (t.hour() * 60 + t.minute()) as u16)
-            .unwrap_or(0)
+        Local.timestamp_millis_opt(now).single().map(|t| (t.hour() * 60 + t.minute()) as u16).unwrap_or(0)
     }
 
     fn emit_schedule(&self, state: &ScheduleState) {

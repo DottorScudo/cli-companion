@@ -201,7 +201,12 @@ impl Host for FakeHost {
         if agent != "claude-code" {
             return Err(format!("unknown agent: {agent}"));
         }
-        Ok(format!("fake {env_kind} {:?} {} model={}", req.permission_mode, req.bootstrap_prompt, req.model.unwrap_or("-")))
+        Ok(format!(
+            "fake {env_kind} {:?} {} model={}",
+            req.permission_mode,
+            req.bootstrap_prompt,
+            req.model.unwrap_or("-")
+        ))
     }
     fn emit_spawn(&self, ev: &SpawnEvent) {
         self.spawns.lock().unwrap().push(ev.clone());
@@ -235,7 +240,9 @@ impl Host for FakeHost {
         let a = args.join(" ");
         Ok(match a.as_str() {
             "rev-parse --is-inside-work-tree" => ok("true\n"),
-            "rev-parse --abbrev-ref HEAD" => ok(&format!("{}\n", self.branch.lock().unwrap().clone().unwrap_or_else(|| "main".into()))),
+            "rev-parse --abbrev-ref HEAD" => {
+                ok(&format!("{}\n", self.branch.lock().unwrap().clone().unwrap_or_else(|| "main".into())))
+            }
             "rev-parse --git-path info/exclude" => ok(".git/info/exclude\n"),
             "symbolic-ref --short refs/remotes/origin/HEAD" => fail(),
             s if s.starts_with("rev-parse --verify") => fail(),
@@ -406,8 +413,15 @@ fn hook(st: &AutomationState, h: &FakeHost, tab: &str, event: &str) -> Option<St
 }
 
 /// Stop hook di un worker con i dati di Claude Code.
-fn stop(st: &AutomationState, h: &FakeHost, tab: &str, active: Option<bool>, background: Option<u32>) -> Option<String> {
-    let ev = HookEvent { event: "finished", stop_hook_active: active, background_work: background, ..Default::default() };
+fn stop(
+    st: &AutomationState,
+    h: &FakeHost,
+    tab: &str,
+    active: Option<bool>,
+    background: Option<u32>,
+) -> Option<String> {
+    let ev =
+        HookEvent { event: "finished", stop_hook_active: active, background_work: background, ..Default::default() };
     st.run(h, |r| r.on_hook(tab, &ev, 1))
 }
 

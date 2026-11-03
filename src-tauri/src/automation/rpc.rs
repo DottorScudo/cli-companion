@@ -33,7 +33,8 @@ pub fn dispatch<H: Host>(
     if WORKER_METHODS.contains(&method) && !worker {
         return Err(format!("{method} is reserved for automated sessions"));
     }
-    let session_only = SESSION_METHODS.contains(&method) || SKILL_METHODS.contains(&method) || SETTINGS_METHODS.contains(&method);
+    let session_only =
+        SESSION_METHODS.contains(&method) || SKILL_METHODS.contains(&method) || SETTINGS_METHODS.contains(&method);
     let reviewer_call = reviewer && REVIEWER_METHODS.contains(&method);
     if session_only && worker && !reviewer_call {
         return Err(format!("{method} is not available to automated sessions"));

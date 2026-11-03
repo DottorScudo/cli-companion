@@ -39,11 +39,13 @@ impl E2eConfig {
             return Err(format!("comando E2E troppo lungo (max {MAX_REPO_COMMAND_LEN} caratteri)"));
         }
         if !(MIN_E2E_TIMEOUT_MIN..=MAX_E2E_TIMEOUT_MIN).contains(&self.timeout_min) {
-            return Err(format!(
-                "timeout E2E non valido (da {MIN_E2E_TIMEOUT_MIN} a {MAX_E2E_TIMEOUT_MIN} minuti)"
-            ));
+            return Err(format!("timeout E2E non valido (da {MIN_E2E_TIMEOUT_MIN} a {MAX_E2E_TIMEOUT_MIN} minuti)"));
         }
-        Ok(E2eConfig { command: command.to_string(), junit: normalize_junit(&self.junit)?, timeout_min: self.timeout_min })
+        Ok(E2eConfig {
+            command: command.to_string(),
+            junit: normalize_junit(&self.junit)?,
+            timeout_min: self.timeout_min,
+        })
     }
 }
 

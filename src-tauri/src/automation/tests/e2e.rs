@@ -10,7 +10,8 @@ use crate::workspaces::E2eConfig;
 
 pub(super) const COMMAND: &str = "npm run e2e";
 const JUNIT: &str = "out/junit.xml";
-pub(super) const JUNIT_PASS: &str = r#"<testsuites><testsuite name="s" tests="2"><testcase name="a"/><testcase name="b"/></testsuite></testsuites>"#;
+pub(super) const JUNIT_PASS: &str =
+    r#"<testsuites><testsuite name="s" tests="2"><testcase name="a"/><testcase name="b"/></testsuite></testsuites>"#;
 const JUNIT_FAIL: &str = r#"<testsuites><testsuite name="s" tests="2"><testcase name="a"/>
     <testcase name="b" file="b.spec.ts"><failure message="boom"/></testcase></testsuite></testsuites>"#;
 const JUNIT_EMPTY: &str = r#"<testsuites><testsuite name="s" tests="0"/></testsuites>"#;
@@ -21,7 +22,10 @@ pub(super) const CHECKOUT: &str = "C:\\p";
 const WORKTREE: &str = "C:\\p\\.worktrees\\a";
 
 pub(super) fn e2e_repo() -> RepoConfig {
-    RepoConfig { e2e: Some(E2eConfig { command: COMMAND.into(), junit: JUNIT.into(), timeout_min: 5 }), ..Default::default() }
+    RepoConfig {
+        e2e: Some(E2eConfig { command: COMMAND.into(), junit: JUNIT.into(), timeout_min: 5 }),
+        ..Default::default()
+    }
 }
 
 fn junit_at(dir: &str) -> String {
@@ -42,7 +46,10 @@ pub(super) fn writes_junit(h: &FakeHost, dir: &str, xml: &str) {
 
 /// Il comando E2E esce con `ok` e questo output.
 fn command_exits(h: &FakeHost, ok: bool, stdout: &str) {
-    h.hook_rules.lock().unwrap().push((COMMAND.to_string(), GitOut { ok, stdout: stdout.into(), stderr: String::new() }));
+    h.hook_rules
+        .lock()
+        .unwrap()
+        .push((COMMAND.to_string(), GitOut { ok, stdout: stdout.into(), stderr: String::new() }));
 }
 
 /// Un worker con il task `a` marcato E2E e il repository configurato; il
@@ -211,7 +218,10 @@ fn removing_the_repository_config_lifts_the_gate_with_a_note() {
 fn run_e2e_needs_a_configured_repository_and_an_automated_session() {
     let (st, h, w) = running(DeliveryMode::Commit, false);
     let e = call(&st, &h, &w, "run_e2e", json!({})).unwrap_err();
-    assert_eq!(e, "E2E tests are not configured for repository '.': ask the user to configure them in the repository settings");
+    assert_eq!(
+        e,
+        "E2E tests are not configured for repository '.': ask the user to configure them in the repository settings"
+    );
     for m in ["run_e2e", "get_e2e_result"] {
         let e = call(&st, &h, INTAKE, m, json!({})).unwrap_err();
         assert_eq!(e, format!("{m} is reserved for automated sessions"));
@@ -224,8 +234,14 @@ fn a_second_run_in_the_same_folder_is_rejected_until_the_first_ends() {
     h.hold_defers();
     let first = run_e2e(&st, &h, &w)["run_id"].as_str().unwrap().to_string();
     let e = call(&st, &h, &w, "run_e2e", json!({})).unwrap_err();
-    assert_eq!(e, format!("an E2E run is already in progress in this folder (run_id {first}): wait for it with get_e2e_result"));
-    assert_eq!(manual::run_repo(&st, &h, "ws-1", None).unwrap_err(), "esecuzione E2E gia' in corso per questo repository");
+    assert_eq!(
+        e,
+        format!("an E2E run is already in progress in this folder (run_id {first}): wait for it with get_e2e_result")
+    );
+    assert_eq!(
+        manual::run_repo(&st, &h, "ws-1", None).unwrap_err(),
+        "esecuzione E2E gia' in corso per questo repository"
+    );
     h.run_held();
     assert_ne!(run_e2e(&st, &h, &w)["run_id"], json!(first));
 }
@@ -266,7 +282,8 @@ fn the_old_report_is_removed_before_the_command_and_never_counts() {
     run_e2e(&st, &h, &w);
     let log = h.hook_log.lock().unwrap().clone();
     let rm = log.iter().position(|l| l == &format!("rm {}", junit_at(CHECKOUT))).expect("old report removed");
-    let run = log.iter().position(|l| l.starts_with(&format!("{CHECKOUT}|{COMMAND}|"))).expect("command run in the checkout");
+    let run =
+        log.iter().position(|l| l.starts_with(&format!("{CHECKOUT}|{COMMAND}|"))).expect("command run in the checkout");
     assert!(rm < run, "{log:?}");
     // Il comando non ha scritto un report nuovo: quello vecchio non vale.
     assert_eq!(result(&st, &h, &w)["error"], "JUnit report not found at out/junit.xml");
@@ -277,9 +294,12 @@ fn the_command_runs_in_the_worktree_with_task_variables_and_a_port() {
     let (st, h, w) = flagged(DeliveryMode::Pr, true);
     run_e2e(&st, &h, &w);
     let log = h.hook_log.lock().unwrap().clone();
-    let line = log.iter().find(|l| l.starts_with(&format!("{WORKTREE}|{COMMAND}|"))).unwrap_or_else(|| panic!("{log:?}"));
+    let line =
+        log.iter().find(|l| l.starts_with(&format!("{WORKTREE}|{COMMAND}|"))).unwrap_or_else(|| panic!("{log:?}"));
     let vars = line.rsplit('|').next().unwrap();
-    for expected in [format!("WORKTREE={WORKTREE}"), "TASK_ID=a".to_string(), "BRANCH=task/a".to_string(), "REPO=C:\\p".to_string()] {
+    for expected in
+        [format!("WORKTREE={WORKTREE}"), "TASK_ID=a".to_string(), "BRANCH=task/a".to_string(), "REPO=C:\\p".to_string()]
+    {
         assert!(vars.split(',').any(|v| v == expected), "{expected} in {vars}");
     }
     let port = vars.split(',').find_map(|v| v.strip_prefix("CLI_COMPANION_E2E_PORT=")).expect("port variable");
@@ -296,7 +316,10 @@ fn a_missing_report_is_an_error_with_the_output_tail() {
     command_exits(&h, true, "server crashed");
     run_e2e(&st, &h, &w);
     let r = result(&st, &h, &w);
-    assert_eq!((r["status"].as_str(), r["error"].as_str()), (Some("error"), Some("JUnit report not found at out/junit.xml")));
+    assert_eq!(
+        (r["status"].as_str(), r["error"].as_str()),
+        (Some("error"), Some("JUnit report not found at out/junit.xml"))
+    );
     assert!(r["output_tail"].as_str().unwrap().contains("server crashed"), "{r}");
     let e = complete_ok(&st, &h, &w).unwrap_err();
     assert!(e.contains("ended with an error: JUnit report not found"), "{e}");
@@ -307,7 +330,10 @@ fn zero_tests_with_exit_zero_is_an_error() {
     let (st, h, w) = flagged_with(DeliveryMode::Commit, false, Some(JUNIT_EMPTY));
     run_e2e(&st, &h, &w);
     let r = result(&st, &h, &w);
-    assert_eq!((r["status"].as_str(), r["error"].as_str()), (Some("error"), Some("the JUnit report contains no tests")));
+    assert_eq!(
+        (r["status"].as_str(), r["error"].as_str()),
+        (Some("error"), Some("the JUnit report contains no tests"))
+    );
 }
 
 #[test]

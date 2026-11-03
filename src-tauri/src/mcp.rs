@@ -106,9 +106,7 @@ pub fn handle_message(server: &mut Server, msg: &Value, backend: &dyn Backend) -
     Some(match method {
         "initialize" => {
             let asked = params.get("protocolVersion").and_then(Value::as_str);
-            let version = asked
-                .filter(|v| PROTOCOL_VERSIONS.contains(v))
-                .unwrap_or(PROTOCOL_VERSIONS[0]);
+            let version = asked.filter(|v| PROTOCOL_VERSIONS.contains(v)).unwrap_or(PROTOCOL_VERSIONS[0]);
             let role = server.role(backend).ok();
             ok_response(
                 id,

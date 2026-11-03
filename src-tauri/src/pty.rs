@@ -48,10 +48,7 @@ pub struct PtyState {
 
 impl Default for PtyState {
     fn default() -> Self {
-        Self {
-            sessions: Arc::new(Mutex::new(HashMap::new())),
-            next_id: AtomicU32::new(1),
-        }
+        Self { sessions: Arc::new(Mutex::new(HashMap::new())), next_id: AtomicU32::new(1) }
     }
 }
 
@@ -70,12 +67,7 @@ fn spawn_writer(mut writer: Box<dyn Write + Send>) -> Sender<Vec<u8>> {
 }
 
 fn pty_size(cols: u16, rows: u16) -> PtySize {
-    PtySize {
-        rows: rows.clamp(2, 300),
-        cols: cols.clamp(2, 500),
-        pixel_width: 0,
-        pixel_height: 0,
-    }
+    PtySize { rows: rows.clamp(2, 300), cols: cols.clamp(2, 500), pixel_width: 0, pixel_height: 0 }
 }
 
 /// Decodifica UTF-8 incrementale: i chunk del pty possono spezzare un carattere
@@ -111,194 +103,179 @@ fn decode_incremental(pending: &mut Vec<u8>) -> String {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
+    use super::*;
 
-  #[test]
-  fn decode_ascii_passthrough() {
-    let mut pending = b"ciao".to_vec();
-    assert_eq!(decode_incremental(&mut pending), "ciao");
-    assert!(pending.is_empty());
-  }
-
-  #[test]
-  fn decode_split_multibyte_waits_for_rest() {
-    // "à" = C3 A0 spezzata tra due chunk: il primo non emette nulla.
-    let mut pending = vec![0xC3];
-    assert_eq!(decode_incremental(&mut pending), "");
-    assert_eq!(pending, vec![0xC3]);
-    pending.push(0xA0);
-    assert_eq!(decode_incremental(&mut pending), "à");
-    assert!(pending.is_empty());
-  }
-
-  #[test]
-  fn decode_invalid_byte_emits_replacement() {
-    let mut pending = vec![0xFF];
-    assert_eq!(decode_incremental(&mut pending), "�");
-    assert!(pending.is_empty());
-  }
-
-  #[test]
-  fn powershell_detection_matches_names_paths_and_case() {
-    for yes in [
-      "powershell",
-      "powershell.exe",
-      "pwsh",
-      "pwsh.exe",
-      "POWERSHELL.EXE",
-      "  pwsh  ",
-      r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
-      r"C:\Program Files\PowerShell\7\pwsh.exe",
-    ] {
-      assert!(is_powershell(yes), "{yes}");
-    }
-    for no in ["", "cmd", "cmd.exe", "bash", "zsh", "nu", "powershell.exe.bak"] {
-      assert!(!is_powershell(no), "{no}");
-    }
-  }
-
-  #[test]
-  fn title_hook_emits_osc_and_chains_prompt() {
-    assert!(POWERSHELL_TITLE_HOOK.contains("function global:prompt"));
-    assert!(POWERSHELL_TITLE_HOOK.contains("[char]27)]0;"));
-    assert!(POWERSHELL_TITLE_HOOK.contains("RawUI.WindowTitle"));
-    assert!(POWERSHELL_TITLE_HOOK.contains("Get-Command prompt"));
-  }
-
-  /// Esercita il vero percorso di consegna dell'hook (argv di CreateProcess
-  /// -> powershell.exe) e ne verifica il comportamento end-to-end.
-  #[test]
-  #[cfg(windows)]
-  fn title_hook_roundtrip_through_powershell() {
-    fn run(prefix: &str, suffix: &str) -> String {
-      let cmd = format!("{prefix}{POWERSHELL_TITLE_HOOK}{suffix}");
-      let out = std::process::Command::new("powershell.exe")
-        .args(["-NoLogo", "-NoProfile", "-Command", &cmd])
-        .output()
-        .expect("powershell.exe non avviabile");
-      assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
-      String::from_utf8_lossy(&out.stdout).into_owned()
+    #[test]
+    fn decode_ascii_passthrough() {
+        let mut pending = b"ciao".to_vec();
+        assert_eq!(decode_incremental(&mut pending), "ciao");
+        assert!(pending.is_empty());
     }
 
-    // Default: OSC 0 con fallback + prompt ancora funzionante.
-    let out = run("", "; 1+1; prompt");
-    assert!(out.contains('2'), "comandi rotti? output: {out:?}");
-    assert!(out.contains("\u{1b}]0;"), "OSC 0 mancante: {out:?}");
-    assert!(out.contains('\u{7}'), "BEL mancante: {out:?}");
-
-    // Mirror: un titolo impostato via API Win32 (come fanno gli agenti)
-    // viene riemesso come OSC al prompt successivo. Titolo unico per
-    // esecuzione: la console e' condivisa con chi lancia i test e il titolo
-    // resta impostato, quindi al giro dopo sarebbe gia' quello "iniziale".
-    let title = format!(
-      "AGENTE-{}-{}",
-      std::process::id(),
-      std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0)
-    );
-    let out = run("", &format!("; $Host.UI.RawUI.WindowTitle = '{title}'; prompt"));
-    assert!(out.contains(&format!("]0;{title}\x07")), "mirror mancante: {out:?}");
-
-    // Chaining: un prompt definito dal profilo viene preservato.
-    let out = run("function prompt { 'CUSTOM> ' }; ", "; prompt");
-    assert!(out.contains("CUSTOM> "), "prompt profilo perso: {out:?}");
-    assert!(out.contains("\u{1b}]0;"), "OSC 0 mancante con profilo: {out:?}");
-  }
-
-  #[test]
-  fn wslenv_merge_appends_without_duplicates() {
-    let v = ["CLI_COMPANION_SESSION"];
-    assert_eq!(merge_wslenv(None, &v), "CLI_COMPANION_SESSION/u");
-    assert_eq!(merge_wslenv(Some(""), &v), "CLI_COMPANION_SESSION/u");
-    assert_eq!(merge_wslenv(Some("PATH/l"), &v), "PATH/l:CLI_COMPANION_SESSION/u");
-    assert_eq!(
-      merge_wslenv(Some("A:B/p:"), &v),
-      "A:B/p:CLI_COMPANION_SESSION/u"
-    );
-    // Gia' presente (con o senza flag): invariato.
-    assert_eq!(
-      merge_wslenv(Some("A:CLI_COMPANION_SESSION/u"), &v),
-      "A:CLI_COMPANION_SESSION/u"
-    );
-    assert_eq!(merge_wslenv(Some("CLI_COMPANION_SESSION"), &v), "CLI_COMPANION_SESSION");
-    // Nome che contiene solo la variabile come prefisso: non conta.
-    assert_eq!(
-      merge_wslenv(Some("CLI_COMPANION_SESSION_X"), &v),
-      "CLI_COMPANION_SESSION_X:CLI_COMPANION_SESSION/u"
-    );
-  }
-
-  #[test]
-  fn wslenv_merge_handles_several_vars() {
-    let v = ["S", "T"];
-    assert_eq!(merge_wslenv(None, &v), "S/u:T/u");
-    assert_eq!(merge_wslenv(Some("A/p"), &v), "A/p:S/u:T/u");
-    // Una gia' presente: si aggiunge solo l'altra.
-    assert_eq!(merge_wslenv(Some("T/u"), &v), "T/u:S/u");
-    assert_eq!(merge_wslenv(Some("S:T/u"), &v), "S:T/u");
-  }
-
-  #[test]
-  fn session_env_is_set_and_wsl_adds_wslenv() {
-    let mut c = CommandBuilder::new("dummy");
-    apply_session_env(&mut c, "tab-1", false);
-    assert_eq!(c.get_env("CLI_COMPANION_SESSION"), Some(std::ffi::OsStr::new("tab-1")));
-    let token = c.get_env("CLI_COMPANION_TOKEN").unwrap().to_string_lossy().into_owned();
-    assert_eq!(token, crate::automation::token());
-    assert!(c.get_env("WSLENV").is_none());
-    let mut w = CommandBuilder::new("dummy");
-    apply_session_env(&mut w, "tab-1", true);
-    let wslenv = w.get_env("WSLENV").unwrap().to_string_lossy().into_owned();
-    assert!(wslenv.split(':').any(|e| e == "CLI_COMPANION_SESSION/u"), "{wslenv}");
-    assert!(wslenv.split(':').any(|e| e == "CLI_COMPANION_TOKEN/u"), "{wslenv}");
-  }
-
-  #[test]
-  fn writer_queue_preserves_order_and_stops_on_close() {
-    struct Sink(std::sync::mpsc::Sender<Vec<u8>>);
-    impl Write for Sink {
-      fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-        self.0.send(b.to_vec()).unwrap();
-        Ok(b.len())
-      }
-      fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-      }
+    #[test]
+    fn decode_split_multibyte_waits_for_rest() {
+        // "à" = C3 A0 spezzata tra due chunk: il primo non emette nulla.
+        let mut pending = vec![0xC3];
+        assert_eq!(decode_incremental(&mut pending), "");
+        assert_eq!(pending, vec![0xC3]);
+        pending.push(0xA0);
+        assert_eq!(decode_incremental(&mut pending), "à");
+        assert!(pending.is_empty());
     }
-    let (out_tx, out_rx) = std::sync::mpsc::channel();
-    let tx = spawn_writer(Box::new(Sink(out_tx)));
-    for i in 0..50u8 {
-      tx.send(vec![i]).unwrap();
+
+    #[test]
+    fn decode_invalid_byte_emits_replacement() {
+        let mut pending = vec![0xFF];
+        assert_eq!(decode_incremental(&mut pending), "�");
+        assert!(pending.is_empty());
     }
-    drop(tx);
-    // Chiuso il canale il thread esce e chiude anche `out_tx`.
-    let got: Vec<u8> = out_rx.iter().flatten().collect();
-    assert_eq!(got, (0..50u8).collect::<Vec<_>>());
-  }
 
-  #[test]
-  fn size_is_clamped() {
-    let s = pty_size(0, 1000);
-    assert_eq!((s.cols, s.rows), (2, 300));
-    let s = pty_size(80, 24);
-    assert_eq!((s.cols, s.rows), (80, 24));
-  }
+    #[test]
+    fn powershell_detection_matches_names_paths_and_case() {
+        for yes in [
+            "powershell",
+            "powershell.exe",
+            "pwsh",
+            "pwsh.exe",
+            "POWERSHELL.EXE",
+            "  pwsh  ",
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            r"C:\Program Files\PowerShell\7\pwsh.exe",
+        ] {
+            assert!(is_powershell(yes), "{yes}");
+        }
+        for no in ["", "cmd", "cmd.exe", "bash", "zsh", "nu", "powershell.exe.bak"] {
+            assert!(!is_powershell(no), "{no}");
+        }
+    }
 
-  #[test]
-  fn color_env_declares_256_and_truecolor() {
-    let mut cmd = CommandBuilder::new("dummy");
-    apply_color_env(&mut cmd);
-    assert_eq!(
-      cmd.get_env("TERM"),
-      Some(std::ffi::OsStr::new("xterm-256color"))
-    );
-    assert_eq!(
-      cmd.get_env("COLORTERM"),
-      Some(std::ffi::OsStr::new("truecolor"))
-    );
-  }
+    #[test]
+    fn title_hook_emits_osc_and_chains_prompt() {
+        assert!(POWERSHELL_TITLE_HOOK.contains("function global:prompt"));
+        assert!(POWERSHELL_TITLE_HOOK.contains("[char]27)]0;"));
+        assert!(POWERSHELL_TITLE_HOOK.contains("RawUI.WindowTitle"));
+        assert!(POWERSHELL_TITLE_HOOK.contains("Get-Command prompt"));
+    }
+
+    /// Esercita il vero percorso di consegna dell'hook (argv di CreateProcess
+    /// -> powershell.exe) e ne verifica il comportamento end-to-end.
+    #[test]
+    #[cfg(windows)]
+    fn title_hook_roundtrip_through_powershell() {
+        fn run(prefix: &str, suffix: &str) -> String {
+            let cmd = format!("{prefix}{POWERSHELL_TITLE_HOOK}{suffix}");
+            let out = std::process::Command::new("powershell.exe")
+                .args(["-NoLogo", "-NoProfile", "-Command", &cmd])
+                .output()
+                .expect("powershell.exe non avviabile");
+            assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        }
+
+        // Default: OSC 0 con fallback + prompt ancora funzionante.
+        let out = run("", "; 1+1; prompt");
+        assert!(out.contains('2'), "comandi rotti? output: {out:?}");
+        assert!(out.contains("\u{1b}]0;"), "OSC 0 mancante: {out:?}");
+        assert!(out.contains('\u{7}'), "BEL mancante: {out:?}");
+
+        // Mirror: un titolo impostato via API Win32 (come fanno gli agenti)
+        // viene riemesso come OSC al prompt successivo. Titolo unico per
+        // esecuzione: la console e' condivisa con chi lancia i test e il titolo
+        // resta impostato, quindi al giro dopo sarebbe gia' quello "iniziale".
+        let title = format!(
+            "AGENTE-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
+        );
+        let out = run("", &format!("; $Host.UI.RawUI.WindowTitle = '{title}'; prompt"));
+        assert!(out.contains(&format!("]0;{title}\x07")), "mirror mancante: {out:?}");
+
+        // Chaining: un prompt definito dal profilo viene preservato.
+        let out = run("function prompt { 'CUSTOM> ' }; ", "; prompt");
+        assert!(out.contains("CUSTOM> "), "prompt profilo perso: {out:?}");
+        assert!(out.contains("\u{1b}]0;"), "OSC 0 mancante con profilo: {out:?}");
+    }
+
+    #[test]
+    fn wslenv_merge_appends_without_duplicates() {
+        let v = ["CLI_COMPANION_SESSION"];
+        assert_eq!(merge_wslenv(None, &v), "CLI_COMPANION_SESSION/u");
+        assert_eq!(merge_wslenv(Some(""), &v), "CLI_COMPANION_SESSION/u");
+        assert_eq!(merge_wslenv(Some("PATH/l"), &v), "PATH/l:CLI_COMPANION_SESSION/u");
+        assert_eq!(merge_wslenv(Some("A:B/p:"), &v), "A:B/p:CLI_COMPANION_SESSION/u");
+        // Gia' presente (con o senza flag): invariato.
+        assert_eq!(merge_wslenv(Some("A:CLI_COMPANION_SESSION/u"), &v), "A:CLI_COMPANION_SESSION/u");
+        assert_eq!(merge_wslenv(Some("CLI_COMPANION_SESSION"), &v), "CLI_COMPANION_SESSION");
+        // Nome che contiene solo la variabile come prefisso: non conta.
+        assert_eq!(
+            merge_wslenv(Some("CLI_COMPANION_SESSION_X"), &v),
+            "CLI_COMPANION_SESSION_X:CLI_COMPANION_SESSION/u"
+        );
+    }
+
+    #[test]
+    fn wslenv_merge_handles_several_vars() {
+        let v = ["S", "T"];
+        assert_eq!(merge_wslenv(None, &v), "S/u:T/u");
+        assert_eq!(merge_wslenv(Some("A/p"), &v), "A/p:S/u:T/u");
+        // Una gia' presente: si aggiunge solo l'altra.
+        assert_eq!(merge_wslenv(Some("T/u"), &v), "T/u:S/u");
+        assert_eq!(merge_wslenv(Some("S:T/u"), &v), "S:T/u");
+    }
+
+    #[test]
+    fn session_env_is_set_and_wsl_adds_wslenv() {
+        let mut c = CommandBuilder::new("dummy");
+        apply_session_env(&mut c, "tab-1", false);
+        assert_eq!(c.get_env("CLI_COMPANION_SESSION"), Some(std::ffi::OsStr::new("tab-1")));
+        let token = c.get_env("CLI_COMPANION_TOKEN").unwrap().to_string_lossy().into_owned();
+        assert_eq!(token, crate::automation::token());
+        assert!(c.get_env("WSLENV").is_none());
+        let mut w = CommandBuilder::new("dummy");
+        apply_session_env(&mut w, "tab-1", true);
+        let wslenv = w.get_env("WSLENV").unwrap().to_string_lossy().into_owned();
+        assert!(wslenv.split(':').any(|e| e == "CLI_COMPANION_SESSION/u"), "{wslenv}");
+        assert!(wslenv.split(':').any(|e| e == "CLI_COMPANION_TOKEN/u"), "{wslenv}");
+    }
+
+    #[test]
+    fn writer_queue_preserves_order_and_stops_on_close() {
+        struct Sink(std::sync::mpsc::Sender<Vec<u8>>);
+        impl Write for Sink {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.send(b.to_vec()).unwrap();
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let (out_tx, out_rx) = std::sync::mpsc::channel();
+        let tx = spawn_writer(Box::new(Sink(out_tx)));
+        for i in 0..50u8 {
+            tx.send(vec![i]).unwrap();
+        }
+        drop(tx);
+        // Chiuso il canale il thread esce e chiude anche `out_tx`.
+        let got: Vec<u8> = out_rx.iter().flatten().collect();
+        assert_eq!(got, (0..50u8).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn size_is_clamped() {
+        let s = pty_size(0, 1000);
+        assert_eq!((s.cols, s.rows), (2, 300));
+        let s = pty_size(80, 24);
+        assert_eq!((s.cols, s.rows), (80, 24));
+    }
+
+    #[test]
+    fn color_env_declares_256_and_truecolor() {
+        let mut cmd = CommandBuilder::new("dummy");
+        apply_color_env(&mut cmd);
+        assert_eq!(cmd.get_env("TERM"), Some(std::ffi::OsStr::new("xterm-256color")));
+        assert_eq!(cmd.get_env("COLORTERM"), Some(std::ffi::OsStr::new("truecolor")));
+    }
 }
 
 /// Hint di capacità colore per i figli del PTY (CLI Node/chalk, Python,
@@ -316,40 +293,30 @@ fn apply_color_env(cmd: &mut CommandBuilder) {
 /// da Windows alla distro; i processi Windows lanciati da li' (l'exe degli
 /// hook, via interop) le ricevono ancora dall'ambiente d'origine.
 fn merge_wslenv(existing: Option<&str>, vars: &[&str]) -> String {
-  let mut entries: Vec<String> = existing
-    .unwrap_or("")
-    .trim_matches(':')
-    .split(':')
-    .filter(|e| !e.is_empty())
-    .map(str::to_string)
-    .collect();
-  for var in vars {
-    if !entries.iter().any(|e| e.split('/').next() == Some(*var)) {
-      entries.push(format!("{var}/u"));
+    let mut entries: Vec<String> =
+        existing.unwrap_or("").trim_matches(':').split(':').filter(|e| !e.is_empty()).map(str::to_string).collect();
+    for var in vars {
+        if !entries.iter().any(|e| e.split('/').next() == Some(*var)) {
+            entries.push(format!("{var}/u"));
+        }
     }
-  }
-  entries.join(":")
+    entries.join(":")
 }
 
 /// Imposta `CLI_COMPANION_SESSION` (id del tab) e `CLI_COMPANION_TOKEN` per
 /// gli hook degli agenti e il server MCP; su WSL le fa attraversare il
 /// confine con WSLENV.
 fn apply_session_env(cmd: &mut CommandBuilder, tab_id: &str, wsl: bool) {
-  cmd.env(SESSION_ENV, tab_id);
-  cmd.env(TOKEN_ENV, crate::automation::token());
-  if wsl {
-    let parent = std::env::var("WSLENV").ok();
-    cmd.env("WSLENV", merge_wslenv(parent.as_deref(), &[SESSION_ENV, TOKEN_ENV]));
-  }
+    cmd.env(SESSION_ENV, tab_id);
+    cmd.env(TOKEN_ENV, crate::automation::token());
+    if wsl {
+        let parent = std::env::var("WSLENV").ok();
+        cmd.env("WSLENV", merge_wslenv(parent.as_deref(), &[SESSION_ENV, TOKEN_ENV]));
+    }
 }
 
 fn is_powershell(shell: &str) -> bool {
-    let file = shell
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(shell)
-        .trim()
-        .to_lowercase();
+    let file = shell.rsplit(['/', '\\']).next().unwrap_or(shell).trim().to_lowercase();
     let stem = file.strip_suffix(".exe").unwrap_or(&file);
     matches!(stem, "powershell" | "pwsh")
 }
@@ -379,10 +346,7 @@ pub async fn pty_spawn(
     if !crate::agent_notify::is_valid_tab_id(&tab_id) {
         return Err("id tab non valido".to_string());
     }
-    crate::blocking(move || {
-        spawn_blocking_session(&app, &workspace_id, &tab_id, cols, rows, cwd, on_event)
-    })
-    .await
+    crate::blocking(move || spawn_blocking_session(&app, &workspace_id, &tab_id, cols, rows, cwd, on_event)).await
 }
 
 fn spawn_blocking_session(
@@ -396,17 +360,10 @@ fn spawn_blocking_session(
 ) -> Result<u32, String> {
     let pty = app.state::<PtyState>();
     let store = app.state::<WorkspaceStore>();
-    let ws = store
-        .find(workspace_id)
-        .ok_or_else(|| "workspace non trovato".to_string())?;
+    let ws = store.find(workspace_id).ok_or_else(|| "workspace non trovato".to_string())?;
     // Cartella di partenza: quella richiesta (sessioni automatiche) oppure
     // quella del workspace.
-    let dir = cwd
-        .as_deref()
-        .map(str::trim)
-        .filter(|d| !d.is_empty())
-        .unwrap_or(&ws.path)
-        .to_string();
+    let dir = cwd.as_deref().map(str::trim).filter(|d| !d.is_empty()).unwrap_or(&ws.path).to_string();
 
     {
         let sessions = pty.sessions.lock().unwrap();
@@ -436,16 +393,11 @@ fn spawn_blocking_session(
         apply_session_env(&mut c, tab_id, true);
         c
     } else {
-        let meta =
-            std::fs::metadata(&dir).map_err(|_| format!("cartella non trovata: {dir}"))?;
+        let meta = std::fs::metadata(&dir).map_err(|_| format!("cartella non trovata: {dir}"))?;
         if !meta.is_dir() {
             return Err(format!("non è una cartella: {dir}"));
         }
-        let shell = ws
-            .shell
-            .clone()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "powershell.exe".to_string());
+        let shell = ws.shell.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| "powershell.exe".to_string());
         let mut c = CommandBuilder::new(&shell);
         if is_powershell(&shell) {
             c.arg("-NoLogo");
@@ -460,22 +412,11 @@ fn spawn_blocking_session(
     };
 
     let pty_system = native_pty_system();
-    let pair = pty_system
-        .openpty(pty_size(cols, rows))
-        .map_err(|e| format!("pty: {e}"))?;
-    let child = pair
-        .slave
-        .spawn_command(cmd)
-        .map_err(|e| format!("spawn: {e}"))?;
+    let pair = pty_system.openpty(pty_size(cols, rows)).map_err(|e| format!("pty: {e}"))?;
+    let child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn: {e}"))?;
     drop(pair.slave);
-    let reader = pair
-        .master
-        .try_clone_reader()
-        .map_err(|e| format!("pty reader: {e}"))?;
-    let writer = pair
-        .master
-        .take_writer()
-        .map_err(|e| format!("pty writer: {e}"))?;
+    let reader = pair.master.try_clone_reader().map_err(|e| format!("pty reader: {e}"))?;
+    let writer = pair.master.take_writer().map_err(|e| format!("pty writer: {e}"))?;
 
     let session_id = pty.next_id.fetch_add(1, Ordering::SeqCst);
     pty.sessions.lock().unwrap().insert(
@@ -528,10 +469,7 @@ fn spawn_blocking_session(
 pub fn workspace_of_tab(app: &AppHandle, tab_id: &str) -> Option<String> {
     let pty = app.state::<PtyState>();
     let sessions = pty.sessions.lock().unwrap();
-    sessions
-        .values()
-        .find(|sess| sess.tab_id == tab_id)
-        .map(|sess| sess.workspace_id.clone())
+    sessions.values().find(|sess| sess.tab_id == tab_id).map(|sess| sess.workspace_id.clone())
 }
 
 /// Sincrono ma O(1): accoda e basta, quindi sul main thread non blocca.
@@ -548,17 +486,11 @@ pub fn pty_write(app: AppHandle, pty: State<PtyState>, session_id: u32, data: St
     if data.contains('\r') {
         crate::automation::user_input(&app, &tab_id);
     }
-    tx.send(data.into_bytes())
-        .map_err(|_| "sessione chiusa".to_string())
+    tx.send(data.into_bytes()).map_err(|_| "sessione chiusa".to_string())
 }
 
 #[tauri::command]
-pub async fn pty_resize(
-    pty: State<'_, PtyState>,
-    session_id: u32,
-    cols: u16,
-    rows: u16,
-) -> Result<(), String> {
+pub async fn pty_resize(pty: State<'_, PtyState>, session_id: u32, cols: u16, rows: u16) -> Result<(), String> {
     // Il lock della mappa e' rilasciato prima del resize (puo' essere lento).
     let (master, seq) = pty
         .sessions

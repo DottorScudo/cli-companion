@@ -38,9 +38,7 @@ where
     T: Send + 'static,
     F: FnOnce() -> Result<T, String> + Send + 'static,
 {
-    tauri::async_runtime::spawn_blocking(f)
-        .await
-        .map_err(|e| format!("operazione interrotta: {e}"))?
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| format!("operazione interrotta: {e}"))?
 }
 
 /// Scrittura atomica: file temporaneo + rename, cosi' un crash a meta'

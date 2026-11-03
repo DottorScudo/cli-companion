@@ -28,7 +28,8 @@ fn apply(p: &SettingsPatch, w: &mut Workspace) -> Result<(), String> {
 
 #[test]
 fn parse_distinguishes_absent_from_null() {
-    let p = patch(json!({"worker_model": null, "default_launch": null, "repos": {"a": null, "b": {"base_branch": null}}}));
+    let p =
+        patch(json!({"worker_model": null, "default_launch": null, "repos": {"a": null, "b": {"base_branch": null}}}));
     assert_eq!(p.worker_model, Some(None));
     assert_eq!(p.default_launch, Some(None));
     assert_eq!(p.worker_rules, None);
@@ -97,7 +98,10 @@ fn normalized_cleans_values() {
     assert_eq!(n.worker_allow, Some(vec!["Bash(git:*)".to_string(), "Read".to_string()]));
     assert_eq!(n.worker_deny, Some(vec!["WebFetch".to_string()]));
     // `parallel` non ha senso senza branch: scartato.
-    assert_eq!(n.delivery, Some(DeliveryPatch { mode: Some(DeliveryMode::Commit), parallel: Some(false), merge_method: None }));
+    assert_eq!(
+        n.delivery,
+        Some(DeliveryPatch { mode: Some(DeliveryMode::Commit), parallel: Some(false), merge_method: None })
+    );
     assert_eq!(n.use_schedule, Some(true));
     assert_eq!(n.default_launch, Some(Some("l1".to_string())));
     assert_eq!(n.launches, Some(vec![LaunchPatch { id: Some("l1".into()), name: "Dev".into(), command: "ls".into() }]));
@@ -125,7 +129,8 @@ fn delivery_keeps_parallel_with_branches_and_merges_onto_current() {
 fn invalid_values_fail_and_translate_to_english() {
     let mut w = ws();
     w.launches = vec![launch("l1")];
-    let too_many_launches: Vec<_> = (0..=MAX_PATCH_LAUNCHES).map(|i| json!({"name": format!("n{i}"), "command": "c"})).collect();
+    let too_many_launches: Vec<_> =
+        (0..=MAX_PATCH_LAUNCHES).map(|i| json!({"name": format!("n{i}"), "command": "c"})).collect();
     let cases = [
         (json!({"worker_rules": "x".repeat(MAX_RULES_LEN + 1)}), "worker_rules"),
         (json!({"worker_rules": "a\u{1}b"}), "worker_rules"),
@@ -133,15 +138,33 @@ fn invalid_values_fail_and_translate_to_english() {
         (json!({"worker_permission": "root"}), "worker_permission"),
         (json!({"worker_allow": ["bad rule"]}), "worker_allow: rule \"bad rule\""),
         (json!({"worker_allow": ["a\nb"]}), "worker_allow: rule"),
-        (json!({"worker_deny": ["mcp__srv__tool(x)"]}), "worker_deny: rule \"mcp__srv__tool(x)\": mcp__ rules take no parentheses"),
+        (
+            json!({"worker_deny": ["mcp__srv__tool(x)"]}),
+            "worker_deny: rule \"mcp__srv__tool(x)\": mcp__ rules take no parentheses",
+        ),
         (json!({"worker_deny": [format!("Bash({})", "a".repeat(MAX_RULE_CHARS))]}), "worker_deny: rule"),
-        (json!({"worker_allow": (0..=MAX_RULES).map(|i| format!("R{i}")).collect::<Vec<_>>()}), "worker_allow: too many rules"),
+        (
+            json!({"worker_allow": (0..=MAX_RULES).map(|i| format!("R{i}")).collect::<Vec<_>>()}),
+            "worker_allow: too many rules",
+        ),
         (json!({"delivery": {}}), "delivery"),
         (json!({"launches": [{"name": "", "command": "c"}]}), "launches[0]: launch name is missing"),
-        (json!({"launches": [{"name": "n".repeat(MAX_LAUNCH_NAME_LEN + 1), "command": "c"}]}), "launches[0]: launch name too long"),
-        (json!({"launches": [{"name": "n", "command": "c"}, {"name": "n", "command": " "}]}), "launches[1]: launch command is missing"),
-        (json!({"launches": [{"id": "ghost", "name": "n", "command": "c"}]}), "launches[0]: launch not found: an id must be"),
-        (json!({"launches": [{"id": "l1", "name": "n", "command": "c"}, {"id": "l1", "name": "m", "command": "c"}]}), "launches[1]: duplicate launch id"),
+        (
+            json!({"launches": [{"name": "n".repeat(MAX_LAUNCH_NAME_LEN + 1), "command": "c"}]}),
+            "launches[0]: launch name too long",
+        ),
+        (
+            json!({"launches": [{"name": "n", "command": "c"}, {"name": "n", "command": " "}]}),
+            "launches[1]: launch command is missing",
+        ),
+        (
+            json!({"launches": [{"id": "ghost", "name": "n", "command": "c"}]}),
+            "launches[0]: launch not found: an id must be",
+        ),
+        (
+            json!({"launches": [{"id": "l1", "name": "n", "command": "c"}, {"id": "l1", "name": "m", "command": "c"}]}),
+            "launches[1]: duplicate launch id",
+        ),
         (json!({"launches": too_many_launches}), "too many launches"),
         (json!({"default_launch": "nope"}), "invalid default_launch"),
         (json!({"repos": {"x": {"base_branch": "no good"}}}), "repos['x']: invalid base_branch: no good"),
@@ -150,9 +173,18 @@ fn invalid_values_fail_and_translate_to_english() {
         (json!({"repos": {"x": {"copy_ignored": [".."]}}}), "repos['x']: invalid copy_ignored path"),
         (json!({"repos": {"x": {"setup": ["a\nb"]}}}), "repos['x']: setup commands must be single-line"),
         (json!({"repos": {"x": {"cleanup": ["a\nb"]}}}), "repos['x']: cleanup commands must be single-line"),
-        (json!({"repos": {"x": {"setup": ["y".repeat(MAX_REPO_COMMAND_LEN + 1)]}}}), "repos['x']: setup command too long"),
-        (json!({"repos": {"x": {"cleanup": vec!["y"; MAX_REPO_COMMANDS + 1]}}}), "repos['x']: too many cleanup commands"),
-        (json!({"repos": {"x": {"copy_ignored": (0..=MAX_REPO_COMMANDS).map(|i| format!("p{i}")).collect::<Vec<_>>()}}}), "repos['x']: too many copy_ignored paths"),
+        (
+            json!({"repos": {"x": {"setup": ["y".repeat(MAX_REPO_COMMAND_LEN + 1)]}}}),
+            "repos['x']: setup command too long",
+        ),
+        (
+            json!({"repos": {"x": {"cleanup": vec!["y"; MAX_REPO_COMMANDS + 1]}}}),
+            "repos['x']: too many cleanup commands",
+        ),
+        (
+            json!({"repos": {"x": {"copy_ignored": (0..=MAX_REPO_COMMANDS).map(|i| format!("p{i}")).collect::<Vec<_>>()}}}),
+            "repos['x']: too many copy_ignored paths",
+        ),
         (json!({"repos": {"x": {}}}), "repos['x']: has no fields"),
         (json!({"repos": {"x": {"remove_force": true}, "x/": {"remove_force": true}}}), "duplicate repo key"),
         (json!({"repos": {"/abs": {"remove_force": true}}}), "repos['/abs']"),
@@ -244,8 +276,14 @@ fn apply_changes_everything_at_once() {
     assert_eq!(w.worker_rules, "rules");
     assert_eq!(w.worker_model.as_deref(), Some("opus"));
     assert_eq!(w.worker_permission, "plan");
-    assert_eq!((w.worker_allow.as_slice(), w.worker_deny.as_slice()), (&["Read".to_string()][..], &["WebFetch".to_string()][..]));
-    assert_eq!(w.delivery, Delivery { mode: DeliveryMode::LocalMerge, parallel: true, merge_method: MergeMethod::Squash });
+    assert_eq!(
+        (w.worker_allow.as_slice(), w.worker_deny.as_slice()),
+        (&["Read".to_string()][..], &["WebFetch".to_string()][..])
+    );
+    assert_eq!(
+        w.delivery,
+        Delivery { mode: DeliveryMode::LocalMerge, parallel: true, merge_method: MergeMethod::Squash }
+    );
     assert!(w.use_schedule);
     // Nuovo avvio con id generato, l1 mantiene l'id, l2 e' sparito (era il predefinito).
     let ids: Vec<_> = w.launches.iter().map(|l| l.id.as_str()).collect();
@@ -319,7 +357,10 @@ fn current_reports_only_touched_fields() {
     w.launches = vec![launch("l1")];
     w.default_launch = Some("l1".into());
     w.delivery = Delivery { mode: DeliveryMode::Pr, parallel: true, merge_method: MergeMethod::Merge };
-    w.repos.insert("api".into(), RepoConfig { base_branch: Some("main".into()), setup: vec!["a".into()], ..Default::default() });
+    w.repos.insert(
+        "api".into(),
+        RepoConfig { base_branch: Some("main".into()), setup: vec!["a".into()], ..Default::default() },
+    );
     w.repos.insert("gone".into(), RepoConfig { cleanup: vec!["c".into()], remove_force: true, ..Default::default() });
     let p = patch(json!({
         "worker_rules": "new",
@@ -338,7 +379,10 @@ fn current_reports_only_touched_fields() {
     assert_eq!(cur.worker_allow, Some(vec!["Read".to_string()]));
     assert_eq!(cur.delivery, Some(DeliveryPatch { mode: Some(DeliveryMode::Pr), ..Default::default() }));
     assert_eq!(cur.default_launch, Some(Some("l1".to_string())));
-    assert_eq!(cur.launches, Some(vec![LaunchPatch { id: Some("l1".into()), name: "name l1".into(), command: "cmd l1".into() }]));
+    assert_eq!(
+        cur.launches,
+        Some(vec![LaunchPatch { id: Some("l1".into()), name: "name l1".into(), command: "cmd l1".into() }])
+    );
     // Campi non toccati: assenti.
     assert!(cur.worker_deny.is_none() && cur.worker_permission.is_none() && cur.use_schedule.is_none());
     let repos = cur.repos.unwrap();
@@ -350,7 +394,10 @@ fn current_reports_only_touched_fields() {
     assert_eq!(gone.base_branch, Some(None));
     assert!(gone.copy_ignored.is_some() && gone.setup.is_some() && gone.container_root.is_some());
     // Una patch di un solo campo non riporta altro.
-    assert_eq!(patch(json!({"use_schedule": true})).current(&w), SettingsPatch { use_schedule: Some(false), ..Default::default() });
+    assert_eq!(
+        patch(json!({"use_schedule": true})).current(&w),
+        SettingsPatch { use_schedule: Some(false), ..Default::default() }
+    );
 }
 
 #[test]
@@ -424,7 +471,9 @@ fn e2e_is_set_kept_and_removed_by_a_patch() {
     let bad = json!({"repos": {"api": {"e2e": {"command": "x", "junit": "../j.xml"}}}});
     assert!(apply(&patch(bad), &mut w).is_err());
     assert_eq!(w, before);
-    assert!(SettingsPatch::parse(&json!({"repos": {"api": {"e2e": {"command": "x", "junit": "j", "cwd": "."}}}})).is_err());
+    assert!(
+        SettingsPatch::parse(&json!({"repos": {"api": {"e2e": {"command": "x", "junit": "j", "cwd": "."}}}})).is_err()
+    );
     assert!(SettingsPatch::parse(&json!({"repos": {"api": {"e2e": {"command": "x"}}}})).is_err());
 }
 

@@ -6,8 +6,8 @@ use super::{
     check_default_launch, clear_default_if_removed, find_ws_mut, next_launch_id, normalize_permission_rules,
     normalize_rules, normalize_worker_model, parse_worker_permission, persist, repo_config_key, validate_launch,
     Delivery, DeliveryMode, E2eConfig, Launch, MergeMethod, RepoConfig, StoreData, Workspace, ALLOW_RULES_LABEL,
-    DENY_RULES_LABEL, MAX_E2E_TIMEOUT_MIN, MAX_LAUNCH_NAME_LEN, MIN_E2E_TIMEOUT_MIN, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_REPO_PATH_LEN,
-    MAX_RULES_LEN,
+    DENY_RULES_LABEL, MAX_E2E_TIMEOUT_MIN, MAX_LAUNCH_NAME_LEN, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN,
+    MAX_REPO_PATH_LEN, MAX_RULES_LEN, MIN_E2E_TIMEOUT_MIN,
 };
 use crate::worker_permissions::{MAX_RULES, MAX_RULE_CHARS};
 use serde::{Deserialize, Serialize};
@@ -215,10 +215,7 @@ impl SettingsPatch {
     pub fn parse(v: &serde_json::Value) -> Result<SettingsPatch, String> {
         let obj = v.as_object().ok_or_else(|| "invalid settings: expected a JSON object".to_string())?;
         if let Some(field) = FIXED_FIELDS.iter().find(|f| obj.contains_key(**f)) {
-            return Err(format!(
-                "`{field}` cannot be changed by a proposal (fixed: {})",
-                FIXED_FIELDS.join(", ")
-            ));
+            return Err(format!("`{field}` cannot be changed by a proposal (fixed: {})", FIXED_FIELDS.join(", ")));
         }
         SettingsPatch::deserialize(v).map_err(|e| format!("invalid settings: {e}"))
     }
@@ -532,7 +529,7 @@ fn message_table() -> Vec<(&'static str, String)> {
             "percorso JUnit E2E non valido",
             format!("invalid e2e junit path (no control characters, max {MAX_REPO_PATH_LEN} characters)"),
         ),
-        ("nome avvio mancante","launch name is missing".to_string()),
+        ("nome avvio mancante", "launch name is missing".to_string()),
         ("nome avvio troppo lungo", format!("launch name too long (max {MAX_LAUNCH_NAME_LEN} characters)")),
         ("comando avvio mancante", "launch command is missing".to_string()),
         ("avvio non trovato", "launch not found: an id must be one of the workspace's current launches".to_string()),

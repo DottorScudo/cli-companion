@@ -5,8 +5,8 @@
 use super::junit::{self, JunitReport};
 use crate::automation::hooks::tail;
 use crate::automation::worktrees::GitOut;
-use crate::board::{CodeFingerprint, E2eFailure, E2eOutcome, E2eStatus, E2eTotals, E2E_OUTPUT_TAIL_MAX};
 use crate::board::strip_ansi;
+use crate::board::{CodeFingerprint, E2eFailure, E2eOutcome, E2eStatus, E2eTotals, E2E_OUTPUT_TAIL_MAX};
 
 /// Offset e primo di FNV-1a a 64 bit: stabile fra versioni di Rust (a
 /// differenza di `DefaultHasher`).
@@ -142,7 +142,10 @@ mod tests {
         assert_eq!(o.error.as_deref(), Some("JUnit report not found at out/junit.xml"));
         assert_eq!(o.output_tail.as_deref(), Some("out line\nerr line"));
         let o = eval(Ok(out(false)), Ok(None));
-        assert_eq!(o.error.as_deref(), Some("JUnit report not found at out/junit.xml (the command exited with an error)"));
+        assert_eq!(
+            o.error.as_deref(),
+            Some("JUnit report not found at out/junit.xml (the command exited with an error)")
+        );
     }
 
     #[test]
@@ -169,7 +172,10 @@ mod tests {
             assert_eq!(o.status, E2eStatus::Failed);
             assert_eq!(o.totals.as_ref().map(|t| (t.tests, t.passed, t.failed)), Some((2, 1, 1)));
             assert_eq!(o.failed_tests.len(), 1);
-            assert_eq!((o.failed_tests[0].file.as_deref(), o.failed_tests[0].message.as_str()), (Some("b.spec.ts"), "boom"));
+            assert_eq!(
+                (o.failed_tests[0].file.as_deref(), o.failed_tests[0].message.as_str()),
+                (Some("b.spec.ts"), "boom")
+            );
             assert!(o.output_tail.is_none());
         }
     }
@@ -185,7 +191,8 @@ mod tests {
 
     #[test]
     fn the_output_tail_keeps_the_end_and_is_bounded() {
-        let big = GitOut { ok: true, stdout: format!("{}END", "x".repeat(E2E_OUTPUT_TAIL_MAX * 2)), stderr: String::new() };
+        let big =
+            GitOut { ok: true, stdout: format!("{}END", "x".repeat(E2E_OUTPUT_TAIL_MAX * 2)), stderr: String::new() };
         let o = eval(Ok(big), Ok(None));
         let t = o.output_tail.unwrap();
         assert!(t.ends_with("END") && t.starts_with("...") && t.chars().count() <= E2E_OUTPUT_TAIL_MAX + 3);
@@ -195,7 +202,8 @@ mod tests {
 
     #[test]
     fn the_output_tail_has_no_ansi_escapes() {
-        let noisy = GitOut { ok: true, stdout: "\u{1b}[1A\u{1b}[2Krunning".into(), stderr: "\u{1b}[31mboom\u{1b}[0m".into() };
+        let noisy =
+            GitOut { ok: true, stdout: "\u{1b}[1A\u{1b}[2Krunning".into(), stderr: "\u{1b}[31mboom\u{1b}[0m".into() };
         assert_eq!(eval(Ok(noisy), Ok(None)).output_tail.as_deref(), Some("running\nboom"));
     }
 

@@ -106,7 +106,8 @@ fn parse_tests(arr: &[Value]) -> Result<Vec<TestRun>, String> {
     let mut out = Vec::new();
     for t in arr {
         let o: &Map<String, Value> = t.as_object().ok_or_else(|| "tests entries must be objects".to_string())?;
-        let command = req_text("tests[].command", o.get("command").and_then(Value::as_str).unwrap_or(""), TEST_COMMAND_MAX)?;
+        let command =
+            req_text("tests[].command", o.get("command").and_then(Value::as_str).unwrap_or(""), TEST_COMMAND_MAX)?;
         let result = o.get("result").and_then(Value::as_str).unwrap_or("");
         if !["passed", "failed", "not_run"].contains(&result) {
             return Err("tests[].result must be passed, failed or not_run".to_string());
@@ -129,7 +130,8 @@ pub fn parse_report_fields(p: &Value) -> Result<ReportFields, String> {
     if pr_url.as_deref().is_some_and(|u| !(u.starts_with("https://") || u.starts_with("http://"))) {
         return Err("invalid pr_url (an http(s) link)".to_string());
     }
-    let files_changed = nonnull("files_changed").map(|v| str_list(v, "files_changed", FILES_MAX, FILE_MAX)).transpose()?;
+    let files_changed =
+        nonnull("files_changed").map(|v| str_list(v, "files_changed", FILES_MAX, FILE_MAX)).transpose()?;
     let follow_ups = nonnull("follow_ups").map(|v| str_list(v, "follow_ups", LIST_MAX, LIST_ITEM_MAX)).transpose()?;
     let verdict = match nonnull("verdict") {
         None => None,

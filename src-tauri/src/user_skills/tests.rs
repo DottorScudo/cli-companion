@@ -109,8 +109,25 @@ fn body_rules() {
 #[test]
 fn unsafe_file_paths_are_rejected() {
     for bad in [
-        "", "../x", "a/../x", "a/./x", "/abs", "C:/x", "a\\b", "a:b", "a//b", "a/", "dir/..", "SKILL.md", "skill.md",
-        ".cli-companion-managed", ".cli-companion-managed/x", "trailing.", "sp ace /x", "a*b", "q?",
+        "",
+        "../x",
+        "a/../x",
+        "a/./x",
+        "/abs",
+        "C:/x",
+        "a\\b",
+        "a:b",
+        "a//b",
+        "a/",
+        "dir/..",
+        "SKILL.md",
+        "skill.md",
+        ".cli-companion-managed",
+        ".cli-companion-managed/x",
+        "trailing.",
+        "sp ace /x",
+        "a*b",
+        "q?",
     ] {
         let mut i = input("a");
         i.files = vec![file(bad, "x")];

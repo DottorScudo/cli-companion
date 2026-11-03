@@ -25,16 +25,10 @@ pub(crate) fn wsl_command() -> Command {
 /// wsl.exe scrive in UTF-16LE con BOM: decodifica tollerante (UTF-16LE/BE o UTF-8).
 fn decode_output(bytes: &[u8]) -> String {
     if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
-        let units: Vec<u16> = bytes[2..]
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
-            .collect();
+        let units: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
         String::from_utf16_lossy(&units)
     } else if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
-        let units: Vec<u16> = bytes[2..]
-            .chunks_exact(2)
-            .map(|c| u16::from_be_bytes([c[0], c[1]]))
-            .collect();
+        let units: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
         String::from_utf16_lossy(&units)
     } else {
         String::from_utf8_lossy(bytes).into_owned()
@@ -46,11 +40,7 @@ fn decode_output(bytes: &[u8]) -> String {
 /// dedicati (un figlio loquace non si blocca su una pipe piena); dopo il
 /// kill un nipote che tiene aperte le pipe non blocca: si usa quanto letto.
 pub(crate) fn output_with_timeout(cmd: &mut Command, timeout: Duration) -> std::io::Result<Output> {
-    let mut child = cmd
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+    let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     let drain = |pipe: Option<Box<dyn Read + Send>>| {
         let buf = Arc::new(Mutex::new(Vec::new()));
         let (tx, rx) = mpsc::channel();
@@ -154,27 +144,18 @@ fn installed_distros_uncached() -> Result<Vec<String>, String> {
     let output = output_with_timeout(wsl_command().args(["-l", "-q"]), LIST_DISTROS_TIMEOUT)
         .map_err(|e| format!("wsl.exe non disponibile: {e}"))?;
     let text = decode_output(&output.stdout);
-    let mut names: Vec<String> = text
-        .lines()
-        .map(|l| l.replace('\0', "").trim().to_string())
-        .filter(|l| !l.is_empty())
-        .collect();
+    let mut names: Vec<String> =
+        text.lines().map(|l| l.replace('\0', "").trim().to_string()).filter(|l| !l.is_empty()).collect();
     // Difesa contro output localizzati o senza flag -q (vecchie build).
     names.retain(|n| {
         let lower = n.to_lowercase();
-        !(lower.starts_with("windows subsystem")
-            || lower.starts_with("per ")
-            || lower.contains("installer"))
+        !(lower.starts_with("windows subsystem") || lower.starts_with("per ") || lower.contains("installer"))
     });
     Ok(names)
 }
 
 pub fn wsl_dir_exists(distro: &str, path: &str) -> bool {
-    wsl_command()
-        .args(["-d", distro, "-e", "test", "-d", path])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    wsl_command().args(["-d", distro, "-e", "test", "-d", path]).status().map(|s| s.success()).unwrap_or(false)
 }
 
 /// Comando `argv` nella distro, con `dir` come cartella corrente. `-e`
@@ -212,11 +193,7 @@ pub fn windows_to_wsl_path(win: &str) -> Option<String> {
         let drive = bytes[0] as char;
         if drive.is_ascii_alphabetic() {
             let rest = t[2..].replace('\\', "/");
-            return Some(format!(
-                "/mnt/{}/{}",
-                drive.to_ascii_lowercase(),
-                rest.trim_start_matches('/')
-            ));
+            return Some(format!("/mnt/{}/{}", drive.to_ascii_lowercase(), rest.trim_start_matches('/')));
         }
     }
     None
@@ -228,9 +205,7 @@ pub fn is_windows_drive_path(linux: &str) -> bool {
     let mut comps = linux.trim().split('/').filter(|c| !c.is_empty());
     linux.trim().starts_with('/')
         && comps.next() == Some("mnt")
-        && comps
-            .next()
-            .is_some_and(|d| d.len() == 1 && d.as_bytes()[0].is_ascii_alphabetic())
+        && comps.next().is_some_and(|d| d.len() == 1 && d.as_bytes()[0].is_ascii_alphabetic())
 }
 
 /// Inverso di `windows_to_wsl_path`: path Linux di `distro` -> path Windows
@@ -248,11 +223,7 @@ pub fn wsl_to_windows_path(distro: &str, linux: &str) -> Option<String> {
     if let [mnt, drive, rest @ ..] = comps.as_slice() {
         if *mnt == "mnt" && drive.len() == 1 && drive.as_bytes()[0].is_ascii_alphabetic() {
             let d = drive.to_ascii_uppercase();
-            return Some(if rest.is_empty() {
-                format!("{d}:\\")
-            } else {
-                format!("{d}:\\{}", rest.join("\\"))
-            });
+            return Some(if rest.is_empty() { format!("{d}:\\") } else { format!("{d}:\\{}", rest.join("\\")) });
         }
     }
     Some(format!("\\\\wsl.localhost\\{distro}\\{}", comps.join("\\")))

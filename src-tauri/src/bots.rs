@@ -16,10 +16,10 @@ const NAME_MAX_CHARS: usize = 24;
 const NAMES_MAX: usize = 200;
 
 const DEFAULT_NAMES: [&str; 40] = [
-    "Bolt", "Pixel", "Gizmo", "Sprocket", "Widget", "Byte", "Nova", "Cog", "Rusty", "Chip", "Echo",
-    "Flux", "Glitch", "Hex", "Ion", "Jolt", "Kilo", "Loop", "Mochi", "Nano", "Orbit", "Patch",
-    "Quark", "Ratchet", "Servo", "Tesla", "Unit", "Volt", "Watt", "Zippy", "Blip", "Cosmo",
-    "Dynamo", "Fizz", "Gadget", "Rivet", "Spark", "Tinker", "Turbo", "Zed",
+    "Bolt", "Pixel", "Gizmo", "Sprocket", "Widget", "Byte", "Nova", "Cog", "Rusty", "Chip", "Echo", "Flux", "Glitch",
+    "Hex", "Ion", "Jolt", "Kilo", "Loop", "Mochi", "Nano", "Orbit", "Patch", "Quark", "Ratchet", "Servo", "Tesla",
+    "Unit", "Volt", "Watt", "Zippy", "Blip", "Cosmo", "Dynamo", "Fizz", "Gadget", "Rivet", "Spark", "Tinker", "Turbo",
+    "Zed",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,9 +140,8 @@ pub async fn set_bot_image(app: AppHandle, name: String, png: String, color: Str
     crate::blocking(move || {
         let img = image::validate_image(&png, &color)?;
         update(&app, |s| {
-            let pool = pool_name(&s.names, &name)
-                .cloned()
-                .ok_or_else(|| format!("il nome “{name}” non è nell'elenco"))?;
+            let pool =
+                pool_name(&s.names, &name).cloned().ok_or_else(|| format!("il nome “{name}” non è nell'elenco"))?;
             s.images.insert(pool, img);
             Ok(())
         })

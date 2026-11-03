@@ -56,10 +56,7 @@ pub struct UpdateConfig {
 }
 
 fn env_override(name: &str) -> Option<String> {
-    std::env::var(name)
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
+    std::env::var(name).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
 }
 
 /// Carica la config effettiva: JSON embedded + override da variabili d'ambiente.
@@ -74,21 +71,13 @@ pub fn load_config() -> UpdateConfig {
     let api_url = env_override("CLI_COMPANION_UPDATE_API_URL")
         .or(file.api_url)
         .unwrap_or_else(|| "https://api.github.com".to_string());
-    let configured =
-        !owner.trim().is_empty() && owner != PLACEHOLDER_OWNER && !repo.trim().is_empty();
+    let configured = !owner.trim().is_empty() && owner != PLACEHOLDER_OWNER && !repo.trim().is_empty();
     let message = if configured {
         format!("Pronto: controllerò le release di {owner}/{repo}.")
     } else {
         not_configured_message_raw(&owner, &repo)
     };
-    UpdateConfig {
-        owner,
-        repo,
-        configured,
-        current_version: current_version().to_string(),
-        api_url,
-        message,
-    }
+    UpdateConfig { owner, repo, configured, current_version: current_version().to_string(), api_url, message }
 }
 
 fn not_configured_message_raw(owner: &str, repo: &str) -> String {
@@ -113,10 +102,7 @@ pub fn current_version() -> &'static str {
 /// Normalizza: trim, via il prefisso `v`/`V`, stringa vuota -> "0".
 pub fn normalize_version(raw: &str) -> String {
     let t = raw.trim();
-    let t = t
-        .strip_prefix('v')
-        .or_else(|| t.strip_prefix('V'))
-        .unwrap_or(t);
+    let t = t.strip_prefix('v').or_else(|| t.strip_prefix('V')).unwrap_or(t);
     if t.is_empty() {
         "0".to_string()
     } else {
@@ -126,11 +112,7 @@ pub fn normalize_version(raw: &str) -> String {
 
 /// Divide una componente ("10rc1" -> (10, "rc1"), "beta" -> (0, "beta")).
 fn split_part(part: &str) -> (u64, &str) {
-    let digits_len = part
-        .chars()
-        .take_while(|c| c.is_ascii_digit())
-        .map(|c| c.len_utf8())
-        .sum::<usize>();
+    let digits_len = part.chars().take_while(|c| c.is_ascii_digit()).map(|c| c.len_utf8()).sum::<usize>();
     let num = part[..digits_len].parse::<u64>().unwrap_or(0);
     (num, &part[digits_len..])
 }
@@ -220,12 +202,7 @@ fn latest_release_url(cfg: &UpdateConfig) -> String {
     if let Some(custom) = env_override("CLI_COMPANION_UPDATE_LATEST_URL") {
         return custom;
     }
-    format!(
-        "{}/repos/{}/{}/releases/latest",
-        cfg.api_url.trim_end_matches('/'),
-        cfg.owner,
-        cfg.repo
-    )
+    format!("{}/repos/{}/{}/releases/latest", cfg.api_url.trim_end_matches('/'), cfg.owner, cfg.repo)
 }
 
 /// Niente finestra console per i processi figli: la build release e' una app
@@ -255,7 +232,9 @@ fn run_curl_with(args: &[String], stdin: Option<&[u8]>) -> Result<Vec<u8>, Strin
     use std::process::Stdio;
     let bin = curl_bin();
     let spawn_err = |e: std::io::Error| {
-        format!("Impossibile eseguire '{bin}' (curl non trovato nel PATH?): {e}. Su Windows 10+ curl.exe è preinstallato.")
+        format!(
+            "Impossibile eseguire '{bin}' (curl non trovato nel PATH?): {e}. Su Windows 10+ curl.exe è preinstallato."
+        )
     };
     let mut cmd = Command::new(&bin);
     quiet(&mut cmd).args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -268,11 +247,7 @@ fn run_curl_with(args: &[String], stdin: Option<&[u8]>) -> Result<Vec<u8>, Strin
     let out = child.wait_with_output().map_err(spawn_err)?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
-        return Err(format!(
-            "curl fallito (exit {}): {}",
-            out.status,
-            err.trim()
-        ));
+        return Err(format!("curl fallito (exit {}): {}", out.status, err.trim()));
     }
     Ok(out.stdout)
 }
@@ -302,19 +277,16 @@ pub fn fetch_latest_release(cfg: &UpdateConfig) -> Result<GithubRelease, String>
     })?;
     let release = parse_release(&body, &url)?;
     if release.tag_name.trim().is_empty() {
-        return Err("La release GitHub non ha tag_name: impossibile confrontare le versioni."
-            .to_string());
+        return Err("La release GitHub non ha tag_name: impossibile confrontare le versioni.".to_string());
     }
     Ok(release)
 }
 
 /// Interpreta il JSON di una release (tollera il BOM UTF-8).
 fn parse_release(body: &[u8], url: &str) -> Result<GithubRelease, String> {
-    let body = body
-        .strip_prefix(b"\xef\xbb\xbf")
-        .unwrap_or(body);
-    let release: GithubRelease = serde_json::from_slice(body)
-        .map_err(|e| format!("Risposta GitHub non valida da {url}: {e}"))?;
+    let body = body.strip_prefix(b"\xef\xbb\xbf").unwrap_or(body);
+    let release: GithubRelease =
+        serde_json::from_slice(body).map_err(|e| format!("Risposta GitHub non valida da {url}: {e}"))?;
     Ok(release)
 }
 
@@ -337,7 +309,6 @@ pub fn check_blocking() -> Result<UpdateStatus, String> {
         published_at: release.published_at.clone().unwrap_or_default(),
     })
 }
-
 
 #[cfg(test)]
 mod tests {

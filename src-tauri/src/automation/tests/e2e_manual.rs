@@ -1,6 +1,8 @@
 //! Esecuzione manuale degli E2E di un repository (comandi della UI).
 
-use super::e2e::{archive, e2e_repo, flagged, run_e2e, set_code, writes_junit, CHECKOUT, COMMAND, JUNIT_PASS, STATUS_OUT};
+use super::e2e::{
+    archive, e2e_repo, flagged, run_e2e, set_code, writes_junit, CHECKOUT, COMMAND, JUNIT_PASS, STATUS_OUT,
+};
 use super::*;
 use crate::automation::e2e::manual;
 use crate::board::E2eStatus;
@@ -20,7 +22,10 @@ fn a_manual_run_stores_its_result_and_emits_two_events() {
     let started = manual::run_repo(&st, &h, "ws-1", None).unwrap();
     assert_eq!(started.status, E2eStatus::Running);
     assert_eq!(manual::last_result(&st, &h, "ws-1", None).unwrap().unwrap().status, E2eStatus::Running);
-    assert_eq!(manual::run_repo(&st, &h, "ws-1", Some(".")).unwrap_err(), "esecuzione E2E gia' in corso per questo repository");
+    assert_eq!(
+        manual::run_repo(&st, &h, "ws-1", Some(".")).unwrap_err(),
+        "esecuzione E2E gia' in corso per questo repository"
+    );
     h.run_held();
     let last = manual::last_result(&st, &h, "ws-1", Some(".")).unwrap().unwrap();
     assert_eq!((last.run_id.as_str(), last.status), (started.run_id.as_str(), E2eStatus::Passed));
@@ -51,7 +56,8 @@ fn a_manual_run_has_no_task_variables_and_runs_in_the_repository_folder() {
     let (st, h) = manual_setup();
     manual::run_repo(&st, &h, "ws-1", None).unwrap();
     let log = h.hook_log.lock().unwrap().clone();
-    let line = log.iter().find(|l| l.starts_with(&format!("{CHECKOUT}|{COMMAND}|"))).unwrap_or_else(|| panic!("{log:?}"));
+    let line =
+        log.iter().find(|l| l.starts_with(&format!("{CHECKOUT}|{COMMAND}|"))).unwrap_or_else(|| panic!("{log:?}"));
     assert!(line.contains("TASK_ID=,") && line.contains("CLI_COMPANION_E2E_PORT="), "{line}");
 }
 
@@ -88,7 +94,10 @@ fn the_report_of_a_manual_run_is_resolved_by_the_backend() {
     assert!(report_file(&st, &h, "nope", None, None).is_err());
     assert_eq!(report_file(&st, &h, "ws-1", Some("missing"), None).unwrap_err(), "task non trovato");
     let junit = format!(r"{CHECKOUT}\out\junit.xml");
-    assert_eq!(report_file(&st, &h, "ws-1", None, None).unwrap_err(), "il report E2E non esiste piu' (la cartella del task e' stata ripulita?)");
+    assert_eq!(
+        report_file(&st, &h, "ws-1", None, None).unwrap_err(),
+        "il report E2E non esiste piu' (la cartella del task e' stata ripulita?)"
+    );
     h.files.lock().unwrap().push(junit.clone());
     assert_eq!(report_file(&st, &h, "ws-1", None, Some(".")).unwrap(), std::path::PathBuf::from(junit));
 }

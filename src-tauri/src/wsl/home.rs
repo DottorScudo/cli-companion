@@ -37,9 +37,8 @@ fn resolve_home(distro: &str) -> Result<String, String> {
     let out = output_with_timeout(wsl_command().args(["-d", distro, "-e", "sh", "-c", &script]), HOME_TIMEOUT)
         .map_err(|e| e.to_string())?;
     // Il rumore puo' esserci anche con exit != 0: si interpreta comunque lo stdout.
-    parse_home(&String::from_utf8_lossy(&out.stdout)).ok_or_else(|| {
-        format!("unexpected output ({}): {}", out.status, String::from_utf8_lossy(&out.stderr).trim())
-    })
+    parse_home(&String::from_utf8_lossy(&out.stdout))
+        .ok_or_else(|| format!("unexpected output ({}): {}", out.status, String::from_utf8_lossy(&out.stderr).trim()))
 }
 
 /// Estrae la home dall'output dello script: assoluta, senza `..` e senza
@@ -85,7 +84,8 @@ mod tests {
     fn rejects_missing_marker_and_unusable_homes() {
         assert_eq!(parse_home("/home/me"), None);
         assert_eq!(parse_home(""), None);
-        for bad in ["", "home/me", "/home/../etc", "/home/a\u{7}b", "/home/a\0b", "/home/a:b", "/home\\me", "/home/a*b"] {
+        for bad in ["", "home/me", "/home/../etc", "/home/a\u{7}b", "/home/a\0b", "/home/a:b", "/home\\me", "/home/a*b"]
+        {
             assert_eq!(parse_home(&out(bad)), None, "{bad:?}");
         }
         assert_eq!(parse_home(&out("/home/me\nextra")), None);

@@ -128,7 +128,11 @@ fn reviewed_entry(t: &Task) -> Value {
             v
         })
     }));
-    o["follow_ups"] = json!(r.map_or_else(Vec::new, |r| bounded(&r.follow_ups, &mut cut, |f, cut| clipped(f, REVIEWED_ITEM_MAX, cut))));
+    o["follow_ups"] = json!(r.map_or_else(Vec::new, |r| bounded(&r.follow_ups, &mut cut, |f, cut| clipped(
+        f,
+        REVIEWED_ITEM_MAX,
+        cut
+    ))));
     if cut {
         o["truncated"] = Value::Bool(true);
     }

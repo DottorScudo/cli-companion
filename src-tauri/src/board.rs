@@ -230,7 +230,8 @@ impl BoardView {
     pub fn to_list_json(&self, statuses: Option<&[TaskStatus]>) -> Value {
         let mut counts = serde_json::Map::new();
         for s in TaskStatus::ALL {
-            counts.insert(s.as_str().to_string(), Value::from(self.tasks.iter().filter(|t| t.task.status == s).count()));
+            counts
+                .insert(s.as_str().to_string(), Value::from(self.tasks.iter().filter(|t| t.task.status == s).count()));
         }
         let rows: Vec<Value> = self
             .tasks
@@ -434,7 +435,11 @@ impl Board {
 
     fn view_of(&self, t: &Task) -> TaskView {
         let waiting_on = if t.status == TaskStatus::Queued {
-            t.depends_on.iter().filter(|d| !self.task(d).is_some_and(|x| x.status == TaskStatus::Done)).cloned().collect()
+            t.depends_on
+                .iter()
+                .filter(|d| !self.task(d).is_some_and(|x| x.status == TaskStatus::Done))
+                .cloned()
+                .collect()
         } else {
             Vec::new()
         };
@@ -500,7 +505,9 @@ impl Board {
             return Err("tasks is empty".to_string());
         }
         if self.unfinished_count() + specs.len() > MAX_TASKS_PER_BOARD {
-            return Err(format!("too many unfinished tasks on the board (max {MAX_TASKS_PER_BOARD} queued or running)"));
+            return Err(format!(
+                "too many unfinished tasks on the board (max {MAX_TASKS_PER_BOARD} queued or running)"
+            ));
         }
         let mut seen: HashSet<&str> = self.tasks.iter().map(|t| t.id.as_str()).collect();
         for s in specs {
@@ -562,7 +569,13 @@ impl Board {
             ));
         }
         self.check_specs(&specs, &self.pending_ids(None))?;
-        self.proposals.push(Proposal { id, source_tab: source_tab.to_string(), source_task, created_at: now, tasks: specs });
+        self.proposals.push(Proposal {
+            id,
+            source_tab: source_tab.to_string(),
+            source_task,
+            created_at: now,
+            tasks: specs,
+        });
         self.updated_at = now;
         Ok(())
     }
@@ -664,7 +677,8 @@ impl Board {
         if !running.is_empty() {
             return Err(format!("cannot delete: {} are running, stop them first", running.join(", ")));
         }
-        let (removed, kept): (Vec<Task>, Vec<Task>) = std::mem::take(&mut self.tasks).into_iter().partition(|x| doomed.contains(&x.id));
+        let (removed, kept): (Vec<Task>, Vec<Task>) =
+            std::mem::take(&mut self.tasks).into_iter().partition(|x| doomed.contains(&x.id));
         self.tasks = kept;
         let removed_ids: Vec<&str> = removed.iter().map(|x| x.id.as_str()).collect();
         self.drop_references(&removed_ids);
@@ -678,7 +692,9 @@ impl Board {
         let mut set: HashSet<String> = HashSet::from([id.to_string()]);
         let mut frontier = vec![id];
         while let Some(current) = frontier.pop() {
-            for x in self.tasks.iter().filter(|x| x.status != TaskStatus::Done && x.depends_on.iter().any(|d| d == current)) {
+            for x in
+                self.tasks.iter().filter(|x| x.status != TaskStatus::Done && x.depends_on.iter().any(|d| d == current))
+            {
                 if set.insert(x.id.clone()) {
                     frontier.push(x.id.as_str());
                 }
@@ -888,7 +904,15 @@ impl Board {
     /// nessuno l'ha ripreso nel frattempo (ancora `failed`, stesso tentativo,
     /// stessa nota). Il task torna `running` con `note` come traccia; la
     /// conclusione resta a `finish_running`.
-    pub fn reopen_failed(&mut self, id: &str, session: &str, attempt: u32, failed_note: &str, note: &str, now: i64) -> bool {
+    pub fn reopen_failed(
+        &mut self,
+        id: &str,
+        session: &str,
+        attempt: u32,
+        failed_note: &str,
+        note: &str,
+        now: i64,
+    ) -> bool {
         let Some(t) = self.task_mut(id) else {
             return false;
         };

@@ -49,9 +49,8 @@ fn check_rule(rule: &str) -> Result<(), String> {
     if rule.chars().any(char::is_control) {
         return Err("contiene a capo o caratteri di controllo".to_string());
     }
-    let name_len = rule
-        .find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '*' | '-')))
-        .unwrap_or(rule.len());
+    let name_len =
+        rule.find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '*' | '-'))).unwrap_or(rule.len());
     if name_len == 0 {
         return Err("forma attesa: Nome oppure Nome(...), es. Bash(git:*)".to_string());
     }
@@ -127,9 +126,7 @@ pub fn prepare_settings_file(
     }
     let path = path_for_env(&file, env_kind)?;
     if !is_shell_safe_path(&path) {
-        return Err(format!(
-            "the app data path contains characters that are unsafe in a shell command line: {path}"
-        ));
+        return Err(format!("the app data path contains characters that are unsafe in a shell command line: {path}"));
     }
     Ok(Some(path))
 }
@@ -137,8 +134,7 @@ pub fn prepare_settings_file(
 /// `true` se il path sta in modo letterale tra doppi apici in PowerShell,
 /// cmd e bash.
 pub fn is_shell_safe_path(p: &str) -> bool {
-    !p.is_empty()
-        && !p.chars().any(|c| matches!(c, '"' | '$' | '`' | '%' | '!') || c.is_control())
+    !p.is_empty() && !p.chars().any(|c| matches!(c, '"' | '$' | '`' | '%' | '!') || c.is_control())
 }
 
 #[cfg(test)]

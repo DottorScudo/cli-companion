@@ -170,7 +170,10 @@ fn gate_rejects_a_failed_run_naming_at_most_three_tests() {
     let names = ["one", "two", "three", "four"];
     let r = E2eRun {
         totals: Some(E2eTotals { tests: 9, passed: 5, failed: 4, ..E2eTotals::default() }),
-        failed_tests: names.iter().map(|n| E2eFailure { name: n.to_string(), file: None, message: "m".into() }).collect(),
+        failed_tests: names
+            .iter()
+            .map(|n| E2eFailure { name: n.to_string(), file: None, message: "m".into() })
+            .collect(),
         ..run(E2eStatus::Failed)
     };
     let e = gate(&flagged(Some(r)), &Ok(fp("c", "t", "h"))).unwrap_err();
@@ -217,7 +220,12 @@ fn gate_rejects_changed_code_naming_the_commits() {
 fn gate_rejects_when_the_code_cannot_be_verified() {
     let no_code = flagged(Some(passed_run(None)));
     let e = gate(&no_code, &Ok(fp("c", "t", "h"))).unwrap_err();
-    assert!(e.contains("cannot verify the code against the last E2E run: the run recorded no code fingerprint. Run run_e2e again."), "{e}");
+    assert!(
+        e.contains(
+            "cannot verify the code against the last E2E run: the run recorded no code fingerprint. Run run_e2e again."
+        ),
+        "{e}"
+    );
     let t = flagged(Some(passed_run(Some(fp("c", "t", "h")))));
     let e = gate(&t, &Err("git is not available".into())).unwrap_err();
     assert!(e.contains("cannot verify the code against the last E2E run: git is not available."), "{e}");

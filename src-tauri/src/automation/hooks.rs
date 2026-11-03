@@ -111,7 +111,8 @@ pub(super) fn run_hook_real(
             use std::os::windows::process::CommandExt;
             cmd = std::process::Command::new("cmd.exe");
             // /S toglie le virgolette esterne: il comando arriva com'e'.
-            cmd.raw_arg(format!("/D /S /C \"{command}\"")).creation_flags(0x08000000); // CREATE_NO_WINDOW
+            cmd.raw_arg(format!("/D /S /C \"{command}\"")).creation_flags(0x08000000);
+            // CREATE_NO_WINDOW
         }
         #[cfg(not(windows))]
         {
@@ -204,11 +205,7 @@ pub(super) fn copy_path_real(ws: &Workspace, src: &str, dst: &str) -> Result<(),
         let script = "mkdir -p \"$(dirname \"$2\")\" && cp -a \"$1\" \"$2\"";
         let cmd = crate::wsl::wsl_run_command(distro_of(ws)?, "/", &["sh", "-c", script, "sh", src, dst]);
         let out = output_with_timeout(cmd, HOOK_TIMEOUT)?;
-        return if out.status.success() {
-            Ok(())
-        } else {
-            Err(tail(&String::from_utf8_lossy(&out.stderr), 300))
-        };
+        return if out.status.success() { Ok(()) } else { Err(tail(&String::from_utf8_lossy(&out.stderr), 300)) };
     }
     copy_recursive(std::path::Path::new(src), std::path::Path::new(dst)).map_err(|e| e.to_string())
 }
@@ -258,7 +255,10 @@ pub(super) fn run_setup<H: Host>(host: &H, c: &SetupCtx, report: &dyn Fn(&str)) 
         host.copy_path(ws, &src, &dst)
             .map_err(|e| format!("worktree setup of '{}': copying {p} failed: {e}", c.repo))?;
     }
-    let env = hook_env(c.cfg, &HookVars { repo_dir: c.repo_dir, worktree: c.worktree, task_id: c.task_id, branch: c.branch, base: c.base });
+    let env = hook_env(
+        c.cfg,
+        &HookVars { repo_dir: c.repo_dir, worktree: c.worktree, task_id: c.task_id, branch: c.branch, base: c.base },
+    );
     let n = c.cfg.setup.len();
     for (i, cmd) in c.cfg.setup.iter().enumerate() {
         let step = format!("setup {}/{n}: {}", i + 1, clip_chars(cmd, 60));
@@ -314,7 +314,8 @@ mod tests {
 
     #[test]
     fn wsl_hook_keeps_command_and_values_as_single_argv_items() {
-        let env = vec![("REPO".to_string(), "/home/u/my repo".to_string()), ("BRANCH".to_string(), "task/a'b".to_string())];
+        let env =
+            vec![("REPO".to_string(), "/home/u/my repo".to_string()), ("BRANCH".to_string(), "task/a'b".to_string())];
         let cmd = "cp -a \"$REPO/vendor\" . && echo 'x; y' | cat $(date)";
         let argv = wsl_hook_argv(cmd, &env);
         assert_eq!(argv, ["env", "REPO=/home/u/my repo", "BRANCH=task/a'b", "sh", "-c", cmd]);
@@ -363,7 +364,9 @@ mod tests {
         let dir = std::env::temp_dir();
         let ws = windows_ws(&dir);
         let env = vec![("TASK_ID".to_string(), "t 1".to_string())];
-        let o = run_hook_real(&ws, &dir.to_string_lossy(), "echo id=%TASK_ID% && cd", &env, Duration::from_secs(20), None).unwrap();
+        let o =
+            run_hook_real(&ws, &dir.to_string_lossy(), "echo id=%TASK_ID% && cd", &env, Duration::from_secs(20), None)
+                .unwrap();
         assert!(o.ok, "{o:?}");
         assert!(o.stdout.contains("id=t 1"), "{o:?}");
         let fail = run_hook_real(&ws, &dir.to_string_lossy(), "exit 3", &[], Duration::from_secs(20), None).unwrap();

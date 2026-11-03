@@ -44,7 +44,9 @@ fn roles_gate_the_tools() {
     let me = call(&st, &h, INTAKE, "whoami", json!({})).unwrap();
     assert_eq!(me["role"], "session");
     assert_eq!(me["workspace"], json!({"name":"Proj","kind":"windows","path":"C:\\p"}));
-    assert!(call(&st, &h, "tab-unknown", "propose_tasks", json!({"tasks":[spec("x", &[])]})).unwrap_err().contains("workspace"));
+    assert!(call(&st, &h, "tab-unknown", "propose_tasks", json!({"tasks":[spec("x", &[])]}))
+        .unwrap_err()
+        .contains("workspace"));
     assert!(call(&st, &h, INTAKE, "get_events", json!({})).unwrap_err().contains("unknown method"));
     assert!(call(&st, &h, INTAKE, "list_tasks", json!([1])).is_err());
     // Un workspace archiviato e' congelato.
@@ -110,7 +112,10 @@ fn local_merge_cleanup_deletes_the_branch_without_force() {
 #[test]
 fn cleanup_runs_the_repo_hooks_and_warnings_never_block() {
     let (st, h) = (AutomationState::default(), FakeHost::with_delivery(DeliveryMode::Pr, true));
-    h.repo_cfg.lock().unwrap().insert(".".into(), RepoConfig { cleanup: vec!["docker compose down".into()], ..Default::default() });
+    h.repo_cfg
+        .lock()
+        .unwrap()
+        .insert(".".into(), RepoConfig { cleanup: vec!["docker compose down".into()], ..Default::default() });
     queue(&st, &h, vec![spec("a", &[])]);
     let w = session_of(&st, &h, "a");
     h.dirs.lock().unwrap().push("C:\\p\\.worktrees\\a".to_string());
@@ -348,7 +353,9 @@ fn helpers_validate_text() {
     assert_eq!(req_text("t", "  x ", 3).unwrap(), "x");
     assert!(req_text("t", "  ", 3).is_err() && req_text("t", "abcd", 3).is_err());
     assert_eq!(clip_chars("àèìòù", 2), "àè");
-    assert!(valid_model("claude-opus-4.1_x") && !valid_model("a b") && !valid_model(&"x".repeat(65)) && !valid_model(""));
+    assert!(
+        valid_model("claude-opus-4.1_x") && !valid_model("a b") && !valid_model(&"x".repeat(65)) && !valid_model("")
+    );
     assert_eq!(req_str(&json!({"a": "x"}), "a").unwrap(), "x");
     assert!(req_str(&json!({"a": 1}), "a").is_err() && req_str(&json!({}), "a").is_err());
 }
@@ -357,8 +364,21 @@ fn helpers_validate_text() {
 fn closed_workers_are_pruned_beyond_the_cap() {
     let mut r = Registry::default();
     for i in 0..(MAX_TRACKED_WORKERS + 10) {
-        let env = WorkerEnv { delivery: Delivery::default(), repo_dir: String::new(), workdir: String::new(), branch: None, base: None };
-        let new = NewWorker { workspace_id: "w".into(), agent_id: "a".into(), title: "t".into(), cwd: String::new(), command: String::new(), kind: crate::board::TaskKind::Work };
+        let env = WorkerEnv {
+            delivery: Delivery::default(),
+            repo_dir: String::new(),
+            workdir: String::new(),
+            branch: None,
+            base: None,
+        };
+        let new = NewWorker {
+            workspace_id: "w".into(),
+            agent_id: "a".into(),
+            title: "t".into(),
+            cwd: String::new(),
+            command: String::new(),
+            kind: crate::board::TaskKind::Work,
+        };
         let id = r.spawn_worker("w", &format!("t{i}"), 1, new, env, i as i64).tab_id;
         r.tab_closed(&id, 1);
     }

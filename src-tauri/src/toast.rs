@@ -20,8 +20,7 @@ fn app_id(identifier: &str) -> String {
         .and_then(|exe| exe.parent().map(|p| p.display().to_string()))
         .is_some_and(|dir| {
             let sep = std::path::MAIN_SEPARATOR;
-            dir.ends_with(&format!("{sep}target{sep}debug"))
-                || dir.ends_with(&format!("{sep}target{sep}release"))
+            dir.ends_with(&format!("{sep}target{sep}debug")) || dir.ends_with(&format!("{sep}target{sep}release"))
         });
     if portable {
         Toast::POWERSHELL_APP_ID.to_string()

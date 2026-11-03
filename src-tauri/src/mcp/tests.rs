@@ -4,8 +4,8 @@ use crate::agents::PermissionMode;
 use crate::automation::settings::REASON_MAX;
 use crate::worker_permissions::{MAX_RULES, MAX_RULE_CHARS};
 use crate::workspaces::{
-    DeliveryMode, MergeMethod, MAX_COMMAND_LEN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_LAUNCHES, MAX_PATCH_REPOS,
-    MAX_E2E_TIMEOUT_MIN, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN,
+    DeliveryMode, MergeMethod, MAX_COMMAND_LEN, MAX_E2E_TIMEOUT_MIN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_LAUNCHES,
+    MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN,
 };
 use std::cell::RefCell;
 
@@ -78,8 +78,14 @@ fn size_budget_of_the_model_facing_text() {
     let instr = instructions(Some(Role::Session), Some("Proj (wsl, /home/u/app)")).chars().count();
     assert!(session <= SESSION_TOOLS_CEILING, "session tools are {session} chars, ceiling {SESSION_TOOLS_CEILING}");
     assert!(worker <= WORKER_TOOLS_CEILING, "worker tools are {worker} chars, ceiling {WORKER_TOOLS_CEILING}");
-    assert!(instr <= SESSION_INSTRUCTIONS_CEILING, "session instructions are {instr} chars, ceiling {SESSION_INSTRUCTIONS_CEILING}");
-    assert!(reviewer <= REVIEWER_TOOLS_CEILING, "reviewer tools are {reviewer} chars, ceiling {REVIEWER_TOOLS_CEILING}");
+    assert!(
+        instr <= SESSION_INSTRUCTIONS_CEILING,
+        "session instructions are {instr} chars, ceiling {SESSION_INSTRUCTIONS_CEILING}"
+    );
+    assert!(
+        reviewer <= REVIEWER_TOOLS_CEILING,
+        "reviewer tools are {reviewer} chars, ceiling {REVIEWER_TOOLS_CEILING}"
+    );
     assert!(
         reviewer_instr <= REVIEWER_INSTRUCTIONS_CEILING,
         "reviewer instructions are {reviewer_instr} chars, ceiling {REVIEWER_INSTRUCTIONS_CEILING}"
@@ -122,7 +128,7 @@ fn initialize_negotiates_protocol_version() {
     let r = send(&mut Server::default(), &rv, json!({"jsonrpc":"2.0","id":1,"method":"initialize"})).unwrap();
     let text = r["result"]["instructions"].as_str().unwrap();
     assert!(text.contains("automated reviewer") && text.contains("complete_task") && text.contains("verdict"));
-    assert!(!text.contains('\n') && !text.contains("  "),"reviewer instructions must be one line with single spaces");
+    assert!(!text.contains('\n') && !text.contains("  "), "reviewer instructions must be one line with single spaces");
     assert!(!text.contains("Proj") && !text.contains("deliver"));
     // Senza protocolVersion: default.
     let r = send(&mut Server::default(), &b, json!({"jsonrpc":"2.0","id":"a","method":"initialize"})).unwrap();
@@ -137,8 +143,16 @@ fn tools_list_depends_on_role() {
     assert_eq!(
         names(&r),
         [
-            "propose_tasks", "list_tasks", "get_task_details", "update_task", "delete_task", "save_skill", "list_skills",
-            "delete_skill", "get_workspace_settings", "propose_settings"
+            "propose_tasks",
+            "list_tasks",
+            "get_task_details",
+            "update_task",
+            "delete_task",
+            "save_skill",
+            "list_skills",
+            "delete_skill",
+            "get_workspace_settings",
+            "propose_settings"
         ]
     );
     let mut s = Server::default();
@@ -160,9 +174,21 @@ fn tools_list_depends_on_role() {
 fn no_orchestrator_tool_survives() {
     let all: Vec<Value> = session_tools().into_iter().chain(worker_tools()).chain(reviewer_tools()).collect();
     for gone in [
-        "spawn_session", "list_sessions", "send_message", "close_session", "get_events", "submit_plan", "get_board",
-        "set_task_status", "set_board", "get_workflow", "save_workflow", "ask_user", "report_fact",
-        "request_help", "list_agents",
+        "spawn_session",
+        "list_sessions",
+        "send_message",
+        "close_session",
+        "get_events",
+        "submit_plan",
+        "get_board",
+        "set_task_status",
+        "set_board",
+        "get_workflow",
+        "save_workflow",
+        "ask_user",
+        "report_fact",
+        "request_help",
+        "list_agents",
     ] {
         assert!(all.iter().all(|t| t["name"] != gone), "{gone}");
     }
@@ -189,11 +215,17 @@ fn schemas_match_the_rust_validation() {
     assert_eq!(propose["inputSchema"]["properties"]["tasks"]["maxItems"], 20);
     assert!(propose["description"].as_str().unwrap().contains("never wait"));
     let upd = by("update_task");
-    assert_eq!(keys(&upd["inputSchema"]["properties"]), ["depends_on", "e2e", "id", "kind", "model", "repo", "task", "title"]);
+    assert_eq!(
+        keys(&upd["inputSchema"]["properties"]),
+        ["depends_on", "e2e", "id", "kind", "model", "repo", "task", "title"]
+    );
     assert_eq!(upd["inputSchema"]["required"], json!(["id"]));
     assert_eq!(upd["inputSchema"]["properties"]["model"]["type"], json!(["string", "null"]));
     assert_eq!(keys(&by("list_tasks")["inputSchema"]["properties"]), ["status"]);
-    assert_eq!(by("list_tasks")["inputSchema"]["properties"]["status"]["items"]["enum"], json!(["queued", "running", "done", "failed"]));
+    assert_eq!(
+        by("list_tasks")["inputSchema"]["properties"]["status"]["items"]["enum"],
+        json!(["queued", "running", "done", "failed"])
+    );
     assert_eq!(by("delete_task")["inputSchema"]["required"], json!(["id"]));
     assert_eq!(by("get_task_details")["inputSchema"]["required"], json!(["id"]));
 
@@ -215,8 +247,17 @@ fn schemas_match_the_rust_validation() {
     assert_eq!(
         keys(props),
         [
-            "default_launch", "delivery", "launches", "reason", "repos", "use_schedule", "worker_allow", "worker_deny",
-            "worker_model", "worker_permission", "worker_rules"
+            "default_launch",
+            "delivery",
+            "launches",
+            "reason",
+            "repos",
+            "use_schedule",
+            "worker_allow",
+            "worker_deny",
+            "worker_model",
+            "worker_permission",
+            "worker_rules"
         ]
     );
     assert_eq!(schema["required"], json!(["reason"]));
@@ -260,7 +301,9 @@ fn schemas_match_the_rust_validation() {
     assert_eq!(keys(&e2e["properties"]), ["command", "junit", "timeout_min"]);
     assert_eq!(e2e["properties"]["timeout_min"]["maximum"], MAX_E2E_TIMEOUT_MIN);
     let description = settings["description"].as_str().unwrap();
-    assert!(description.contains("NO feedback") && description.contains("never wait") && description.contains("sensitive"));
+    assert!(
+        description.contains("NO feedback") && description.contains("never wait") && description.contains("sensitive")
+    );
 
     let done = &worker_tools()[1];
     assert_eq!(
@@ -292,7 +335,12 @@ fn role_is_cached_and_no_backend_gives_empty_list() {
     let r = send(&mut s, &none, json!({"jsonrpc":"2.0","id":2,"method":"initialize","params":{}})).unwrap();
     assert!(r["result"]["capabilities"]["tools"].is_object());
     // tools/call: errore leggibile.
-    let r = send(&mut s, &none, json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_task","arguments":{}}})).unwrap();
+    let r = send(
+        &mut s,
+        &none,
+        json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_task","arguments":{}}}),
+    )
+    .unwrap();
     assert_eq!(r["result"]["isError"], true);
     let text = r["result"]["content"][0]["text"].as_str().unwrap();
     assert!(text.contains("not available") && text.contains("app non in ascolto"));
@@ -324,7 +372,9 @@ fn tools_call_rpc_error_and_bad_calls_are_is_error() {
     let mut b = Fake::new("session");
     b.reply = Err("task not found: x".to_string());
     let mut s = Server::default();
-    let call = |s: &mut Server, params: Value| send(s, &b, json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":params})).unwrap();
+    let call = |s: &mut Server, params: Value| {
+        send(s, &b, json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":params})).unwrap()
+    };
     let r = call(&mut s, json!({"name":"get_task_details","arguments":{"id":"x"}}));
     assert_eq!(r["result"]["isError"], true);
     assert_eq!(r["result"]["content"][0]["text"], "task not found: x");
@@ -438,13 +488,17 @@ fn e2e_tools_belong_to_worker_and_reviewer_only() {
 #[test]
 fn e2e_calls_are_gated_by_role_and_forwarded_for_workers() {
     let call = |s: &mut Server, b: &Fake, name: &str, args: Value| {
-        send(s, b, json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":args}})).unwrap()
+        send(s, b, json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":args}}))
+            .unwrap()
     };
     let session = Fake::new("session");
     let mut s = Server::default();
     let r = call(&mut s, &session, "run_e2e", json!({}));
     assert_eq!(r["result"]["isError"], true);
-    assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("unknown tool, or not available for this session"));
+    assert!(r["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("unknown tool, or not available for this session"));
     assert!(session.calls.borrow().iter().all(|(m, _)| m == "whoami"));
 
     for role in ["worker", "reviewer"] {
@@ -463,7 +517,8 @@ fn e2e_calls_are_gated_by_role_and_forwarded_for_workers() {
 fn a_reviewer_cannot_call_the_queue_or_settings_tools() {
     let b = Fake::new("reviewer");
     let mut s = Server::default();
-    for name in ["list_tasks", "update_task", "delete_task", "save_skill", "get_workspace_settings", "propose_settings"] {
+    for name in ["list_tasks", "update_task", "delete_task", "save_skill", "get_workspace_settings", "propose_settings"]
+    {
         let r = send(
             &mut s,
             &b,

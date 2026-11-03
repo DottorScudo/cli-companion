@@ -128,7 +128,9 @@ pub(super) fn ensure_repos<'a, H: Host>(
             }
         }
         if ws.delivery.uses_branches() {
-            let inside = host.git(ws, &dir, &["rev-parse", "--is-inside-work-tree"]).map_err(|e| format!("git is not available: {e}"))?;
+            let inside = host
+                .git(ws, &dir, &["rev-parse", "--is-inside-work-tree"])
+                .map_err(|e| format!("git is not available: {e}"))?;
             if !(inside.ok && inside.stdout.trim() == "true") {
                 return Err(format!(
                     "{dir} is not a git repository: the delivery mode of this workspace works on branches and needs one. \
@@ -224,7 +226,9 @@ fn add_worktrees_exclude<H: Host>(host: &H, ws: &Workspace, dir: &str, warnings:
         Ok(rel) => {
             let file = if is_abs(&ws.kind, &rel) { rel } else { join_path(&ws.kind, dir, &rel) };
             if let Err(e) = host.append_exclude(ws, &file, EXCLUDE_LINE) {
-                warnings.push(format!("{EXCLUDE_LINE} not added to the git exclude file ({e}): it may show up in git status"));
+                warnings.push(format!(
+                    "{EXCLUDE_LINE} not added to the git exclude file ({e}): it may show up in git status"
+                ));
             }
         }
         Err(e) => warnings.push(format!("git exclude file not found ({e}): {EXCLUDE_LINE} may show up in git status")),
@@ -233,7 +237,13 @@ fn add_worktrees_exclude<H: Host>(host: &H, ws: &Workspace, dir: &str, warnings:
 
 /// Setup di un worktree appena creato (file ignorati, comandi), se il
 /// repository ne ha uno. Ogni passo e' pubblicato e fa da battito del guardiano.
-fn setup_worktree<H: Host>(st: &AutomationState, host: &H, job: &StartJob, dir: &str, wt: &WorktreeInfo) -> Result<Vec<String>, String> {
+fn setup_worktree<H: Host>(
+    st: &AutomationState,
+    host: &H,
+    job: &StartJob,
+    dir: &str,
+    wt: &WorktreeInfo,
+) -> Result<Vec<String>, String> {
     let (ws, task) = (&job.ws, &job.task);
     let Some(cfg) = repo_cfg(ws, task.repo.as_deref()).filter(|c| c.has_setup()) else {
         return Ok(Vec::new());
@@ -372,7 +382,13 @@ pub(super) fn cleanup_worktree<H: Host>(host: &H, ws: &Workspace, target: &Clean
     let cfg = repo_cfg(ws, target.repo.as_deref()).cloned().unwrap_or_default();
     if host.dir_exists(ws, &wt.path) {
         if !cfg.cleanup.is_empty() {
-            let vars = hooks::HookVars { repo_dir: &root, worktree: &wt.path, task_id: &target.task_id, branch: &wt.branch, base: &wt.base };
+            let vars = hooks::HookVars {
+                repo_dir: &root,
+                worktree: &wt.path,
+                task_id: &target.task_id,
+                branch: &wt.branch,
+                base: &wt.base,
+            };
             warnings.extend(hooks::run_cleanup(host, ws, &cfg, &vars));
         }
         let mut args = vec!["worktree", "remove"];
@@ -432,7 +448,10 @@ pub fn detect_repos(ws: &Workspace) -> Result<Vec<String>, String> {
         let cmd = crate::wsl::wsl_run_command(distro, &ws.path, &["sh", "-c", script]);
         let out = output_with_timeout(cmd, GIT_TIMEOUT)?;
         if !out.status.success() {
-            return Err(format!("repository detection failed: {}", clip_chars(String::from_utf8_lossy(&out.stderr).trim(), 200)));
+            return Err(format!(
+                "repository detection failed: {}",
+                clip_chars(String::from_utf8_lossy(&out.stderr).trim(), 200)
+            ));
         }
         return Ok(parse_repo_list(&String::from_utf8_lossy(&out.stdout)));
     }
@@ -541,7 +560,9 @@ pub(super) fn run_start_job<H: Host>(st: &AutomationState, host: &H, job: StartJ
         if st.run(host, |r| r.start_is_current(&ws_id, &tid, attempt)) {
             match prepare_start(st, host, &job) {
                 Ok(p) => {
-                    let ev = st.run(host, |r| r.register_task_worker(&job, p.worktree, p.warnings, p.new, p.env, now_millis()));
+                    let ev = st.run(host, |r| {
+                        r.register_task_worker(&job, p.worktree, p.warnings, p.new, p.env, now_millis())
+                    });
                     if let Some(ev) = ev {
                         host.emit_spawn(&ev);
                     }
@@ -563,7 +584,10 @@ pub(super) fn run_start_job<H: Host>(st: &AutomationState, host: &H, job: StartJ
 /// Esegue `cmd` con un tempo massimo. Allo scadere uccide il figlio e ritorna
 /// errore; non aspetta i thread di lettura (un nipote potrebbe tenere le
 /// pipe aperte).
-pub(super) fn output_with_timeout(mut cmd: std::process::Command, limit: Duration) -> Result<std::process::Output, String> {
+pub(super) fn output_with_timeout(
+    mut cmd: std::process::Command,
+    limit: Duration,
+) -> Result<std::process::Output, String> {
     use std::io::Read;
     use std::process::Stdio;
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());

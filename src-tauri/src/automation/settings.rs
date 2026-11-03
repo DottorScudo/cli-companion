@@ -8,11 +8,11 @@ use super::boards::{session_workspace, workspace_of};
 use super::*;
 use crate::agents::{builtin_launch_list, PermissionMode};
 use crate::board::SettingsProposal;
+use crate::worker_permissions::{MAX_RULES, MAX_RULE_CHARS};
 use crate::workspaces::{
     validation_error_en, DeliveryMode, MergeMethod, SettingsPatch, MAX_COMMAND_LEN, MAX_LAUNCH_NAME_LEN,
     MAX_PATCH_LAUNCHES, MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN,
 };
-use crate::worker_permissions::{MAX_RULES, MAX_RULE_CHARS};
 use serde_json::json;
 use std::collections::BTreeMap;
 
@@ -60,11 +60,7 @@ impl Registry {
     }
 
     fn settings_proposal(&self, ws: &str, id: &str) -> Result<SettingsProposal, String> {
-        self.boards
-            .get(ws)
-            .ok_or_else(|| format!("settings proposal not found: {id}"))?
-            .settings_proposal(id)
-            .cloned()
+        self.boards.get(ws).ok_or_else(|| format!("settings proposal not found: {id}"))?.settings_proposal(id).cloned()
     }
 
     fn remove_settings_proposal(&mut self, ws: &str, id: &str, now: i64) -> Result<(), String> {
@@ -88,8 +84,11 @@ fn get_settings<H: Host>(st: &AutomationState, host: &H, ws: &Workspace) -> Valu
         Ok(detected) => (detected, None),
         Err(e) => (Vec::new(), Some(e)),
     };
-    let pending: Vec<Value> =
-        st.run(host, |r| r.pending_settings(&ws.id)).into_iter().map(|(id, reason)| json!({ "id": id, "reason": reason })).collect();
+    let pending: Vec<Value> = st
+        .run(host, |r| r.pending_settings(&ws.id))
+        .into_iter()
+        .map(|(id, reason)| json!({ "id": id, "reason": reason }))
+        .collect();
     let mut out = json!({
         "settings": settings_json(ws),
         "repos": repos_json(ws, &detected),

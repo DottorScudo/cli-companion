@@ -62,7 +62,7 @@ pub fn load_from_disk(app: &tauri::App) {
         return;
     };
     match parse(&raw) {
-        Ok(s) =>*app.state::<LaunchSettingsStore>().inner.lock().unwrap() = s,
+        Ok(s) => *app.state::<LaunchSettingsStore>().inner.lock().unwrap() = s,
         Err(_) => {
             // File corrotto: backup e riparto dal default.
             let _ = std::fs::rename(&path, path.with_extension("json.bak"));

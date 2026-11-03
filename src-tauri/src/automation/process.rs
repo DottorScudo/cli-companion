@@ -5,8 +5,8 @@
 
 use super::hooks::tail;
 use super::worktrees::{output_with_timeout, GitOut};
-use crate::board::strip_ansi;
 use super::*;
+use crate::board::strip_ansi;
 use std::io::Read;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

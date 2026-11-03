@@ -42,14 +42,8 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 pub const NOTIFY_PORT: u16 = 17421;
 /// Eventi accettati sul socket e in --notify: `test` e' il self-test, gli
 /// altri arrivano dagli hook dei coding agent (vedi `agents/`).
-const KNOWN_EVENTS: [&str; 6] = [
-    "test",
-    "session-start",
-    "session-end",
-    "finished",
-    "needs-input",
-    "permission-request",
-];
+const KNOWN_EVENTS: [&str; 6] =
+    ["test", "session-start", "session-end", "finished", "needs-input", "permission-request"];
 /// Evento dell'hook `PermissionRequest`: il backend lo converte in
 /// `needs-input` con il dettaglio di cosa aspetta il permesso.
 const PERMISSION_REQUEST: &str = "permission-request";
@@ -185,7 +179,8 @@ impl RpcResponse {
 
     /// Riga JSON senza il `\n` finale.
     pub fn to_line(&self) -> String {
-        serde_json::to_string(self).unwrap_or_else(|_| r#"{"ok":false,"error":"risposta non serializzabile"}"#.to_string())
+        serde_json::to_string(self)
+            .unwrap_or_else(|_| r#"{"ok":false,"error":"risposta non serializzabile"}"#.to_string())
     }
 }
 
@@ -243,11 +238,7 @@ pub fn is_known_event(event: &str) -> bool {
 /// Id tab ammesso: ASCII alfanumerico, `-` e `_`, 1..=64 caratteri. Finisce
 /// in una variabile d'ambiente e in WSLENV, quindi niente caratteri strani.
 pub fn is_valid_tab_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= TAB_ID_MAX
-        && id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    !id.is_empty() && id.len() <= TAB_ID_MAX && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// Decide se `--notify` deve spedire l'evento. Gli eventi sconosciuti vanno
@@ -273,9 +264,8 @@ fn clip(s: &str, max_chars: usize) -> Option<String> {
 }
 
 /// Stati di un background task che lo danno per concluso (minuscolo).
-const FINISHED_TASK_STATES: [&str; 8] = [
-    "completed", "failed", "killed", "stopped", "cancelled", "canceled", "done", "error",
-];
+const FINISHED_TASK_STATES: [&str; 8] =
+    ["completed", "failed", "killed", "stopped", "cancelled", "canceled", "done", "error"];
 
 /// Lavoro in background ancora attivo nel JSON di uno Stop hook: task con
 /// stato non concluso (stato assente o sconosciuto = attivo) piu' i cron di
@@ -300,15 +290,12 @@ fn background_work(v: &Value) -> Option<u32> {
 /// Estrae i campi noti dal JSON dell'hook. Tollerante: JSON invalido, non
 /// oggetto o campi di tipo sbagliato danno semplicemente `None`.
 pub fn parse_hook_stdin(raw: &str) -> HookInput {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw.trim_start_matches('\u{feff}'))
-    else {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw.trim_start_matches('\u{feff}')) else {
         return HookInput::default();
     };
     let field = |k: &str, max: usize| v.get(k).and_then(|x| x.as_str()).and_then(|s| clip(s, max));
     let tool_name = field("tool_name", FIELD_MAX_CHARS);
-    let tool_summary = tool_name
-        .as_deref()
-        .and_then(|t| tool_summary(t, v.get("tool_input").unwrap_or(&Value::Null)));
+    let tool_summary = tool_name.as_deref().and_then(|t| tool_summary(t, v.get("tool_input").unwrap_or(&Value::Null)));
     HookInput {
         tool_name,
         tool_summary,
@@ -324,12 +311,7 @@ pub fn parse_hook_stdin(raw: &str) -> HookInput {
 }
 
 /// Costruisce il payload da evento, agente, id tab e (se presente) stdin.
-pub fn build_payload(
-    event: &str,
-    agent: &str,
-    tab_id: Option<&str>,
-    stdin_raw: Option<&str>,
-) -> NotifyPayload {
+pub fn build_payload(event: &str, agent: &str, tab_id: Option<&str>, stdin_raw: Option<&str>) -> NotifyPayload {
     let input = stdin_raw.map(parse_hook_stdin).unwrap_or_default();
     let message = if event == PERMISSION_REQUEST {
         input.tool_name.as_deref().map(|t| permission_text(t, input.tool_summary.as_deref()))
@@ -361,8 +343,7 @@ fn build_line(payload: &NotifyPayload) -> Result<String, String> {
 }
 
 fn parse_line(line: &str) -> Result<NotifyPayload, String> {
-    let payload: NotifyPayload =
-        serde_json::from_str(line.trim()).map_err(|_| "payload non valido".to_string())?;
+    let payload: NotifyPayload = serde_json::from_str(line.trim()).map_err(|_| "payload non valido".to_string())?;
     if !is_known_event(&payload.event) {
         return Err(format!("evento sconosciuto: {}", payload.event));
     }
@@ -374,8 +355,7 @@ fn parse_line(line: &str) -> Result<NotifyPayload, String> {
 fn parse_wire(line: &str) -> Result<Wire, String> {
     let v: Value = serde_json::from_str(line.trim()).map_err(|_| "payload non valido".to_string())?;
     if v.get("rpc").is_some() {
-        let req: RpcRequest =
-            serde_json::from_value(v).map_err(|e| format!("richiesta RPC non valida: {e}"))?;
+        let req: RpcRequest = serde_json::from_value(v).map_err(|e| format!("richiesta RPC non valida: {e}"))?;
         return Ok(Wire::Rpc(req));
     }
     if line.len() as u64 > WIRE_MAX_BYTES {
@@ -398,11 +378,8 @@ fn connect_local(port: u16) -> std::io::Result<TcpStream> {
 /// Connette al listener e spedisce la riga del payload.
 fn connect_and_send(port: u16, payload: &NotifyPayload) -> Result<TcpStream, String> {
     let line = build_line(payload)?;
-    let mut stream =
-        connect_local(port).map_err(|_| "app non in ascolto (avvia cli-companion)".to_string())?;
-    stream
-        .write_all(format!("{line}\n").as_bytes())
-        .map_err(|e| format!("invio fallito: {e}"))?;
+    let mut stream = connect_local(port).map_err(|_| "app non in ascolto (avvia cli-companion)".to_string())?;
+    stream.write_all(format!("{line}\n").as_bytes()).map_err(|e| format!("invio fallito: {e}"))?;
     stream.flush().map_err(|e| format!("invio fallito: {e}"))?;
     Ok(stream)
 }
@@ -415,11 +392,7 @@ pub fn send_to(port: u16, payload: &NotifyPayload) -> Result<(), String> {
 /// Spedisce il payload e attende la riga di risposta (al massimo `timeout`).
 /// Un errore di invio e' un errore vero; timeout, chiusura o risposta
 /// illeggibile danno `Ok(None)`: l'hook si comporta come senza risposta.
-pub fn send_for_reply(
-    port: u16,
-    payload: &NotifyPayload,
-    timeout: Duration,
-) -> Result<Option<NotifyReply>, String> {
+pub fn send_for_reply(port: u16, payload: &NotifyPayload, timeout: Duration) -> Result<Option<NotifyReply>, String> {
     let stream = connect_and_send(port, payload)?;
     if stream.set_read_timeout(Some(timeout)).is_err() {
         return Ok(None);
@@ -435,12 +408,7 @@ pub fn send_for_reply(
 /// Corpo di `--notify` dopo la costruzione del payload. Per `finished` con
 /// token attende la risposta del listener e, se contiene `block`, scrive su
 /// `out` la decisione di blocco; altrimenti non scrive nulla.
-fn notify_via(
-    port: u16,
-    payload: &NotifyPayload,
-    timeout: Duration,
-    out: &mut dyn Write,
-) -> Result<(), String> {
+fn notify_via(port: u16, payload: &NotifyPayload, timeout: Duration, out: &mut dyn Write) -> Result<(), String> {
     if payload.event != "finished" || payload.token.is_none() {
         return send_to(port, payload);
     }
@@ -459,11 +427,7 @@ fn read_stdin_capped() -> Option<String> {
         return None;
     }
     let mut buf = Vec::new();
-    stdin
-        .lock()
-        .take(STDIN_MAX_BYTES)
-        .read_to_end(&mut buf)
-        .ok()?;
+    stdin.lock().take(STDIN_MAX_BYTES).read_to_end(&mut buf).ok()?;
     Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
@@ -518,14 +482,10 @@ pub fn rpc_call(port: u16, line: &str, timeout: Duration) -> Result<String, Stri
         .and_then(|_| stream.flush())
         .map_err(|e| format!("send failed: {e}"))?;
     let mut resp = String::new();
-    BufReader::new(stream.take(RPC_RESPONSE_MAX_BYTES))
-        .read_line(&mut resp)
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => {
-                "timeout waiting for the response".to_string()
-            }
-            _ => format!("reading the response failed: {e}"),
-        })?;
+    BufReader::new(stream.take(RPC_RESPONSE_MAX_BYTES)).read_line(&mut resp).map_err(|e| match e.kind() {
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => "timeout waiting for the response".to_string(),
+        _ => format!("reading the response failed: {e}"),
+    })?;
     if resp.trim().is_empty() {
         return Err("the app closed the connection without answering".to_string());
     }
@@ -535,13 +495,9 @@ pub fn rpc_call(port: u16, line: &str, timeout: Duration) -> Result<String, Stri
 /// Legge una riga dal socket (tetto `max` byte) e la classifica. Il timeout
 /// di lettura vale solo qui, non per il tempo di elaborazione.
 fn read_wire(stream: &mut TcpStream) -> Result<Wire, String> {
-    stream
-        .set_read_timeout(Some(REQUEST_READ_TIMEOUT))
-        .map_err(|e| e.to_string())?;
+    stream.set_read_timeout(Some(REQUEST_READ_TIMEOUT)).map_err(|e| e.to_string())?;
     let mut line = String::new();
-    BufReader::new((&*stream).take(RPC_MAX_BYTES))
-        .read_line(&mut line)
-        .map_err(|e| e.to_string())?;
+    BufReader::new((&*stream).take(RPC_MAX_BYTES)).read_line(&mut line).map_err(|e| e.to_string())?;
     stream.set_read_timeout(None).map_err(|e| e.to_string())?;
     parse_wire(&line)
 }
@@ -560,16 +516,12 @@ where
             // Risposta a best effort: i client vecchi hanno gia' chiuso.
             let reply = result.as_ref().cloned().unwrap_or_default();
             let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
-            let _ = stream
-                .write_all(format!("{}\n", reply.to_line()).as_bytes())
-                .and_then(|_| stream.flush());
+            let _ = stream.write_all(format!("{}\n", reply.to_line()).as_bytes()).and_then(|_| stream.flush());
             result.map(|_| ())
         }
         Wire::Rpc(req) => {
             let resp = on_rpc(req);
-            stream
-                .set_write_timeout(Some(Duration::from_secs(10)))
-                .map_err(|e| e.to_string())?;
+            stream.set_write_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
             stream
                 .write_all(format!("{}\n", resp.to_line()).as_bytes())
                 .and_then(|_| stream.flush())
@@ -629,11 +581,7 @@ fn handle_conn(stream: &mut TcpStream, app: &AppHandle) -> Result<(), String> {
                 // Gia' segnalato con il dettaglio da `permission-request`.
                 return Ok(NotifyReply::default());
             }
-            let block = if token_ok {
-                crate::automation::on_hook_event(app, &payload)
-            } else {
-                None
-            };
+            let block = if token_ok { crate::automation::on_hook_event(app, &payload) } else { None };
             if !is_paused_stop(&payload, block.is_some()) {
                 app.emit(FRONTEND_EVENT, &payload).map_err(|e| e.to_string())?;
             }
@@ -688,10 +636,7 @@ fn self_test_blocking() -> Result<String, String> {
     if status.success() {
         Ok("segnale inviato: se senti il ding, il canale funziona.".to_string())
     } else {
-        Err(format!(
-            "self-test fallito (exit {:?}): l'app e' in ascolto?",
-            status.code()
-        ))
+        Err(format!("self-test fallito (exit {:?}): l'app e' in ascolto?", status.code()))
     }
 }
 
@@ -733,7 +678,12 @@ mod tests {
         assert_eq!(s("Bash", serde_json::json!({"command": long})).unwrap().chars().count(), TOOL_SUMMARY_MAX_CHARS);
         // Tool senza riassunto: solo il nome; stdin senza tool_name: nessun messaggio.
         assert_eq!(permission_text("Task", None), "Permesso richiesto: Task");
-        let p = build_payload("permission-request", "claude-code", Some("t"), Some(r#"{"tool_name":"Task","tool_input":{}}"#));
+        let p = build_payload(
+            "permission-request",
+            "claude-code",
+            Some("t"),
+            Some(r#"{"tool_name":"Task","tool_input":{}}"#),
+        );
         assert_eq!(p.message.as_deref(), Some("Permesso richiesto: Task"));
         assert_eq!(build_payload("permission-request", "claude-code", Some("t"), None).message, None);
     }
@@ -756,9 +706,7 @@ mod tests {
             "needs-input",
             "claude-code",
             Some("tab-1"),
-            Some(
-                r#"{"session_id":"abc","notification_type":"permission_prompt","message":"Serve il permesso"}"#,
-            ),
+            Some(r#"{"session_id":"abc","notification_type":"permission_prompt","message":"Serve il permesso"}"#),
         );
         send_to(port, &sent).unwrap();
         let (mut stream, _) = listener.accept().unwrap();
@@ -776,7 +724,7 @@ mod tests {
         assert!(parse_line("non json").is_err());
         assert!(parse_line(r#"{"event":"nope","agent":"x"}"#).is_err());
         assert!(send_to(1, &sample("test")).is_err()); // porta chiusa
-        // Campi opzionali assenti: valido.
+                                                       // Campi opzionali assenti: valido.
         let p = parse_line(r#"{"event":"finished","agent":"claude-code"}"#).unwrap();
         assert_eq!(p.tab_id, None);
     }
@@ -836,7 +784,10 @@ mod tests {
         let Wire::Notify(p) = read_wire(&mut s).unwrap() else {
             panic!("attesa una notifica");
         };
-        assert_eq!((p.event.as_str(), p.tab_id.as_deref(), p.token.as_deref()), ("session-end", Some("tab-1"), Some("tok")));
+        assert_eq!(
+            (p.event.as_str(), p.tab_id.as_deref(), p.token.as_deref()),
+            ("session-end", Some("tab-1"), Some("tok"))
+        );
         assert_eq!((p.agent_session_id.as_deref(), p.reason.as_deref()), (Some("s1"), Some("other")));
     }
 
@@ -879,9 +830,11 @@ mod tests {
 
     #[test]
     fn session_start_source_and_session_end_reason_reach_the_payload() {
-        let start = build_payload("session-start", "claude-code", Some("t1"), Some(r#"{"session_id":"s","source":"clear"}"#));
+        let start =
+            build_payload("session-start", "claude-code", Some("t1"), Some(r#"{"session_id":"s","source":"clear"}"#));
         assert_eq!((start.source.as_deref(), start.reason.as_deref()), (Some("clear"), None));
-        let end = build_payload("session-end", "claude-code", Some("t1"), Some(r#"{"session_id":"s","reason":" other "}"#));
+        let end =
+            build_payload("session-end", "claude-code", Some("t1"), Some(r#"{"session_id":"s","reason":" other "}"#));
         assert_eq!((end.source.as_deref(), end.reason.as_deref()), (None, Some("other")));
         assert_eq!(parse_line(&build_line(&end).unwrap()).unwrap(), end);
         // Tipi sbagliati o vuoti: assenti, e assenti anche nel JSON.
@@ -931,10 +884,7 @@ mod tests {
             panic!("attesa una RPC");
         };
         assert!(r.token.is_empty() && r.params.is_null());
-        assert!(matches!(
-            parse_wire(r#"{"event":"finished","agent":"x"}"#).unwrap(),
-            Wire::Notify(_)
-        ));
+        assert!(matches!(parse_wire(r#"{"event":"finished","agent":"x"}"#).unwrap(), Wire::Notify(_)));
         assert!(parse_wire(r#"{"rpc":1}"#).is_err()); // manca method
         assert!(parse_wire("non json").is_err());
         // Le notifiche hanno il tetto di 64 KB, le RPC no.
@@ -986,7 +936,7 @@ mod tests {
     #[test]
     fn rpc_call_errors() {
         assert!(rpc_call(1, "{}", Duration::from_secs(1)).is_err()); // porta chiusa
-        // Server che non risponde mai: timeout.
+                                                                     // Server che non risponde mai: timeout.
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         let _keep = std::thread::spawn(move || {
@@ -1006,10 +956,14 @@ mod tests {
         send_to(port, &sent).unwrap();
         let (mut s, _) = listener.accept().unwrap();
         let mut got = None;
-        serve_conn(&mut s, |_| panic!("attesa una notifica"), |p| {
-            got = Some(p);
-            Ok(NotifyReply::default())
-        })
+        serve_conn(
+            &mut s,
+            |_| panic!("attesa una notifica"),
+            |p| {
+                got = Some(p);
+                Ok(NotifyReply::default())
+            },
+        )
         .unwrap();
         assert_eq!(got.unwrap().token.as_deref(), Some("secret"));
     }
@@ -1019,13 +973,20 @@ mod tests {
         let n = |raw: &str| parse_hook_stdin(raw).background_work;
         assert_eq!(n(r#"{"session_id":"s"}"#), None);
         assert_eq!(n(r#"{"background_tasks":[],"session_crons":[]}"#), Some(0));
-        assert_eq!(n(r#"{"background_tasks":[{"id":"a","status":"running"},{"id":"b"},{"status":"Pending"}]}"#), Some(3));
         assert_eq!(
-            n(r#"{"background_tasks":[{"status":"completed"},{"status":" FAILED "},{"status":"killed"},{"status":"stopped"},{"status":"cancelled"},{"status":"done"},{"status":"error"}]}"#),
+            n(r#"{"background_tasks":[{"id":"a","status":"running"},{"id":"b"},{"status":"Pending"}]}"#),
+            Some(3)
+        );
+        assert_eq!(
+            n(
+                r#"{"background_tasks":[{"status":"completed"},{"status":" FAILED "},{"status":"killed"},{"status":"stopped"},{"status":"cancelled"},{"status":"done"},{"status":"error"}]}"#
+            ),
             Some(0)
         );
         assert_eq!(
-            n(r#"{"background_tasks":[{"status":"in_progress"},{"status":"completed"}],"session_crons":[{"id":"c"},{"id":"d"}]}"#),
+            n(
+                r#"{"background_tasks":[{"status":"in_progress"},{"status":"completed"}],"session_crons":[{"id":"c"},{"id":"d"}]}"#
+            ),
             Some(3)
         );
         assert_eq!(n(r#"{"session_crons":[{"id":"c"}]}"#), Some(1));
@@ -1046,10 +1007,7 @@ mod tests {
         assert_eq!(NotifyReply::default().to_line(), "{}");
         assert_eq!(NotifyReply { block: Some("x".into()) }.to_line(), r#"{"block":"x"}"#);
         assert_eq!(block_stdout_line("x"), r#"{"decision":"block","reason":"x"}"#);
-        assert_eq!(
-            block_stdout_line("say \"hi\""),
-            r#"{"decision":"block","reason":"say \"hi\""}"#
-        );
+        assert_eq!(block_stdout_line("say \"hi\""), r#"{"decision":"block","reason":"say \"hi\""}"#);
     }
 
     /// Server finto su porta effimera: legge la notifica e risponde `reply`
@@ -1114,23 +1072,16 @@ mod tests {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         // Client nuovo: legge la riga con il blocco.
-        let client = std::thread::spawn(move || {
-            send_for_reply(port, &finished_with_token(), Duration::from_secs(2)).unwrap()
-        });
+        let client =
+            std::thread::spawn(move || send_for_reply(port, &finished_with_token(), Duration::from_secs(2)).unwrap());
         let (mut s, _) = listener.accept().unwrap();
-        serve_conn(&mut s, |_| panic!("attesa una notifica"), |_| {
-            Ok(NotifyReply { block: Some("r".into()) })
-        })
-        .unwrap();
+        serve_conn(&mut s, |_| panic!("attesa una notifica"), |_| Ok(NotifyReply { block: Some("r".into()) })).unwrap();
         assert_eq!(client.join().unwrap(), Some(NotifyReply { block: Some("r".into()) }));
         // Client vecchio: invia e chiude subito; il server non deve fallire.
         send_to(port, &finished_with_token()).unwrap();
         let (mut s, _) = listener.accept().unwrap();
         std::thread::sleep(Duration::from_millis(100));
-        serve_conn(&mut s, |_| panic!("attesa una notifica"), |_| {
-            Ok(NotifyReply { block: Some("r".into()) })
-        })
-        .unwrap();
+        serve_conn(&mut s, |_| panic!("attesa una notifica"), |_| Ok(NotifyReply { block: Some("r".into()) })).unwrap();
     }
 
     #[test]

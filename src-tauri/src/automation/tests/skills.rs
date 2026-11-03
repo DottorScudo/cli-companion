@@ -129,7 +129,9 @@ fn validation_and_parameter_errors_are_rpc_errors() {
     escaping["files"] = json!([{"path": "../evil.md", "content": "x"}]);
     assert!(save(&st, &h, escaping).unwrap_err().contains("Invalid file path"));
     assert!(save(&st, &h, json!({"name": "x"})).unwrap_err().contains("invalid parameters"));
-    assert!(save(&st, &h, json!({"name": 3, "description": "d", "body": "b"})).unwrap_err().contains("invalid parameters"));
+    assert!(save(&st, &h, json!({"name": 3, "description": "d", "body": "b"}))
+        .unwrap_err()
+        .contains("invalid parameters"));
     assert!(call(&st, &h, INTAKE, "delete_skill", json!({})).unwrap_err().contains("name is missing"));
     assert!(!sb.store().exists(), "invalid input writes nothing");
 }

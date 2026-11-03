@@ -43,7 +43,10 @@ fn host_with_repos() -> FakeHost {
     let h = FakeHost::default();
     *h.repos.lock().unwrap() = vec!["api".into(), "web".into()];
     let mut cfg = h.repo_cfg.lock().unwrap();
-    cfg.insert("api".into(), RepoConfig { base_branch: Some("dev".into()), setup: vec!["npm ci".into()], ..Default::default() });
+    cfg.insert(
+        "api".into(),
+        RepoConfig { base_branch: Some("dev".into()), setup: vec!["npm ci".into()], ..Default::default() },
+    );
     cfg.insert("old".into(), RepoConfig { remove_force: true, ..Default::default() });
     drop(cfg);
     h
@@ -109,8 +112,10 @@ fn get_settings_reports_values_repos_allowed_values_and_limits() {
         })
     );
     let repos = out["repos"].as_array().unwrap();
-    let rows: Vec<(&str, bool, bool)> =
-        repos.iter().map(|r| (r["repo"].as_str().unwrap(), r["detected"].as_bool().unwrap(), !r["config"].is_null())).collect();
+    let rows: Vec<(&str, bool, bool)> = repos
+        .iter()
+        .map(|r| (r["repo"].as_str().unwrap(), r["detected"].as_bool().unwrap(), !r["config"].is_null()))
+        .collect();
     assert_eq!(rows, [("api", true, true), ("old", false, true), ("web", true, false)]);
     assert_eq!(repos[0]["config"]["base_branch"], "dev");
     assert_eq!(repos[0]["config"]["setup"], json!(["npm ci"]));
@@ -120,7 +125,8 @@ fn get_settings_reports_values_repos_allowed_values_and_limits() {
     assert_eq!(allowed["worker_permission"], json!(["plan", "default", "accept-edits", "bypass"]));
     assert_eq!(allowed["delivery_mode"], json!(["pr", "local_merge", "push", "commit"]));
     assert_eq!(allowed["merge_method"], json!(["squash", "merge", "rebase"]));
-    let launches: Vec<&str> = allowed["default_launch"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+    let launches: Vec<&str> =
+        allowed["default_launch"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
     assert_eq!(&launches[..2], ["shell", "l-1"]);
     let builtin: Vec<String> = builtin_launch_list().into_iter().map(|b| b.id).collect();
     assert!(!builtin.is_empty() && launches[2..] == builtin[..]);
@@ -128,8 +134,14 @@ fn get_settings_reports_values_repos_allowed_values_and_limits() {
     assert_eq!(out["limits"]["reason_chars"], REASON_MAX);
     assert_eq!(out["limits"]["worker_rules_chars"], MAX_RULES_LEN);
     for key in [
-        "permission_rules", "permission_rule_chars", "launches", "launch_name_chars", "launch_command_chars",
-        "repos_per_proposal", "repo_commands", "repo_command_chars",
+        "permission_rules",
+        "permission_rule_chars",
+        "launches",
+        "launch_name_chars",
+        "launch_command_chars",
+        "repos_per_proposal",
+        "repo_commands",
+        "repo_command_chars",
     ] {
         assert!(out["limits"][key].as_u64().unwrap() > 0, "{key}");
     }
@@ -142,8 +154,12 @@ fn a_failing_repository_listing_does_not_fail_the_read() {
     *h.repos_err.lock().unwrap() = Some("git not found".into());
     let out = read_settings(&st, &h);
     assert_eq!(out["repos_error"], "git not found");
-    let rows: Vec<(&str, bool)> =
-        out["repos"].as_array().unwrap().iter().map(|r| (r["repo"].as_str().unwrap(), r["detected"].as_bool().unwrap())).collect();
+    let rows: Vec<(&str, bool)> = out["repos"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| (r["repo"].as_str().unwrap(), r["detected"].as_bool().unwrap()))
+        .collect();
     assert_eq!(rows, [("api", false), ("old", false)]);
     assert!(out["settings"].is_object() && out["limits"].is_object());
 }
@@ -219,7 +235,8 @@ fn malformed_empty_and_excluded_proposals_are_rejected() {
 #[test]
 fn repositories_must_be_detected_or_already_configured() {
     let (st, h) = (AutomationState::default(), host_with_repos());
-    let err = propose(&st, &h, json!({"repos": {"api": {"remove_force": true}, "nope": {"remove_force": true}}})).unwrap_err();
+    let err = propose(&st, &h, json!({"repos": {"api": {"remove_force": true}, "nope": {"remove_force": true}}}))
+        .unwrap_err();
     assert_eq!(err, "unknown repository: nope (detected repositories: api, web)");
     // Configurato ma non rilevato: si puo' ancora rimuovere.
     propose(&st, &h, json!({"repos": {"old": null, "web": {"base_branch": "main"}}})).unwrap();
@@ -259,13 +276,19 @@ fn a_valid_proposal_is_pending_with_current_values_and_sensitive_fields() {
     assert_eq!(ws1(&h).worker_rules, "old rules", "nothing changes before the decision");
     let v = view(&st, &h);
     let p = &v.settings_proposals[0];
-    assert_eq!((p.proposal.id.as_str(), p.proposal.source_tab.as_str(), p.proposal.reason.as_str()), (id, INTAKE, REASON));
+    assert_eq!(
+        (p.proposal.id.as_str(), p.proposal.source_tab.as_str(), p.proposal.reason.as_str()),
+        (id, INTAKE, REASON)
+    );
     assert_eq!(p.proposal.patch.worker_rules.as_deref(), Some("new rules"), "stored normalized");
     assert_eq!(p.current.worker_rules.as_deref(), Some("old rules"));
     assert_eq!(p.current.delivery.unwrap().mode, Some(DeliveryMode::Commit));
     assert_eq!(p.current.worker_permission.as_deref(), Some("accept-edits"));
     let api = p.current.repos.as_ref().unwrap()["api"].as_ref().unwrap();
-    assert_eq!((api.setup.clone(), api.base_branch.clone()), (Some(vec!["npm ci".to_string()]), Some(Some("dev".to_string()))));
+    assert_eq!(
+        (api.setup.clone(), api.base_branch.clone()),
+        (Some(vec!["npm ci".to_string()]), Some(Some("dev".to_string())))
+    );
     assert_eq!(p.sensitive, ["worker_permission", "repos[api].setup"]);
 
     let json = serde_json::to_value(&v).unwrap();
@@ -324,8 +347,14 @@ fn accepting_applies_everything_at_once_and_removes_the_proposal() {
     assert_eq!(w.worker_rules, "Never push");
     assert_eq!(w.worker_model.as_deref(), Some("opus"));
     assert_eq!(w.worker_permission, "plan");
-    assert_eq!((w.worker_allow.clone(), w.worker_deny.clone()), (vec!["Bash(npm test:*)".to_string()], vec!["Bash(rm:*)".to_string()]));
-    assert_eq!((w.delivery.mode, w.delivery.parallel, w.delivery.merge_method), (DeliveryMode::Pr, true, MergeMethod::Rebase));
+    assert_eq!(
+        (w.worker_allow.clone(), w.worker_deny.clone()),
+        (vec!["Bash(npm test:*)".to_string()], vec!["Bash(rm:*)".to_string()])
+    );
+    assert_eq!(
+        (w.delivery.mode, w.delivery.parallel, w.delivery.merge_method),
+        (DeliveryMode::Pr, true, MergeMethod::Rebase)
+    );
     assert!(w.use_schedule);
     assert_eq!(w.default_launch.as_deref(), Some("shell"));
     assert_eq!(w.launches.len(), 1);
@@ -386,7 +415,11 @@ fn a_failed_revalidation_keeps_the_proposal_and_changes_nothing() {
     let mut base = ws("ws-1", "Proj", "windows");
     base.launches = vec![launch("l-1")];
     *h.ws1_base.lock().unwrap() = Some(base);
-    let id = propose_ok(&st, &h, json!({"worker_rules": "x", "launches": [{"id": "l-1", "name": "Renamed", "command": "go"}]}));
+    let id = propose_ok(
+        &st,
+        &h,
+        json!({"worker_rules": "x", "launches": [{"id": "l-1", "name": "Renamed", "command": "go"}]}),
+    );
 
     // Il tool dell'avvio sparisce prima della decisione.
     h.ws1_base.lock().unwrap().as_mut().unwrap().launches.clear();

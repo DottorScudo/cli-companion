@@ -18,7 +18,9 @@ fn target_of(st: &AutomationState, session: &str) -> Result<E2eTarget, String> {
 fn claim_error(e: ClaimError) -> String {
     match e {
         ClaimError::Busy(run_id) => {
-            format!("an E2E run is already in progress in this folder (run_id {run_id}): wait for it with get_e2e_result")
+            format!(
+                "an E2E run is already in progress in this folder (run_id {run_id}): wait for it with get_e2e_result"
+            )
         }
         ClaimError::NoFreePort => "no free local port is available for the E2E run: try again in a moment".to_string(),
     }
@@ -44,7 +46,8 @@ pub(in crate::automation) fn run_e2e<H: Host>(st: &AutomationState, host: &H, se
         worktree: target.worktree,
         owner,
     };
-    let run = launch(st, host, run_target, e2e, |run| st.run(host, |r| r.begin_e2e(session, run.clone())), claim_error)?;
+    let run =
+        launch(st, host, run_target, e2e, |run| st.run(host, |r| r.begin_e2e(session, run.clone())), claim_error)?;
     Ok(json!({ "run_id": run.run_id, "status": E2eStatus::Running.as_str() }))
 }
 
@@ -67,18 +70,21 @@ fn parse_run_id(params: &Value) -> Result<Option<&str>, String> {
 
 /// L'ultima esecuzione del task del chiamante, controllata contro `run_id`.
 fn last_run(st: &AutomationState, session: &str, run_id: Option<&str>) -> Result<E2eRun, String> {
-    let run = target_of(st, session)?.last_run.ok_or_else(|| "no E2E run for this task: call run_e2e first".to_string())?;
+    let run =
+        target_of(st, session)?.last_run.ok_or_else(|| "no E2E run for this task: call run_e2e first".to_string())?;
     match run_id {
-        Some(id) if id != run.run_id => {
-            Err(format!("unknown run_id: the last E2E run of this task is {}", run.run_id))
-        }
+        Some(id) if id != run.run_id => Err(format!("unknown run_id: the last E2E run of this task is {}", run.run_id)),
         _ => Ok(run),
     }
 }
 
 /// `get_e2e_result`: l'ultima esecuzione del task; se e' in corso aspetta
 /// fino a `wait_seconds` che finisca.
-pub(in crate::automation) fn get_e2e_result(st: &AutomationState, session: &str, params: &Value) -> Result<Value, String> {
+pub(in crate::automation) fn get_e2e_result(
+    st: &AutomationState,
+    session: &str,
+    params: &Value,
+) -> Result<Value, String> {
     let wait = parse_wait(params)?;
     let run_id = parse_run_id(params)?;
     let mut run = last_run(st, session, run_id)?;

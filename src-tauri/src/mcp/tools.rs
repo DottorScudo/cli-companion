@@ -5,12 +5,11 @@
 
 use crate::agents::PermissionMode;
 use crate::automation::settings::REASON_MAX;
+use crate::worker_permissions::{MAX_RULES, MAX_RULE_CHARS};
 use crate::workspaces::{
     DeliveryMode, MergeMethod, MAX_COMMAND_LEN, MAX_E2E_TIMEOUT_MIN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_LAUNCHES,
-    MAX_PATCH_REPOS, MIN_E2E_TIMEOUT_MIN, MAX_REPO_PATH_LEN,
-    MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN,
+    MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_REPO_PATH_LEN, MAX_RULES_LEN, MIN_E2E_TIMEOUT_MIN,
 };
-use crate::worker_permissions::{MAX_RULES, MAX_RULE_CHARS};
 use serde_json::{json, Value};
 
 /// Ruolo del chiamante, come riportato da `whoami`.

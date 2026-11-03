@@ -72,12 +72,36 @@ mod tests {
         assert_eq!(p.launch_id(), "builtin:preset:task-intake");
         let skill = p.skill_text();
         for t in [
-            "propose_tasks", "list_tasks", "get_task_details", "update_task", "delete_task", "Goal", "Context",
-            "Constraints", "Done when", "Verify", "depends_on", "Task panel", "get_workspace_settings",
-            "propose_settings", "Project Setup", "Goal review", "kind: \"review\"", "all** the tasks",
-            "E2E scenarios", "playwright.config", "CLI_COMPANION_E2E_PORT", "e2e-results/junit.xml",
-            "open: \"never\"", "explicitly asks", "repos[...].e2e", "`e2e: true`", "blocks the\n  delivery",
-            "Suite present but not registered", "at most one line", "Never set `e2e: true`",
+            "propose_tasks",
+            "list_tasks",
+            "get_task_details",
+            "update_task",
+            "delete_task",
+            "Goal",
+            "Context",
+            "Constraints",
+            "Done when",
+            "Verify",
+            "depends_on",
+            "Task panel",
+            "get_workspace_settings",
+            "propose_settings",
+            "Project Setup",
+            "Goal review",
+            "kind: \"review\"",
+            "all** the tasks",
+            "E2E scenarios",
+            "playwright.config",
+            "CLI_COMPANION_E2E_PORT",
+            "e2e-results/junit.xml",
+            "open: \"never\"",
+            "explicitly asks",
+            "repos[...].e2e",
+            "`e2e: true`",
+            "blocks the\n  delivery",
+            "Suite present but not registered",
+            "at most one line",
+            "Never set `e2e: true`",
         ] {
             assert!(skill.contains(t), "{t}");
         }
@@ -90,8 +114,17 @@ mod tests {
         assert_eq!(p.launch_id(), "builtin:preset:skill-wizard");
         let skill = p.skill_text();
         for t in [
-            "save_skill", "list_skills", "delete_skill", "one question at a time", "1024", "third person",
-            "frontmatter", "confirmation", "/<name>", "all workspaces", "restarting",
+            "save_skill",
+            "list_skills",
+            "delete_skill",
+            "one question at a time",
+            "1024",
+            "third person",
+            "frontmatter",
+            "confirmation",
+            "/<name>",
+            "all workspaces",
+            "restarting",
         ] {
             assert!(skill.contains(t), "{t}");
         }
@@ -104,9 +137,20 @@ mod tests {
         assert_eq!(p.launch_id(), "builtin:preset:project-setup");
         let skill = p.skill_text();
         for t in [
-            "get_workspace_settings", "propose_settings", "Task panel", "container_root", "copy_ignored", "setup",
-            "cleanup", "bypass", "end your turn", "$CONTAINER_WORKTREE", "repeatable", "single line",
-            "one question at a time", "before -> after",
+            "get_workspace_settings",
+            "propose_settings",
+            "Task panel",
+            "container_root",
+            "copy_ignored",
+            "setup",
+            "cleanup",
+            "bypass",
+            "end your turn",
+            "$CONTAINER_WORKTREE",
+            "repeatable",
+            "single line",
+            "one question at a time",
+            "before -> after",
         ] {
             assert!(skill.contains(t), "{t}");
         }
@@ -117,9 +161,17 @@ mod tests {
         let p = PRESETS.iter().find(|p| p.id == "project-setup").unwrap();
         let skill = p.skill_text();
         for t in [
-            "## E2E suite", "playwright.config", "cypress.config", "pytest-playwright", "JUnit",
-            "repos[...].e2e", "npx playwright test", "timeout_min", "CLI_COMPANION_E2E_PORT",
-            "propose nothing about E2E", "You do not edit",
+            "## E2E suite",
+            "playwright.config",
+            "cypress.config",
+            "pytest-playwright",
+            "JUnit",
+            "repos[...].e2e",
+            "npx playwright test",
+            "timeout_min",
+            "CLI_COMPANION_E2E_PORT",
+            "propose nothing about E2E",
+            "You do not edit",
         ] {
             assert!(skill.contains(t), "{t}");
         }

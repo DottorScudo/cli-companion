@@ -168,10 +168,7 @@ pub fn remove_from(target_skills_dir: &Path, name: &str) -> Result<bool, String>
 pub fn sync_all(store_root: &Path, target_skills_dir: &Path) -> Result<Vec<SyncReport>, String> {
     Ok(list(store_root)?
         .into_iter()
-        .map(|skill| SyncReport {
-            result: sync_one(store_root, &skill.name, target_skills_dir),
-            name: skill.name,
-        })
+        .map(|skill| SyncReport { result: sync_one(store_root, &skill.name, target_skills_dir), name: skill.name })
         .collect())
 }
 

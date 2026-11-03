@@ -107,11 +107,7 @@ impl Registry {
 
     /// Task di una proposta pendente (per verificarne i repository).
     pub fn proposal_specs(&self, ws: &str, id: &str) -> Result<Vec<TaskSpec>, String> {
-        self.boards
-            .get(ws)
-            .ok_or_else(|| format!("proposal not found: {id}"))?
-            .proposal(id)
-            .map(|p| p.tasks.clone())
+        self.boards.get(ws).ok_or_else(|| format!("proposal not found: {id}"))?.proposal(id).map(|p| p.tasks.clone())
     }
 
     pub fn decide_proposal(&mut self, ws: &str, id: &str, accept: bool, now: i64) -> Result<(), String> {
@@ -139,7 +135,12 @@ impl Registry {
     fn queue_cleanups(&mut self, ws: &str, removed: Vec<Task>) {
         for t in removed {
             if let Some(wt) = t.worktree {
-                self.effects.push(Effect::Cleanup(Box::new(CleanupTarget { ws_id: ws.to_string(), task_id: t.id, repo: t.repo, wt })));
+                self.effects.push(Effect::Cleanup(Box::new(CleanupTarget {
+                    ws_id: ws.to_string(),
+                    task_id: t.id,
+                    repo: t.repo,
+                    wt,
+                })));
             }
         }
     }
@@ -177,7 +178,13 @@ impl Registry {
         Ok(())
     }
 
-    pub fn set_board(&mut self, ws: &str, max_parallel: Option<u8>, paused: Option<bool>, now: i64) -> Result<(), String> {
+    pub fn set_board(
+        &mut self,
+        ws: &str,
+        max_parallel: Option<u8>,
+        paused: Option<bool>,
+        now: i64,
+    ) -> Result<(), String> {
         if max_parallel.is_none() && paused.is_none() {
             return Err("nothing to change: pass max_parallel and/or paused".to_string());
         }
@@ -323,7 +330,8 @@ impl Registry {
 
     /// L'avvio del task e' fallito: `failed` con la nota.
     pub fn start_failed(&mut self, ws: &str, tid: &str, attempt: u32, msg: &str, now: i64) {
-        let current = self.boards.get(ws).and_then(|b| b.task(tid)).is_some_and(|t| t.attempts == attempt && t.session.is_none());
+        let current =
+            self.boards.get(ws).and_then(|b| b.task(tid)).is_some_and(|t| t.attempts == attempt && t.session.is_none());
         if current && self.fail_task(ws, tid, None, &clip_chars(msg, NOTE_MAX), now) {
             self.notify(ws, tid, None, "failed");
         }
@@ -357,7 +365,12 @@ impl Registry {
         let silent: Vec<String> = self
             .workers
             .values()
-            .filter(|w| w.tab_open && w.status == WorkerStatus::Starting && !w.started_sent && now - w.created_at > START_TIMEOUT_MS)
+            .filter(|w| {
+                w.tab_open
+                    && w.status == WorkerStatus::Starting
+                    && !w.started_sent
+                    && now - w.created_at > START_TIMEOUT_MS
+            })
             .map(|w| w.session.clone())
             .collect();
         for s in silent {
@@ -373,12 +386,15 @@ impl Registry {
 
     /// Task `done` con worktree: lo ripulisce l'applicazione degli effetti.
     pub(super) fn queue_cleanup(&mut self, ws: &str, tid: &str) {
-        let target = self
-            .boards
-            .get(ws)
-            .and_then(|b| b.task(tid))
-            .filter(|t| t.status == TaskStatus::Done)
-            .and_then(|t| t.worktree.clone().map(|wt| CleanupTarget { ws_id: ws.to_string(), task_id: tid.to_string(), repo: t.repo.clone(), wt }));
+        let target =
+            self.boards.get(ws).and_then(|b| b.task(tid)).filter(|t| t.status == TaskStatus::Done).and_then(|t| {
+                t.worktree.clone().map(|wt| CleanupTarget {
+                    ws_id: ws.to_string(),
+                    task_id: tid.to_string(),
+                    repo: t.repo.clone(),
+                    wt,
+                })
+            });
         if let Some(t) = target {
             self.effects.push(Effect::Cleanup(Box::new(t)));
         }
@@ -453,7 +469,12 @@ pub(super) fn board_set<H: Host>(
     st.view(host, ws_id)
 }
 
-pub(super) fn task_create<H: Host>(st: &AutomationState, host: &H, ws_id: &str, spec: &Value) -> Result<BoardView, String> {
+pub(super) fn task_create<H: Host>(
+    st: &AutomationState,
+    host: &H,
+    ws_id: &str,
+    spec: &Value,
+) -> Result<BoardView, String> {
     let ws = workspace_of(host, ws_id)?;
     let mut spec = parse_spec(spec, None)?;
     ensure_repos(host, &ws, [spec.repo.as_deref()])?;
@@ -611,7 +632,12 @@ pub(super) fn propose_tasks<H: Host>(
 }
 
 /// `get_task_details`: il task di `ws` con il testo della specifica.
-pub(super) fn task_details<H: Host>(st: &AutomationState, host: &H, ws: &Workspace, params: &Value) -> Result<Value, String> {
+pub(super) fn task_details<H: Host>(
+    st: &AutomationState,
+    host: &H,
+    ws: &Workspace,
+    params: &Value,
+) -> Result<Value, String> {
     let id = req_str(params, "id")?.trim();
     let view = st.run(host, |r| r.task_view(&ws.id, id)).ok_or_else(|| format!("task not found: {id}"))?;
     Ok(json!({ "task": view.to_json(true) }))
@@ -626,7 +652,9 @@ fn parse_statuses(params: &Value) -> Result<Option<Vec<TaskStatus>>, String> {
         Some(_) => return Err(format!("status must be an array of statuses ({})", valid())),
     };
     list.iter()
-        .map(|v| v.as_str().and_then(TaskStatus::parse).ok_or_else(|| format!("invalid status {v} (valid: {})", valid())))
+        .map(|v| {
+            v.as_str().and_then(TaskStatus::parse).ok_or_else(|| format!("invalid status {v} (valid: {})", valid()))
+        })
         .collect::<Result<Vec<_>, _>>()
         .map(Some)
 }

@@ -96,7 +96,16 @@ fn only_the_reviewer_gets_the_two_session_tools() {
     assert_eq!(p["status"], "pending");
     assert!(call(&st, &h, &r, "get_task_details", json!({"id": "nope"})).unwrap_err().contains("task not found"));
     // Tutto il resto resta vietato.
-    for m in ["list_tasks", "update_task", "delete_task", "get_workspace_settings", "propose_settings", "list_skills", "save_skill", "delete_skill"] {
+    for m in [
+        "list_tasks",
+        "update_task",
+        "delete_task",
+        "get_workspace_settings",
+        "propose_settings",
+        "list_skills",
+        "save_skill",
+        "delete_skill",
+    ] {
         let e = call(&st, &h, &r, m, json!({"id": "a"})).unwrap_err();
         assert!(e.contains("not available to automated sessions"), "{m}: {e}");
     }
@@ -148,7 +157,10 @@ fn get_task_of_a_review_has_reviewer_instructions_and_the_reports() {
     let reviewed = t["reviewed_tasks"].as_array().unwrap();
     assert_eq!(reviewed.len(), 1);
     let a = &reviewed[0];
-    assert_eq!((a["id"].as_str(), a["status"].as_str(), a["summary"].as_str()), (Some("a"), Some("done"), Some("done a")));
+    assert_eq!(
+        (a["id"].as_str(), a["status"].as_str(), a["summary"].as_str()),
+        (Some("a"), Some("done"), Some("done a"))
+    );
     assert_eq!(a["commit"], "abc1234");
     assert_eq!(a["pr_url"], "https://github.com/o/r/pull/7");
     assert_eq!(a["files_changed"], json!(["src/a.rs"]));
@@ -170,7 +182,11 @@ fn get_task_of_a_review_asks_for_the_e2e_run_when_a_reviewed_task_requires_it() 
         st.inner.lock().unwrap().boards.get_mut("ws-1").unwrap().task_mut("a").unwrap().e2e = on;
     };
     let e2e_cfg = RepoConfig {
-        e2e: Some(crate::workspaces::E2eConfig { command: "npm run e2e".into(), junit: "junit.xml".into(), timeout_min: 20 }),
+        e2e: Some(crate::workspaces::E2eConfig {
+            command: "npm run e2e".into(),
+            junit: "junit.xml".into(),
+            timeout_min: 20,
+        }),
         ..Default::default()
     };
     let plain = instructions(&st, &h);
@@ -210,7 +226,10 @@ fn issues_need_findings_and_end_the_review_as_done() {
     complete(&st, &h, &r, json!({"verdict": "issues", "findings": ["login fails", "no test"]})).unwrap();
     let t = task(&st, &h, "rev");
     assert_eq!(t["status"], "done");
-    assert_eq!((t["report"]["verdict"].as_str(), t["report"]["findings"].clone()), (Some("issues"), json!(["login fails", "no test"])));
+    assert_eq!(
+        (t["report"]["verdict"].as_str(), t["report"]["findings"].clone()),
+        (Some("issues"), json!(["login fails", "no test"]))
+    );
 }
 
 #[test]
@@ -260,10 +279,15 @@ fn list_tasks_rows_show_kind_and_verdict_for_reviews_only() {
 
 #[test]
 fn a_review_worktree_is_created_and_cleaned_like_any_task() {
-    for (mode, branch_cmd) in [(DeliveryMode::Pr, "branch -D task/rev"), (DeliveryMode::LocalMerge, "branch -d task/rev")] {
+    for (mode, branch_cmd) in
+        [(DeliveryMode::Pr, "branch -D task/rev"), (DeliveryMode::LocalMerge, "branch -d task/rev")]
+    {
         let (st, h, r) = reviewer(mode, true);
         let t = task(&st, &h, "rev");
-        assert_eq!((t["worktree"]["path"].as_str(), t["worktree"]["branch"].as_str()), (Some("C:\\p\\.worktrees\\rev"), Some("task/rev")));
+        assert_eq!(
+            (t["worktree"]["path"].as_str(), t["worktree"]["branch"].as_str()),
+            (Some("C:\\p\\.worktrees\\rev"), Some("task/rev"))
+        );
         h.dirs.lock().unwrap().push("C:\\p\\.worktrees\\rev".to_string());
         call(&st, &h, &r, "get_task", json!({})).unwrap();
         complete(&st, &h, &r, json!({"verdict": "passed"})).unwrap();

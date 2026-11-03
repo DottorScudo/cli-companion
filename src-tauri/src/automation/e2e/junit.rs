@@ -169,12 +169,7 @@ fn check_root(e: &BytesStart, st: &mut State) -> Result<(), String> {
     match e.local_name().as_ref() {
         "testsuites" => st.root_is_suites = true,
         "testsuite" => {}
-        other => {
-            return Err(format!(
-                "not a JUnit report: the root element is <{}>",
-                clip(other, MAX_NAME_CHARS)
-            ))
-        }
+        other => return Err(format!("not a JUnit report: the root element is <{}>", clip(other, MAX_NAME_CHARS))),
     }
     Ok(())
 }
@@ -326,9 +321,8 @@ mod tests {
     const PYTEST: &str = include_str!("fixtures/pytest.xml");
 
     fn failing(n: usize) -> String {
-        let cases: String = (0..n)
-            .map(|i| format!(r#"<testcase name="t{i}"><failure message="m{i}"/></testcase>"#))
-            .collect();
+        let cases: String =
+            (0..n).map(|i| format!(r#"<testcase name="t{i}"><failure message="m{i}"/></testcase>"#)).collect();
         format!("<testsuite>{cases}</testsuite>")
     }
 
@@ -477,7 +471,9 @@ mod tests {
     fn long_and_unicode_text_is_clipped() {
         let long = "x".repeat(MAX_MESSAGE_CHARS + 50);
         let uni = "é".repeat(MAX_NAME_CHARS + 10);
-        let xml = format!(r#"<testsuite><testcase name="{uni}" classname="{uni}"><failure message="{long}"/></testcase></testsuite>"#);
+        let xml = format!(
+            r#"<testsuite><testcase name="{uni}" classname="{uni}"><failure message="{long}"/></testcase></testsuite>"#
+        );
         let f = &parse(&xml).unwrap().failures[0];
         assert_eq!(f.message, format!("{}…", "x".repeat(MAX_MESSAGE_CHARS)));
         assert_eq!(f.name, format!("{}…", "é".repeat(MAX_NAME_CHARS)));

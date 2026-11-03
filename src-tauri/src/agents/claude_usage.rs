@@ -39,10 +39,7 @@ enum Creds {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 /// Legge `claudeAiOauth` dal JSON delle credenziali. `Err` = messaggio per
@@ -61,9 +58,7 @@ fn parse_credentials(raw: &str, now_ms: u64) -> Result<Creds, String> {
         .map(str::trim)
         .filter(|t| !t.is_empty())
         .ok_or_else(|| "Token di accesso di Claude Code assente: rifai il login.".to_string())?;
-    let expires = oauth
-        .get("expiresAt")
-        .and_then(|e| e.as_u64().or_else(|| e.as_f64().map(|f| f.max(0.0) as u64)));
+    let expires = oauth.get("expiresAt").and_then(|e| e.as_u64().or_else(|| e.as_f64().map(|f| f.max(0.0) as u64)));
     if expires.is_some_and(|e| e <= now_ms) {
         return Ok(Creds::Expired);
     }
@@ -208,10 +203,7 @@ struct LimitsEntry {
 
 impl LimitsEntry {
     fn fresh(&self, now: Instant) -> Option<UsageLimitsReply> {
-        self.good
-            .as_ref()
-            .filter(|(at, _)| now.saturating_duration_since(*at) < LIMITS_FRESH)
-            .map(|(_, r)| r.clone())
+        self.good.as_ref().filter(|(at, _)| now.saturating_duration_since(*at) < LIMITS_FRESH).map(|(_, r)| r.clone())
     }
 
     fn backing_off(&self, now: Instant) -> bool {
@@ -343,11 +335,7 @@ fn process_line(state: &mut FileState, line: &[u8], line_offset: u64) {
     if model == Some("<synthetic>") {
         return;
     }
-    let id = msg
-        .get("id")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("anon:{line_offset}"));
+    let id = msg.get("id").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| format!("anon:{line_offset}"));
     let sidechain = v.get("isSidechain").and_then(Value::as_bool).unwrap_or(false);
     let totals = TokenTotals {
         input_tokens: token_field(usage, "input_tokens"),

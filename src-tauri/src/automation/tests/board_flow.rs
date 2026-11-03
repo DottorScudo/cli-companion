@@ -53,9 +53,12 @@ fn propose_validates_everything_and_changes_nothing_on_error() {
     assert!(err(json!({"tasks": [spec("c", &[]), spec("c", &[])]})).contains("duplicate"));
     assert!(err(json!({"tasks": [{"id": "BAD", "title": "T", "task": "x"}]})).contains("invalid id"));
     assert!(err(json!({"tasks": [{"id": "c", "task": "x"}]})).contains("title is missing"));
-    assert!(err(json!({"tasks": [{"id": "c", "title": "T", "task": "x", "touches": ["src"]}]})).contains("unknown field"));
+    assert!(
+        err(json!({"tasks": [{"id": "c", "title": "T", "task": "x", "touches": ["src"]}]})).contains("unknown field")
+    );
     assert!(err(json!({})).contains("tasks is missing"));
-    assert!(err(json!({"tasks": [{"id": "c", "title": "T", "task": "x", "model": "sonnet", "repo": "manca"}]})).contains("does not exist"));
+    assert!(err(json!({"tasks": [{"id": "c", "title": "T", "task": "x", "model": "sonnet", "repo": "manca"}]}))
+        .contains("does not exist"));
     // Gli id delle proposte pendenti sono riservati anche alle altre proposte.
     call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [spec("p1", &[])]})).unwrap();
     assert!(err(json!({"tasks": [spec("p1", &[])]})).contains("pending proposal"));
@@ -68,7 +71,8 @@ fn propose_validates_everything_and_changes_nothing_on_error() {
 
 #[test]
 fn propose_checks_repos_by_delivery_mode() {
-    let rooted = |repo: &str| json!({"tasks": [{"id": "c", "title": "T", "task": "x", "model": "sonnet", "repo": repo}]});
+    let rooted =
+        |repo: &str| json!({"tasks": [{"id": "c", "title": "T", "task": "x", "model": "sonnet", "repo": repo}]});
     // Modalita' con branch: il repo deve essere git.
     let (st, h) = pr_parallel();
     h.dirs.lock().unwrap().push("C:\\p\\api".to_string());
@@ -105,12 +109,22 @@ fn accept_queues_in_order_discard_removes_and_a_failed_accept_keeps_the_proposal
     assert!(boards::proposal_decide(&st, &h, "ws-1", "p-nope", false).is_err());
     // Rivalidazione all'accettazione: un id nel frattempo occupato la fa fallire.
     let p3 = call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [spec("d", &[])]})).unwrap();
-    st.inner.lock().unwrap().boards.get_mut("ws-1").unwrap().tasks.push(Task::from_spec(TaskSpec { id: "d".into(), title: "D".into(), task: "x".into(), ..Default::default() }, 0));
+    st.inner.lock().unwrap().boards.get_mut("ws-1").unwrap().tasks.push(Task::from_spec(
+        TaskSpec { id: "d".into(), title: "D".into(), task: "x".into(), ..Default::default() },
+        0,
+    ));
     let e = boards::proposal_decide(&st, &h, "ws-1", p3["proposal"].as_str().unwrap(), true).unwrap_err();
     assert!(e.contains("duplicate"), "{e}");
     assert_eq!(view(&st, &h).proposals.len(), 1);
     // Accettare rilegge anche i repository: la modalita' di consegna puo' essere cambiata.
-    let p4 = call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [{"id": "e", "title": "E", "task": "x", "model": "sonnet", "repo": "esiste-r"}]})).unwrap();
+    let p4 = call(
+        &st,
+        &h,
+        INTAKE,
+        "propose_tasks",
+        json!({"tasks": [{"id": "e", "title": "E", "task": "x", "model": "sonnet", "repo": "esiste-r"}]}),
+    )
+    .unwrap();
     h.dirs.lock().unwrap().push("C:\\p\\esiste-r".to_string());
     h.set_delivery(DeliveryMode::Pr, true);
     h.git_rule("rev-parse --is-inside-work-tree", false, "", "fatal");
@@ -134,8 +148,14 @@ fn pr_parallel_creates_a_worktree_from_the_base_and_spawns_in_it() {
     assert!(sp[0].parent_tab_id.is_empty() && sp[0].title == "Task a");
     assert!(sp[0].command.contains("AcceptEdits") && sp[0].command.contains("get_task"));
     let a = task(&st, &h, "a");
-    assert_eq!((a["status"].as_str(), a["attempts"].as_u64(), a["worker_status"].as_str()), (Some("running"), Some(1), Some("starting")));
-    assert_eq!(a["worktree"], json!({"path": "C:\\p\\.worktrees\\a", "branch": "task/a", "base": "main", "setup_done": true}));
+    assert_eq!(
+        (a["status"].as_str(), a["attempts"].as_u64(), a["worker_status"].as_str()),
+        (Some("running"), Some(1), Some("starting"))
+    );
+    assert_eq!(
+        a["worktree"],
+        json!({"path": "C:\\p\\.worktrees\\a", "branch": "task/a", "base": "main", "setup_done": true})
+    );
     assert_eq!(a["session"], sp[0].tab_id);
 }
 
@@ -155,7 +175,10 @@ fn pr_base_is_fetched_from_origin_and_follows_the_resolution_order() {
     assert_eq!(h.git_log().iter().filter(|l| l.contains("fetch origin develop")).count(), 1);
     // L'impostazione del repository vince sul default di origin.
     let (st, h) = pr_parallel();
-    h.repo_cfg.lock().unwrap().insert(".".into(), RepoConfig { base_branch: Some("release".into()), ..Default::default() });
+    h.repo_cfg
+        .lock()
+        .unwrap()
+        .insert(".".into(), RepoConfig { base_branch: Some("release".into()), ..Default::default() });
     queue(&st, &h, vec![spec("a", &[])]);
     assert!(has_git(&h, "C:\\p|worktree add C:\\p\\.worktrees\\a -b task/a release"), "{:?}", h.git_log());
     assert!(!h.git_log().iter().any(|l| l.contains("symbolic-ref")));
@@ -166,13 +189,20 @@ fn pr_base_is_fetched_from_origin_and_follows_the_resolution_order() {
     queue(&st, &h, vec![spec("a", &[])]);
     let a = task(&st, &h, "a");
     assert_eq!(a["status"], "running");
-    assert!(a["note"].as_str().unwrap().contains("start warnings") && a["note"].as_str().unwrap().contains("git fetch origin main failed"), "{a}");
+    assert!(
+        a["note"].as_str().unwrap().contains("start warnings")
+            && a["note"].as_str().unwrap().contains("git fetch origin main failed"),
+        "{a}"
+    );
 }
 
 #[test]
 fn local_merge_parallel_needs_the_checkout_on_the_base() {
     let (st, h) = (AutomationState::default(), FakeHost::with_delivery(DeliveryMode::LocalMerge, true));
-    h.repo_cfg.lock().unwrap().insert(".".into(), RepoConfig { base_branch: Some("main".into()), ..Default::default() });
+    h.repo_cfg
+        .lock()
+        .unwrap()
+        .insert(".".into(), RepoConfig { base_branch: Some("main".into()), ..Default::default() });
     *h.branch.lock().unwrap() = Some("dev".into());
     queue(&st, &h, vec![spec("a", &[])]);
     let a = task(&st, &h, "a");
@@ -209,7 +239,10 @@ fn commit_and_push_modes_work_in_place_serially_without_git() {
         assert!(t["environment"].as_str().unwrap().contains("No dedicated worktree"));
         // Finito a, parte b (il primo in coda), poi c.
         finish(&st, &h, &w, "completed");
-        assert_eq!((status_of(&st, &h, "a"), status_of(&st, &h, "b"), status_of(&st, &h, "c")), ("done".into(), "running".into(), "queued".into()));
+        assert_eq!(
+            (status_of(&st, &h, "a"), status_of(&st, &h, "b"), status_of(&st, &h, "c")),
+            ("done".into(), "running".into(), "queued".into())
+        );
         finish(&st, &h, &session_of(&st, &h, "b"), "completed");
         assert_eq!(status_of(&st, &h, "c"), "running");
         assert_eq!(h.spawns().len(), 3);
@@ -222,7 +255,11 @@ fn pr_in_place_resolves_the_base_but_creates_nothing() {
     h.git_rule("symbolic-ref --short refs/remotes/origin/HEAD", true, "origin/main\n", "");
     queue(&st, &h, vec![spec("a", &[]), spec("b", &[])]);
     assert_eq!(status_of(&st, &h, "b"), "queued", "one worker per repository");
-    assert!(!h.git_log().iter().any(|l| l.contains("worktree") || l.contains("fetch") || l.contains("switch")), "{:?}", h.git_log());
+    assert!(
+        !h.git_log().iter().any(|l| l.contains("worktree") || l.contains("fetch") || l.contains("switch")),
+        "{:?}",
+        h.git_log()
+    );
     let w = session_of(&st, &h, "a");
     let t = call(&st, &h, &w, "get_task", json!({})).unwrap();
     let d = t["delivery"].as_str().unwrap();
@@ -237,7 +274,10 @@ fn pr_in_place_resolves_the_base_but_creates_nothing() {
 #[test]
 fn local_merge_in_place_does_not_need_the_checkout_on_base_up_front() {
     let (st, h) = (AutomationState::default(), FakeHost::with_delivery(DeliveryMode::LocalMerge, false));
-    h.repo_cfg.lock().unwrap().insert(".".into(), RepoConfig { base_branch: Some("main".into()), ..Default::default() });
+    h.repo_cfg
+        .lock()
+        .unwrap()
+        .insert(".".into(), RepoConfig { base_branch: Some("main".into()), ..Default::default() });
     *h.branch.lock().unwrap() = Some("dev".into());
     queue(&st, &h, vec![spec("a", &[])]);
     assert_eq!(status_of(&st, &h, "a"), "running");
@@ -249,7 +289,10 @@ fn local_merge_in_place_does_not_need_the_checkout_on_base_up_front() {
 fn multi_repo_tasks_use_their_own_checkout_base_and_slot() {
     let (st, h) = pr_parallel();
     h.dirs.lock().unwrap().push("C:\\p\\api".to_string());
-    h.repo_cfg.lock().unwrap().insert("api".into(), RepoConfig { base_branch: Some("dev".into()), ..Default::default() });
+    h.repo_cfg
+        .lock()
+        .unwrap()
+        .insert("api".into(), RepoConfig { base_branch: Some("dev".into()), ..Default::default() });
     let mut t = spec("a", &[]);
     t["repo"] = json!("api");
     queue(&st, &h, vec![t, spec("b", &[])]);
@@ -263,7 +306,10 @@ fn multi_repo_tasks_use_their_own_checkout_base_and_slot() {
     let mut t = spec("a", &[]);
     t["repo"] = json!("api");
     queue(&st, &h, vec![t, spec("b", &[]), spec("c", &[])]);
-    assert_eq!((status_of(&st, &h, "a"), status_of(&st, &h, "b"), status_of(&st, &h, "c")), ("running".into(), "running".into(), "queued".into()));
+    assert_eq!(
+        (status_of(&st, &h, "a"), status_of(&st, &h, "b"), status_of(&st, &h, "c")),
+        ("running".into(), "running".into(), "queued".into())
+    );
     assert_eq!(h.spawns()[0].cwd.as_deref(), Some("C:\\p\\api"));
 }
 
@@ -362,15 +408,27 @@ fn repo_setup_runs_after_the_worktree_and_a_failed_setup_is_redone_on_retry() {
     let (st, h) = pr_parallel();
     h.repo_cfg.lock().unwrap().insert(
         ".".into(),
-        RepoConfig { copy_ignored: vec![".env".into()], setup: vec!["npm ci".into()], container_root: Some("/srv".into()), ..Default::default() },
+        RepoConfig {
+            copy_ignored: vec![".env".into()],
+            setup: vec!["npm ci".into()],
+            container_root: Some("/srv".into()),
+            ..Default::default()
+        },
     );
     h.git_rule("check-ignore", true, "", "");
     h.files.lock().unwrap().push("C:\\p\\.env".to_string());
-    h.hook_rules.lock().unwrap().push(("npm ci".into(), GitOut { ok: false, stdout: String::new(), stderr: "ERR! network".into() }));
+    h.hook_rules
+        .lock()
+        .unwrap()
+        .push(("npm ci".into(), GitOut { ok: false, stdout: String::new(), stderr: "ERR! network".into() }));
     queue(&st, &h, vec![spec("a", &[])]);
     let a = task(&st, &h, "a");
     assert_eq!(a["status"], "failed");
-    assert!(a["note"].as_str().unwrap().contains("worktree setup of '.' failed at setup 1/1: npm ci") && a["note"].as_str().unwrap().contains("ERR! network"), "{a}");
+    assert!(
+        a["note"].as_str().unwrap().contains("worktree setup of '.' failed at setup 1/1: npm ci")
+            && a["note"].as_str().unwrap().contains("ERR! network"),
+        "{a}"
+    );
     assert_eq!(a["worktree"]["setup_done"], false, "il retry lo rifa");
     assert!(a["preparing"].is_null());
     let log = h.git_log();
@@ -379,7 +437,13 @@ fn repo_setup_runs_after_the_worktree_and_a_failed_setup_is_redone_on_retry() {
     assert!(add < setup);
     assert_eq!(h.hook_log.lock().unwrap()[0], "copy C:\\p\\.env->C:\\p\\.worktrees\\a\\.env");
     let env = h.hook_log.lock().unwrap()[1].clone();
-    assert!(env.starts_with("C:\\p\\.worktrees\\a|npm ci|") && env.contains("TASK_ID=a") && env.contains("BRANCH=task/a") && env.contains("CONTAINER_WORKTREE=/srv/.worktrees/a"), "{env}");
+    assert!(
+        env.starts_with("C:\\p\\.worktrees\\a|npm ci|")
+            && env.contains("TASK_ID=a")
+            && env.contains("BRANCH=task/a")
+            && env.contains("CONTAINER_WORKTREE=/srv/.worktrees/a"),
+        "{env}"
+    );
     // Sistemato il setup, il retry lo rifa nel worktree esistente e il worker parte.
     h.hook_rules.lock().unwrap().clear();
     h.dirs.lock().unwrap().push("C:\\p\\.worktrees\\a".to_string());
@@ -389,7 +453,10 @@ fn repo_setup_runs_after_the_worktree_and_a_failed_setup_is_redone_on_retry() {
     assert_eq!(h.git_log().iter().filter(|l| l.contains("worktree add")).count(), 1);
     let t = call(&st, &h, &session_of(&st, &h, "a"), "get_task", json!({})).unwrap();
     let env = t["environment"].as_str().unwrap();
-    assert!(env.contains("do NOT redo") && env.contains(".env") && env.contains("npm ci") && env.contains("/srv"), "{env}");
+    assert!(
+        env.contains("do NOT redo") && env.contains(".env") && env.contains("npm ci") && env.contains("/srv"),
+        "{env}"
+    );
 }
 
 #[test]
@@ -441,7 +508,9 @@ fn mark_done_unblocks_dependents_and_the_worker_picks_them_up() {
     queue(&st, &h, vec![spec("a", &[]), spec("b", &["a"])]);
     finish(&st, &h, &session_of(&st, &h, "a"), "failed");
     assert_eq!(status_of(&st, &h, "b"), "queued");
-    assert!(boards::task_action(&st, &h, "ws-1", "b", "mark_done").unwrap_err().contains("only failed tasks can be marked done"));
+    assert!(boards::task_action(&st, &h, "ws-1", "b", "mark_done")
+        .unwrap_err()
+        .contains("only failed tasks can be marked done"));
     let v = boards::task_action(&st, &h, "ws-1", "a", "mark_done").unwrap();
     let a = v.tasks.iter().find(|t| t.task.id == "a").unwrap();
     assert_eq!((a.task.status, a.task.note.as_deref()), (TaskStatus::Done, None));
@@ -509,16 +578,32 @@ fn task_create_generates_ids_and_validates() {
     let v = view(&st, &h);
     assert!(v.tasks.iter().all(|t| t.task.status == TaskStatus::Queued && t.task.attempts == 0));
     // Con dipendenze e modello; errori di validazione.
-    let v = boards::task_create(&st, &h, "ws-1", &json!({"title": "Dopo", "task": "x", "depends_on": ["task-1"], "model": "opus"})).unwrap();
+    let v = boards::task_create(
+        &st,
+        &h,
+        "ws-1",
+        &json!({"title": "Dopo", "task": "x", "depends_on": ["task-1"], "model": "opus"}),
+    )
+    .unwrap();
     let t = v.tasks.last().unwrap();
-    assert_eq!((t.task.id.as_str(), t.task.model.as_deref(), t.waiting_on.as_slice()), ("dopo", Some("opus"), &["task-1".to_string()][..]));
-    for bad in [json!({"task": "x"}), json!({"title": "T"}), json!({"title": "T", "task": "x", "depends_on": ["zz"]}), json!({"title": "T", "task": "x", "repo": "manca"})] {
+    assert_eq!(
+        (t.task.id.as_str(), t.task.model.as_deref(), t.waiting_on.as_slice()),
+        ("dopo", Some("opus"), &["task-1".to_string()][..])
+    );
+    for bad in [
+        json!({"task": "x"}),
+        json!({"title": "T"}),
+        json!({"title": "T", "task": "x", "depends_on": ["zz"]}),
+        json!({"title": "T", "task": "x", "repo": "manca"}),
+    ] {
         assert!(boards::task_create(&st, &h, "ws-1", &bad).is_err(), "{bad}");
     }
     assert!(boards::task_create(&st, &h, "ws-9", &json!({"title": "T", "task": "x"})).is_err());
     // L'archiviato e' congelato.
     *h.archived.lock().unwrap() = true;
-    assert!(boards::task_create(&st, &h, "ws-1", &json!({"title": "T", "task": "x"})).unwrap_err().contains("archiviato"));
+    assert!(boards::task_create(&st, &h, "ws-1", &json!({"title": "T", "task": "x"}))
+        .unwrap_err()
+        .contains("archiviato"));
 }
 
 #[test]
@@ -531,16 +616,24 @@ fn update_move_and_to_top_through_the_ui_commands() {
     assert_eq!(order(&boards::task_move(&st, &h, "ws-1", "c", None).unwrap()), "a,b,c");
     assert_eq!(order(&boards::task_action(&st, &h, "ws-1", "c", "to_top").unwrap()), "c,a,b");
     assert!(boards::task_move(&st, &h, "ws-1", "zz", None).is_err());
-    let v = boards::task_update(&st, &h, "ws-1", "b", &json!({"title": "Nuovo", "task": "altro", "depends_on": ["a"]})).unwrap();
+    let v = boards::task_update(&st, &h, "ws-1", "b", &json!({"title": "Nuovo", "task": "altro", "depends_on": ["a"]}))
+        .unwrap();
     let b = v.tasks.iter().find(|t| t.task.id == "b").unwrap();
-    assert_eq!((b.task.title.as_str(), b.task.task.as_str(), b.waiting_on.as_slice()), ("Nuovo", "altro", &["a".to_string()][..]));
+    assert_eq!(
+        (b.task.title.as_str(), b.task.task.as_str(), b.waiting_on.as_slice()),
+        ("Nuovo", "altro", &["a".to_string()][..])
+    );
     assert!(boards::task_update(&st, &h, "ws-1", "a", &json!({"depends_on": ["b"]})).unwrap_err().contains("cycle"));
-    assert!(boards::task_update(&st, &h, "ws-1", "a", &json!({"repo": "manca"})).unwrap_err().contains("does not exist"));
+    assert!(boards::task_update(&st, &h, "ws-1", "a", &json!({"repo": "manca"}))
+        .unwrap_err()
+        .contains("does not exist"));
     assert!(boards::task_update(&st, &h, "ws-1", "a", &json!({"unknown": 1})).is_err());
     // Un task in corso non si modifica ne' si riordina.
     boards::board_set(&st, &h, "ws-1", None, Some(false)).unwrap();
     let running = view(&st, &h).tasks.iter().find(|t| t.task.status == TaskStatus::Running).unwrap().task.id.clone();
-    assert!(boards::task_update(&st, &h, "ws-1", &running, &json!({"title": "x"})).unwrap_err().contains("only queued or failed"));
+    assert!(boards::task_update(&st, &h, "ws-1", &running, &json!({"title": "x"}))
+        .unwrap_err()
+        .contains("only queued or failed"));
     assert!(boards::task_move(&st, &h, "ws-1", &running, None).is_err());
     assert!(boards::task_action(&st, &h, "ws-1", &running, "to_top").is_err());
     assert!(boards::task_action(&st, &h, "ws-1", &running, "retry").unwrap_err().contains("only failed"));
@@ -566,7 +659,9 @@ fn intake_tools_inspect_and_fix_the_queue() {
     let u = call(&st, &h, INTAKE, "update_task", json!({"id": "c", "title": "Nuovo", "model": "opus"})).unwrap();
     assert_eq!((u["task"]["title"].as_str(), u["task"]["model"].as_str()), (Some("Nuovo"), Some("opus")));
     assert!(u["task"].get("task").is_none());
-    assert!(call(&st, &h, INTAKE, "update_task", json!({"id": "b", "title": "x"})).unwrap_err().contains("only queued or failed"));
+    assert!(call(&st, &h, INTAKE, "update_task", json!({"id": "b", "title": "x"}))
+        .unwrap_err()
+        .contains("only queued or failed"));
     assert!(call(&st, &h, INTAKE, "update_task", json!({"title": "x"})).unwrap_err().contains("id is missing"));
     // delete_task: queued senza dipendenti.
     let del = call(&st, &h, INTAKE, "delete_task", json!({"id": "c"})).unwrap();
@@ -673,7 +768,10 @@ fn archiving_requeues_running_tasks_and_freezes_the_scheduler() {
     *h.archived.lock().unwrap() = true;
     st.set_archived(&h, "ws-1", true);
     let a = task(&st, &h, "a");
-    assert_eq!((a["status"].as_str(), a["note"].as_str()), (Some("queued"), Some("interrupted: the workspace was archived")));
+    assert_eq!(
+        (a["status"].as_str(), a["note"].as_str()),
+        (Some("queued"), Some("interrupted: the workspace was archived"))
+    );
     assert!(a["session"].is_null());
     // La chiusura del suo tab non lo fa fallire.
     st.run(&h, |r| r.tab_closed(&w, 1));
@@ -695,7 +793,10 @@ fn loaded_boards_resume_on_the_first_tick_and_running_tasks_are_failed() {
     ]});
     st.load_board(Board::from_json(&raw.to_string(), 5).unwrap());
     let a = task(&st, &h, "old");
-    assert_eq!((a["status"].as_str(), a["note"].as_str()), (Some("failed"), Some("interrupted: the app was restarted")));
+    assert_eq!(
+        (a["status"].as_str(), a["note"].as_str()),
+        (Some("failed"), Some("interrupted: the app was restarted"))
+    );
     assert_eq!(status_of(&st, &h, "next"), "queued", "nothing starts before the first tick");
     assert!(h.spawns().is_empty());
     st.tick(&h, now_millis());
@@ -719,7 +820,11 @@ fn repo_detection_list_parsing() {
 
 fn e2e_config() -> RepoConfig {
     RepoConfig {
-        e2e: Some(crate::workspaces::E2eConfig { command: "npm run e2e".into(), junit: "junit.xml".into(), timeout_min: 20 }),
+        e2e: Some(crate::workspaces::E2eConfig {
+            command: "npm run e2e".into(),
+            junit: "junit.xml".into(),
+            timeout_min: 20,
+        }),
         ..Default::default()
     }
 }
@@ -735,7 +840,8 @@ fn e2e_flag_requires_the_repository_configuration_at_every_entry_point() {
     // Proposta, creazione manuale e aggiornamento sono rifiutati senza configurazione.
     let e = call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [e2e_spec("a")]})).unwrap_err();
     assert_eq!(e, refused);
-    let e = boards::task_create(&st, &h, "ws-1", &json!({"id": "a", "title": "T", "task": "x", "e2e": true})).unwrap_err();
+    let e =
+        boards::task_create(&st, &h, "ws-1", &json!({"id": "a", "title": "T", "task": "x", "e2e": true})).unwrap_err();
     assert_eq!(e, refused);
     let e = boards::task_create(&st, &h, "ws-1", &json!({"title": "T", "task": "x", "e2e": true})).unwrap_err();
     assert!(e.contains("task 't': e2e requires"), "generated id: {e}");
@@ -745,8 +851,14 @@ fn e2e_flag_requires_the_repository_configuration_at_every_entry_point() {
     let e = call(&st, &h, INTAKE, "update_task", json!({"id": "b", "e2e": true})).unwrap_err();
     assert_eq!(e, "task 'b': e2e requires an E2E command configured for repository '.'");
     assert_eq!(task(&st, &h, "b").get("e2e"), None);
-    let e = call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [{"id": "b", "title": "T", "task": "x", "model": "sonnet", "e2e": "yes"}]}))
-        .unwrap_err();
+    let e = call(
+        &st,
+        &h,
+        INTAKE,
+        "propose_tasks",
+        json!({"tasks": [{"id": "b", "title": "T", "task": "x", "model": "sonnet", "e2e": "yes"}]}),
+    )
+    .unwrap_err();
     assert!(e.contains("e2e must be a boolean"), "{e}");
 
     // Con la configurazione passano, e il flag e' visibile.

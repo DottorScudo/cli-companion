@@ -25,7 +25,11 @@ fn leaving_running_cancels_a_queued_run() {
         leave(&st, &h, &w);
         h.run_held();
         let a = task(&st, &h, "a");
-        assert_eq!((a["e2e_run"]["status"].as_str(), a["e2e_run"]["error"].as_str()), (Some("error"), Some("cancelled")), "{name}");
+        assert_eq!(
+            (a["e2e_run"]["status"].as_str(), a["e2e_run"]["error"].as_str()),
+            (Some("error"), Some("cancelled")),
+            "{name}"
+        );
         assert!(h.hook_log.lock().unwrap().iter().all(|l| !l.contains(COMMAND)), "{name}: the command never ran");
         assert!(st.e2e.reserved_ports().is_empty(), "{name}");
         if name == "complete failed" {

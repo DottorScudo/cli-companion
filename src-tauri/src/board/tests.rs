@@ -90,7 +90,17 @@ fn v011_board_is_normalized_on_load() {
     assert_eq!(b.task("done").unwrap().depends_on, ["queued"]);
     // I campi rimossi non tornano al salvataggio.
     let out = serde_json::to_string(&b).unwrap();
-    for gone in ["owner", "requests", "integrations", "base_branch", "touches", "orchestrator_note", "held", "priority", "isolation"] {
+    for gone in [
+        "owner",
+        "requests",
+        "integrations",
+        "base_branch",
+        "touches",
+        "orchestrator_note",
+        "held",
+        "priority",
+        "isolation",
+    ] {
         assert!(!out.contains(&format!("\"{gone}\"")), "{gone} in {out}");
     }
     assert!(b.proposals.is_empty() && b.settings_proposals.is_empty());
@@ -150,7 +160,11 @@ const ID_MAX_LEN: usize = spec::ID_MAX;
 
 #[test]
 fn parse_spec_rules() {
-    let s = parse_spec(&json!({"id":"a","title":" T ","task":" x ","depends_on":["b","b"],"repo":"./api","model":"sonnet"}), None).unwrap();
+    let s = parse_spec(
+        &json!({"id":"a","title":" T ","task":" x ","depends_on":["b","b"],"repo":"./api","model":"sonnet"}),
+        None,
+    )
+    .unwrap();
     assert_eq!((s.id.as_str(), s.title.as_str(), s.task.as_str()), ("a", "T", "x"));
     assert_eq!(s.depends_on, ["b"]);
     assert_eq!((s.repo.as_deref(), s.model.as_deref()), (Some("api"), Some("sonnet")));
@@ -183,7 +197,8 @@ fn parse_spec_rules() {
 
 #[test]
 fn proposals_require_a_valid_model() {
-    let err = |model: Value| parse_proposal(&json!({"tasks":[{"id":"a","title":"T","task":"x","model":model}]})).unwrap_err();
+    let err =
+        |model: Value| parse_proposal(&json!({"tasks":[{"id":"a","title":"T","task":"x","model":model}]})).unwrap_err();
     assert_eq!(
         parse_proposal(&json!({"tasks":[{"id":"a","title":"T","task":"x"}]})).unwrap_err(),
         "tasks[0]: task a: model is required"
@@ -203,10 +218,14 @@ fn proposals_are_parsed_and_limited() {
     assert!(parse_proposal(&json!({})).unwrap_err().contains("tasks is missing"));
     assert!(parse_proposal(&json!({"tasks":[]})).unwrap_err().contains("empty"));
     assert!(parse_proposal(&json!({"tasks":[{"title":"T","task":"x"}]})).unwrap_err().contains("id is missing"));
-    assert!(parse_proposal(&json!({"tasks":[{"id":"a","title":"T","task":"x","model":"sonnet"}],"max_parallel":2})).unwrap_err().contains("unknown field"));
-    let many: Vec<Value> = (0..21).map(|i| json!({"id":format!("t{i}"),"title":"T","task":"x","model":"sonnet"})).collect();
+    assert!(parse_proposal(&json!({"tasks":[{"id":"a","title":"T","task":"x","model":"sonnet"}],"max_parallel":2}))
+        .unwrap_err()
+        .contains("unknown field"));
+    let many: Vec<Value> =
+        (0..21).map(|i| json!({"id":format!("t{i}"),"title":"T","task":"x","model":"sonnet"})).collect();
     assert!(parse_proposal(&json!({"tasks":many})).unwrap_err().contains("too many"));
-    let max: Vec<Value> = (0..20).map(|i| json!({"id":format!("t{i}"),"title":"T","task":"x","model":"sonnet"})).collect();
+    let max: Vec<Value> =
+        (0..20).map(|i| json!({"id":format!("t{i}"),"title":"T","task":"x","model":"sonnet"})).collect();
     assert_eq!(parse_proposal(&json!({"tasks":max})).unwrap().len(), 20);
 }
 
@@ -295,7 +314,10 @@ fn pending_proposals_are_capped() {
     for i in 0..MAX_PENDING_PROPOSALS {
         b.add_proposal(format!("p-{i}"), "t", None, vec![spec(&format!("t{i}"), &[])], 0).unwrap();
     }
-    assert!(b.add_proposal("p-x".into(), "t", None, vec![spec("zz", &[])], 0).unwrap_err().contains("too many pending"));
+    assert!(b
+        .add_proposal("p-x".into(), "t", None, vec![spec("zz", &[])], 0)
+        .unwrap_err()
+        .contains("too many pending"));
 }
 
 // --- coda: ordine, retry, delete, update ---
@@ -336,7 +358,8 @@ fn retry_requeues_at_the_bottom_and_keeps_the_previous_outcome() {
         t.note = Some("tests failed".into());
         t.report = Some(build_report("failed", "two tests red", ReportFields::default(), None));
         t.last_report = Some("two tests red".into());
-        t.worktree = Some(WorktreeInfo { path: "p".into(), branch: "task/a".into(), base: "main".into(), setup_done: true });
+        t.worktree =
+            Some(WorktreeInfo { path: "p".into(), branch: "task/a".into(), base: "main".into(), setup_done: true });
     }
     b.retry_task("a", 3).unwrap();
     assert_eq!(ids(&b), ["b", "a"]);
@@ -369,7 +392,8 @@ fn mark_done_closes_a_failed_task_keeping_the_report_and_unblocking_dependents()
         t.previous_attempt = Some(PreviousAttempt { summary: Some("old".into()), note: None });
         t.report = Some(build_report("completed", "all delivered", ReportFields::default(), None));
         t.last_report = Some("all delivered".into());
-        t.worktree = Some(WorktreeInfo { path: "p".into(), branch: "task/a".into(), base: "main".into(), setup_done: true });
+        t.worktree =
+            Some(WorktreeInfo { path: "p".into(), branch: "task/a".into(), base: "main".into(), setup_done: true });
         t.finished_at = Some(1);
     }
     assert!(!b.deps_done(b.task("b").unwrap()), "failed non sblocca");
@@ -377,7 +401,10 @@ fn mark_done_closes_a_failed_task_keeping_the_report_and_unblocking_dependents()
     let t = b.task("a").unwrap();
     assert_eq!((t.status, t.finished_at, t.updated_at, b.updated_at), (TaskStatus::Done, Some(5), 5, 5));
     assert!(t.note.is_none() && t.previous_attempt.is_none());
-    assert_eq!((t.last_report.as_deref(), t.report.as_ref().map(|r| r.summary.as_str())), (Some("all delivered"), Some("all delivered")));
+    assert_eq!(
+        (t.last_report.as_deref(), t.report.as_ref().map(|r| r.summary.as_str())),
+        (Some("all delivered"), Some("all delivered"))
+    );
     assert!(t.worktree.is_some(), "worktree e branch restano");
     assert!(b.deps_done(b.task("b").unwrap()));
     assert!(b.task_view("b").unwrap().waiting_on.is_empty());
@@ -399,7 +426,10 @@ fn reopen_failed_only_resumes_the_same_failure() {
     assert!(!b.reopen_failed("zz", "w1", 1, "ended", "reopened", 4));
     assert!(b.reopen_failed("a", "w1", 1, "ended", "reopened", 5));
     let t = b.task("a").unwrap();
-    assert_eq!((t.status, t.session.as_deref(), t.note.as_deref()), (TaskStatus::Running, Some("w1"), Some("reopened")));
+    assert_eq!(
+        (t.status, t.session.as_deref(), t.note.as_deref()),
+        (TaskStatus::Running, Some("w1"), Some("reopened"))
+    );
     assert_eq!((t.worker_status, t.finished_at, t.attempts), (Some(WorkerStatus::Running), None, 1));
     // La conclusione e' quella normale e la traccia resta.
     assert!(b.finish_running("a", Some("w1"), TaskStatus::Done, None, None, 6));
@@ -507,7 +537,12 @@ fn cascade_delete_is_refused_and_leaves_the_board_untouched_when_a_dependent_run
 fn cascade_delete_returns_every_removed_worktree() {
     let mut b = board_with(vec![spec("a", &[]), spec("b", &["a"]), spec("c", &["a"])]);
     for id in ["a", "b"] {
-        b.task_mut(id).unwrap().worktree = Some(WorktreeInfo { path: format!("p-{id}"), branch: format!("task/{id}"), base: "main".into(), setup_done: true });
+        b.task_mut(id).unwrap().worktree = Some(WorktreeInfo {
+            path: format!("p-{id}"),
+            branch: format!("task/{id}"),
+            base: "main".into(),
+            setup_done: true,
+        });
     }
     set_status(&mut b, "a", TaskStatus::Failed);
     set_status(&mut b, "b", TaskStatus::Failed);
@@ -521,7 +556,10 @@ fn update_rules() {
     let mut b = board_with(vec![spec("a", &[]), spec("b", &[])]);
     b.update_task("b", &json!({"id":"b","title":"New","depends_on":["a"],"model":"opus"}), 2).unwrap();
     let t = b.task("b").unwrap();
-    assert_eq!((t.title.as_str(), t.depends_on.as_slice(), t.model.as_deref()), ("New", &["a".to_string()][..], Some("opus")));
+    assert_eq!(
+        (t.title.as_str(), t.depends_on.as_slice(), t.model.as_deref()),
+        ("New", &["a".to_string()][..], Some("opus"))
+    );
     // Cicli e dipendenze sconosciute lasciano la board com'era.
     let before = b.tasks.clone();
     assert!(b.update_task("a", &json!({"depends_on":["b"]}), 3).unwrap_err().contains("cycle"));
@@ -533,7 +571,8 @@ fn update_rules() {
     assert!(b.update_task("a", &json!({"title":"x"}), 3).unwrap_err().contains("only queued or failed"));
     set_status(&mut b, "a", TaskStatus::Failed);
     b.update_task("a", &json!({"repo":"api"}), 3).unwrap();
-    b.task_mut("a").unwrap().worktree = Some(WorktreeInfo { path: "p".into(), branch: "task/a".into(), base: "main".into(), setup_done: true });
+    b.task_mut("a").unwrap().worktree =
+        Some(WorktreeInfo { path: "p".into(), branch: "task/a".into(), base: "main".into(), setup_done: true });
     assert!(b.update_task("a", &json!({"repo":null}), 3).unwrap_err().contains("worktree"));
     assert!(b.update_task("a", &json!({"title":"ok"}), 3).is_ok());
 }
@@ -548,7 +587,12 @@ fn ids_of(v: Vec<String>) -> Vec<String> {
 fn scheduler_serial_runs_one_task_per_repository() {
     let mut b = board_with(vec![spec("a", &[]), spec("b", &[]), spec("c", &[])]);
     b.task_mut("c").unwrap().repo = Some("api".into());
-    for (mode, parallel) in [(DeliveryMode::Commit, false), (DeliveryMode::Push, true), (DeliveryMode::Pr, false), (DeliveryMode::LocalMerge, false)] {
+    for (mode, parallel) in [
+        (DeliveryMode::Commit, false),
+        (DeliveryMode::Push, true),
+        (DeliveryMode::Pr, false),
+        (DeliveryMode::LocalMerge, false),
+    ] {
         // a (root) e c (api) partono, b aspetta la root.
         assert_eq!(ids_of(schedule(&b, &open(mode, parallel))), ["a", "c"], "{mode:?}");
     }
@@ -630,7 +674,18 @@ fn view_json_shape_and_list_rows() {
     b.task_mut("a").unwrap().worker_status = Some(WorkerStatus::Idle);
     let view = b.view_with(Some(&workspace(delivery(DeliveryMode::Pr, true))), true);
     let v = serde_json::to_value(&view).unwrap();
-    for k in ["workspace_id", "rev", "max_parallel", "paused", "updated_at", "tasks", "proposals", "settings_proposals", "schedule_blocked", "delivery"] {
+    for k in [
+        "workspace_id",
+        "rev",
+        "max_parallel",
+        "paused",
+        "updated_at",
+        "tasks",
+        "proposals",
+        "settings_proposals",
+        "schedule_blocked",
+        "delivery",
+    ] {
         assert!(v.get(k).is_some(), "{k}");
     }
     assert_eq!(v["schedule_blocked"], true);
@@ -695,7 +750,12 @@ fn env<'a>(d: &'a Delivery, task: &'a Task, cfg: Option<&'a RepoConfig>) -> EnvI
 fn worktree_task(d: &Delivery) -> Task {
     let mut t = Task::from_spec(spec("a", &[]), 0);
     if d.worktrees() {
-        t.worktree = Some(WorktreeInfo { path: "C:\\proj\\.worktrees\\a".into(), branch: "task/a".into(), base: "origin/main".into(), setup_done: true });
+        t.worktree = Some(WorktreeInfo {
+            path: "C:\\proj\\.worktrees\\a".into(),
+            branch: "task/a".into(),
+            base: "origin/main".into(),
+            setup_done: true,
+        });
     }
     t
 }
@@ -703,12 +763,58 @@ fn worktree_task(d: &Delivery) -> Task {
 #[test]
 fn delivery_steps_per_mode() {
     let cases: [(DeliveryMode, bool, &[&str], &[&str]); 6] = [
-        (DeliveryMode::Pr, true, &["git rebase origin/main", "git push -u origin task/a", "gh pr create --base main --head task/a", "gh pr merge <pr-url> --squash", "--auto", "git push origin --delete task/a", "pr_url", "stays on task/a"], &["git switch"]),
-        (DeliveryMode::Pr, false, &["git switch -c task/a origin/main", "gh pr create --base main", "git switch main && git pull --ff-only", "git branch -D task/a", "uncommitted changes"], &["worktree stays"]),
-        (DeliveryMode::LocalMerge, true, &["git rebase main", "git -C \"C:\\proj\" merge --ff-only task/a", "main advanced"], &["gh pr", "git push"]),
-        (DeliveryMode::LocalMerge, false, &["git switch -c task/a main", "git switch main", "git merge --ff-only task/a", "git rebase main task/a, then git switch main and retry the merge", "git branch -d task/a"], &["gh pr", "git push"]),
+        (
+            DeliveryMode::Pr,
+            true,
+            &[
+                "git rebase origin/main",
+                "git push -u origin task/a",
+                "gh pr create --base main --head task/a",
+                "gh pr merge <pr-url> --squash",
+                "--auto",
+                "git push origin --delete task/a",
+                "pr_url",
+                "stays on task/a",
+            ],
+            &["git switch"],
+        ),
+        (
+            DeliveryMode::Pr,
+            false,
+            &[
+                "git switch -c task/a origin/main",
+                "gh pr create --base main",
+                "git switch main && git pull --ff-only",
+                "git branch -D task/a",
+                "uncommitted changes",
+            ],
+            &["worktree stays"],
+        ),
+        (
+            DeliveryMode::LocalMerge,
+            true,
+            &["git rebase main", "git -C \"C:\\proj\" merge --ff-only task/a", "main advanced"],
+            &["gh pr", "git push"],
+        ),
+        (
+            DeliveryMode::LocalMerge,
+            false,
+            &[
+                "git switch -c task/a main",
+                "git switch main",
+                "git merge --ff-only task/a",
+                "git rebase main task/a, then git switch main and retry the merge",
+                "git branch -d task/a",
+            ],
+            &["gh pr", "git push"],
+        ),
         (DeliveryMode::Push, true, &["git pull --rebase", "git push"], &["task/a", "gh pr"]),
-        (DeliveryMode::Commit, false, &["Commit your work on the current branch", "Do not push"], &["git push", "pull --rebase", "task/a"]),
+        (
+            DeliveryMode::Commit,
+            false,
+            &["Commit your work on the current branch", "Do not push"],
+            &["git push", "pull --rebase", "task/a"],
+        ),
     ];
     for (mode, parallel, must, must_not) in cases {
         let d = delivery(mode, parallel);
@@ -736,7 +842,8 @@ fn delivery_steps_are_byte_identical_for_unflagged_tasks() {
     let pr_merge = "gh pr merge <pr-url> --squash. If the repository requires checks or reviews, use --auto and wait until \
                     `gh pr view <pr-url> --json state` reports MERGED. If the merge is not possible, call complete_task with status \
                     \"failed\", the reason and the PR link.";
-    let pr_create = "gh pr create --base main --head task/a --title \"Task a\" --body \"<short summary of the work>\". \
+    let pr_create =
+        "gh pr create --base main --head task/a --title \"Task a\" --body \"<short summary of the work>\". \
                      If a PR for this branch already exists, reuse it.";
     let last = "Then call complete_task with status \"completed\", `commit`";
     let cases: Vec<(DeliveryMode, bool, String)> = vec![
@@ -856,7 +963,8 @@ fn flagged_tasks_get_the_e2e_step_before_publishing_and_the_gate_line() {
             assert!(step < text.find(a).unwrap(), "{ctx}");
         }
         // Numerata di seguito: un passo in piu' rispetto al testo senza E2E.
-        let numbered = |s: &str| s.lines().filter(|l| l.split_once(". ").is_some_and(|(n, _)| n.parse::<u32>().is_ok())).count();
+        let numbered =
+            |s: &str| s.lines().filter(|l| l.split_once(". ").is_some_and(|(n, _)| n.parse::<u32>().is_ok())).count();
         assert_eq!(numbered(&text), numbered(&plain) + 1, "{ctx}");
         let num_of = |pred: &dyn Fn(&str) -> bool| -> usize {
             let l = text.lines().find(|l| pred(l)).expect(&ctx);
@@ -873,7 +981,11 @@ fn environment_mentions_the_e2e_run_only_for_flagged_tasks_with_a_config() {
     let d = delivery(DeliveryMode::Pr, true);
     let mut t = worktree_task(&d);
     let cfg = RepoConfig {
-        e2e: Some(crate::workspaces::E2eConfig { command: "npm run e2e".into(), junit: "out/junit.xml".into(), timeout_min: 7 }),
+        e2e: Some(crate::workspaces::E2eConfig {
+            command: "npm run e2e".into(),
+            junit: "out/junit.xml".into(),
+            timeout_min: 7,
+        }),
         ..Default::default()
     };
     let plain = texts::environment(&env(&d, &t, None));
@@ -907,7 +1019,12 @@ fn reviewer_instructions_add_the_e2e_paragraph_only_when_reviewed_and_configured
         };
         let plain = format!("{base}{tail}");
         for (flag, config) in [(false, None), (false, Some(&cfg)), (true, None)] {
-            assert_eq!(texts::reviewer_instructions(&env(&d, &t, config), rules, flag), plain, "{flag}/{}", config.is_some());
+            assert_eq!(
+                texts::reviewer_instructions(&env(&d, &t, config), rules, flag),
+                plain,
+                "{flag}/{}",
+                config.is_some()
+            );
         }
         let text = texts::reviewer_instructions(&env(&d, &t, Some(&cfg)), rules, true);
         assert_eq!(text, format!("{base}{}{tail}", texts::E2E_REVIEWER));
@@ -920,9 +1037,24 @@ fn environment_describes_where_and_how_the_worker_runs() {
     let d = delivery(DeliveryMode::Pr, true);
     let mut t = worktree_task(&d);
     t.repo = Some("api".into());
-    let cfg = RepoConfig { copy_ignored: vec![".env".into()], setup: vec!["npm ci".into()], container_root: Some("/srv".into()), ..Default::default() };
+    let cfg = RepoConfig {
+        copy_ignored: vec![".env".into()],
+        setup: vec!["npm ci".into()],
+        container_root: Some("/srv".into()),
+        ..Default::default()
+    };
     let text = texts::environment(&env(&d, &t, Some(&cfg)));
-    for m in ["Workspace root: C:\\proj", "Repository: api", ".worktrees\\a", "branch task/a (created from origin/main)", "base branch: main", ".env", "npm ci", "/srv", "do NOT redo"] {
+    for m in [
+        "Workspace root: C:\\proj",
+        "Repository: api",
+        ".worktrees\\a",
+        "branch task/a (created from origin/main)",
+        "base branch: main",
+        ".env",
+        "npm ci",
+        "/srv",
+        "do NOT redo",
+    ] {
         assert!(text.contains(m), "missing {m:?} in\n{text}");
     }
     // Setup non finito: niente promessa che sia gia' pronto.
@@ -932,7 +1064,12 @@ fn environment_describes_where_and_how_the_worker_runs() {
     let d = delivery(DeliveryMode::Commit, false);
     let t = worktree_task(&d);
     let text = texts::environment(&env(&d, &t, None));
-    assert!(text.contains("No dedicated worktree") && text.contains("currently checked out") && !text.contains("base branch"), "{text}");
+    assert!(
+        text.contains("No dedicated worktree")
+            && text.contains("currently checked out")
+            && !text.contains("base branch"),
+        "{text}"
+    );
     let d = delivery(DeliveryMode::LocalMerge, false);
     assert!(texts::environment(&env(&d, &worktree_task(&d), None)).contains("create the branch yourself"));
 }
@@ -967,12 +1104,30 @@ fn review_environment(mode: DeliveryMode, parallel: bool) -> String {
 #[test]
 fn reviewer_environment_does_not_ask_to_commit_or_branch() {
     let text = review_environment(DeliveryMode::Pr, true);
-    assert!(text.contains("branch task/a (created from origin/main), already containing the integrated work. Do not commit on it."), "{text}");
-    assert!(text.contains("- Base branch: main\n") && !text.contains("Work and commit here") && !text.contains("Task branch"), "{text}");
+    assert!(
+        text.contains(
+            "branch task/a (created from origin/main), already containing the integrated work. Do not commit on it."
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("- Base branch: main\n")
+            && !text.contains("Work and commit here")
+            && !text.contains("Task branch"),
+        "{text}"
+    );
     for mode in [DeliveryMode::Pr, DeliveryMode::LocalMerge] {
         let text = review_environment(mode, false);
-        assert!(text.contains("you review directly in the repository checkout") && text.contains("Do not create branches."), "{text}");
-        assert!(!text.contains("create the branch yourself") && !text.contains("delivery steps") && !text.contains("Task branch"), "{text}");
+        assert!(
+            text.contains("you review directly in the repository checkout") && text.contains("Do not create branches."),
+            "{text}"
+        );
+        assert!(
+            !text.contains("create the branch yourself")
+                && !text.contains("delivery steps")
+                && !text.contains("Task branch"),
+            "{text}"
+        );
     }
     let text = review_environment(DeliveryMode::Commit, false);
     assert!(text.contains("you review directly in the repository checkout") && !text.contains("Base branch"), "{text}");
@@ -983,7 +1138,13 @@ fn instructions_carry_rules_guardrails_and_the_working_folder() {
     let d = delivery(DeliveryMode::Commit, false);
     let t = worktree_task(&d);
     let text = texts::instructions(&env(&d, &t, None), "  never run the e2e suite  ");
-    for m in ["Work only inside C:\\proj", "Commit only the files you changed", "complete_task", "status \"failed\"", "end your turn"] {
+    for m in [
+        "Work only inside C:\\proj",
+        "Commit only the files you changed",
+        "complete_task",
+        "status \"failed\"",
+        "end your turn",
+    ] {
         assert!(text.contains(m), "missing {m:?}");
     }
     // Standard di ingegneria, poi le regole del workspace (che non lo allentano).

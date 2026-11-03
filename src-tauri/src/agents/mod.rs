@@ -17,9 +17,9 @@ mod claude_code;
 pub(crate) mod claude_usage;
 pub mod presets;
 
-pub use claude_usage::TranscriptCache;
 /// Id dell'agente Claude Code (le skill utente vivono nel suo `~/.claude`).
 pub(crate) use claude_code::AGENT_ID as CLAUDE_CODE_ID;
+pub use claude_usage::TranscriptCache;
 use presets::{Preset, PRESETS};
 
 use crate::launch_settings::LaunchSettingsStore;
@@ -88,11 +88,7 @@ impl Env {
         if key.is_empty() {
             return Err("env mancante".to_string());
         }
-        Ok(if key == "windows" {
-            Env::Windows
-        } else {
-            Env::Wsl(key.to_string())
-        })
+        Ok(if key == "windows" { Env::Windows } else { Env::Wsl(key.to_string()) })
     }
 
     /// Comando che esegue `program` nell'ambiente. Su Windows passa da
@@ -151,8 +147,7 @@ impl Env {
         let s = forward_slashes(&win_path.to_string_lossy());
         match self {
             Env::Windows => Ok(s),
-            Env::Wsl(_) => windows_to_wsl_path(&s)
-                .ok_or_else(|| format!("percorso non traducibile per WSL: {s}")),
+            Env::Wsl(_) => windows_to_wsl_path(&s).ok_or_else(|| format!("percorso non traducibile per WSL: {s}")),
         }
     }
 }
@@ -170,20 +165,11 @@ pub fn forward_slashes(p: &str) -> String {
 }
 
 fn run_command(mut cmd: Command, args: &[&str], label: &str, timeout: Duration) -> Result<String, String> {
-    let out = output_with_timeout(cmd.args(args), timeout)
-        .map_err(|e| format!("{label} non avviabile: {e}"))?;
+    let out = output_with_timeout(cmd.args(args), timeout).map_err(|e| format!("{label} non avviabile: {e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        let msg = if err.is_empty() {
-            String::from_utf8_lossy(&out.stdout).trim().to_string()
-        } else {
-            err
-        };
-        return Err(if msg.is_empty() {
-            format!("{label} uscito con codice {:?}", out.status.code())
-        } else {
-            msg
-        });
+        let msg = if err.is_empty() { String::from_utf8_lossy(&out.stdout).trim().to_string() } else { err };
+        return Err(if msg.is_empty() { format!("{label} uscito con codice {:?}", out.status.code()) } else { msg });
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
@@ -310,15 +296,7 @@ pub(crate) fn plugins_dir(data_dir: &Path, agent_id: &str) -> PathBuf {
 
 /// Chiave env sicura per nomi di cartella: solo ASCII semplici, resto `-`.
 pub fn sanitize_env_key(key: &str) -> String {
-    key.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect()
+    key.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '-' }).collect()
 }
 
 /// Evento di input del terminale che un agente puo' voler gestire in modo
@@ -432,12 +410,7 @@ pub struct UsageLimitsReply {
 impl UsageLimitsReply {
     /// Risposta senza finestre, con stato e (opzionale) messaggio.
     pub fn status(state: &str, message: Option<&str>) -> Self {
-        Self {
-            state: state.to_string(),
-            five_hour: None,
-            seven_day: None,
-            message: message.map(str::to_string),
-        }
+        Self { state: state.to_string(), five_hour: None, seven_day: None, message: message.map(str::to_string) }
     }
 }
 
@@ -586,11 +559,7 @@ pub fn builtin_launches() -> Vec<BuiltinLaunch> {
 }
 
 /// Comando di avvio di una sessione automatica per l'agente `agent_id`.
-pub fn automation_command(
-    agent_id: &str,
-    env_kind: &str,
-    req: &AutomationRequest,
-) -> Result<String, String> {
+pub fn automation_command(agent_id: &str, env_kind: &str, req: &AutomationRequest) -> Result<String, String> {
     // Errori letti dal modello via RPC: in inglese.
     let provider = find_provider(agent_id).map_err(|_| format!("unknown agent: {agent_id}"))?;
     provider
@@ -599,11 +568,7 @@ pub fn automation_command(
 }
 
 fn find_provider(id: &str) -> Result<&'static dyn AgentProvider, String> {
-    PROVIDERS
-        .iter()
-        .find(|p| p.id() == id)
-        .copied()
-        .ok_or_else(|| format!("agente sconosciuto: {id}"))
+    PROVIDERS.iter().find(|p| p.id() == id).copied().ok_or_else(|| format!("agente sconosciuto: {id}"))
 }
 
 /// Windows + distro WSL installate (senza quelle interne di Docker, che non
@@ -716,9 +681,7 @@ pub async fn agent_usage_limits(
         return Ok(UsageLimitsReply::status("disabled", None));
     }
     crate::blocking(move || {
-        Ok(provider
-            .usage_limits(&env)
-            .unwrap_or_else(|| UsageLimitsReply::status("unsupported", None)))
+        Ok(provider.usage_limits(&env).unwrap_or_else(|| UsageLimitsReply::status("unsupported", None)))
     })
     .await
 }
@@ -750,10 +713,7 @@ pub async fn agent_session_usage(
 fn install_ctx(app: &AppHandle) -> Result<InstallCtx, String> {
     let exe = std::env::current_exe().map_err(|e| format!("percorso exe: {e}"))?;
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    Ok(InstallCtx {
-        exe: forward_slashes(&exe.to_string_lossy()),
-        data_dir,
-    })
+    Ok(InstallCtx { exe: forward_slashes(&exe.to_string_lossy()), data_dir })
 }
 
 /// Risolve agente + ambiente (la distro deve esistere) e rileva l'agente.
@@ -881,10 +841,7 @@ pub async fn agent_plugins_update(app: AppHandle) -> Result<Vec<PluginUpdateResu
         let outdated = find_outdated(PROVIDERS, &ctx, &mut list_envs);
         let ctx = &ctx;
         Ok(std::thread::scope(|s| {
-            let handles: Vec<_> = outdated
-                .into_iter()
-                .map(|o| s.spawn(move || update_one(ctx, o)))
-                .collect();
+            let handles: Vec<_> = outdated.into_iter().map(|o| s.spawn(move || update_one(ctx, o))).collect();
             handles.into_iter().filter_map(|h| h.join().ok()).collect()
         }))
     })
@@ -912,19 +869,12 @@ fn update_one(ctx: &InstallCtx, o: OutdatedPlugin) -> PluginUpdateResult {
 }
 
 #[tauri::command]
-pub async fn install_agent_plugin(
-    app: AppHandle,
-    agent_id: String,
-    env_key: String,
-) -> Result<String, String> {
+pub async fn install_agent_plugin(app: AppHandle, agent_id: String, env_key: String) -> Result<String, String> {
     crate::blocking(move || {
         invalidate_detection_cache();
         let (provider, env, det, ctx) = prepare(&app, &agent_id, &env_key)?;
         if !det.found {
-            return Err(format!(
-                "{} non trovato in questo env: installalo prima",
-                provider.display_name()
-            ));
+            return Err(format!("{} non trovato in questo env: installalo prima", provider.display_name()));
         }
         install_and_mark(provider, &ctx, &env, &det)
     })
@@ -932,11 +882,7 @@ pub async fn install_agent_plugin(
 }
 
 #[tauri::command]
-pub async fn remove_agent_plugin(
-    app: AppHandle,
-    agent_id: String,
-    env_key: String,
-) -> Result<String, String> {
+pub async fn remove_agent_plugin(app: AppHandle, agent_id: String, env_key: String) -> Result<String, String> {
     crate::blocking(move || {
         invalidate_detection_cache();
         let (provider, env, det, ctx) = prepare(&app, &agent_id, &env_key)?;
@@ -1040,30 +986,21 @@ mod tests {
     #[test]
     fn env_keys_and_paths() {
         assert_eq!(Env::from_key("windows"), Ok(Env::Windows));
-        assert_eq!(
-            Env::from_key(" Ubuntu "),
-            Ok(Env::Wsl("Ubuntu".to_string()))
-        );
+        assert_eq!(Env::from_key(" Ubuntu "), Ok(Env::Wsl("Ubuntu".to_string())));
         assert!(Env::from_key("  ").is_err());
         assert_eq!(Env::Windows.kind(), "windows");
         assert_eq!(Env::Wsl("U".into()).kind(), "wsl");
 
         let p = Path::new(r"C:\Users\me\AppData\Roaming\app");
         assert_eq!(Env::Windows.path_arg(p).unwrap(), "C:/Users/me/AppData/Roaming/app");
-        assert_eq!(
-            Env::Wsl("U".into()).path_arg(p).unwrap(),
-            "/mnt/c/Users/me/AppData/Roaming/app"
-        );
+        assert_eq!(Env::Wsl("U".into()).path_arg(p).unwrap(), "/mnt/c/Users/me/AppData/Roaming/app");
         assert_eq!(forward_slashes(r"\\?\C:\a\b.exe"), "C:/a/b.exe");
 
         let ctx = InstallCtx {
             exe: "C:/Program Files/cc/cli-companion.exe".to_string(),
             data_dir: PathBuf::from(r"C:\data"),
         };
-        assert_eq!(
-            ctx.exe_for(&Env::Wsl("U".into())).unwrap(),
-            "/mnt/c/Program Files/cc/cli-companion.exe"
-        );
+        assert_eq!(ctx.exe_for(&Env::Wsl("U".into())).unwrap(), "/mnt/c/Program Files/cc/cli-companion.exe");
         let root = ctx.plugin_root("claude-code", &Env::Wsl("Ubuntu 24".into()));
         assert!(root.ends_with(Path::new("agent-plugins/claude-code/Ubuntu-24")));
     }
@@ -1087,9 +1024,9 @@ mod tests {
         let v = serde_json::to_value(cc).unwrap();
         let rules = v["input_profile"]["rules"].as_array().unwrap();
         for kind in ["windows", "wsl"] {
-            assert!(rules.iter().any(|r| r["event"] == "image-paste"
-                && r["env_kind"] == kind
-                && r["send"] == "\u{1b}v"));
+            assert!(rules
+                .iter()
+                .any(|r| r["event"] == "image-paste" && r["env_kind"] == kind && r["send"] == "\u{1b}v"));
         }
     }
 
@@ -1154,10 +1091,7 @@ mod tests {
         assert_eq!(p.name, "Task Intake");
         assert_eq!(p.agent_id, "claude-code");
         assert_eq!(p.restore_command, l[0].command);
-        assert_eq!(
-            p.command,
-            "claude --dangerously-skip-permissions \"/cli-companion-notify:task-intake\""
-        );
+        assert_eq!(p.command, "claude --dangerously-skip-permissions \"/cli-companion-notify:task-intake\"");
     }
 
     fn preset(id: &'static str, name: &'static str) -> Preset {
@@ -1216,12 +1150,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("mc-outdated-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let base = dir.join("agent-plugins").join("versioned");
-        for (folder, marker) in [
-            ("windows", None),
-            ("Ubuntu", Some("1.0-habc\n")),
-            ("Debian", Some("0.9-hold")),
-            ("Gone", None),
-        ] {
+        for (folder, marker) in
+            [("windows", None), ("Ubuntu", Some("1.0-habc\n")), ("Debian", Some("0.9-hold")), ("Gone", None)]
+        {
             std::fs::create_dir_all(base.join(folder)).unwrap();
             if let Some(m) = marker {
                 std::fs::write(base.join(folder).join(INSTALLED_MARKER), m).unwrap();
@@ -1234,10 +1165,7 @@ mod tests {
             vec![Env::Windows, Env::Wsl("Ubuntu".into()), Env::Wsl("Debian".into())]
         };
         let out = find_outdated(&[&Versioned, &Fake { id: "none", interactive: None, preset: None }], &ctx, &mut envs);
-        let found: Vec<_> = out
-            .iter()
-            .map(|o| (o.env_key.as_str(), o.installed_version.as_deref()))
-            .collect();
+        let found: Vec<_> = out.iter().map(|o| (o.env_key.as_str(), o.installed_version.as_deref())).collect();
         // Marcatore mancante => da aggiornare; uguale => no; vecchio => si'; distro ignota => saltata.
         assert_eq!(found, vec![("Debian", Some("0.9-hold")), ("windows", None)]);
         assert!(out.iter().all(|o| o.expected_version == "1.0-habc" && o.agent_id == "versioned"));
@@ -1287,18 +1215,7 @@ mod tests {
         let w = Env::Wsl("Ubuntu-24.04".into()).command("/home/u/.local/bin/claude");
         assert_eq!(w.get_program(), "wsl.exe");
         let wargs: Vec<_> = w.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
-        assert_eq!(
-            wargs,
-            vec![
-                "-d",
-                "Ubuntu-24.04",
-                "-e",
-                "bash",
-                "-lc",
-                "'/home/u/.local/bin/claude' \"$@\"",
-                "_"
-            ]
-        );
+        assert_eq!(wargs, vec!["-d", "Ubuntu-24.04", "-e", "bash", "-lc", "'/home/u/.local/bin/claude' \"$@\"", "_"]);
         // Programma non assoluto (es. `bash` per la risoluzione): invariato.
         let b = Env::Wsl("U".into()).command("bash");
         let bargs: Vec<_> = b.get_args().map(|a| a.to_string_lossy().into_owned()).collect();

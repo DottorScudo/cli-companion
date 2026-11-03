@@ -137,12 +137,16 @@ fn a_dependency_without_report_has_null_and_empty_fields() {
 #[test]
 fn oversized_lists_and_items_are_cut_and_flagged() {
     let long = "é".repeat(REVIEWED_ITEM_MAX + 1);
-    let test_run = |i: usize, details: Option<String>| TestRun { command: format!("t{i}"), result: "failed".into(), details };
+    let test_run =
+        |i: usize, details: Option<String>| TestRun { command: format!("t{i}"), result: "failed".into(), details };
     let cases = [
         ("files", ReportFields { files_changed: many(REVIEWED_LIST_MAX + 1), ..Default::default() }),
         ("follow_ups", ReportFields { follow_ups: many(REVIEWED_LIST_MAX + 1), ..Default::default() }),
         ("follow_up item", ReportFields { follow_ups: vec![long.clone()], ..Default::default() }),
-        ("tests", ReportFields { tests: (0..=REVIEWED_LIST_MAX).map(|i| test_run(i, None)).collect(), ..Default::default() }),
+        (
+            "tests",
+            ReportFields { tests: (0..=REVIEWED_LIST_MAX).map(|i| test_run(i, None)).collect(), ..Default::default() },
+        ),
         ("test details", ReportFields { tests: vec![test_run(0, Some(long))], ..Default::default() }),
     ];
     for (name, f) in cases {
@@ -151,7 +155,8 @@ fn oversized_lists_and_items_are_cut_and_flagged() {
     let e = entry_of(done("a", ReportFields { files_changed: many(REVIEWED_LIST_MAX + 1), ..Default::default() }));
     assert_eq!(e["files_changed"].as_array().unwrap().len(), REVIEWED_LIST_MAX);
     // Un elemento tagliato rispetta il limite in caratteri e finisce con i puntini.
-    let e = entry_of(done("a", ReportFields { follow_ups: vec!["é".repeat(REVIEWED_ITEM_MAX + 1)], ..Default::default() }));
+    let e =
+        entry_of(done("a", ReportFields { follow_ups: vec!["é".repeat(REVIEWED_ITEM_MAX + 1)], ..Default::default() }));
     let item = e["follow_ups"][0].as_str().unwrap();
     assert_eq!(item.chars().count(), REVIEWED_ITEM_MAX + 1);
     assert!(item.ends_with('…'));
@@ -207,13 +212,16 @@ fn old_boards_load_as_work_and_new_fields_roundtrip() {
     assert_eq!(b.proposals[0].tasks[0].kind, TaskKind::Work);
     let saved = serde_json::to_value(&b).unwrap();
     assert!(saved["proposals"][0].get("source_task").is_none());
-    assert!(saved["tasks"][0]["report"].get("verdict").is_none() && saved["tasks"][0]["report"].get("findings").is_none());
+    assert!(
+        saved["tasks"][0]["report"].get("verdict").is_none() && saved["tasks"][0]["report"].get("findings").is_none()
+    );
 
     let mut b = Board::new("ws-1");
     b.create_task(spec("a", TaskKind::Work, &[]), 1).unwrap();
     b.create_task(spec("rev", TaskKind::Review, &["a"]), 2).unwrap();
     b.add_proposal("p-1".into(), "tab-1", Some("rev".into()), vec![spec("fix", TaskKind::Review, &["a"])], 3).unwrap();
-    b.task_mut("rev").unwrap().report = Some(build_report("completed", "s", fields(Some(Verdict::Issues), &["bug"]), None));
+    b.task_mut("rev").unwrap().report =
+        Some(build_report("completed", "s", fields(Some(Verdict::Issues), &["bug"]), None));
     let back = Board::from_json(&serde_json::to_string(&b).unwrap(), 9).unwrap();
     assert_eq!(back.tasks, b.tasks);
     assert_eq!(back.tasks[1].kind, TaskKind::Review);

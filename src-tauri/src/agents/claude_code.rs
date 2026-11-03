@@ -16,8 +16,9 @@ use std::path::Path;
 
 use super::presets::{Preset, PRESETS};
 use super::{
-    claude_usage, parse_version, DETECT_TIMEOUT, PLUGIN_LIST_TIMEOUT, resolve_wsl_command_cached, AgentProvider, AutomationRequest, Detection, Env, InputEvent,
-    InputProfile, InputRule, InstallCtx, PermissionMode, SessionUsage, TranscriptCache, UsageLimitsReply,
+    claude_usage, parse_version, resolve_wsl_command_cached, AgentProvider, AutomationRequest, Detection, Env,
+    InputEvent, InputProfile, InputRule, InstallCtx, PermissionMode, SessionUsage, TranscriptCache, UsageLimitsReply,
+    DETECT_TIMEOUT, PLUGIN_LIST_TIMEOUT,
 };
 
 pub struct ClaudeCode;
@@ -93,8 +94,7 @@ fn mcp_json(exe: &str) -> String {
 
 /// FNV-1a a 32 bit: serve solo a derivare la versione del plugin.
 fn fnv32(s: &str) -> u32 {
-    s.bytes()
-        .fold(0x811c9dc5u32, |h, b| (h ^ b as u32).wrapping_mul(0x01000193))
+    s.bytes().fold(0x811c9dc5u32, |h, b| (h ^ b as u32).wrapping_mul(0x01000193))
 }
 
 /// La versione dipende dalla release dell'app e da hook, server MCP e skill:
@@ -103,11 +103,7 @@ fn fnv32(s: &str) -> u32 {
 /// aggiornamento forza la reinstallazione) la versione deve cambiare, altrimenti
 /// resterebbe la copia vecchia. Semver valido: il suffisso e' un prerelease alfanumerico.
 fn plugin_version(hooks: &str, mcp: &str, skills: &str) -> String {
-    format!(
-        "{}-h{:08x}",
-        env!("CARGO_PKG_VERSION"),
-        fnv32(&format!("{hooks}\n{mcp}\n{skills}"))
-    )
+    format!("{}-h{:08x}", env!("CARGO_PKG_VERSION"), fnv32(&format!("{hooks}\n{mcp}\n{skills}")))
 }
 
 /// Versione che avrebbe il plugin generato ora per `exe` (come lo vede l'agente).
@@ -133,18 +129,11 @@ fn plugin_files(exe: &str) -> Vec<(String, String)> {
     let version = plugin_json(&plugin_version(&hooks, &mcp, &skills_blob()));
     let mut files = vec![
         (".claude-plugin/marketplace.json".to_string(), marketplace_json()),
-        (
-            format!("plugins/{PLUGIN}/.claude-plugin/plugin.json"),
-            version,
-        ),
+        (format!("plugins/{PLUGIN}/.claude-plugin/plugin.json"), version),
         (format!("plugins/{PLUGIN}/hooks/hooks.json"), hooks),
         (format!("plugins/{PLUGIN}/.mcp.json"), mcp),
     ];
-    files.extend(
-        PRESETS
-            .iter()
-            .map(|p| (format!("plugins/{PLUGIN}/skills/{}/SKILL.md", p.id), p.skill_text())),
-    );
+    files.extend(PRESETS.iter().map(|p| (format!("plugins/{PLUGIN}/skills/{}/SKILL.md", p.id), p.skill_text())));
     files
 }
 
@@ -188,21 +177,12 @@ fn plugin_listed(list_json: &str, id: &str) -> bool {
         serde_json::Value::Array(a) => Some(a),
         v => v.get("plugins").and_then(|p| p.as_array()),
     };
-    list.is_some_and(|a| {
-        a.iter()
-            .any(|p| p.get("id").and_then(|v| v.as_str()) == Some(id))
-    })
+    list.is_some_and(|a| a.iter().any(|p| p.get("id").and_then(|v| v.as_str()) == Some(id)))
 }
 
 /// Esegue un passo del flusso e lo registra nel log; in caso di errore
 /// ritorna il messaggio con il log accumulato.
-fn step(
-    log: &mut Vec<String>,
-    env: &Env,
-    program: &str,
-    label: &str,
-    args: &[&str],
-) -> Result<(), String> {
+fn step(log: &mut Vec<String>, env: &Env, program: &str, label: &str, args: &[&str]) -> Result<(), String> {
     match env.run(program, args) {
         Ok(_) => {
             log.push(format!("{label}: ok"));
@@ -237,14 +217,9 @@ impl AgentProvider for ClaudeCode {
     /// ("Ctrl+V (Alt+V su Windows e WSL)"; su WSL valgono entrambi): xterm
     /// lo invia come ESC v.
     fn input_profile(&self) -> InputProfile {
-        let rule = |env_kind| InputRule {
-            event: InputEvent::ImagePaste,
-            env_kind: Some(env_kind),
-            send: "\x1bv".to_string(),
-        };
-        InputProfile {
-            rules: vec![rule("windows"), rule("wsl")],
-        }
+        let rule =
+            |env_kind| InputRule { event: InputEvent::ImagePaste, env_kind: Some(env_kind), send: "\x1bv".to_string() };
+        InputProfile { rules: vec![rule("windows"), rule("wsl")] }
     }
 
     /// `claude "<prompt>" --permission-mode <m> --allowedTools <regola> [--model <m>]`.
@@ -318,11 +293,7 @@ impl AgentProvider for ClaudeCode {
             return Detection::default();
         };
         match env.run_timeout(&path, &["--version"], DETECT_TIMEOUT) {
-            Ok(out) => Detection {
-                found: true,
-                version: parse_version(&out),
-                path: Some(path),
-            },
+            Ok(out) => Detection { found: true, version: parse_version(&out), path: Some(path) },
             Err(_) => Detection::default(),
         }
     }
@@ -378,13 +349,7 @@ impl AgentProvider for ClaudeCode {
             &["plugin", "marketplace", "remove", MARKETPLACE],
         );
         step(&mut log, env, program, "aggiunta marketplace", &["plugin", "marketplace", "add", &market])?;
-        step(
-            &mut log,
-            env,
-            program,
-            "installazione plugin",
-            &["plugin", "install", PLUGIN_ID, "--scope", "user"],
-        )?;
+        step(&mut log, env, program, "installazione plugin", &["plugin", "install", PLUGIN_ID, "--scope", "user"])?;
 
         log.push(if self.is_installed(env, det) {
             "stato: installato".to_string()
@@ -464,11 +429,7 @@ mod tests {
             ("SessionStart", "session-start", None),
             ("Stop", "finished", None),
             ("SessionEnd", "session-end", None),
-            (
-                "Notification",
-                "needs-input",
-                Some("permission_prompt|idle_prompt|elicitation_dialog"),
-            ),
+            ("Notification", "needs-input", Some("permission_prompt|idle_prompt|elicitation_dialog")),
         ];
         for (name, event, matcher) in cases {
             let group = &h[name][0];
@@ -527,10 +488,8 @@ mod tests {
         assert_eq!(hash.len(), 8);
         assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
         let files = plugin_files("C:/a.exe");
-        let (_, manifest) = files
-            .iter()
-            .find(|(p, _)| p.ends_with(".claude-plugin/plugin.json") && p.starts_with("plugins/"))
-            .unwrap();
+        let (_, manifest) =
+            files.iter().find(|(p, _)| p.ends_with(".claude-plugin/plugin.json") && p.starts_with("plugins/")).unwrap();
         let m: serde_json::Value = serde_json::from_str(manifest).unwrap();
         assert_eq!(m["version"], v.as_str());
     }
@@ -538,11 +497,7 @@ mod tests {
     #[test]
     fn plugin_ships_one_skill_per_preset_and_nothing_else() {
         let files = plugin_files("C:/a.exe");
-        let skills: Vec<_> = files
-            .iter()
-            .filter(|(p, _)| p.contains("/skills/"))
-            .map(|(p, _)| p.as_str())
-            .collect();
+        let skills: Vec<_> = files.iter().filter(|(p, _)| p.contains("/skills/")).map(|(p, _)| p.as_str()).collect();
         assert_eq!(skills.len(), PRESETS.len());
         for preset in PRESETS {
             let path = format!("plugins/cli-companion-notify/skills/{}/SKILL.md", preset.id);
@@ -643,9 +598,8 @@ mod tests {
 
     #[test]
     fn automation_command_model_and_rejections() {
-        let c = ClaudeCode
-            .automation_command("wsl", &req(PermissionMode::Plan, Some("claude-opus-4.1"), "ciao"))
-            .unwrap();
+        let c =
+            ClaudeCode.automation_command("wsl", &req(PermissionMode::Plan, Some("claude-opus-4.1"), "ciao")).unwrap();
         assert!(c.ends_with(" --model claude-opus-4.1"));
         for bad in ["a\"b", "a$b", "a`b", "a%b", "a!b", "a\\b", "a\nb", ""] {
             let r = req(PermissionMode::Default, None, bad);
@@ -686,10 +640,8 @@ mod tests {
     #[ignore]
     fn claude_validate_accepts_generated_plugin() {
         let dir = std::env::temp_dir().join(format!("mc-claude-validate-{}", std::process::id()));
-        let ctx = InstallCtx {
-            exe: "C:/Program Files/cli-companion/cli-companion.exe".to_string(),
-            data_dir: dir.clone(),
-        };
+        let ctx =
+            InstallCtx { exe: "C:/Program Files/cli-companion/cli-companion.exe".to_string(), data_dir: dir.clone() };
         let root = ctx.plugin_root(AGENT_ID, &Env::Windows);
         for (rel, content) in plugin_files(&ctx.exe) {
             let file = root.join(rel);

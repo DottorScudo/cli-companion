@@ -42,8 +42,8 @@ pub mod skills;
 mod state;
 mod worktrees;
 
-pub use host::{Host, TauriHost};
 pub use crate::user_skills::targets::SkillTarget;
+pub use host::{Host, TauriHost};
 pub use state::AutomationState;
 pub use worktrees::{CleanupTarget, GitOut, StartJob};
 
@@ -243,7 +243,10 @@ pub struct Notice {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
     Update(AutomationTabInfo),
-    Close { tab_id: String, delay: Duration },
+    Close {
+        tab_id: String,
+        delay: Duration,
+    },
     /// Avviare un task di board (git + spawn) su un thread separato.
     StartTask(Box<StartJob>),
     /// Salvare su disco e notificare al frontend la board (`board-update`).
@@ -258,11 +261,17 @@ pub enum Effect {
     /// Prendere (`on`) o rilasciare il blocco dello standby. `seq` ordina gli
     /// effetti applicati fuori dal lock da thread diversi: uno vecchio in
     /// ritardo viene scartato.
-    KeepAwake { on: bool, seq: u64 },
+    KeepAwake {
+        on: bool,
+        seq: u64,
+    },
     /// Emettere `schedule-state`.
     Schedule(Box<crate::schedule::ScheduleState>),
     /// Annullare le esecuzioni E2E del task (o, senza task, di tutto il workspace).
-    CancelE2e { ws_id: String, task_id: Option<String> },
+    CancelE2e {
+        ws_id: String,
+        task_id: Option<String>,
+    },
 }
 
 /// Cio' che `complete_task` porta oltre stato e riassunto: i campi del report e
@@ -366,7 +375,15 @@ impl Registry {
     }
 
     /// Registra un nuovo worker per un task di board.
-    fn spawn_worker(&mut self, ws: &str, tid: &str, attempt: u32, new: NewWorker, env: WorkerEnv, now: i64) -> SpawnEvent {
+    fn spawn_worker(
+        &mut self,
+        ws: &str,
+        tid: &str,
+        attempt: u32,
+        new: NewWorker,
+        env: WorkerEnv,
+        now: i64,
+    ) -> SpawnEvent {
         self.next_worker += 1;
         let id = format!("auto-{now}-{}", self.next_worker);
         let ev = SpawnEvent {
@@ -405,7 +422,8 @@ impl Registry {
     /// Scarta i worker chiusi piu' vecchi oltre il tetto di memoria.
     fn prune(&mut self) {
         while self.workers.len() > MAX_TRACKED_WORKERS {
-            let oldest = self.workers.values().filter(|w| !w.tab_open).min_by_key(|w| w.created_at).map(|w| w.session.clone());
+            let oldest =
+                self.workers.values().filter(|w| !w.tab_open).min_by_key(|w| w.created_at).map(|w| w.session.clone());
             match oldest {
                 Some(id) => {
                     self.workers.remove(&id);
@@ -434,7 +452,8 @@ impl Registry {
             return;
         };
         w.updated_at = now;
-        let (info, status, last, ws, tid) = (w.info(), w.status, w.last_report.clone(), w.workspace_id.clone(), w.task_id.clone());
+        let (info, status, last, ws, tid) =
+            (w.info(), w.status, w.last_report.clone(), w.workspace_id.clone(), w.task_id.clone());
         self.effects.push(Effect::Update(info));
         let changed = self
             .boards
@@ -566,9 +585,11 @@ impl Registry {
         w.status = if completed { WorkerStatus::Completed } else { WorkerStatus::Failed };
         w.last_report = Some(clip_chars(&summary, 200));
         let to = if completed { TaskStatus::Done } else { TaskStatus::Failed };
-        let mut report = build_report(if completed { "completed" } else { "failed" }, &summary, extra.fields, extra.diffstat);
+        let mut report =
+            build_report(if completed { "completed" } else { "failed" }, &summary, extra.fields, extra.diffstat);
         report.e2e = self.last_e2e_run(&ws, &tid);
-        let note = (gate_outcome == board::GateOutcome::ConfigRemoved).then(|| board::E2E_GATE_SKIPPED_NOTE.to_string());
+        let note =
+            (gate_outcome == board::GateOutcome::ConfigRemoved).then(|| board::E2E_GATE_SKIPPED_NOTE.to_string());
         let finished = self
             .boards
             .get_mut(&ws)
@@ -836,19 +857,29 @@ pub async fn board_set(
     max_parallel: Option<u8>,
     paused: Option<bool>,
 ) -> Result<BoardView, String> {
-    crate::blocking(move || boards::board_set(&app.state::<AutomationState>(), &TauriHost(app.clone()), &workspace_id, max_parallel, paused))
-        .await
+    crate::blocking(move || {
+        boards::board_set(&app.state::<AutomationState>(), &TauriHost(app.clone()), &workspace_id, max_parallel, paused)
+    })
+    .await
 }
 
 /// Nuovo task creato a mano (senza proposta): `{ title, task, depends_on?, repo?, model? }`.
 #[tauri::command]
 pub async fn task_create(app: AppHandle, workspace_id: String, spec: Value) -> Result<BoardView, String> {
-    crate::blocking(move || boards::task_create(&app.state::<AutomationState>(), &TauriHost(app.clone()), &workspace_id, &spec)).await
+    crate::blocking(move || {
+        boards::task_create(&app.state::<AutomationState>(), &TauriHost(app.clone()), &workspace_id, &spec)
+    })
+    .await
 }
 
 /// Modifica di un task `queued` o `failed` (campi di `spec`, gli assenti restano).
 #[tauri::command]
-pub async fn task_update(app: AppHandle, workspace_id: String, task_id: String, patch: Value) -> Result<BoardView, String> {
+pub async fn task_update(
+    app: AppHandle,
+    workspace_id: String,
+    task_id: String,
+    patch: Value,
+) -> Result<BoardView, String> {
     crate::blocking(move || {
         boards::task_update(&app.state::<AutomationState>(), &TauriHost(app.clone()), &workspace_id, &task_id, &patch)
     })
@@ -857,7 +888,12 @@ pub async fn task_update(app: AppHandle, workspace_id: String, task_id: String, 
 
 /// Azione dell'utente su un task: `retry`, `mark_done`, `stop`, `delete` o `to_top`.
 #[tauri::command]
-pub async fn task_action(app: AppHandle, workspace_id: String, task_id: String, action: String) -> Result<BoardView, String> {
+pub async fn task_action(
+    app: AppHandle,
+    workspace_id: String,
+    task_id: String,
+    action: String,
+) -> Result<BoardView, String> {
     crate::blocking(move || {
         boards::task_action(&app.state::<AutomationState>(), &TauriHost(app.clone()), &workspace_id, &task_id, &action)
     })
@@ -873,7 +909,13 @@ pub async fn task_move(
     before_id: Option<String>,
 ) -> Result<BoardView, String> {
     crate::blocking(move || {
-        boards::task_move(&app.state::<AutomationState>(), &TauriHost(app.clone()), &workspace_id, &task_id, before_id.as_deref())
+        boards::task_move(
+            &app.state::<AutomationState>(),
+            &TauriHost(app.clone()),
+            &workspace_id,
+            &task_id,
+            before_id.as_deref(),
+        )
     })
     .await
 }
@@ -887,7 +929,13 @@ pub async fn proposal_decide(
     accept: bool,
 ) -> Result<BoardView, String> {
     crate::blocking(move || {
-        boards::proposal_decide(&app.state::<AutomationState>(), &TauriHost(app.clone()), &workspace_id, &proposal_id, accept)
+        boards::proposal_decide(
+            &app.state::<AutomationState>(),
+            &TauriHost(app.clone()),
+            &workspace_id,
+            &proposal_id,
+            accept,
+        )
     })
     .await
 }
@@ -942,7 +990,12 @@ pub async fn e2e_last_result(
     repo: Option<String>,
 ) -> Result<Option<board::E2eRun>, String> {
     crate::blocking(move || {
-        e2e::manual::last_result(&app.state::<AutomationState>(), &TauriHost(app.clone()), &workspace_id, repo.as_deref())
+        e2e::manual::last_result(
+            &app.state::<AutomationState>(),
+            &TauriHost(app.clone()),
+            &workspace_id,
+            repo.as_deref(),
+        )
     })
     .await
 }

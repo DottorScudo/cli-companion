@@ -134,7 +134,12 @@ impl Registry {
     /// Blocco della consegna di `complete_task`: il task del worker (a
     /// prescindere dal suo stato) contro `input`. Senza `input` un blocco
     /// richiesto rifiuta, non potendo verificare il codice.
-    pub(super) fn e2e_gate(&self, session: &str, completed: bool, input: Option<&E2eGateInput>) -> Result<GateOutcome, String> {
+    pub(super) fn e2e_gate(
+        &self,
+        session: &str,
+        completed: bool,
+        input: Option<&E2eGateInput>,
+    ) -> Result<GateOutcome, String> {
         let task = self.workers.get(session).and_then(|w| self.boards.get(&w.workspace_id)?.task(&w.task_id));
         let Some(task) = task else {
             return Ok(GateOutcome::NotRequired);

@@ -313,7 +313,8 @@ mod tests {
         save_schedule(&dir, &s).unwrap();
         assert_eq!(load_schedule(&dir), s);
         // File non valido: .bak e default.
-        std::fs::write(dir.join(SCHEDULE_FILE), r#"{"enabled":true,"windows":[{"start":"1:00","end":"2:00"}]}"#).unwrap();
+        std::fs::write(dir.join(SCHEDULE_FILE), r#"{"enabled":true,"windows":[{"start":"1:00","end":"2:00"}]}"#)
+            .unwrap();
         assert_eq!(load_schedule(&dir), Schedule::default());
         assert!(dir.join("schedule.json.bak").exists());
         let _ = std::fs::remove_dir_all(&dir);

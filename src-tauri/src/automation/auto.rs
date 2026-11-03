@@ -180,10 +180,14 @@ pub(super) fn data_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 
 #[tauri::command]
 pub async fn schedule_get(app: AppHandle) -> Result<ScheduleState, String> {
-    crate::blocking(move || Ok(app.state::<AutomationState>().schedule_state(&TauriHost(app.clone()), now_millis()))).await
+    crate::blocking(move || Ok(app.state::<AutomationState>().schedule_state(&TauriHost(app.clone()), now_millis())))
+        .await
 }
 
 #[tauri::command]
 pub async fn schedule_set(app: AppHandle, schedule: Schedule) -> Result<ScheduleState, String> {
-    crate::blocking(move || app.state::<AutomationState>().schedule_set(&TauriHost(app.clone()), schedule, now_millis())).await
+    crate::blocking(move || {
+        app.state::<AutomationState>().schedule_set(&TauriHost(app.clone()), schedule, now_millis())
+    })
+    .await
 }

@@ -178,7 +178,10 @@ fn normalize_commands(list: &[String], what: &str) -> Result<Vec<String>, String
             continue;
         }
         if c.chars().any(|ch| ch.is_control() && ch != '\t') {
-            return Err(format!("il comando di {what} deve stare su una riga: {}", c.chars().take(40).collect::<String>()));
+            return Err(format!(
+                "il comando di {what} deve stare su una riga: {}",
+                c.chars().take(40).collect::<String>()
+            ));
         }
         if c.chars().count() > MAX_REPO_COMMAND_LEN {
             return Err(format!("comando di {what} troppo lungo (max {MAX_REPO_COMMAND_LEN} caratteri)"));
@@ -225,7 +228,8 @@ pub enum DeliveryMode {
 }
 
 impl DeliveryMode {
-    pub const ALL: [DeliveryMode; 4] = [DeliveryMode::Pr, DeliveryMode::LocalMerge, DeliveryMode::Push, DeliveryMode::Commit];
+    pub const ALL: [DeliveryMode; 4] =
+        [DeliveryMode::Pr, DeliveryMode::LocalMerge, DeliveryMode::Push, DeliveryMode::Commit];
 
     /// Stesso valore della serializzazione.
     pub fn as_str(self) -> &'static str {
@@ -318,13 +322,7 @@ impl WorkspaceStore {
     }
 
     pub fn find(&self, id: &str) -> Option<Workspace> {
-        self.inner
-            .lock()
-            .unwrap()
-            .workspaces
-            .iter()
-            .find(|w| w.id == id)
-            .cloned()
+        self.inner.lock().unwrap().workspaces.iter().find(|w| w.id == id).cloned()
     }
 }
 
@@ -374,10 +372,8 @@ fn migrate_legacy_fields(ws: &mut serde_json::Value) {
     if enabled {
         obj.insert("use_schedule".into(), true.into());
     }
-    let setup = obj
-        .remove("worktree_setup")
-        .and_then(|v| v.as_str().map(|c| c.trim().to_string()))
-        .filter(|c| !c.is_empty());
+    let setup =
+        obj.remove("worktree_setup").and_then(|v| v.as_str().map(|c| c.trim().to_string())).filter(|c| !c.is_empty());
     if let Some(cmd) = setup {
         let repos = obj.entry("repos").or_insert_with(|| serde_json::json!({}));
         if let Some(map) = repos.as_object_mut() {
@@ -401,10 +397,7 @@ fn save_to_disk(app: &AppHandle, workspaces: &[Workspace]) -> Result<(), String>
 }
 
 fn now_millis() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
 fn default_name_for(path: &str) -> String {
@@ -475,43 +468,37 @@ fn add_workspace_blocking(
     };
 
     persist(app, |data| {
-    let duplicate = data.workspaces.iter().any(|w| {
-        w.kind == kind && w.path == path && w.distro.as_deref().unwrap_or("") == distro.as_deref().unwrap_or("")
-    });
-    if duplicate {
-        return Err("workspace già presente".to_string());
-    }
+        let duplicate = data.workspaces.iter().any(|w| {
+            w.kind == kind && w.path == path && w.distro.as_deref().unwrap_or("") == distro.as_deref().unwrap_or("")
+        });
+        if duplicate {
+            return Err("workspace già presente".to_string());
+        }
 
-    data.counter += 1;
-    let name = if name.trim().is_empty() {
-        default_name_for(&path)
-    } else {
-        name.trim().to_string()
-    };
-    let ws = Workspace {
-        id: format!("ws-{}-{}", now_millis(), data.counter),
-        name,
-        kind,
-        path,
-        distro,
-        shell: shell
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty()),
-        created_at: now_millis(),
-        launches: Vec::new(),
-        worker_permission: default_worker_permission(),
-        worker_model: None,
-        worker_allow: Vec::new(),
-        worker_deny: Vec::new(),
-        delivery: Delivery::default(),
-        use_schedule: false,
-        default_launch: None,
-        worker_rules: String::new(),
-        repos: BTreeMap::new(),
-        archived: false,
-    };
-    data.workspaces.push(ws.clone());
-    Ok(ws)
+        data.counter += 1;
+        let name = if name.trim().is_empty() { default_name_for(&path) } else { name.trim().to_string() };
+        let ws = Workspace {
+            id: format!("ws-{}-{}", now_millis(), data.counter),
+            name,
+            kind,
+            path,
+            distro,
+            shell: shell.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+            created_at: now_millis(),
+            launches: Vec::new(),
+            worker_permission: default_worker_permission(),
+            worker_model: None,
+            worker_allow: Vec::new(),
+            worker_deny: Vec::new(),
+            delivery: Delivery::default(),
+            use_schedule: false,
+            default_launch: None,
+            worker_rules: String::new(),
+            repos: BTreeMap::new(),
+            archived: false,
+        };
+        data.workspaces.push(ws.clone());
+        Ok(ws)
     })
 }
 
@@ -519,10 +506,7 @@ fn add_workspace_blocking(
 /// durante l'I/O: `save` serializza le scritture (snapshot e scrittura sotto lo
 /// stesso mutex, cosi' uno snapshot vecchio non sovrascrive uno piu' nuovo),
 /// mentre `inner` resta libero per i lettori.
-fn persist<T>(
-    app: &AppHandle,
-    f: impl FnOnce(&mut StoreData) -> Result<T, String>,
-) -> Result<T, String> {
+fn persist<T>(app: &AppHandle, f: impl FnOnce(&mut StoreData) -> Result<T, String>) -> Result<T, String> {
     let store = app.state::<WorkspaceStore>();
     let _save = store.save.lock().unwrap();
     let (out, snapshot) = {
@@ -539,10 +523,7 @@ fn ws_mut<'a>(data: &'a mut StoreData, id: &str) -> Result<&'a mut Workspace, St
 }
 
 fn find_ws_mut<'a>(workspaces: &'a mut [Workspace], id: &str) -> Result<&'a mut Workspace, String> {
-    workspaces
-        .iter_mut()
-        .find(|w| w.id == id)
-        .ok_or_else(|| "workspace non trovato".to_string())
+    workspaces.iter_mut().find(|w| w.id == id).ok_or_else(|| "workspace non trovato".to_string())
 }
 
 /// Permesso dei worker da testo (trim): "plan", "default", "accept-edits", "bypass".
@@ -794,7 +775,6 @@ pub async fn remove_workspace(app: AppHandle, id: String) -> Result<(), String> 
     .await
 }
 
-
 // ---------------------------------------------------------------------------
 // Avvii personalizzati
 // ---------------------------------------------------------------------------
@@ -817,9 +797,7 @@ fn validate_launch(name: &str, command: &str) -> Result<(String, String), String
         return Err("nome avvio mancante".to_string());
     }
     if name.chars().count() > MAX_LAUNCH_NAME_LEN {
-        return Err(format!(
-            "nome avvio troppo lungo (max {MAX_LAUNCH_NAME_LEN} caratteri)"
-        ));
+        return Err(format!("nome avvio troppo lungo (max {MAX_LAUNCH_NAME_LEN} caratteri)"));
     }
     let command = sanitize_command(command);
     if command.is_empty() {
@@ -836,10 +814,7 @@ fn push_launch(launches: &mut Vec<Launch>, id: String, name: &str, command: &str
 
 fn edit_launch(launches: &mut [Launch], launch_id: &str, name: &str, command: &str) -> Result<(), String> {
     let (name, command) = validate_launch(name, command)?;
-    let l = launches
-        .iter_mut()
-        .find(|l| l.id == launch_id)
-        .ok_or_else(|| "avvio non trovato".to_string())?;
+    let l = launches.iter_mut().find(|l| l.id == launch_id).ok_or_else(|| "avvio non trovato".to_string())?;
     l.name = name;
     l.command = command;
     Ok(())
@@ -852,11 +827,7 @@ fn valid_default_launch(launches: &[Launch], id: &str, builtin: &[crate::agents:
 }
 
 /// Come `valid_default_launch`, con il messaggio dell'interfaccia.
-fn check_default_launch(
-    launches: &[Launch],
-    id: &str,
-    builtin: &[crate::agents::BuiltinLaunch],
-) -> Result<(), String> {
+fn check_default_launch(launches: &[Launch], id: &str, builtin: &[crate::agents::BuiltinLaunch]) -> Result<(), String> {
     if valid_default_launch(launches, id, builtin) {
         Ok(())
     } else {
@@ -973,11 +944,7 @@ fn wsl_unc_path(distro: &str, path: &str) -> String {
 /// Percorso da passare a explorer.exe per il workspace.
 fn explorer_target(ws: &Workspace) -> Result<String, String> {
     if ws.kind == "wsl" {
-        let distro = ws
-            .distro
-            .as_deref()
-            .filter(|d| !d.is_empty())
-            .ok_or_else(|| "WSL distro missing".to_string())?;
+        let distro = ws.distro.as_deref().filter(|d| !d.is_empty()).ok_or_else(|| "WSL distro missing".to_string())?;
         Ok(wsl_unc_path(distro, &ws.path))
     } else {
         Ok(ws.path.clone())
@@ -996,19 +963,14 @@ pub(crate) fn open_in_explorer(target: &std::ffi::OsStr) -> Result<(), String> {
     }
     // explorer.exe esce spesso con codice 1 anche se la cartella si apre:
     // conta solo il fallimento dello spawn, l'exit code non si guarda.
-    cmd.spawn()
-        .map(|_| ())
-        .map_err(|e| format!("impossibile aprire Esplora risorse: {e}"))
+    cmd.spawn().map(|_| ()).map_err(|e| format!("impossibile aprire Esplora risorse: {e}"))
 }
 
 /// Async per coerenza con gli altri comandi che lanciano processi.
 #[tauri::command]
 pub async fn open_workspace_folder(app: AppHandle, id: String) -> Result<(), String> {
     crate::blocking(move || {
-        let ws = app
-            .state::<WorkspaceStore>()
-            .find(&id)
-            .ok_or_else(|| "workspace non trovato".to_string())?;
+        let ws = app.state::<WorkspaceStore>().find(&id).ok_or_else(|| "workspace non trovato".to_string())?;
         open_in_explorer(explorer_target(&ws)?.as_ref())
     })
     .await
@@ -1038,7 +1000,12 @@ mod tests {
         let c = rc(|c| {
             c.base_branch = Some("  develop ".into());
             c.container_root = Some(" /var/www/html/ ".into());
-            c.copy_ignored = vec![" configuration.php ".into(), "".into(), ".\\public\\api\\.env".into(), "configuration.php".into()];
+            c.copy_ignored = vec![
+                " configuration.php ".into(),
+                "".into(),
+                ".\\public\\api\\.env".into(),
+                "configuration.php".into(),
+            ];
             c.setup = vec!["  composer dump-autoload ".into(), "   ".into()];
             c.cleanup = vec!["rm -rf x\ty".into()];
         })
@@ -1093,7 +1060,8 @@ mod tests {
 
     #[test]
     fn repo_config_e2e_is_validated_optional_and_persisted() {
-        let e2e = |command: &str, junit: &str| E2eConfig { command: command.into(), junit: junit.into(), timeout_min: 20 };
+        let e2e =
+            |command: &str, junit: &str| E2eConfig { command: command.into(), junit: junit.into(), timeout_min: 20 };
         let c = rc(|c| c.e2e = Some(e2e(" npm run e2e ", "out\\j.xml"))).unwrap();
         assert_eq!(c.e2e, Some(e2e("npm run e2e", "out/j.xml")));
         assert!(rc(|c| c.e2e = Some(e2e("", "j.xml"))).is_err());
@@ -1108,20 +1076,12 @@ mod tests {
     }
 
     fn launch(id: &str, is_default: bool) -> Launch {
-        Launch {
-            id: id.to_string(),
-            name: id.to_string(),
-            command: "ls".to_string(),
-            is_default,
-        }
+        Launch { id: id.to_string(), name: id.to_string(), command: "ls".to_string(), is_default }
     }
 
     #[test]
     fn validate_trims_and_requires_fields() {
-        assert_eq!(
-            validate_launch("  Dev  ", "  npm run dev  "),
-            Ok(("Dev".to_string(), "npm run dev".to_string()))
-        );
+        assert_eq!(validate_launch("  Dev  ", "  npm run dev  "), Ok(("Dev".to_string(), "npm run dev".to_string())));
         assert!(validate_launch("   ", "ls").is_err());
         assert!(validate_launch("Dev", "   ").is_err());
     }
@@ -1223,13 +1183,13 @@ mod tests {
 
     #[test]
     fn worker_permission_roundtrips_and_bad_value_falls_back() {
-        let raw = r#"{"id":"ws-1","name":"p","kind":"windows","path":"C:\\p","created_at":1,"worker_permission":"plan"}"#;
+        let raw =
+            r#"{"id":"ws-1","name":"p","kind":"windows","path":"C:\\p","created_at":1,"worker_permission":"plan"}"#;
         let mut ws: Workspace = serde_json::from_str(raw).unwrap();
         assert_eq!(ws.worker_permission_mode(), PermissionMode::Plan);
         ws.worker_permission = "boh".to_string();
         assert_eq!(ws.worker_permission_mode(), PermissionMode::AcceptEdits);
     }
-
 
     #[test]
     fn worker_model_defaults_to_none_and_roundtrips() {
@@ -1288,21 +1248,18 @@ mod tests {
 
     #[test]
     fn wsl_unc_path_uses_backslashes() {
-        assert_eq!(
-            wsl_unc_path("Ubuntu", "/home/me/proj"),
-            "\\\\wsl.localhost\\Ubuntu\\home\\me\\proj"
-        );
+        assert_eq!(wsl_unc_path("Ubuntu", "/home/me/proj"), "\\\\wsl.localhost\\Ubuntu\\home\\me\\proj");
         assert_eq!(wsl_unc_path("Ubuntu", "/"), "\\\\wsl.localhost\\Ubuntu");
-        assert_eq!(
-            wsl_unc_path("Ubuntu-24.04", "/home/me/proj/"),
-            "\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\proj"
-        );
+        assert_eq!(wsl_unc_path("Ubuntu-24.04", "/home/me/proj/"), "\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\proj");
     }
 
     #[test]
     fn delivery_defaults_and_normalization() {
         let ws = ws_with(Vec::new());
-        assert_eq!(ws.delivery, Delivery { mode: DeliveryMode::Commit, parallel: false, merge_method: MergeMethod::Squash });
+        assert_eq!(
+            ws.delivery,
+            Delivery { mode: DeliveryMode::Commit, parallel: false, merge_method: MergeMethod::Squash }
+        );
         assert!(!ws.use_schedule);
         let d: Delivery = serde_json::from_str(r#"{"mode":"local_merge","parallel":true}"#).unwrap();
         assert!(d.worktrees() && d.uses_branches());

@@ -232,7 +232,10 @@ fn reject(reason: &str) -> String {
 }
 
 fn cannot_verify(reason: &str) -> String {
-    reject(&format!("cannot verify the code against the last E2E run: {}. Run run_e2e again.", clip_chars(reason, GATE_ERROR_MAX)))
+    reject(&format!(
+        "cannot verify the code against the last E2E run: {}. Run run_e2e again.",
+        clip_chars(reason, GATE_ERROR_MAX)
+    ))
 }
 
 fn short(commit: &str) -> String {

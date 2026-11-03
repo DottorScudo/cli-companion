@@ -87,9 +87,7 @@ fn prune_scrollback_at(dir: &Path, keep: &[String]) -> Result<usize, String> {
             continue;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
-        let kept = name
-            .strip_suffix(".txt")
-            .is_some_and(|id| keep.contains(id));
+        let kept = name.strip_suffix(".txt").is_some_and(|id| keep.contains(id));
         if !kept && std::fs::remove_file(&path).is_ok() {
             removed += 1;
         }
