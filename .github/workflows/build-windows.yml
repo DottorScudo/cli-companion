@@ -1,8 +1,10 @@
 name: build-windows
 
 # Build reale del progetto (frontend: npm/tsc/vite, backend: Tauri v2/Rust):
-# - su ogni push/PR produce l'eseguibile + i bundle Windows come artifact CI;
-# - su tag v* crea anche la GitHub Release con installer NSIS firmato (.sig),
+# - parte solo su tag v* o manualmente (workflow_dispatch), non su push/PR:
+#   i controlli di qualita' (lint, format, tipi, test) stanno in ci.yml;
+# - produce l'eseguibile + i bundle Windows come artifact CI e, su tag v*,
+#   crea anche la GitHub Release con installer NSIS firmato (.sig),
 #   latest.json e checksum .sha256: latest.json e' il manifest che consuma
 #   tauri-plugin-updater (vedi docs/UPDATER.MD).
 # La cache Rust (rust-cache) viene salvata solo da cache-rust-main.yml su main:

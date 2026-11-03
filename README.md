@@ -5,7 +5,7 @@ Frontend TypeScript + React 18 + Vite + Tailwind, backend Rust su Tauri v2.
 
 ## Sviluppo
 
-Prerequisiti: Node LTS, Rust stable.
+Prerequisiti: Node >= 24, Rust stable.
 
 ```powershell
 npm ci
@@ -16,10 +16,19 @@ Altri comandi:
 
 ```powershell
 npm test              # node --test tests/*.test.mjs
+npm run lint          # ESLint (react-hooks, divieto gluestack/react-native)
+npm run format        # Prettier: riformatta src/ e tests/ (format:check per sola verifica)
+npm run typecheck     # tsc --noEmit
 npm run build         # tsc && vite build (solo frontend, in dist/)
 npx tauri build       # build completa + bundle Windows (NSIS, firmato: servono i secret TAURI_SIGNING_*)
 cargo check           # da src-tauri/: solo backend
+cargo fmt             # da src-tauri/: rustfmt (cargo fmt --check per sola verifica)
+cargo clippy --all-targets -- -D warnings   # da src-tauri/
+cargo test            # da src-tauri/
 ```
+
+La CI (`.github/workflows/ci.yml`) esegue tutti questi controlli (Node >= 24) a ogni push su `main` e a ogni pull request:
+lancia gli stessi comandi in locale prima di aprire la PR.
 
 ## Versioni
 
