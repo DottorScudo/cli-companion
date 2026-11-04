@@ -702,7 +702,7 @@ fn board_is_published_in_order_and_saved_with_the_latest_state() {
 fn removing_a_workspace_deletes_its_board_with_a_tombstone() {
     let (st, h) = (AutomationState::default(), FakeHost::with_delivery(DeliveryMode::Commit, false));
     queue(&st, &h, vec![spec("a", &[])]);
-    st.remove_board(&h, "ws-1");
+    st.remove_board(&h, &h.ws_for("ws-1").unwrap());
     assert_eq!(h.deleted.lock().unwrap().as_slice(), ["ws-1"]);
     assert!(h.saved.lock().unwrap().get("ws-1").is_none());
     let last = h.board_events.lock().unwrap().last().unwrap().clone();

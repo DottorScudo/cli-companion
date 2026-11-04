@@ -341,13 +341,15 @@ dati, consegna, scheduler, tool, UI): [BOARD.MD](BOARD.MD). Struttura a strati, 
   un host finto con i timer in linea.
 - `boards.rs`: parte del `Registry` che tiene le board (proposte, azioni sui task, scheduler,
   guardiano degli avvii) e la logica dei comandi e dei tool di sessione.
-- `worktrees.rs`: avvio di un task (base, `git fetch`, worktree, setup, spawn), pulizia a
-  consegna avvenuta, rilevamento dei repository, esecuzione di git (timeout 120 s, WSL via
-  `wsl.exe -e`). `hooks.rs`: setup e pulizia per repository (`RepoConfig`), più lettura e
+- `worktrees.rs`: avvio di un task (base, `git fetch`, worktree, setup, spawn) e pulizia a
+  consegna avvenuta. `worktrees/real.rs`: lato reale di git (timeout 120 s, WSL via `wsl.exe -e`,
+  sempre tramite `process.rs`), rilevamento dei repository, file di esclusione.
+  `worktrees/reconcile.rs`: riallineamento delle worktree con le board (task `done` rimasti,
+  worktree `task/*` orfane) all'avvio e ogni 5 minuti, dal tick dello scheduler. `hooks.rs`: setup e pulizia per repository (`RepoConfig`), più lettura e
   cancellazione di file di testo nell'ambiente del workspace (`Host::read_text_file`/`remove_file`).
   `check_e2e_configured` (in `worktrees.rs`) rifiuta un task `e2e` senza configurazione E2E del
   repository.
-- `process.rs`: runner dei comandi dell'utente (hook `setup`/`cleanup`, E2E): output limitato
+- `process.rs`: runner dei processi dell'automazione (git, hook `setup`/`cleanup`, E2E): output limitato
   (ultimi 64 KiB per stream, letti da thread), timeout e annullamento (`CancelFlag`) con
   uccisione dell'**intero albero** di processi: `taskkill /T /F` su Windows, in WSL anche i
   processi Linux marcati con `CLI_COMPANION_RUN` nell'ambiente (`wsl.exe` non li porta con sé).
@@ -426,7 +428,8 @@ W: claude "<bootstrap>" --> get_task --> lavora, consegna (commit/push/PR/merge)
 Pulizia: a `complete_task completed` il tab si chiude dopo 1,5 s; quando `automation_tab_closed`
 lo conferma (e dopo 2 s, perche' Windows rilasci la cartella) l'app esegue i `cleanup` del
 repository, `git worktree remove` e `git branch -D` (`pr`) / `-d` (`local_merge`). Gli errori
-diventano una nota sul task. `failed` conserva worktree e branch per il retry.
+diventano una nota sul task. `failed` conserva worktree e branch per il retry. Se la pulizia
+si perde (crash, chiusura dell'app) la rifa il riallineamento delle worktree (BOARD.MD, "Pulizia").
 
 Eventi Tauri verso il frontend: `automation-spawn`, `automation-close`, `automation-update`,
 `board-update`, `task-notify`, `schedule-state`. Comandi: `automation_tab_closed`,

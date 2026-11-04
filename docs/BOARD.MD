@@ -292,6 +292,22 @@ riuso al retry, guardiano dei 5 minuti, timeout git 120 s, WSL via `wsl.exe -e`.
   rebase lato server: la consegna è confermata dal worker) e `git branch -d task/<id>` per
   `local_merge`. Gli errori diventano avvisi nella `note`, mai bloccanti. Un task `failed`
   conserva worktree e branch per il retry.
+- **Riallineamento delle worktree**: la pulizia alla chiusura del tab dipende da un flag in
+  memoria, quindi un crash o la chiusura dell'app nel suo ritardo la perdono. All'avvio (primo
+  giro del timer, dopo il ripristino delle board) e poi ogni 5 minuti l'app confronta le board con
+  `git worktree list --porcelain` di ogni repository dei workspace non archiviati con consegna a
+  worktree, e ripulisce:
+  - i task `done` che hanno ancora un worktree e il cui tab non è aperto (come alla chiusura del tab);
+  - le worktree `task/<id>` in `<repo>/.worktrees/<id>` che nessun task della board conosce (task
+    eliminato, pulizia persa): sempre un avviso nel log; si rimuovono solo se non hanno modifiche
+    non committate (mai `--force` d'ufficio, nemmeno con `remove_force`) e il loro branch si
+    cancella sempre con `-d`, anche in `pr`: nessuno ha confermato la consegna. Se non si riesce a
+    leggerne lo stato restano dove sono.
+  - Alla rimozione di un workspace i worktree di tutti i suoi task vengono ripuliti (con la copia
+    del workspace presa prima della rimozione: lo store non lo ha più).
+- Tutti i comandi git (e gli script `sh` in WSL) passano dal runner dei processi: output limitato
+  e, al timeout, uccisione dell'intero albero (in WSL anche i processi Linux, marcati con
+  `CLI_COMPANION_RUN`).
 
 ### Modalità in place
 

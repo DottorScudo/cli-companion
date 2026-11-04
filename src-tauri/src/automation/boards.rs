@@ -119,27 +119,26 @@ impl Registry {
     /// Toglie un task; se aveva un worktree lo fa ripulire.
     pub fn delete_task(&mut self, ws: &str, id: &str, now: i64) -> Result<(), String> {
         let removed = self.edit(ws, |b| b.delete_task(id, now))?;
-        self.queue_cleanups(ws, vec![removed]);
+        self.queue_cleanups(ws, vec![removed], None);
         Ok(())
     }
 
     /// Toglie un task e quelli che ne dipendono (tutto o niente); fa ripulire i worktree.
     pub fn delete_task_cascade(&mut self, ws: &str, id: &str, now: i64) -> Result<(), String> {
         let removed = self.edit(ws, |b| b.delete_with_dependents(id, now))?;
-        self.queue_cleanups(ws, removed);
+        self.queue_cleanups(ws, removed, None);
         Ok(())
     }
 
-    fn queue_cleanups(&mut self, ws: &str, removed: Vec<Task>) {
-        for t in removed {
-            if let Some(wt) = t.worktree {
-                self.effects.push(Effect::Cleanup(Box::new(CleanupTarget {
-                    ws_id: ws.to_string(),
-                    task_id: t.id,
-                    repo: t.repo,
-                    wt,
-                })));
-            }
+    /// Mette in coda la pulizia del worktree di ogni task tolto. `workspace`:
+    /// copia del workspace quando non e' piu' nello store.
+    fn queue_cleanups(&mut self, ws: &str, removed: Vec<Task>, workspace: Option<&Workspace>) {
+        for target in removed.into_iter().filter_map(|t| CleanupTarget::for_task(ws, t)) {
+            let target = match workspace {
+                Some(w) => target.with_workspace(w),
+                None => target,
+            };
+            self.effects.push(Effect::Cleanup(Box::new(target)));
         }
     }
 
@@ -199,12 +198,16 @@ impl Registry {
         })
     }
 
-    pub fn remove_board(&mut self, ws: &str) {
-        self.cancel_e2e(ws, None);
-        if self.boards.remove(ws).is_some() {
-            self.dirty.retain(|d| d != ws);
+    /// Il workspace `ws` e' stato rimosso: via la sua board, e i worktree dei
+    /// suoi task vanno ripuliti (con la copia del workspace: lo store non lo
+    /// ha piu').
+    pub fn remove_board(&mut self, ws: &Workspace) {
+        self.cancel_e2e(&ws.id, None);
+        if let Some(board) = self.boards.remove(&ws.id) {
+            self.dirty.retain(|d| *d != ws.id);
             self.next_rev += 1;
-            self.effects.push(Effect::DeleteBoard(ws.to_string(), self.next_rev));
+            self.effects.push(Effect::DeleteBoard(ws.id.clone(), self.next_rev));
+            self.queue_cleanups(&ws.id, board.tasks, Some(ws));
         }
     }
 
@@ -404,15 +407,12 @@ impl Registry {
 
     /// Task `done` con worktree: lo ripulisce l'applicazione degli effetti.
     pub(super) fn queue_cleanup(&mut self, ws: &str, tid: &str) {
-        let target =
-            self.boards.get(ws).and_then(|b| b.task(tid)).filter(|t| t.status() == TaskStatus::Done).and_then(|t| {
-                t.worktree.clone().map(|wt| CleanupTarget {
-                    ws_id: ws.to_string(),
-                    task_id: tid.to_string(),
-                    repo: t.repo.clone(),
-                    wt,
-                })
-            });
+        let target = self
+            .boards
+            .get(ws)
+            .and_then(|b| b.task(tid))
+            .filter(|t| t.status() == TaskStatus::Done)
+            .and_then(|t| CleanupTarget::for_task(ws, t.clone()));
         if let Some(t) = target {
             self.effects.push(Effect::Cleanup(Box::new(t)));
         }

@@ -16,6 +16,8 @@ mod e2e;
 mod e2e_cancel;
 mod e2e_manual;
 mod ready;
+mod reconcile;
+mod reconcile_git;
 mod review;
 mod schedule;
 mod session_end;
@@ -103,6 +105,8 @@ struct FakeHost {
     /// Archivio delle skill utente e cartelle target (ambiente, cartella).
     skills_store: Arc<Mutex<Option<std::path::PathBuf>>>,
     skill_dirs: Arc<Mutex<Vec<SkillDir>>>,
+    /// Con `true` `git` e `dir_exists` usano la macchina vera (vedi `reconcile_git`).
+    real_git: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl FakeHost {
@@ -176,6 +180,13 @@ impl FakeHost {
     fn e2e_events(&self) -> Vec<crate::automation::e2e::E2eEvent> {
         self.e2e_events.lock().unwrap().clone()
     }
+    /// Da ora git e le cartelle sono quelli veri della macchina.
+    fn use_real_git(&self) {
+        self.real_git.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    fn uses_real_git(&self) -> bool {
+        self.real_git.load(std::sync::atomic::Ordering::SeqCst)
+    }
 }
 
 impl Host for FakeHost {
@@ -188,6 +199,9 @@ impl Host for FakeHost {
         }
     }
     fn dir_exists(&self, _ws: &Workspace, path: &str) -> bool {
+        if self.uses_real_git() {
+            return std::path::Path::new(path).is_dir();
+        }
         path.contains("esiste") || self.dirs.lock().unwrap().iter().any(|d| d == path)
     }
     fn launch_command(&self, agent: &str, env_kind: TargetKind, req: &AutomationRequest) -> Result<String, String> {
@@ -223,7 +237,10 @@ impl Host for FakeHost {
     fn workspace(&self, id: &str) -> Option<Workspace> {
         self.ws_for(id)
     }
-    fn git(&self, _ws: &Workspace, dir: &str, args: &[&str]) -> Result<GitOut, String> {
+    fn git(&self, ws: &Workspace, dir: &str, args: &[&str]) -> Result<GitOut, String> {
+        if self.uses_real_git() {
+            return worktrees::run_git(ws, dir, args);
+        }
         let line = format!("{dir}|{}", args.join(" "));
         self.git_log.lock().unwrap().push(line.clone());
         if let Some((_, out)) = self.git_rules.lock().unwrap().iter().find(|(n, _)| line.contains(n.as_str())) {

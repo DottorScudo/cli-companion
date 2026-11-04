@@ -1,16 +1,30 @@
 //! Git dell'automazione: avvio di un task (base, worktree, setup, spawn del
-//! worker), pulizia a consegna avvenuta, rilevamento dei repository, esecuzione
-//! di git e accesso ai file della board. Generico sull'`Host`, quindi si prova
-//! con un host finto; gira sempre fuori dal lock del registro, su un thread.
+//! worker), pulizia a consegna avvenuta e accesso ai file della board.
+//! Generico sull'`Host`, quindi si prova con un host finto; gira sempre fuori
+//! dal lock del registro, su un thread. Il lato reale di git (esecuzione,
+//! rilevamento dei repository) e' in `real`; il riallineamento delle worktree
+//! orfane in `reconcile`.
 
 use super::hooks;
 use super::*;
 use crate::agents::AutomationRequest;
 use crate::board::{repo_key, Task, TaskSpec, WorktreeInfo};
-use crate::platform::{wsl_run_command, Target, TargetKind};
-use crate::validate::{normalize_repo, valid_branch};
+use crate::platform::TargetKind;
+use crate::validate::valid_branch;
 use crate::workspaces::{DeliveryMode, RepoConfig};
 use std::path::PathBuf;
+
+mod real;
+mod reconcile;
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+pub(super) use real::parse_repo_list;
+pub(super) use real::{append_exclude_line, detect_repos, run_git};
+#[cfg(test)]
+pub(super) use reconcile::ReconcileReport;
+pub(super) use reconcile::Reconciler;
 
 /// Esito di un comando git.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,16 +45,47 @@ pub struct StartJob {
     pub attempt: u32,
 }
 
-/// Worktree da rimuovere (task concluso o eliminato).
+/// Worktree da rimuovere (task concluso o eliminato, o orfana).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CleanupTarget {
     pub ws_id: String,
     pub task_id: String,
     pub repo: Option<String>,
     pub wt: WorktreeInfo,
+    /// Il workspace non e' piu' nello store (rimosso con la sua board): la
+    /// pulizia usa questa copia invece di cercarlo per id.
+    pub workspace: Option<Workspace>,
+    /// Il branch si cancella solo se e' unito (`-d`) anche in modalita' `pr`:
+    /// per le worktree orfane la consegna non e' confermata da nessuno.
+    pub keep_unmerged: bool,
+}
+
+impl CleanupTarget {
+    /// Pulizia del worktree di `task` (se ne ha uno) dopo una consegna
+    /// confermata o un'eliminazione voluta dall'utente.
+    pub fn for_task(ws_id: &str, task: Task) -> Option<Self> {
+        let wt = task.worktree?;
+        Some(Self {
+            ws_id: ws_id.to_string(),
+            task_id: task.id,
+            repo: task.repo,
+            wt,
+            workspace: None,
+            keep_unmerged: false,
+        })
+    }
+
+    /// Lo stesso, per un workspace che non e' piu' nello store.
+    pub fn with_workspace(self, ws: &Workspace) -> Self {
+        Self { workspace: Some(ws.clone()), ..self }
+    }
 }
 
 const EXCLUDE_LINE: &str = ".worktrees/";
+/// Cartella, nel repository, che contiene i worktree dei task.
+const WORKTREES_DIR: &str = ".worktrees";
+/// Prefisso dei branch dei task: `task/<id>`.
+const TASK_BRANCH_PREFIX: &str = "task/";
 /// Quanto vale un `git fetch` gia' fatto per (repo, base).
 const FETCH_TTL: Duration = Duration::from_secs(60);
 /// Tetto di un `git fetch` (il resto dei comandi git ha `GIT_TIMEOUT`).
@@ -55,6 +100,11 @@ pub(super) type FetchCache = HashMap<String, (std::time::Instant, Option<String>
 // ---------------------------------------------------------------------------
 // Git e percorsi
 // ---------------------------------------------------------------------------
+
+/// Branch del task `id`.
+fn task_branch(id: &str) -> String {
+    format!("{TASK_BRANCH_PREFIX}{id}")
+}
 
 /// Esegue git e ritorna lo stdout (trim); fallimento = errore leggibile.
 pub(super) fn git<H: Host>(host: &H, ws: &Workspace, dir: &str, args: &[&str]) -> Result<String, String> {
@@ -294,8 +344,8 @@ fn prepare_worktree<H: Host>(
         .worktree
         .as_ref()
         .map(|w| w.path.clone())
-        .unwrap_or_else(|| join_path(ws.kind, &dir, &format!(".worktrees/{}", task.id)));
-    let mut info = WorktreeInfo { path, branch: format!("task/{}", task.id), base: base_ref, setup_done: true };
+        .unwrap_or_else(|| join_path(ws.kind, &dir, &format!("{WORKTREES_DIR}/{}", task.id)));
+    let mut info = WorktreeInfo { path, branch: task_branch(&task.id), base: base_ref, setup_done: true };
     // Cartella gia' presente ma non registrata (non e' nostra): niente setup.
     if host.dir_exists(ws, &info.path) {
         return Ok((info, warnings));
@@ -377,7 +427,8 @@ pub(super) struct CleanupOutcome {
 /// Esegue i comandi di pulizia del repository (se ci sono), poi rimuove il
 /// worktree (con `--force` se l'impostazione lo chiede) e il branch del task:
 /// `-D` per `pr` (il merge e' squash/rebase lato server, la consegna l'ha
-/// confermata il worker), `-d` altrimenti (non cancella lavoro non unito).
+/// confermata il worker), `-d` altrimenti (non cancella lavoro non unito);
+/// sempre `-d` se il target ha `keep_unmerged`.
 pub(super) fn cleanup_worktree<H: Host>(host: &H, ws: &Workspace, target: &CleanupTarget) -> CleanupOutcome {
     let (wt, mut warnings) = (&target.wt, Vec::new());
     let root = repo_dir(ws, target.repo.as_deref());
@@ -405,69 +456,32 @@ pub(super) fn cleanup_worktree<H: Host>(host: &H, ws: &Workspace, target: &Clean
     } else {
         let _ = git(host, ws, &root, &["worktree", "prune"]);
     }
-    let flag = if ws.delivery.mode == DeliveryMode::Pr { "-D" } else { "-d" };
+    let flag = if ws.delivery.mode == DeliveryMode::Pr && !target.keep_unmerged { "-D" } else { "-d" };
     if let Err(e) = git(host, ws, &root, &["branch", flag, &wt.branch]) {
         warnings.push(format!("branch not deleted: {e}"));
     }
     CleanupOutcome { removed: true, warnings }
 }
 
-/// Pulizia di un worktree dopo la chiusura del tab (thread del timer).
+/// Pulizia di un worktree (thread del timer). Una sola per volta per task, e
+/// solo se serve ancora: chi l'ha chiesta (chiusura del tab, riallineamento
+/// periodico) puo' essere arrivato prima di un'altra richiesta uguale.
 pub(super) fn run_cleanup<H: Host>(st: &AutomationState, host: &H, target: CleanupTarget) {
-    let Some(ws) = host.workspace(&target.ws_id) else {
+    let Some(ws) = target.workspace.clone().or_else(|| host.workspace(&target.ws_id)) else {
+        log::warn!("worktree {}: workspace {} not found, nothing cleaned", target.wt.path, target.ws_id);
         return;
     };
+    let Some(_turn) = st.reconciler.begin_cleanup(&target.ws_id, &target.task_id) else {
+        return;
+    };
+    if !st.run(host, |r| r.cleanup_needed(&target)) {
+        return;
+    }
     let outcome = cleanup_worktree(host, &ws, &target);
+    for w in &outcome.warnings {
+        log::warn!("worktree {} of task {}/{}: {w}", target.wt.path, target.ws_id, target.task_id);
+    }
     st.run(host, |r| r.cleanup_done(&target.ws_id, &target.task_id, outcome.removed, &outcome.warnings, now_millis()));
-}
-
-// ---------------------------------------------------------------------------
-// Rilevamento dei repository del workspace
-// ---------------------------------------------------------------------------
-
-/// Elenco dei repository da un elenco di nomi (uno per riga): normalizzati,
-/// senza doppioni, "." per primo.
-pub(super) fn parse_repo_list(out: &str) -> Vec<String> {
-    let mut v: Vec<String> = out
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .filter_map(|l| normalize_repo(l).ok().map(|r| r.unwrap_or_else(|| ".".to_string())))
-        .collect();
-    v.sort_by(|a, b| (a != ".", a).cmp(&(b != ".", b)));
-    v.dedup();
-    v.truncate(200);
-    v
-}
-
-/// Repository del workspace: "." se la root stessa e' un repo, piu' le
-/// sottocartelle dirette (profondita' 1, senza quelle nascoste) con un `.git`
-/// (cartella o file). WSL: una sola chiamata `sh`.
-pub fn detect_repos(ws: &Workspace) -> Result<Vec<String>, String> {
-    if let Target::Wsl { distro } = ws.target()? {
-        let script = "for d in */; do [ -e \"${d}.git\" ] && printf '%s\\n' \"${d%/}\"; done; [ -e .git ] && printf '.\\n'; exit 0";
-        let cmd = wsl_run_command(&distro, &ws.path, &["sh", "-c", script]);
-        let out = output_with_timeout(cmd, GIT_TIMEOUT)?;
-        if !out.status.success() {
-            return Err(format!(
-                "repository detection failed: {}",
-                clip_chars(String::from_utf8_lossy(&out.stderr).trim(), 200)
-            ));
-        }
-        return Ok(parse_repo_list(&String::from_utf8_lossy(&out.stdout)));
-    }
-    let root = std::path::Path::new(&ws.path);
-    let mut names = Vec::new();
-    if root.join(".git").exists() {
-        names.push(".".to_string());
-    }
-    for entry in std::fs::read_dir(root).map_err(|e| e.to_string())?.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if !name.starts_with('.') && entry.path().is_dir() && entry.path().join(".git").exists() {
-            names.push(name);
-        }
-    }
-    Ok(parse_repo_list(&names.join("\n")))
 }
 
 // ---------------------------------------------------------------------------
@@ -504,7 +518,7 @@ fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Res
     let (ws, task) = (&job.ws, &job.task);
     let delivery = ws.delivery;
     let dir = repo_dir(ws, task.repo.as_deref());
-    let branch = delivery.uses_branches().then(|| format!("task/{}", task.id));
+    let branch = delivery.uses_branches().then(|| task_branch(&task.id));
     let (worktree, warnings, base) = if delivery.worktrees() {
         let base = task_base(host, job, &dir)?;
         if delivery.mode == DeliveryMode::LocalMerge {
@@ -576,94 +590,6 @@ pub(super) fn run_start_job<H: Host>(st: &AutomationState, host: &H, job: StartJ
     if starts.get(&key).is_some_and(|l| Arc::strong_count(l) <= 2) {
         starts.remove(&key);
     }
-}
-
-// ---------------------------------------------------------------------------
-// Host reale: git, file
-// ---------------------------------------------------------------------------
-
-/// Esegue `cmd` con un tempo massimo. Allo scadere uccide il figlio e ritorna
-/// errore; non aspetta i thread di lettura (un nipote potrebbe tenere le
-/// pipe aperte).
-pub(super) fn output_with_timeout(
-    mut cmd: std::process::Command,
-    limit: Duration,
-) -> Result<std::process::Output, String> {
-    use std::io::Read;
-    use std::process::Stdio;
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-    fn drain<R: Read + Send + 'static>(r: Option<R>) -> std::sync::mpsc::Receiver<Vec<u8>> {
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            if let Some(mut r) = r {
-                let _ = r.read_to_end(&mut buf);
-            }
-            let _ = tx.send(buf);
-        });
-        rx
-    }
-    let (out_rx, err_rx) = (drain(child.stdout.take()), drain(child.stderr.take()));
-    let started = std::time::Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(s)) => break s,
-            Ok(None) if started.elapsed() >= limit => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!("timed out after {} s", limit.as_secs()));
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(25)),
-            Err(e) => return Err(e.to_string()),
-        }
-    };
-    // Processo chiuso: le pipe si chiudono, breve attesa per l output.
-    let grab = |rx: std::sync::mpsc::Receiver<Vec<u8>>| rx.recv_timeout(Duration::from_secs(5)).unwrap_or_default();
-    Ok(std::process::Output { status, stdout: grab(out_rx), stderr: grab(err_rx) })
-}
-
-pub(super) fn run_git(ws: &Workspace, dir: &str, args: &[&str]) -> Result<GitOut, String> {
-    let cmd = ws.target()?.git_command(dir, args);
-    let limit = if args.first() == Some(&"fetch") { FETCH_TIMEOUT } else { GIT_TIMEOUT };
-    let output = output_with_timeout(cmd, limit).map_err(|e| format!("git {}: {e}", args.join(" ")))?;
-    Ok(GitOut {
-        ok: output.status.success(),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    })
-}
-
-/// Aggiunge `line` al file di esclusione (se manca). WSL: uno script `sh`
-/// con file e riga passati come argv (mai interpolati; `-e`, senza la shell
-/// di default della distro di mezzo).
-pub(super) fn append_exclude_line(ws: &Workspace, file: &str, line: &str) -> Result<(), String> {
-    if let Target::Wsl { distro } = ws.target()? {
-        let script = "mkdir -p \"$(dirname \"$1\")\" && { grep -qxF -e \"$2\" \"$1\" 2>/dev/null || printf '%s\n' \"$2\" >> \"$1\"; }";
-        let cmd = wsl_run_command(&distro, &ws.path, &["sh", "-c", script, "sh", file, line]);
-        let out = output_with_timeout(cmd, GIT_TIMEOUT)?;
-        return if out.status.success() {
-            Ok(())
-        } else {
-            let err = String::from_utf8_lossy(&out.stderr);
-            Err(format!("exclude not updated: {}", clip_chars(err.trim(), 200)))
-        };
-    }
-    let path = std::path::Path::new(file);
-    let current = std::fs::read_to_string(path).unwrap_or_default();
-    if current.lines().any(|l| l.trim() == line) {
-        return Ok(());
-    }
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let mut next = current;
-    if !next.is_empty() && !next.ends_with('\n') {
-        next.push('\n');
-    }
-    next.push_str(line);
-    next.push('\n');
-    std::fs::write(path, next).map_err(|e| e.to_string())
 }
 
 pub(super) fn boards_dir(app: &AppHandle) -> Result<PathBuf, String> {

@@ -84,6 +84,8 @@ pub struct AutomationState {
     pub(super) starts: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
     /// Cache dei `git fetch` (60 s per repository e base): un fetch alla volta.
     pub(super) fetches: Arc<Mutex<worktrees::FetchCache>>,
+    /// Cadenza del riallineamento delle worktree e pulizie in corso.
+    pub(super) reconciler: Arc<worktrees::Reconciler>,
     /// Una decisione alla volta sulle proposte di impostazioni: applicarne una
     /// due volte (doppio clic) duplicherebbe gli avvii senza `id`.
     pub(super) settings_decisions: Arc<Mutex<()>>,
@@ -185,9 +187,10 @@ impl AutomationState {
         }
     }
 
-    /// Il workspace e' stato rimosso: via la sua board e il file.
-    pub fn remove_board<H: Host>(&self, host: &H, ws_id: &str) {
-        self.run(host, |r| r.remove_board(ws_id));
+    /// Il workspace `ws` (gia' tolto dallo store) e' stato rimosso: via la sua
+    /// board e il file, e i worktree dei suoi task vengono ripuliti.
+    pub fn remove_board<H: Host>(&self, host: &H, ws: &Workspace) {
+        self.run(host, |r| r.remove_board(ws));
     }
 
     /// Applica gli effetti nell'ordine. I task che l'archivio ha rifiutato non

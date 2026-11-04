@@ -4,12 +4,12 @@
 //! porta con se' quando viene ucciso).
 
 use super::hooks::tail;
-use super::worktrees::{output_with_timeout, GitOut};
+use super::worktrees::GitOut;
 use super::*;
 use crate::board::strip_ansi;
 #[cfg(windows)]
 use crate::platform::hide_window;
-use crate::platform::wsl_run_command;
+use crate::platform::{output_with_timeout, wsl_run_command};
 use std::io::Read;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -138,7 +138,8 @@ fn taskkill_tree(pid: u32) {
 
 fn kill_tree(child: &mut Child, how: &KillTree) {
     if let KillTree::Wsl { distro, marker } = how {
-        let _ = output_with_timeout(wsl_kill_command(distro, marker), KILL_WAIT);
+        // Il kill non passa da `run_command`: sarebbe ricorsivo.
+        let _ = output_with_timeout(&mut wsl_kill_command(distro, marker), KILL_WAIT);
     }
     #[cfg(windows)]
     taskkill_tree(child.id());
@@ -201,6 +202,23 @@ pub(super) fn run_command(
     }
 }
 
+/// Esegue `argv` nella distro `distro` (cartella `dir`) con `run_command`.
+/// Ogni discendente Linux porta il marcatore dell'esecuzione
+/// (`env CLI_COMPANION_RUN=...`): a timeout si uccidono anche loro, non solo
+/// `wsl.exe`.
+pub(super) fn run_wsl(distro: &str, dir: &str, argv: &[&str], timeout: Duration) -> Result<GitOut, String> {
+    let marker = new_run_marker();
+    let cmd = marked_wsl_command(distro, dir, argv, &marker);
+    run_command(cmd, timeout, None, &KillTree::Wsl { distro: distro.to_string(), marker })
+}
+
+fn marked_wsl_command(distro: &str, dir: &str, argv: &[&str], marker: &str) -> Command {
+    let marked = format!("{RUN_MARKER_VAR}={marker}");
+    let mut full = vec!["env", marked.as_str()];
+    full.extend_from_slice(argv);
+    wsl_run_command(distro, dir, &full)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,6 +231,16 @@ mod tests {
         assert_eq!(&args[..5], ["-d", "Ubuntu", "--cd", "/", "-e"]);
         assert_eq!(&args[5..], ["sh", "-c", WSL_KILL_SCRIPT, "sh", marker]);
         assert!(!WSL_KILL_SCRIPT.contains(marker));
+    }
+
+    #[test]
+    fn wsl_commands_carry_the_run_marker_as_an_env_assignment() {
+        let c = marked_wsl_command("Ubuntu", "/r", &["git", "status", "--porcelain"], "12-3-456");
+        let args: Vec<String> = c.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(
+            args,
+            ["-d", "Ubuntu", "--cd", "/r", "-e", "env", "CLI_COMPANION_RUN=12-3-456", "git", "status", "--porcelain"]
+        );
     }
 
     #[test]

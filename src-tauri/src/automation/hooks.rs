@@ -7,8 +7,8 @@
 //! env K=V... sh -c <comando>` (argv, mai interpolato: `WSLENV` non porta
 //! variabili arbitrarie, `env` si). Windows: `cmd /D /S /C` senza finestra.
 
-use super::process::{new_run_marker, run_command, CancelFlag, KillTree, RUN_MARKER_VAR};
-use super::worktrees::{join_path, output_with_timeout, GitOut};
+use super::process::{new_run_marker, run_command, run_wsl, CancelFlag, KillTree, RUN_MARKER_VAR};
+use super::worktrees::{join_path, GitOut};
 use super::*;
 use crate::platform::{hide_window, wsl_run_command, wsl_to_windows_path, Target};
 use crate::workspaces::RepoConfig;
@@ -175,8 +175,7 @@ pub(super) fn remove_file_real(ws: &Workspace, path: &str) -> Result<(), String>
 pub(super) fn path_exists_real(ws: &Workspace, path: &str) -> bool {
     match ws.target() {
         Ok(Target::Wsl { distro }) => {
-            let cmd = wsl_run_command(&distro, "/", &["test", "-e", path]);
-            output_with_timeout(cmd, PATH_CHECK_TIMEOUT).is_ok_and(|out| out.status.success())
+            run_wsl(&distro, "/", &["test", "-e", path], PATH_CHECK_TIMEOUT).is_ok_and(|out| out.ok)
         }
         Ok(Target::Windows) => std::path::Path::new(path).exists(),
         Err(_) => false,
@@ -205,12 +204,11 @@ pub(super) fn copy_path_real(ws: &Workspace, src: &str, dst: &str) -> Result<(),
     match ws.target()? {
         Target::Wsl { distro } => {
             let script = "mkdir -p \"$(dirname \"$2\")\" && cp -a \"$1\" \"$2\"";
-            let cmd = wsl_run_command(&distro, "/", &["sh", "-c", script, "sh", src, dst]);
-            let out = output_with_timeout(cmd, HOOK_TIMEOUT)?;
-            if out.status.success() {
+            let out = run_wsl(&distro, "/", &["sh", "-c", script, "sh", src, dst], HOOK_TIMEOUT)?;
+            if out.ok {
                 Ok(())
             } else {
-                Err(tail(&String::from_utf8_lossy(&out.stderr), 300))
+                Err(tail(&out.stderr, 300))
             }
         }
         Target::Windows => {

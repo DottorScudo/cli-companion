@@ -261,17 +261,17 @@ pub async fn set_workspace_archived(app: AppHandle, workspace_id: String, archiv
 pub async fn remove_workspace(app: AppHandle, id: String) -> Result<(), String> {
     crate::blocking(move || {
         let dir = data_dir(&app)?;
+        let mut removed = None;
         app.state::<WorkspaceStore>().update(&dir, |list| {
-            let before = list.len();
-            list.retain(|w| w.id != id);
-            if list.len() == before {
-                return Err(WORKSPACE_NOT_FOUND.to_string());
-            }
+            let position = list.iter().position(|w| w.id == id).ok_or_else(|| WORKSPACE_NOT_FOUND.to_string())?;
+            removed = Some(list.remove(position));
             Ok(())
         })?;
-        // Fuori dal lock dei workspace: la board lo rilegge per schedulare.
-        let automation = app.state::<AutomationState>();
-        automation.remove_board(&TauriHost(app.clone()), &id);
+        // Fuori dal lock dei workspace: la board lo rilegge per schedulare. La
+        // copia serve a ripulire i worktree dei suoi task: lo store non lo ha piu'.
+        if let Some(ws) = removed {
+            app.state::<AutomationState>().remove_board(&TauriHost(app.clone()), &ws);
+        }
         Ok(())
     })
     .await

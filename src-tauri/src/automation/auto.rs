@@ -186,9 +186,10 @@ impl AutomationState {
         self.reconcile_at(host, now_millis(), true);
     }
 
-    /// Giro del timer.
+    /// Giro del timer: lo scheduler e, se e' ora, le worktree.
     pub fn tick<H: Host>(&self, host: &H, now: i64) {
         self.reconcile_at(host, now, false);
+        self.reconcile_worktrees_if_due(host, now);
     }
 
     pub fn schedule_state<H: Host>(&self, host: &H, now: i64) -> ScheduleState {
