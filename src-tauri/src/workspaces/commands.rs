@@ -299,6 +299,7 @@ pub async fn remove_workspace(app: AppHandle, id: String) -> Result<(), String> 
         // copia serve a ripulire i worktree dei suoi task: lo store non lo ha piu'.
         if let Some(ws) = removed {
             app.state::<AutomationState>().remove_board(&TauriHost(app.clone()), &ws);
+            crate::hub::forget_workspace(&app, &ws.id);
         }
         Ok(())
     })

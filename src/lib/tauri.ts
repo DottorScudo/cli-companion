@@ -9,6 +9,10 @@ import type { BotSettings } from "../bindings/BotSettings.ts";
 import type { BuiltinLaunch } from "../bindings/BuiltinLaunch.ts";
 import type { Delivery } from "../bindings/Delivery.ts";
 import type { E2eEvent as E2eUpdateEvent } from "../bindings/E2eEvent.ts";
+import type { HubMessage } from "../bindings/HubMessage.ts";
+import type { HubSettings } from "../bindings/HubSettings.ts";
+import type { HubThread } from "../bindings/HubThread.ts";
+import type { HubThreadSummary } from "../bindings/HubThreadSummary.ts";
 import type { IntegrationEnv } from "../bindings/IntegrationEnv.ts";
 import type { IntegrationInfo } from "../bindings/IntegrationInfo.ts";
 import type { IntegrationsState } from "../bindings/IntegrationsState.ts";
@@ -41,6 +45,10 @@ export type {
   BotSettings,
   BuiltinLaunch,
   Delivery,
+  HubMessage,
+  HubSettings,
+  HubThread,
+  HubThreadSummary,
   IntegrationEnv,
   IntegrationInfo,
   IntegrationsState,
@@ -171,6 +179,21 @@ export const api = {
 
   removeBotImage: (name: string) => invoke<BotSettings>("remove_bot_image", { name }),
 
+  // Agents HUB (backend: src-tauri/src/hub). `channel` = "general" o l'id di un workspace.
+  hubGetSettings: () => invoke<HubSettings>("hub_get_settings"),
+
+  hubSetEnabled: (enabled: boolean) => invoke<HubSettings>("hub_set_enabled", { enabled }),
+
+  hubListThreads: (channel: string) => invoke<HubThreadSummary[]>("hub_list_threads", { channel }),
+
+  hubGetThread: (channel: string, threadId: string) => invoke<HubThread>("hub_get_thread", { channel, threadId }),
+
+  hubCreateThread: (channel: string, title: string) => invoke<HubThread>("hub_create_thread", { channel, title }),
+
+  /** Messaggio dell'utente; `replyTo` = id di un messaggio dello stesso thread. */
+  hubSend: (channel: string, threadId: string, body: string, replyTo: string | null = null) =>
+    invoke<HubMessage>("hub_send", { channel, threadId, body, replyTo }),
+
   agentUsageLimits: (agentId: string, env: string) => invoke<UsageLimitsReply>("agent_usage_limits", { agentId, env }),
 
   agentSessionUsage: (agentId: string, env: string, transcriptPath: string) =>
@@ -285,4 +308,5 @@ export interface TauriEvents {
   "agent-event": AgentEvent;
   "integrations-changed": IntegrationsState;
   "store-warning": StoreWarning;
+  "hub-update": HubThreadSummary;
 }

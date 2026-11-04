@@ -214,7 +214,7 @@ pub(super) fn boards_dir(app: &AppHandle) -> Result<PathBuf, String> {
 
 /// File della board; l'id del workspace non deve poter uscire dalla cartella.
 pub(super) fn board_file(dir: &std::path::Path, ws_id: &str) -> Result<PathBuf, String> {
-    if ws_id.is_empty() || !ws_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+    if !crate::validate::valid_workspace_id(ws_id) {
         return Err("id workspace non valido".to_string());
     }
     Ok(dir.join(format!("{ws_id}.json")))

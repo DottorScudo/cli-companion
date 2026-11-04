@@ -20,7 +20,8 @@ progetto, [CONTRIBUTING.md](../CONTRIBUTING.md).
 - Terminali: **xterm.js** (`@xterm/xterm` + `@xterm/addon-fit`) nel frontend,
   **portable-pty** (ConPTY su Windows) nel backend
 - Persistenza: **JSON** nella app-data dir di Tauri. Tutti i file strutturati (`workspaces.json`,
-  `launch_settings.json`, `bots.json`, `schedule.json`, `boards/<workspace_id>.json`) passano da `store/`
+  `launch_settings.json`, `bots.json`, `hub_settings.json`, `schedule.json`, `boards/<workspace_id>.json`,
+  `threads/<workspace_id>.json`, `threads/general.json`) passano da `store/`
   (busta `{schema_version, data}`, migrazioni, backup datati, avvisi). Fanno eccezione `session.json` e
   `scrollback/<tab_id>.txt` (blob del frontend, `session.rs`) e l'archivio dei task conclusi
   (`boards/archive/<workspace_id>.jsonl`, una riga per task), scritti con `write_atomic` / in coda al file.
@@ -87,7 +88,7 @@ avviare la GUI, smista i rami da riga di comando: `--help`, `--version`, `--noti
  5  lib.rs · main.rs      composizione: plugin, stati gestiti, `setup`, comandi, rami da riga di comando
  4  automation   mcp      orchestrazione dei worker (registro, scheduler, git, E2E) / shim MCP verso l'app
  3  pty          ipc      canali con terminali e agenti
- 2  board        workspaces     dominio: coda dei task (pura) / cartelle di lavoro e loro impostazioni
+ 2  board  workspaces  hub     dominio: coda dei task (pura) / cartelle di lavoro / thread dell'Agents HUB
  1  agents                integrazioni dei coding agent: contratti + registro + `claude_code/`
  0  platform  validate  store  wsl  net  ttl_cache  schedule  logging  ...   fondamenta
 ```
@@ -106,6 +107,7 @@ test esclusi) sono queste:
 | `pty` | `ipc` (nomi delle variabili e `is_valid_tab_id`), `platform`, `wsl`, `workspaces`, `automation` (credenziale di sessione e `user_input`) | `board` |
 | `automation` | `board`, `workspaces`, `agents`, `ipc` (tipi e trait), `platform`, `validate`, `wsl`, `schedule`, `user_skills`, `store`, `awake`, `pty` (solo `workspace_of_tab`, in `TauriHost`) | — |
 | `mcp` | `automation` (`Role`, `lock`, nomi dei metodi), `agents`, `workspaces`, `ipc` (client RPC) | `tauri` |
+| `hub` | `store`, `board` (solo `valid_id`), `validate` (+ `workspaces` nei soli comandi, per sapere se il canale di un workspace esiste) | `automation`, `agents`, `ipc`, `pty`, `mcp` |
 
 Le regole che questa tabella racchiude, e come sono garantite:
 
@@ -135,7 +137,9 @@ Le regole che questa tabella racchiude, e come sono garantite:
 Cicli che esistono davvero (e perché): `workspaces/commands.rs` e `pty/mod.rs` chiamano `AutomationState`
 perché cambiare consegna, fasce o archiviazione di un workspace, o aprire una shell, riguarda anche
 lo scheduler e i segreti di sessione; `automation::TauriHost` chiede a `pty` il workspace di un tab.
-Restano confinati ai comandi Tauri e all'host reale; la logica pura non li attraversa.
+Restano confinati ai comandi Tauri e all'host reale; la logica pura non li attraversa. Dello stesso tipo è
+`workspaces/commands.rs` → `hub::forget_workspace` (la rimozione di un workspace cancella i suoi thread);
+`board` e `automation` non dipendono da `hub`.
 
 ### Dove sta cosa
 
@@ -155,6 +159,7 @@ Restano confinati ai comandi Tauri e all'host reale; la logica pura non li attra
 | `session.rs` | `session.json` e `scrollback/` |
 | `schedule.rs`, `awake.rs` | fasce orarie (logica pura + `schedule.json`) e blocco dello standby |
 | `launch_settings.rs`, `bots.rs` | impostazioni globali degli avvii e nomi/avatar dei bot (su `store/`) |
+| `hub.rs`, `hub/` | Agents HUB (spento di default): impostazione globale, canali, thread e messaggi su `store/`, comandi ed evento `hub-update` |
 | `user_skills.rs`, `user_skills/` | skill globali dell'utente: archivio e sincronizzazione nelle cartelle degli agenti |
 | `toast.rs`, `updater.rs`, `net.rs`, `ttl_cache.rs`, `logging.rs` | toast cliccabile (Windows), controllo aggiornamenti da CLI, client HTTP via `curl`, cache con scadenza, log su file |
 
@@ -164,11 +169,12 @@ Restano confinati ai comandi Tauri e all'host reale; la logica pura non li attra
 
 1. `main.rs` esce subito per i rami da riga di comando; altrimenti `run()` (`lib.rs`) costruisce
    l'app: prima il plugin di log (`logging::plugin()`), poi opener, dialog, clipboard, notification,
-   updater, process, e gli stati gestiti (`WorkspaceStore`, `PtyState`, store delle impostazioni degli avvii e dei bot,
-   `AutomationState`).
+   updater, process, e gli stati gestiti (`WorkspaceStore`, `PtyState`, store delle impostazioni degli avvii, dei bot e
+   dell'HUB, `HubState`, `AutomationState`).
 2. `setup`, in quest'ordine: `store::install_emitter` (da qui un avviso dello store diventa un evento
    `store-warning`), `store::legacy::migrate_legacy_data` (copia dei vecchi identifier), caricamento di
-   `workspaces.json`, `launch_settings.json`, `bots.json`, delle board (`automation::load_boards`: migra i file
+   `workspaces.json`, `launch_settings.json`, `bots.json`, `hub_settings.json` (i thread dell'HUB no: si leggono alla
+   prima richiesta), delle board (`automation::load_boards`: migra i file
    vecchi e fa fallire come interrotti i task `running`), `automation::auto::init` (carica `schedule.json` e
    lancia il thread del timer, che aspetta `frontend_ready`), il ripristino in background delle skill utente
    e infine `ipc::start_listener` (apre il socket in modo sincrono: la porta è nota prima del primo terminale).
@@ -898,7 +904,8 @@ finche' c'e' un task `running` in un workspace non archiviato. Comandi: `schedul
 ### `store/` — persistenza JSON comune
 
 Componente unico per tutti i file strutturati dell'app: `workspaces.json`, `launch_settings.json`,
-`bots.json`, `schedule.json` e una board per workspace (`boards/<workspace_id>.json`). Un file e'
+`bots.json`, `hub_settings.json`, `schedule.json`, una board per workspace (`boards/<workspace_id>.json`) e i
+thread dell'Agents HUB (`threads/<workspace_id>.json`, `threads/general.json`). Un file e'
 descritto da un `JsonFile<T>` statico (nome + catena di migrazioni, e opzionalmente
 `.validated(check)` per il controllo semantico e `.decoded_with(f)` per leggere un elenco voce per
 voce); `JsonFile::named` ne crea uno il cui nome e' noto solo a runtime (una istanza per file, con
@@ -970,6 +977,20 @@ il nome deve essere nella pool (senza maiuscole; si salva con l'ortografia della
 `png` base64 valido con firma PNG e IHDR al massimo 64x64, al massimo 32 KB, `color` nel
 formato `#rrggbb`. Le immagini dei nomi che escono dalla pool sono eliminate da
 `set_bot_settings` e `reset_bot_names`.
+
+### `hub/` — Agents HUB (fondamenta)
+
+Modalità opzionale, spenta di default (`hub_settings.json`, `{ enabled }`): un canale per workspace più il
+Generale, e in ogni canale thread di messaggi. Spenta, non crea file e non cambia nulla nel resto dell'app. Un
+file per responsabilità: `channel` (`general` o l'id di un workspace, stringa semplice sul filo), `model` (DTO
+con prefisso `Hub` nei bindings), `text` (validazione, messaggi in italiano), `threads` (operazioni pure e
+limiti; `threads/lifecycle.rs` per chiusura, collegamenti e ricerca del thread di un task o di una proposta),
+`waiting` (`waiting_user` calcolato dagli eventi), `files` (`threads/<canale>.json` su `store/`), `state`
+(`HubState`: caricamento pigro, un `JsonFile` vivo per canale), `settings` e `commands`. Comandi
+`hub_get_settings`, `hub_set_enabled`, `hub_list_threads`, `hub_get_thread`, `hub_create_thread`, `hub_send`;
+evento `hub-update` (riassunto del thread toccato). La rimozione di un workspace cancella il suo file dei thread
+(`hub::forget_workspace`, chiamato da `remove_workspace` dopo la board). Modello, file, limiti e scelte:
+[HUB.MD](HUB.MD).
 
 ### Altri moduli
 

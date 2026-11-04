@@ -39,6 +39,13 @@ pub fn valid_branch(s: &str) -> bool {
         && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/'))
 }
 
+/// Id di un workspace usabile come nome di file nella cartella dati (board,
+/// thread dell'HUB): non vuoto, solo lettere e cifre ASCII, `-` e `_`, quindi
+/// nessun separatore ne' `..` che lo facciano uscire dalla cartella.
+pub fn valid_workspace_id(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 /// Nome di modello sicuro da passare come argomento all'agente.
 pub fn valid_model(m: &str) -> bool {
     !m.is_empty()
@@ -110,6 +117,16 @@ mod tests {
             assert!(!valid_branch(bad), "{bad}");
         }
         assert!(valid_branch(&"a".repeat(BRANCH_MAX)));
+    }
+
+    #[test]
+    fn workspace_ids() {
+        for ok in ["ws-1700000000000-1", "A_b-9"] {
+            assert!(valid_workspace_id(ok), "{ok}");
+        }
+        for bad in ["", "..", "a/b", "a\\b", "a.json", "a b", "è"] {
+            assert!(!valid_workspace_id(bad), "{bad:?}");
+        }
     }
 
     #[test]

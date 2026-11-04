@@ -3,6 +3,7 @@ pub mod automation;
 mod awake;
 pub mod board;
 mod bots;
+mod hub;
 pub mod ipc;
 mod launch_settings;
 mod logging;
@@ -53,6 +54,8 @@ pub fn run() {
         .manage(PtyState::default())
         .manage(launch_settings::new_store())
         .manage(bots::new_store())
+        .manage(hub::new_settings_store())
+        .manage(hub::HubState::default())
         .manage(AutomationState::default())
         .setup(|app| {
             startup::mark("setup started");
@@ -62,6 +65,7 @@ pub fn run() {
             startup::timed("workspaces loaded", || workspaces::load_from_disk(app));
             startup::timed("launch settings loaded", || launch_settings::load_from_disk(app));
             startup::timed("bots loaded", || bots::load_from_disk(app));
+            startup::timed("hub settings loaded", || hub::load_from_disk(app));
             startup::timed("boards loaded", || automation::load_boards(app));
             startup::timed("automation started", || automation::auto::init(app));
             automation::skills::restore_in_background(automation::TauriHost(app.handle().clone()));
@@ -98,6 +102,12 @@ pub fn run() {
             bots::reset_bot_names,
             bots::set_bot_image,
             bots::remove_bot_image,
+            hub::settings::hub_get_settings,
+            hub::settings::hub_set_enabled,
+            hub::commands::hub_list_threads,
+            hub::commands::hub_get_thread,
+            hub::commands::hub_create_thread,
+            hub::commands::hub_send,
             agents::builtin_launches,
             workspaces::open_workspace_folder,
             wsl::list_wsl_distros,
