@@ -74,7 +74,7 @@ jobs:
         # gli aggiornamenti, quindi il passo fallisce. UTF-8 SENZA BOM: il
         # plugin fa il parse JSON e un BOM lo manderebbe in errore.
         run: |
-          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           $setup = Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe" | Select-Object -First 1
           if (-not $setup) { throw "Installer NSIS non trovato: build fallita?" }
           $sigFile = $setup.FullName + ".sig"

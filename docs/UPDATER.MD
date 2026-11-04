@@ -76,7 +76,7 @@ all'ultima release.
 }
 ```
 
-- `version` viene da `tauri.conf.json` (senza `v`); il tag della Release deve
+- `version` viene da `Cargo.toml` (senza `v`; `tauri.conf.json` la eredita); il tag della Release deve
   essere `v<version>`.
 - Il file è UTF-8 **senza BOM**; se il `.sig` manca la CI fallisce.
 - Asset di ogni Release: `*-setup.exe`, `*-setup.exe.sig`, `*-setup.exe.sha256`,
@@ -93,16 +93,13 @@ Windows non hanno console: usare `cargo run -- --check-update`.
 
 - Config: `updater.config.json` (`owner`/`repo`/`apiUrl`), compilato nel binario;
   override via env `CLI_COMPANION_UPDATE_OWNER` / `_REPO` / `_API_URL`.
-- Con `owner = REPLACE_ME_OWNER` il check risponde con un messaggio guida senza
-  toccare la rete.
 - Richiede `curl` nel PATH (`curl.exe` su Windows 10+); override
   `CLI_COMPANION_UPDATER_CURL`. Hook per test: `CLI_COMPANION_UPDATE_LATEST_URL`.
 
-## Versioni da tenere sincronizzate
+## Versione
 
-La versione locale vive in 3 file (il test `updater: versioni sincronizzate`
-fallisce se divergono):
-
-- `package.json` → `version`
-- `src-tauri/Cargo.toml` → `version`
-- `src-tauri/tauri.conf.json` → `version`
+La versione locale vive in `package.json` e `src-tauri/Cargo.toml`
+(`tauri.conf.json` non ha `version`: Tauri usa quella di Cargo.toml).
+Si cambia solo con `npm run bump -- X.Y.Z`, che aggiorna anche `package-lock.json`
+e `src-tauri/Cargo.lock`; il test `updater: versioni sincronizzate` fallisce se
+divergono.

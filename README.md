@@ -32,14 +32,14 @@ lancia gli stessi comandi in locale prima di aprire la PR.
 
 ## Versioni
 
-La versione vive in 3 file da tenere sincronizzati manualmente
-(il test `updater: versioni sincronizzate` fallisce se divergono):
+La versione vive in `package.json` e in `src-tauri/Cargo.toml` (`tauri.conf.json`
+la eredita da Cargo.toml). Per cambiarla c'è un solo comando, che aggiorna anche i lockfile:
 
-- `package.json` → `version`
-- `src-tauri/Cargo.toml` → `version`
-- `src-tauri/tauri.conf.json` → `version`
+```powershell
+npm run bump -- 0.18.0
+```
 
-Versione corrente: **0.12.0**.
+La versione corrente è quella dell'ultimo tag git `v*`.
 
 ## Release e aggiornamenti
 
@@ -58,10 +58,6 @@ facevano scartare i toast in silenzio. L'hook
 `src-tauri/windows/installer-hooks.nsh` (`bundle.windows.nsis.installerHooks`)
 riapplica l'ID ai collegamenti già esistenti a ogni installazione, senza
 ricreare quelli cancellati dall'utente.
-
-Stato: repo GitHub non ancora creata (`updater.config.json` ha
-`owner = "REPLACE_ME_OWNER"`); segui `docs/RELEASE.MD` §1–2 per attivare
-CI e updater.
 
 ## Terminali: gruppi, griglia e ripristino
 

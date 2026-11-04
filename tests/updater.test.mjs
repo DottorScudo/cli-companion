@@ -14,23 +14,29 @@ describe("updater: config repo GitHub (CLI --check-update)", () => {
     const cfg = JSON.parse(raw);
     assert.ok(typeof cfg.owner === "string" && cfg.owner.length > 0, "owner mancante");
     assert.ok(typeof cfg.repo === "string" && cfg.repo.length > 0, "repo mancante");
-    assert.match(raw, /REPLACE_ME/, "placeholder repo-non-ancora-esistente non documentato");
   });
 
   it("backend gestisce repo non configurato con messaggio chiaro", () => {
     const rs = read("src-tauri/src/updater.rs");
-    assert.match(rs, /PLACEHOLDER_OWNER/);
     assert.match(rs, /non ancora configurato/);
   });
 });
 
 describe("updater: versioni sincronizzate", () => {
-  it("package.json, Cargo.toml e tauri.conf.json hanno la stessa versione", () => {
+  it("package.json, package-lock.json, Cargo.toml e Cargo.lock hanno la stessa versione", () => {
     const pkg = JSON.parse(read("package.json")).version;
+    const lock = JSON.parse(read("package-lock.json"));
     const cargo = read("src-tauri/Cargo.toml").match(/^version\s*=\s*"([^"]+)"/m)[1];
-    const conf = JSON.parse(read("src-tauri/tauri.conf.json")).version;
+    const cargoLock = read("src-tauri/Cargo.lock").match(/name = "cli-companion"\r?\nversion = "([^"]+)"/)[1];
+    assert.equal(lock.version, pkg, `package-lock.json (${lock.version}) != package.json (${pkg})`);
+    assert.equal(lock.packages[""].version, pkg, `package-lock.json radice != package.json (${pkg})`);
     assert.equal(cargo, pkg, `Cargo.toml (${cargo}) != package.json (${pkg})`);
-    assert.equal(conf, pkg, `tauri.conf.json (${conf}) != package.json (${pkg})`);
+    assert.equal(cargoLock, pkg, `Cargo.lock (${cargoLock}) != package.json (${pkg})`);
+  });
+
+  it("tauri.conf.json non ha version: la eredita da Cargo.toml", () => {
+    const conf = JSON.parse(read("src-tauri/tauri.conf.json"));
+    assert.ok(!("version" in conf), "tauri.conf.json non deve duplicare la versione (usa npm run bump)");
   });
 });
 

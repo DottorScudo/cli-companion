@@ -13,7 +13,7 @@ e aprirci dentro terminali integrati a tab.
   grezzi non pre-bundlati -> schermata bianca). Vedi `tests/no-gluestack.test.mjs`.
 - Terminali: **xterm.js** (`@xterm/xterm` + `@xterm/addon-fit`) nel frontend,
   **portable-pty** (ConPTY su Windows) nel backend
-- Persistenza: **JSON** (`workspaces.json`, `session.json`, `boards/<workspace_id>.json`, `schedule.json` nella app-data dir di Tauri)
+- Persistenza: **JSON** (`workspaces.json`, `session.json`, `boards/<workspace_id>.json`, `schedule.json`, `bots.json`, `launch_settings.json` nella app-data dir di Tauri)
 - Board dei task: **React Flow** (`@xyflow/react`) + **dagre** (`@dagrejs/dagre`) per il layout a grafo
 
 ## Architettura
@@ -609,7 +609,7 @@ dello store in `setup` e tutti i comandi. Capability minime in
   `border-strong`, `text-secondary`, `faint` (solo decorativo), `pane-area`, `pane-header`,
   stati `status-running/attention/finished`), font Geist / Geist Mono bundlati (offline),
   logo "C" in `components/Logo.tsx` (icone in `src-tauri/icons`, sorgenti in `icons/source`).
-- `components/AddWorkspaceDialog.tsx`: modal gluestack con toggle Windows/WSL.
+- `components/AddWorkspaceDialog.tsx`: modal con toggle Windows/WSL.
   Windows: picker cartella nativo (`@tauri-apps/plugin-dialog`) o path manuale.
   WSL: lista distro con caricamento async, input percorso con bottone "Verifica".
 - `components/SettingsDialog.tsx`: due tab, "Avvii personalizzati" (selettore
@@ -680,7 +680,7 @@ dello store in `setup` e tutti i comandi. Capability minime in
 - JSON invece di SQLite: adeguato per poche centinaia di workspace; lo store
   è isolato in `workspaces.rs`, migrabile in futuro.
 - Nessuna autenticazione/cifratura: i path sono dati locali non sensibili.
-- Bundle JS ~1 MB (gluestack + RN-web): accettabile per app desktop,
+- Bundle JS ~1,2 MB (React, xterm.js, React Flow): accettabile per app desktop,
   valutabile code-splitting se cresce.
 
 ## Comandi utili

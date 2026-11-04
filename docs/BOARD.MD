@@ -12,9 +12,7 @@ attori che non parlano tra loro.
 Principio: semplicità. Niente owner, niente coda di eventi, niente risveglio,
 niente integrazione esterna. Un task finito è già consegnato.
 
-Riferimento visivo approvato (mockup): artifact "Tasks Manager mockup"; sorgenti in
-`C:\Users\jacob\AppData\Local\Temp\claude\F--altre-robe-muse-companion\0c0ba9fb-b340-42e3-819d-2ea51b5260b5\scratchpad\mockup\project\`
-(`Main.dc.html` terminali + pannello, `Kanban.dc.html`, `Lista.dc.html`, `Globale.dc.html`).
+Riferimento visivo approvato (mockup): artifact "Tasks Manager mockup" (viste terminali + pannello, Kanban, Lista, Globale); i sorgenti del mockup non sono nel repository.
 
 Lingua: tutto ciò che legge il modello (skill dei preset, descrizioni dei tool MCP,
 errori RPC, istruzioni del worker, promemoria dello Stop hook, prompt di avvio) è

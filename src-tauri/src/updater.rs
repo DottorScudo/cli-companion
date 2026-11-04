@@ -9,8 +9,8 @@
 //! - Config: [`../../updater.config.json`](../../../updater.config.json) incluso a
 //!   compile-time; override runtime via env `CLI_COMPANION_UPDATE_OWNER`,
 //!   `CLI_COMPANION_UPDATE_REPO`, `CLI_COMPANION_UPDATE_API_URL`.
-//!   Se il repository non esiste ancora, `owner` resta [`PLACEHOLDER_OWNER`] e ogni
-//!   controllo risponde con un messaggio chiaro invece di fallire in modo oscuro.
+//!   Se `owner` o `repo` risultano vuoti ogni controllo risponde con un messaggio
+//!   chiaro invece di fallire in modo oscuro.
 //! - Check: `GET {api}/repos/{owner}/{repo}/releases/latest` via `curl`
 //!   (preinstallato su Windows 10+, macOS e quasi tutte le distro Linux).
 //!
@@ -26,13 +26,8 @@ use std::process::Command;
 // Config
 // ---------------------------------------------------------------------------
 
-/// Owner placeholder: indica che il repository GitHub non e' stato ancora creato.
-/// Chi legge questo valore negli errori deve impostare `owner`/`repo` in
-/// `updater.config.json` (o le env `CLI_COMPANION_UPDATE_OWNER` / `_REPO`).
-pub const PLACEHOLDER_OWNER: &str = "REPLACE_ME_OWNER";
-
 /// Config grezza dal JSON (chiavi camelCase come da convenzione JS).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 struct FileConfig {
     #[serde(default)]
     owner: String,
@@ -61,17 +56,13 @@ fn env_override(name: &str) -> Option<String> {
 
 /// Carica la config effettiva: JSON embedded + override da variabili d'ambiente.
 pub fn load_config() -> UpdateConfig {
-    let file: FileConfig = serde_json::from_str(EMBEDDED_CONFIG).unwrap_or(FileConfig {
-        owner: PLACEHOLDER_OWNER.to_string(),
-        repo: "cli-companion".to_string(),
-        api_url: None,
-    });
+    let file: FileConfig = serde_json::from_str(EMBEDDED_CONFIG).unwrap_or_default();
     let owner = env_override("CLI_COMPANION_UPDATE_OWNER").unwrap_or(file.owner);
     let repo = env_override("CLI_COMPANION_UPDATE_REPO").unwrap_or(file.repo);
     let api_url = env_override("CLI_COMPANION_UPDATE_API_URL")
         .or(file.api_url)
         .unwrap_or_else(|| "https://api.github.com".to_string());
-    let configured = !owner.trim().is_empty() && owner != PLACEHOLDER_OWNER && !repo.trim().is_empty();
+    let configured = !owner.trim().is_empty() && !repo.trim().is_empty();
     let message = if configured {
         format!("Pronto: controllerò le release di {owner}/{repo}.")
     } else {
@@ -93,8 +84,8 @@ fn not_configured_message_raw(owner: &str, repo: &str) -> String {
 // Versioni (spec condivisa con src/lib/updater.ts)
 // ---------------------------------------------------------------------------
 
-/// Versione locale dal manifest (una delle 3 copie da tenere sincronizzate:
-/// package.json, src-tauri/Cargo.toml, src-tauri/tauri.conf.json).
+/// Versione locale dal manifest di Cargo (`scripts/bump-version.mjs` la tiene
+/// allineata a package.json; tauri.conf.json la eredita da Cargo.toml).
 pub fn current_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
@@ -349,22 +340,29 @@ mod tests {
     }
 
     #[test]
-    fn config_embedded_si_legge_e_placeholder_rilevato() {
+    fn config_embedded_si_legge_ed_e_configurata() {
         let _guard = ENV_LOCK.lock().unwrap();
         // Assicura che nessun override d'ambiente sporchi questo test.
         std::env::remove_var("CLI_COMPANION_UPDATE_OWNER");
         std::env::remove_var("CLI_COMPANION_UPDATE_REPO");
         let cfg = load_config();
         assert_eq!(cfg.repo, "cli-companion");
-        assert_eq!(cfg.configured, cfg.owner != PLACEHOLDER_OWNER);
-        if !cfg.configured {
-            assert!(cfg.message.contains("non ancora configurato"));
-        }
-        // Il check senza repo configurato fallisce con messaggio chiaro.
-        if !cfg.configured {
-            let err = fetch_latest_release(&cfg).unwrap_err();
-            assert!(err.contains("non ancora configurato"), "{err}");
-        }
+        assert!(cfg.configured);
+        assert!(!cfg.owner.is_empty());
+    }
+
+    #[test]
+    fn config_senza_owner_risponde_con_messaggio_chiaro() {
+        let cfg = UpdateConfig {
+            owner: String::new(),
+            repo: "cli-companion".to_string(),
+            configured: false,
+            current_version: current_version().to_string(),
+            api_url: "https://api.github.com".to_string(),
+            message: String::new(),
+        };
+        let err = fetch_latest_release(&cfg).unwrap_err();
+        assert!(err.contains("non ancora configurato"), "{err}");
     }
 
     #[test]

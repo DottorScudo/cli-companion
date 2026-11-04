@@ -5,8 +5,9 @@ Questa guida copre, nell'ordine: (1) creare il repository GitHub mancante,
 le release. Per il dettaglio del meccanismo di update vedi
 [docs/UPDATER.MD](UPDATER.MD).
 
-Stato attuale: il progetto **non ha ancora un remote GitHub**
-(`updater.config.json` ha `owner = "REPLACE_ME_OWNER"`).
+Stato attuale: il repository esiste (`necos98/cli-companion`) e `updater.config.json`
+punta già a esso; le sezioni 1–2 servono solo per rifare il setup da zero (nuovo
+owner o fork).
 
 ## Prerequisiti
 
@@ -54,10 +55,10 @@ git add updater.config.json
 git commit -m "updater: set GitHub owner"
 git push
 
-# 2b. allinea le 3 versioni (devono essere identiche, vedi sotto) e tagga:
-#     package.json -> version
-#     src-tauri/Cargo.toml -> version
-#     src-tauri/tauri.conf.json -> version
+# 2b. allinea la versione (package.json, Cargo.toml e lockfile in un colpo solo) e tagga:
+npm run bump -- 0.1.0
+git add -A
+git commit -m "v0.1.0"
 git tag v0.1.0
 git push origin v0.1.0
 ```
@@ -69,7 +70,7 @@ Prima della prima release firmata servono i due secret GitHub
 (vedi [docs/UPDATER.MD](UPDATER.MD)): la chiave privata non va mai committata.
 Controlla l'avanzamento con `gh run watch` oppure nella tab Actions.
 
-Release successive: aggiorna le 3 versioni → commit → push →
+Release successive: `npm run bump -- X.Y.Z` → commit → push →
 `git tag vX.Y.Z` → `git push origin vX.Y.Z`.
 Il `tag_name` deve corrispondere alla versione nei file (`v` iniziale
 opzionale per l'updater, ma la CI crea la Release solo su tag `v*`).
@@ -128,15 +129,11 @@ cargo run -p cli-companion -- --check-update   # exit 0 ok / 2 disponibile / 1 e
 cargo run -p cli-companion -- --check-update --json
 ```
 
-Finche' `owner` resta `REPLACE_ME_OWNER`, la CLI risponde con un messaggio
-guida e non tocca la rete.
-
 ## 5. Checklist release
 
-- [ ] `updater.config.json`: `owner`/`repo` reali (mai `REPLACE_ME_OWNER`)
-- [ ] versioni sincrone: `package.json`, `src-tauri/Cargo.toml`,
-      `src-tauri/tauri.conf.json` (il test `updater: versioni
-      sincronizzate` fallisce se divergono)
+- [ ] `updater.config.json`: `owner`/`repo` reali
+- [ ] versione aggiornata con `npm run bump -- X.Y.Z` (package.json, Cargo.toml e
+      lockfile; il test `updater: versioni sincronizzate` fallisce se divergono)
 - [ ] `npm test` verde in locale
 - [ ] tag `vX.Y.Z` creato e pushato, Release apparsa su GitHub
 - [ ] secret `TAURI_SIGNING_PRIVATE_KEY` / `_PASSWORD` presenti su GitHub
