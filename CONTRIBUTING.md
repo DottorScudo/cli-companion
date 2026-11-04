@@ -74,7 +74,9 @@ I moduli e le loro dipendenze sono in [docs/DESIGN.MD](docs/DESIGN.MD), "Mappa d
   (git, file, evento Tauri, timer) lo esegue il livello sopra, attraverso un trait (`Host`, `IpcHandler`, `Backend`) che
   i test sostituiscono con un finto. Se una funzione ha bisogno di un orologio, passalo come parametro.
 - **Il core non nomina un agente.** Tutto ciò che è di un coding agent specifico sta in `agents/<nome>/`; fuori da lì si
-  usano i contratti. Lo verificano `agents/architecture.rs` e `tests/architecture.test.mjs`.
+  usano i contratti. Lo verificano `agents/architecture.rs` e `tests/architecture.test.mjs`. L'agente di un uso
+  (worker, preset) si sceglie solo con `registry::resolve_agent`, che rispetta abilitazione, predefinito e contratto
+  richiesto; quanto è pronto in un ambiente lo dice `agents/readiness.rs`.
 - **`board` non dipende da `automation`**, e `ipc` non importa `automation`: parla con il core tramite `IpcHandler`.
 - **Input validato al confine.** Branch, modelli, repository, regole, nomi e percorsi che finiscono in una riga di
   comando passano da `validate/` o dal validatore del modulo; non si interpola mai un input in una shell: si
@@ -156,13 +158,16 @@ Una cartella `src-tauri/src/agents/<nome>/` con una struct che implementa `Agent
 l'agente supporta (tutti dichiarati in `capabilities()`, presenti o `None`), una riga in `INTEGRATIONS` di
 `agents/registry.rs` e una nei due test architetturali (`agents/architecture.rs`, `tests/architecture.test.mjs`).
 La UI e i comandi Tauri sono generici e non si toccano; `cargo test conformance` verifica da solo ogni integrazione
-registrata. La procedura completa, la checklist e un esempio sviluppato (OpenCode) sono nella guida:
+registrata. L'integrazione compare agli utenti solo se la abilitano (Impostazioni → Generale → Integrazioni), e ogni
+funzione (preset, worker, modelli) solo se dichiara il contratto relativo. La procedura completa, la checklist e un esempio sviluppato (OpenCode) sono nella guida:
 [docs/wiki/integrare-un-coding-agent.md](docs/wiki/integrare-un-coding-agent.md).
 
 ### Aggiungere un preset
 
 Una voce in `PRESETS` (`agents/presets.rs`) e un file `agents/presets/<id>.md` (SKILL.md completo, in inglese). Ogni
-integrazione che dichiara `presets` lo include nel suo pacchetto e l'app espone la voce rapida `builtin:preset:<id>`.
+integrazione che dichiara `presets` lo include nel suo pacchetto e l'app espone le voci rapide `builtin:preset:<id>`
+(con l'agente del workspace) e `builtin:preset:<id>@<agente>` (sottomenu “Avvia con…”). Il testo non nomina agenti né
+modelli: li legge da `get_workspace_settings` (lo verifica un test in `agents/presets.rs`).
 
 ## Test
 

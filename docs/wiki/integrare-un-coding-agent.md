@@ -61,6 +61,50 @@ Il frontend non conosce i contratti per nome di agente: riceve i dati
 dichiarativi (`agent_profiles`: contratti dichiarati, regole di input, dati di
 ripresa, avviso sui limiti, testi dei permessi) e agisce su quelli.
 
+### Registrata, abilitata, scelta, pronta
+
+Aggiungere l'integrazione al registro (`INTEGRATIONS`) dice solo che **esiste**. Quello che l'utente
+vede e usa dipende da quattro passi, tutti nel core: nessuno è codice dell'integrazione.
+
+1. **Abilitata.** L'utente abilita le integrazioni da Impostazioni → Generale → Integrazioni
+   (`integrations.json`, vedi `agents/enablement.rs`). Una integrazione appena registrata **non** si
+   abilita da sola per chi ha già il file; al primo avvio (file assente) sono abilitate quelle con un
+   pacchetto già installato, e se non ce n'è nessuna la prima del registro. Il predefinito è sempre fra
+   le abilitate. Una disabilitata non compare in avvii, form dei task, scelte dei worker né in
+   `get_workspace_settings.agents`.
+2. **Scelta.** `registry::resolve_agent(explicit, workspace_agent, uso)` sceglie l'agente di ogni
+   uso: prima la scelta esplicita (l'agente di un task, la voce “Avvia con…”), poi `Workspace.agent`, poi
+   il predefinito globale. L'uso decide il contratto che l'integrazione deve dichiarare
+   (`AgentUse::required`): `Worker` → `automation`, `Preset` → `presets`. Una scelta sconosciuta,
+   disabilitata o senza il contratto è un errore (`AgentUnavailable`: `unknown agent: <id>`,
+   `<nome> is disabled: enable it in the integrations settings`, `<nome> does not support automated
+   sessions` / `presets`), **mai un ripiego** su un altro agente. Nel core non scrivere mai un
+   `if agent == ...` per scegliere: passa dal risolutore.
+3. **Pronta.** Per sapere se si può avviare qualcosa in un ambiente il core usa `Readiness`
+   (`agents/readiness.rs`), nell'ordine: disabilitata, agente non trovato (`detect`), pacchetto non
+   installato (`package.is_installed`), pacchetto di un'altra versione (`package.version` diverso da quello
+   installato), pronta. Senza il contratto `package` conta solo il rilevamento. Il sondaggio lancia
+   processi: è cache di 30 s e si azzera a ogni installazione o rimozione. Conseguenze per chi
+   integra: `detect` deve essere affidabile e a tempo limitato, e `version` deve essere stabile e deve
+   cambiare **solo** quando cambia ciò che si genera; una `version` instabile lascia l'integrazione
+   per sempre “Da aggiornare” e i suoi task in attesa.
+4. **Contratti dichiarati.** Cosa compare dipende da `capabilities()`:
+
+| Cosa vede l'utente | Contratto che serve | Senza il contratto |
+| --- | --- | --- |
+| Scheda nelle Integrazioni, avvio `builtin:<id>` (“+ Terminale”) | solo il nucleo | — |
+| Installa / Aggiorna / Rimuovi, stato “Pronto” | `package` | nessuna azione; pronta appena rilevata |
+| Notifiche di fine lavoro, ripresa dei tab | `hook_events`, `session_resume` (con `package` per gli hook) | niente notifiche / ripresa |
+| Voci dei preset (`builtin:preset:<id>`, `…@<id>`, “Avvia con…”), agente dei preset | `presets` (richiede `package`) | nessuna voce; come agente dei preset: `does not support presets` |
+| Agente dei worker e dei task, campo **Agente** dei form | `automation` | non selezionabile; come agente del workspace o del task: `does not support automated sessions` |
+| Elenco `agents` di `get_workspace_settings` (modelli, `rule_format`, prontezza) per l'Intake e Project Setup | nessuno: ci sono tutte le abilitate | — |
+| Regole allow/deny dei worker per l'agente | `worker_permissions` | le regole sono rifiutate; `rule_format` è `null` |
+| Suggerimenti di modello (form dei task, impostazioni dei worker, tool MCP), validazione del nome | `models` | nessun suggerimento; il nome vale solo come forma sicura |
+| Limiti di utilizzo, token per sessione, tasti propri | `usage_limits`, `session_usage`, `input_profile` | assenti |
+
+L'ordine delle voci nel registro è l'ordine in cui si mostrano le integrazioni e quello da cui si parte la
+prima volta; non decide più l'agente predefinito, che sceglie l'utente.
+
 ### I due canali tra agente e app
 
 Due meccanismi dell'app, indipendenti dall'agente, sono ciò che l'integrazione
@@ -248,12 +292,18 @@ fn command(&self, env_kind: TargetKind, req: &AutomationRequest) -> Option<Strin
   server): un worker che non può chiamare `get_task` non fa nulla.
 
 **Core con il contratto.** `automation_command(agent_id, env_kind, req)` è usato
-dallo scheduler per avviare i worker; l'agente può comparire come scelta per un
-task.
+dallo scheduler per avviare i worker con l'agente **del task**, e l'agente compare
+come scelta per il workspace (Impostazioni → Worker) e per un task (campo **Agente**
+dei form, tool MCP `propose_tasks`/`update_task`). Un task il cui agente non è
+`Ready` nell'ambiente del workspace resta in coda finché lo diventa (vedi
+“Registrata, abilitata, scelta, pronta”).
 
-**Core senza il contratto.** `"<nome> does not support automated sessions"`: i
-task non partono con quell'agente. `registry::default_agent()` (l'agente
-predefinito, la prima del registro finché l'utente non sceglie) **deve** dichiarare `automation`: lo verifica la conformità.
+**Core senza il contratto.** `"<nome> does not support automated sessions"`: non si può
+scegliere come agente di un task né del workspace, e i task non partono con quell'agente.
+`registry::default_agent()` (il predefinito: la prima del registro finché l'utente non
+sceglie) **deve** dichiarare `automation`: lo verifica la conformità. Se l'utente sceglie
+come predefinito un agente senza `automation`, creare un task senza un agente esplicito (e
+senza un agente del workspace) fallisce con quell'errore invece di ripiegare su un altro agente.
 
 **Conformità** (`automation`): per ogni target e ogni `PermissionMode` esiste un
 comando che contiene il prompt ed è sicuro per la shell; prompt con `" $ \` % ! \\`
@@ -440,14 +490,37 @@ riga di comando (spazi, `$`, virgolette, backtick, `;`, `|`, `&`, a capo, vuoto)
 Claude Code accetta alias e id completi, quindi usa la forma sicura
 (`validate::valid_model`) invece di un elenco chiuso.
 
-**Core con il contratto.** `agents::tier_models` prende il primo modello consigliato
-di ogni fascia e lo mette nelle descrizioni del campo `model` degli strumenti MCP
-(`propose_tasks`, `update_task`); la skill Task Intake rimanda a quelle
-descrizioni e non nomina modelli. `automation_command` rifiuta un modello che
-`is_valid` non accetta.
+**Cosa deve dichiarare l'integrazione.**
 
-**Core senza il contratto.** Nessun consiglio: le descrizioni del campo `model`
-non fanno nomi e la validità è la sola forma sicura (`validate::valid_model`).
+- `suggested`: i modelli che vuole proporre, ciascuno con `id` (il nome come lo vuole il suo
+  comando), `label` (il nome per l'utente) e `tier`. Dichiara **almeno un modello per fascia**
+  (`Standard` e `Strong`): `tier_models` dà un consiglio per fascia solo se ci sono entrambe, e
+  senza le descrizioni degli strumenti MCP restano generiche. L'ordine conta dentro la fascia: il
+  primo è quello consigliato.
+- `default_model`: il modello da usare quando nessuno lo sceglie. `None` significa che l'app non
+  passa nessun modello e decide l'agente (è il caso di Claude Code).
+- `is_valid`: la regola per riconoscere un nome. Non è un elenco chiuso (invecchierebbe a ogni
+  nuovo modello): è una regola sulla forma, sicura come argomento di una riga di comando.
+
+**Dove finisce, nel core.** Il frontend, i tool MCP e le skill dei preset non nominano mai un
+modello: leggono il catalogo.
+
+| Dove | Cosa usa |
+| --- | --- |
+| Impostazioni → Integrazioni | il contratto `Modelli` fra le funzioni dichiarate |
+| Form del task e Impostazioni → Workspace → Worker | `suggested` come suggerimenti del campo modello, `default_model` come segnaposto |
+| `get_workspace_settings.agents` | `models` (`id`, `label`, `tier`) e `default_model`, da cui Task Intake e Project Setup scelgono il modello per fascia |
+| Tool MCP `propose_tasks` / `update_task` | `tier_models`: i nomi nelle descrizioni del campo `model` |
+| Creazione e modifica di task, impostazioni dei worker | `model_is_valid` → `is_valid` |
+| Avvio di un worker | `automation_command` rifiuta un modello non valido; il modello è quello del task, poi quello del workspace per l'agente (`worker_agents`), poi `default_model` |
+
+I modelli sono sempre **quelli dell'agente del task**: un modello che l'agente non accetta viene
+rifiutato (`invalid model for <nome>: <modello>`) e, cambiando agente nel form, il modello scritto
+si svuota se il nuovo agente non lo consiglia.
+
+**Core senza il contratto.** Nessun consiglio: i campi modello non hanno suggerimenti, le
+descrizioni del campo `model` non fanno nomi e la validità è la sola forma sicura
+(`validate::valid_model`).
 
 **Conformità** (`models`): id consigliati senza duplicati, con etichetta e validi
 per `is_valid`; `default_model`, se presente, valido; `is_valid` rifiuta nomi
@@ -488,9 +561,11 @@ dalla sua cartella, skill dei preset comprese.
    rifiuta (`None`) invece di fare escape.
 7. **Registra l'integrazione**: `mod <nome>;` in `agents/mod.rs` e una riga in
    `INTEGRATIONS` di `agents/registry.rs`. Il registro è l'unico punto in cui il
-   core nomina gli agenti. L'ordine conta: la prima è l'agente predefinito dei
-   worker. Aggiungila *dopo* quella esistente, a meno che non debba diventare il
-   default. Poi dichiara l'agente ai test architetturali: una riga in
+   core nomina gli agenti. L'ordine è quello in cui si mostrano le integrazioni e
+   la prima è il ripiego quando non c'è nessuna scelta (nessun `integrations.json`
+   e nessun pacchetto installato): aggiungila *dopo* quella esistente. Non basta
+   registrarla perché l'utente la usi: la abilita lui da Impostazioni → Generale →
+   Integrazioni (e può renderla predefinita). Poi dichiara l'agente ai test architetturali: una riga in
    `INTEGRATIONS` di `agents/architecture.rs` (cartella, id, comandi, valori
    propri degli hook come i tipi di notifica) e una in
    quello di `tests/architecture.test.mjs`. Senza la riga Rust il test fallisce
@@ -499,17 +574,27 @@ dalla sua cartella, skill dei preset comprese.
    contratto dichiarato. Non c'è niente da registrare nella suite. Poi aggiungi i
    test del file di ogni contratto (casi principali, bordi, fallimenti).
 9. **Verifica manuale** su un'installazione reale (dev: `npm run tauri dev`):
-   - Impostazioni → Coding agent: la riga compare, rileva versione e percorso su
-     Windows e in una distro WSL; "Installa" e "Rimuovi" funzionano; "Prova
-     notifica" riesce.
+   - Impostazioni → Generale → Integrazioni: la scheda compare, con le funzioni
+     dichiarate; rileva versione e percorso su Windows e in una distro WSL;
+     abilitarla e renderla predefinita funziona (e disabilitarla chiede conferma);
+     "Installa", "Aggiorna" e "Rimuovi" funzionano e portano lo stato a “Pronto”
+     solo con il pacchetto aggiornato; "Prova notifica" riesce.
    - Avvio integrato `builtin:<id>`: l'agente parte nel tab; a fine turno
      arrivano suono e ✓; una richiesta di permesso dà ❗.
    - Riavvio dell'app: il tab riprende la conversazione (se `session_resume`).
    - Un worker: un task in coda parte con il comando di automazione, l'agente
-     chiama `get_task`, consegna con `complete_task` (se `automation`).
+     chiama `get_task`, consegna con `complete_task` (se `automation`). Prova sia
+     scegliendo l'agente nel workspace (Impostazioni → Workspace → Worker) sia
+     nel solo task (campo **Agente**), e con l'agente non pronto (pacchetto non
+     installato): il task resta in coda con “In attesa” e parte appena lo è.
+   - Modelli (se `models`): i suggerimenti compaiono nel form del task e nelle
+     impostazioni dei worker; un modello consigliato parte davvero; un nome non
+     valido è rifiutato; `get_workspace_settings` (da un Intake) elenca l'agente
+     con i suoi modelli e la sua prontezza.
    - Permessi: regole allow/deny rispettate in un worker (se
-     `worker_permissions`).
-   - Preset: ognuno dei tre si avvia e carica la skill.
+     `worker_permissions`), impostate per l'agente nelle impostazioni del workspace.
+   - Preset: ognuno dei tre si avvia e carica la skill, sia con l'agente del
+     workspace (“Task Intake · <agente>”) sia dal sottomenu “Avvia con…”.
    - Ogni voce "da verificare" della tua analisi del punto 2.
 10. **Documenta.** Aggiorna `README.md` solo se serve all'utente (installazione
     dell'agente) e `docs/DESIGN.MD`, sezione `agents/`, con una sottosezione per la
@@ -550,7 +635,16 @@ guida.
 - [ ] Se dichiari `automation`: ogni `PermissionMode` mappato; il server MCP è
       utilizzabile senza conferme; prompt, modello e path non fidati rifiutati.
 - [ ] Se dichiari `models`: `is_valid` rifiuta ciò che non è sicuro come argomento;
-      i nomi dei modelli restano nella cartella dell'agente.
+      almeno un modello consigliato per fascia (`Standard` e `Strong`), con
+      etichetta; `default_model` valido (o `None`); i nomi dei modelli restano nella
+      cartella dell'agente.
+- [ ] `version` del pacchetto stabile (cambia solo se cambia ciò che generi) e
+      `detect` a tempo limitato: da loro dipende la prontezza per ambiente, quindi
+      se i task dell'agente partono o restano in attesa.
+- [ ] Mostrata con l'integrazione abilitata (non basta registrarla): scheda nelle
+      Integrazioni, avvio `builtin:<id>`, e per ogni contratto dichiarato la voce
+      corrispondente (preset e “Avvia con…” con `presets`; campo **Agente** dei task e
+      scelta dell'agente del workspace con `automation`).
 - [ ] Se dichiari `worker_permissions`: l'esempio di `RuleFormat` è valido;
       `prepare` scrive solo se cambia.
 - [ ] Testi per l'utente in italiano, testi letti dal modello (skill, preset,
@@ -899,9 +993,15 @@ corretto.
 
 I modelli di OpenCode hanno la forma `provider/modello` [doc: CLI]: la forma
 sicura generica di `valid_model` (che non ammette `/`) non basta. L'integrazione
-dichiara il proprio `ModelCatalog`: `suggested` con un modello per fascia,
-`default_model` `None` (vale la configurazione dell'utente) e un `is_valid` che
-ammette una sola `/` tra due segmenti sicuri e rifiuta il resto.
+dichiara il proprio `ModelCatalog`: `suggested` con almeno un modello per fascia
+(`Standard` per il lavoro ben definito, `Strong` per progettazione e rischio, ciascuno
+con `id` `provider/modello` e un'etichetta leggibile; quali sono si decide sul modello
+configurato dall'utente, non nel core), `default_model` `None` (vale la configurazione
+dell'utente, l'app non passa `--model`) e un `is_valid` che ammette una sola `/` tra
+due segmenti sicuri e rifiuta il resto. Con il catalogo dichiarato OpenCode ottiene,
+senza altro codice, i suggerimenti nel form dei task e nelle impostazioni dei worker,
+i modelli per fascia in `get_workspace_settings.agents` (da cui l'Intake sceglie) e la
+validazione del nome nell'avvio di un worker.
 
 ### Riepilogo: cosa dichiarerebbe OpenCode
 
@@ -919,15 +1019,28 @@ ammette una sola `/` tra due segmenti sicuri e rifiuta il resto.
 | `input_profile` | No (per ora) | nessuna regola documentata |
 | `models` | Sì | consigli propri; `is_valid` accetta `provider/modello` |
 
+Cosa vedrebbe l'utente, una volta registrata e **abilitata** da Impostazioni → Generale →
+Integrazioni: una scheda “OpenCode” con le funzioni dichiarate; l'avvio `builtin:opencode`;
+con `presets` le voci dei preset “… · OpenCode” (se è l'agente del workspace) e
+`builtin:preset:<id>@opencode` dal sottomenu “Avvia con…”; con `automation` OpenCode come
+scelta di **Agente dei worker** del workspace e di **Agente** del singolo task, con i modelli
+suggeriti e le regole `permission` nelle impostazioni dei worker; `Pronto` in un ambiente solo
+con l'eseguibile rilevato, il pacchetto installato e della versione attesa (altrimenti i task che lo usano
+restano in coda con “In attesa”). Il predefinito globale resta Claude Code finché l'utente non
+sceglie altro.
+
 ### Punti in cui il core dovrebbe crescere
 
 Emersi dall'esempio, da decidere *prima* di scrivere l'integrazione (il core non
 si aggira con un `if`, si estende un contratto):
 
-1. **Modelli `provider/modello`**: la validazione è ora demandata all'integrazione
-   (`ModelCatalog::is_valid`, usata da `automation_command`); restano da allineare
-   lo schema degli strumenti MCP e le validazioni di bacheca e impostazioni, che
-   applicano ancora `valid_model` (niente `/`).
+1. **Modelli `provider/modello`**: la validazione del *nome* è demandata
+   all'integrazione (`ModelCatalog::is_valid`, usata da `automation_command`,
+   da `resolve_spec_agent` e dalle impostazioni dei worker). Resta però una prima
+   barriera generica sulla forma: `valid_model` (niente `/`) nel parsing delle
+   specifiche dei task (`board/spec.rs`) e il `pattern` dello schema degli strumenti
+   MCP (`propose_tasks`, `update_task`). Per OpenCode vanno allentate, lasciando la
+   regola all'integrazione.
 2. **Variabili d'ambiente per un comando** (`OPENCODE_CONFIG_DIR`,
    `OPENCODE_CONFIG`): `WorkerAutomation::command` ritorna solo una riga di comando.
    Per un agente che si configura con l'ambiente servirebbe un modo di esprimerlo

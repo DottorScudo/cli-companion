@@ -143,6 +143,27 @@ Proposal:
 
 Limiti: 200 task per board, 20 task per proposta, 20 proposte pendenti per board. Il limite di 200 conta solo i task in coda o in esecuzione (`queued` e `running`): i task `done` e `failed` restano come storico e non contano.
 
+### Agente e modello di un task
+
+- **`agent`** è l'id di un'integrazione (vedi README, “Integrazioni dei coding agent”, e DESIGN.MD, “Integrazioni:
+  stato, risolutore e prontezza”). Alla creazione (proposta accettata, creazione manuale, `propose_tasks`) l'app lo
+  risolve con `resolve_agent(task, workspace, globale)` per l'uso *worker*: deve essere registrato, abilitato e
+  dichiarare l'automazione. Una `TaskSpec` senza `agent` prende quello del workspace (`Workspace.agent`), poi il
+  predefinito globale. Una volta scritto non segue più i predefiniti. I file creati prima dell'introduzione del campo
+  lo ricevono al caricamento (`Board::sanitize`: il predefinito globale).
+- **`model`** è un nome del catalogo di *quell'* agente; l'integrazione ne valida la forma (`ModelCatalog::is_valid`,
+  altrimenti la forma sicura generica). Cambiando agente con `update_task` si ricontrolla anche il modello. Chi non lo
+  indica (`null`) usa il modello dei worker del workspace per quell'agente (`worker_agents[<agente>].model`), poi il
+  predefinito dell'agente (`None` = l'app non passa nessun modello).
+- **Motivo di attesa.** Un task `queued` il cui agente non è pronto nel target del workspace non è mai candidato
+  (anche con tutte le dipendenze `done`): non fallisce, non occupa uno slot e parte da solo appena l'agente è `ready`.
+  Il motivo è `agent_unavailable: { agent, reason }` nella vista (`TaskView`, e nelle righe di `list_tasks`), con `reason` =
+  `not-found` (agente non rilevato nel target), `not-installed` (pacchetto mancante), `outdated` (pacchetto da
+  aggiornare) o `disabled` (integrazione disabilitata). Il campo manca se l'agente è pronto, se la prontezza si sta
+  ancora controllando o se il task non è `queued`. Diverso da `waiting_on`, che elenca le dipendenze non ancora `done`.
+- Un task con l'agente disabilitato resta modificabile (titolo, specifica, dipendenze); l'agente si ricontrolla solo se
+  il patch contiene `agent` o `model`.
+
 ### Stati e UI
 
 | status | UI | note |
@@ -582,20 +603,34 @@ Sessione (workspace = quello del tab):
   `agent` com'è scritto; all'accettazione si risolve con l'agente del workspace di quel momento.
 - `list_tasks { status?: string[] }` → righe compatte `{ id, title, status, kind? (solo
   `review`), e2e? (solo `true`), verdict? (se il report ne ha uno), attention?,
-  waiting_on?, summary? (300), note? (200) }` + `counts` + `proposals_pending`.
-- `get_task_details { id }` → task completo (testo, report, worktree).
+  waiting_on?, agent_unavailable? (`{ agent, reason }`, vedi “Agente e modello di un task”), summary? (300),
+  note? (200) }` + `counts` + `proposals_pending`.
+- `get_task_details { id }` → task completo (testo, report, worktree, `agent`, `model`) con la sua vista (`agent_unavailable` compreso).
 - `update_task { id, title?, task?, depends_on?, repo?, agent?, model?, kind?, e2e? }` — solo `queued` o
   `failed`; `repo` solo senza worktree. Ritorna il task senza testo. L'agente si ricontrolla
   solo se il patch contiene `agent` o `model` (`agent: null` = quello del workspace o il
   predefinito globale, risolto adesso): il titolo di un task il cui agente è stato disabilitato
   si modifica comunque.
 - `delete_task { id }` — solo `queued`/`failed` e senza dipendenti non `done`.
-- `get_workspace_settings {}` → le impostazioni che `propose_settings` può cambiare, gli agenti
-  abilitati (`agents`: id, nome, modelli, forma delle regole di permesso), i
-  repository con la loro configurazione (`null` = nessuna), i valori ammessi, i limiti e le
-  proposte di impostazioni pendenti.
+- `get_workspace_settings {}` → `{ settings, agents, repos, allowed, limits, pending_settings_proposals }`:
+  le impostazioni che `propose_settings` può cambiare (`settings`, con `agent` e `worker_agents`), i
+  repository con la loro configurazione (`null` = nessuna), i valori ammessi, i limiti
+  (`limits.agents_per_proposal`) e le proposte di impostazioni pendenti. `agents` elenca gli **agenti
+  abilitati**, nell'ordine del registro, ognuno con `{ id, name, is_default, models: [{ id, label, tier }],
+  default_model, rule_format: { max_rules, max_rule_chars, example } | null, readiness }`: `tier` è `standard`
+  (lavoro ben definito) o `strong` (progettazione, rischio, bug difficili); `default_model` è `null` se decide
+  l'agente; `rule_format` è la forma delle regole `allow`/`deny` di *quell'* agente (`null` = non applica
+  regole); `readiness` (`ready`, `not-found`, `not-installed`, `outdated`, `disabled`) è sondata al momento nel
+  target del workspace, quindi la chiamata può richiedere un attimo. È la fonte da cui l'Intake e Project Setup
+  ricavano agenti, modelli e sintassi delle regole: nessuna skill nomina un agente o un modello.
 - `propose_settings { reason, worker_rules?, agent?, worker_permission?, worker_agents?, delivery?, use_schedule?, default_launch?, launches?, repos? }` — cambiano solo i
-  campi passati; liste e `worker_rules` sostituiscono quelle attuali; `delivery` accetta anche
+  campi passati; liste e `worker_rules` sostituiscono quelle attuali. `agent` (stringa o `null`) è l'agente dei
+  worker del workspace: `null` = il predefinito globale, altrimenti un'integrazione registrata, abilitata e con
+  l'automazione (stessi errori di `propose_tasks`). `worker_agents` ha per chiave l'id di un agente (registrato,
+  anche se disabilitato: le sue impostazioni si conservano; al massimo `limits.agents_per_proposal` per proposta)
+  e per valore `{ model?, allow?, deny? }`, almeno un campo: `model` è un nome valido per quell'agente (`null` = il
+  suo predefinito), `allow` e `deny` sostituiscono le liste e rispettano `rule_format` dell'agente; una voce che
+  resta vuota viene tolta. `delivery` accetta anche
   solo alcuni dei suoi campi (`mode`, `parallel`, `merge_method`); `repos` ha per chiave la
   cartella del repository (`.` = root) e per valore `{ base_branch?, container_root?,
   copy_ignored?, setup?, cleanup?, remove_force?, e2e? }` (`e2e`: `{ command, junit,
@@ -790,12 +825,16 @@ tutti `done` (nessuna modifica allo scheduler).
 ## Preset di agenti
 
 Registro nell'app (`agents`): `Preset { id, name, skill }` con lo SKILL.md (inglese)
-incluso con `include_str!`. Il plugin di Claude Code installato dall'app contiene
-`skills/<id>/SKILL.md` per ogni preset (e non più `orchestrate`/`workflow`: l'installazione
-rimuove le cartelle obsolete). Ogni preset diventa una **voce rapida** integrata
-`builtin:preset:<id>` con comando `claude --dangerously-skip-permissions
-"/cli-companion-notify:<id>"` e `restore_command` = il comando interattivo (ripristino
-della conversazione), come faceva l'orchestratore.
+incluso con `include_str!`. Il pacchetto di ogni integrazione che dichiara `presets` contiene la skill di
+ogni preset (per Claude Code `skills/<id>/SKILL.md` nel plugin; non più `orchestrate`/`workflow`:
+l'installazione rimuove le cartelle obsolete). Ogni preset diventa **voci rapide** integrate, una per
+integrazione abilitata che lo dichiara: `builtin:preset:<id>` parte con l'agente del workspace
+(`resolve_agent(None, Workspace.agent, Preset)`: workspace, poi predefinito globale) e
+`builtin:preset:<id>@<agente>` con l'agente scelto (sottomenu “Avvia con…”). Il comando lo costruisce il
+contratto `PresetLauncher` dell'agente (per Claude Code `claude --dangerously-skip-permissions
+"/cli-companion-notify:<id>"`) e `restore_command` è il comando interattivo (ripristino della
+conversazione), come faceva l'orchestratore. Una skill non nomina mai un agente o un modello: li legge da
+`get_workspace_settings.agents`.
 - Un `default_launch` salvato come `builtin:orchestrator` diventa `builtin:preset:task-intake`.
 - Primo preset: **`task-intake`**, nome "Task Intake". Skill (inglese): accogli la richiesta;
   fai domande solo se servono; esplora il repository (file, convenzioni, test, comandi di
@@ -805,11 +844,13 @@ della conversazione), come faceva l'orchestratore.
   specifica: **Goal, Context, Constraints, Done when, Verify** (comandi). Non implementare
   mai il lavoro, non toccare file, non fare merge; può usare `list_tasks`,
   `get_task_details`, `update_task`, `delete_task` per lo stato della coda. Ogni task ha
-  sempre `model` (sonnet per lavoro ben definito, opus per design/rischio). La specifica deve
+  sempre `model`, scelto per fascia fra quelli dell'agente del task (`tier: "standard"` per lavoro ben
+  definito, `"strong"` per design/rischio) leggendoli da `get_workspace_settings.agents`; `agent` si omette
+  salvo richiesta dell'utente e non propone task per agenti non `ready`. La specifica deve
   bastare a un worker che non vede la conversazione. Quando la richiesta produce 2 o più task
   (o un solo task rischioso o la correzione di un bug difficile) aggiunge in fondo alla proposta
-  una **review** del goal (`kind: "review"`, `model: "opus"`, `depends_on` su tutti i task del
-  goal); l'utente può scartarla.
+  una **review** del goal (`kind: "review"`, modello della fascia `strong`, se l'utente vuole un controllo
+  indipendente anche su un altro agente, `depends_on` su tutti i task del goal); l'utente può scartarla.
 - Il pannello dei terminali mostra il badge **INTAKE** sull'intestazione dei tab avviati dal
   preset.
 - Task Intake sa dei tool di impostazioni: se la richiesta riguarda la configurazione del
@@ -977,6 +1018,20 @@ repository"), Pausa, "+ Nuovo task", "Task Intake". Le proposte pendenti compaio
   (4 opzioni con una riga di spiegazione ciascuna), "Worker in parallelo (worktree)" solo per
   PR/merge locale, metodo di merge solo per PR, avviso prerequisiti (`gh` autenticato per PR;
   per merge locale il checkout deve stare sulla base).
+- Generale → **Integrazioni**: una scheda per integrazione registrata (abilitata, predefinita, funzioni
+  dichiarate, stato e azioni per ogni ambiente). Disabilitare chiede conferma elencando i terminali aperti e i
+  task in coda che usano quell'agente.
+- Workspace → **Worker**: "Agente dei worker" (Eredita il predefinito globale, o un'integrazione abilitata con
+  l'automazione; avviso se l'agente salvato non è più utilizzabile), poi, per l'agente scelto, "Modello dei
+  worker" (suggerimenti dal catalogo dell'agente) e le regole allow/deny nella sua sintassi
+  (`worker_agents`). Comandi Tauri: `set_workspace_agent`, `set_worker_model`, `set_worker_permission_rules`.
+- Task (form di creazione e modifica, pannello e Tasks Manager): campo **Agente** con gli agenti abilitati che
+  dichiarano l'automazione, preselezionato quello del workspace; i suggerimenti del modello seguono l'agente e un
+  modello non consigliato dal nuovo agente si svuota. Il badge dell'agente compare su card Kanban, righe,
+  card in corso, dettaglio e proposte (sempre sulle proposte; altrove solo con più integrazioni abilitate o se
+  l'agente differisce da quello del workspace); la lista si filtra per agente (filtro ricordato per workspace).
+  Un task in coda con `agent_unavailable` mostra “In attesa: <agente> non è pronto in <ambiente>” (o “è
+  disabilitato”) con **Cambia agente** e **Apri Integrazioni**.
 - Workspace → **Repository**, per ogni repository: sezione "Test E2E" (comando, percorso JUnit,
   timeout in minuti; tutto vuoto = nessun E2E) con un testo di aiuto: gli E2E sono facoltativi,
   l'app esegue il comando nella cartella del task e legge il JUnit, la porta del server di

@@ -102,11 +102,75 @@ mouse su un bot per nome, workspace e stato; un click apre il suo terminale. Ctr
 "Torna ai terminali") chiude la vista. Rispetta il movimento ridotto del sistema (bot fermi nei
 loro posti) e con i bot spenti non c'è.
 
+## Integrazioni dei coding agent
+
+cli-companion non è legato a un solo coding agent: ogni agente è una **integrazione**. Le trovi
+in **Impostazioni → Generale → Integrazioni**, una scheda per ognuna, con le funzioni che
+dichiara (Worker, Preset, Modelli, Notifiche...) e lo stato in ogni ambiente (Windows e ogni
+distro WSL).
+
+**Abilitare e scegliere il predefinito.** La casella **Abilitata** decide se l'integrazione
+esiste per il resto dell'app (avvii, task, worker); **Predefinita** sceglie l'agente usato
+quando nessuno lo indica. Restano sempre almeno un'integrazione abilitata e un predefinito fra
+le abilitate: l'ultima non si spegne e il predefinito si spegne solo dopo averne scelto un altro.
+Alla prima apertura sono abilitate le integrazioni il cui pacchetto è già installato (o, se
+nessuna, la prima del registro).
+
+**Pronta o no.** Un'integrazione è *pronta* in un ambiente quando è abilitata, l'agente vi è
+stato rilevato e il suo pacchetto è installato e aggiornato. Gli stati mostrati sono **Non
+rilevato**, **Trovato** (manca il pacchetto: “Installa”), **Da aggiornare** (“Aggiorna”),
+**Pronto** e, per un'integrazione disabilitata, **Installato** se il pacchetto c'è ancora.
+L'app ricontrolla in background e a ogni cambiamento.
+
+**Chi decide quale agente usare.** Per ogni uso vince la prima scelta presente: quella esplicita
+(l'agente indicato nel task, o la voce “Avvia con…”), poi l'agente del workspace
+(**Impostazioni → Workspace → Worker → Agente dei worker**, “Eredita” = il predefinito globale),
+poi il predefinito globale. Se la scelta non è utilizzabile (disabilitata, sconosciuta o senza la
+funzione richiesta: i worker vogliono “Worker”, i preset “Preset”) l'operazione si ferma con il
+motivo: non passa mai in silenzio a un altro agente.
+
+- **In chat** (“+ Terminale” e menu degli avvii): un avvio per ogni integrazione abilitata e, per
+  ogni preset (Task Intake, Project Setup, Skill Wizard), una voce che parte con l'agente del
+  workspace e ne porta il nome (“Task Intake · <agente>”). Il sottomenu **Avvia con…** elenca i
+  preset degli altri agenti abilitati che li supportano. Un avvio la cui integrazione non è pronta
+  nell'ambiente del workspace non parte: porta alle Integrazioni con il motivo.
+- **Preset**: Task Intake e Project Setup leggono gli agenti e i modelli disponibili dalle
+  impostazioni del workspace (`get_workspace_settings`) invece di darli per scontati.
+- **Worker**: eseguono i task con l'agente del task o, in sua assenza, del workspace. Il tetto dei
+  permessi e le regole di testo valgono per tutti; **modello** e regole **allow/deny** si
+  impostano **per agente** nella stessa pagina, perché ognuno ha i suoi modelli e la sua sintassi.
+  Il modello usato è quello del task, altrimenti quello del workspace per l'agente del task,
+  altrimenti il predefinito dell'agente.
+- **Task**: i form hanno il campo **Agente** (gli agenti abilitati che sanno eseguire i worker,
+  con preselezionato quello del workspace) e i suggerimenti del modello seguono l'agente scelto;
+  cambiando agente il modello scritto si svuota se il nuovo agente non lo consiglia. Il badge
+  dell'agente compare su card, righe e dettaglio quando ci sono più integrazioni abilitate o
+  l'agente differisce da quello del workspace, e la lista si può filtrare per agente.
+- **Agente non pronto**: un task in coda il cui agente non è pronto nell'ambiente del workspace
+  non fallisce e non occupa uno slot. Resta in coda con “In attesa: <agente> non è pronto in
+  <ambiente>” (o “è disabilitato”), con i pulsanti **Cambia agente** e **Apri Integrazioni**, e
+  parte da solo appena l'agente diventa pronto.
+
+**Cosa succede disabilitando un'integrazione.** L'app chiede conferma elencando l'impatto. I
+terminali aperti restano aperti, ma l'agente non è più riconosciuto; alla riapertura dell'app i
+suoi tab tornano come shell, con un avviso, senza riprendere la sessione. Un avvio predefinito
+che puntava all'integrazione non si cancella: finché non scegli un altro avvio, o la riabiliti,
+parte una shell vuota con un avviso (segnalato anche nelle pagine Avvii). I task in coda con
+quell'agente restano fermi e ripartono quando la riabiliti o ne scegli un altro; le impostazioni
+dei worker per quell'agente si conservano. Il pacchetto installato negli ambienti non viene
+toccato (“Rimuovi dagli ambienti” lo toglie).
+
+Moduli e flusso di avvio: [docs/DESIGN.MD](docs/DESIGN.MD), “Integrazioni: stato, risolutore e
+prontezza”. Task e MCP: [docs/BOARD.MD](docs/BOARD.MD). Aggiungere un agente:
+[docs/wiki/integrare-un-coding-agent.md](docs/wiki/integrare-un-coding-agent.md).
+
 ## Avvii
 
-Ogni workspace ha gli avvii integrati, forniti dal registry dei coding agent:
-**Claude Code** (`claude --dangerously-skip-permissions`) e un avvio per ogni **preset** di
-agente, oggi **Task Intake** (lo stesso comando con la skill `/cli-companion-notify:task-intake`,
+Ogni workspace ha gli avvii integrati, forniti dal registry dei coding agent e limitati alle
+integrazioni abilitate (vedi “Integrazioni dei coding agent”): un avvio per ogni **agente**
+(per Claude Code `claude --dangerously-skip-permissions`) e un avvio per ogni **preset** di
+agente, che parte con l'agente del workspace (id `builtin:preset:<id>`) o con quello scelto da
+“Avvia con…” (`builtin:preset:<id>@<agente>`). I preset sono oggi **Task Intake** (lo stesso comando con la skill `/cli-companion-notify:task-intake`,
 che trasforma le richieste in specifiche di task da proporre alla coda; al ripristino il tab
 riprende la conversazione senza rilanciare la skill; ogni apertura è un nuovo tab, così puoi
 tenere più chat Intake in parallelo), **Project Setup** (skill `/cli-companion-notify:project-setup`:
@@ -129,7 +193,7 @@ cli-companion sa quando un agente avviato in uno dei suoi terminali ha finito
 (ding + ✓ sul tab) o aspetta una risposta (suono diverso + ❗), e a finestra
 non in primo piano mostra una notifica di Windows.
 
-Per Claude Code: **Impostazioni → Coding agent**, poi “Installa” sulla riga
+Per Claude Code: **Impostazioni → Generale → Integrazioni**, poi “Installa” sulla riga
 dell'ambiente (Windows e ogni distro WSL in cui usi `claude`: il plugin è
 globale ma va installato per ambiente, perché ognuno ha la sua configurazione).
 Il plugin (`cli-companion-notify@cli-companion-local`, scope utente) è generato
@@ -148,8 +212,12 @@ eseguire `cli-companion --notify <evento> <agente>` con eventi `session-start`,
 `finished`, `needs-input`, e il pacchetto dichiara il server MCP `cli-companion`,
 `cli-companion --mcp`), `automation` (sessioni automatiche, vedi sotto: il comando
 da digitare nella shell con prompt iniziale, modalità permessi e modello),
-`presets`, `usage_limits`, `session_usage`, `input_profile` e gli altri; quelli che
-non servono restano `None`. Poi registrala in `agents/registry.rs`. La UI non cambia
+`presets`, `models` (modelli consigliati per fascia e regola di validità del nome: senza,
+l'agente compare comunque ma senza suggerimenti), `usage_limits`, `session_usage`,
+`input_profile` e gli altri; quelli che non servono restano `None`. Un agente compare tra
+gli avvii dei preset solo se dichiara `presets`, e fra i worker solo se dichiara `automation`.
+Poi registrala in `agents/registry.rs`: l'utente la abilita da Impostazioni → Generale →
+Integrazioni. La UI non cambia
 e i test di conformità (`agents/conformance.rs`) verificano da soli i contratti
 dichiarati.
 
@@ -180,7 +248,7 @@ completo in [docs/BOARD.MD](docs/BOARD.MD)):
   solo** secondo la modalità del workspace, poi chiude con `complete_task`. Se ha bisogno di te
   chiede nel suo terminale; quando richiede attenzione o fallisce arriva una notifica di sistema.
 
-Setup: reinstalla il plugin da **Impostazioni → Coding agent** (per ogni ambiente: Windows e ogni
+Setup: reinstalla il plugin da **Impostazioni → Generale → Integrazioni** (per ogni ambiente: Windows e ogni
 distro WSL). Il plugin dichiara il server MCP `cli-companion` (`cli-companion --mcp`); fuori dai
 terminali di cli-companion, o con l'app chiusa, non espone alcun tool.
 
@@ -246,8 +314,10 @@ in italiano.
 Permessi e modello: **Impostazioni → Workspace → Worker** ("Permessi dei worker automatici",
 default `accept-edits`; `plan` sola lettura, `default` chiede conferma per ogni azione, `bypass` nessun
 permesso, con il dialogo di conferma del primo avvio di Claude Code se manca
-`skipDangerousModePermissionPrompt: true` in `~/.claude/settings.json`) e "Modello dei worker"
-(usato quando il task non indica un modello). I tab dei worker non vengono salvati nella sessione.
+`skipDangerousModePermissionPrompt: true` in `~/.claude/settings.json`). Il tetto vale per
+qualunque agente; "Agente dei worker", "Modello dei worker" (usato quando il task non indica un
+modello) e le regole allow/deny sono **per agente** (vedi “Integrazioni dei coding agent”). I tab dei
+worker non vengono salvati nella sessione.
 
 ### Fasce orarie
 
@@ -305,7 +375,7 @@ L'identifier dell'app è ora `cli-companion`: i dati stanno in
 - al primo avvio la vecchia cartella viene copiata per intero nella nuova
   (quella vecchia resta intatta);
 - il plugin dell'agente già installato punta ancora alla vecchia cartella:
-  reinstallalo da **Impostazioni → Coding agent** (“Rimuovi”, poi “Installa”)
+  reinstallalo da **Impostazioni → Generale → Integrazioni** (“Rimuovi”, poi “Installa”)
   per ogni ambiente, dopodiché puoi cancellare
   `%APPDATA%\com.jmagarelli.cli-companion` e
   `%LOCALAPPDATA%\com.jmagarelli.cli-companion`.
@@ -329,7 +399,7 @@ ma contiene più repository:
 - **regole per i worker**, inviate a ogni worker.
 
 Il plugin dell'agente cambia (nuovo hook dei permessi): reinstallalo da
-**Impostazioni → Coding agent**.
+**Impostazioni → Generale → Integrazioni**.
 
 ## Aggiornamento automatico del plugin (v0.10.1)
 

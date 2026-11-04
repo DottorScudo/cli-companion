@@ -228,12 +228,13 @@ Restano confinati ai comandi Tauri e all'host reale; la logica pura non li attra
 2. **Accettazione.** L'utente sceglie dalla UI (`proposal_decide`): le specifiche vengono rivalidate ed entrano in
    coda come `queued`.
 3. **Scheduler.** Dopo ogni modifica (e a ogni giro del timer) `board::schedule` (pura) sceglie i task avviabili:
-   coda non in pausa, fascia aperta, dipendenze `done`, slot libero. Ogni scelto passa a `running` e il registro
-   emette `Effect::StartTask`.
+   coda non in pausa, fascia aperta, dipendenze `done`, agente del task pronto (`AgentGate`), slot libero. Ogni scelto
+   passa a `running` e il registro emette `Effect::StartTask`.
 4. **Avvio.** Fuori dal lock (`automation/worktrees/start.rs`, thread dell'host): base del branch, `git fetch`, worktree
    `task/<id>` in `<repo>/.worktrees/<id>` (solo con consegna a worktree), file da copiare e comandi `setup` del
    repository, poi `emit_spawn` (`automation-spawn`) con il comando di avvio costruito dal contratto
-   `WorkerAutomation` dell'agente. Un guardiano (`watchdog`) fallisce gli avvii bloccati dopo 5 minuti.
+   `WorkerAutomation` dell'agente **del task** (modello e regole di permesso per agente: vedi “Integrazioni: stato,
+   risolutore e prontezza”). Un guardiano (`watchdog`) fallisce gli avvii bloccati dopo 5 minuti.
 5. **Lavoro.** Il frontend apre il tab del worker in secondo piano (`app/events.ts`, `onAutomationSpawn`) e quel tab
    fa `pty_spawn` come ogni altro. Il worker chiama `get_task` (istruzioni, ambiente e passi di consegna
    generati da `board/texts.rs`), lavora, consegna secondo la modalità del workspace e chiama `complete_task`. Gli
@@ -508,7 +509,7 @@ le servono.
   ogni integrazione registrata e ogni contratto dichiarato), `testing.rs` (supporti).
 - Guida completa, con OpenCode come esempio: [wiki/integrare-un-coding-agent.md](wiki/integrare-un-coding-agent.md).
 - Aggiungere un agente: una cartella `agents/<nome>/` che implementa `AgentIntegration` + i contratti dichiarati in
-  `capabilities()` + una riga in `registry.rs` (e una nei due test architetturali). La UI (Impostazioni → Coding agent)
+  `capabilities()` + una riga in `registry.rs` (e una nei due test architetturali). La UI (Impostazioni → Generale → Integrazioni)
   raggruppa per agente da sola.
 - Preset: `Preset { id, name, skill }` in `presets.rs`, con lo SKILL.md in inglese incluso con `include_str!`. Oggi tre
   (`task-intake`, `skill-wizard`, `project-setup`, descritti sotto e in [BOARD.MD](BOARD.MD)); aggiungere un preset =
@@ -579,6 +580,69 @@ le servono.
     `cli-companion-notify@cli-companion-local` (array o oggetto con `plugins`).
   - rimozione: `plugin uninstall` + `marketplace remove` + cartella generata.
 
+### Integrazioni: stato, risolutore e prontezza
+
+Il registro dice quali agenti **esistono**; quali sono **in uso** e quale agente serve a un uso lo decidono tre pezzi
+separati, tutti in `agents/`. Il vocabolario per l'utente è nel [README](../README.md), “Integrazioni dei coding agent”.
+
+- **Stato** (`enablement.rs` puro, `integrations_store.rs` persistenza). `IntegrationsState { enabled, default_agent }`
+  sta in `integrations.json` (`JsonFile` con `adopt_envelope`, vedi `store/`) ed è uno stato di processo, non un `State`
+  di Tauri: lo leggono anche punti senza `AppHandle` (sanificazione delle board, regole dei worker, avvii).
+  `view` lo riporta sempre alle invarianti: solo id registrati, nell'ordine del registro e senza doppioni, almeno
+  un'integrazione abilitata (altrimenti la prima del registro), predefinito fra le abilitate (altrimenti la prima abilitata).
+  `normalize_loaded` gira una volta all'avvio (`load_integrations`, prima di workspace e board): scarta gli id
+  sconosciuti con un avviso nel log e, se non resta nulla (file assente o corrotto), abilita le integrazioni con un
+  pacchetto già installato in qualche ambiente (`package::installed_somewhere`), altrimenti la prima; poi salva.
+  `set_enabled` rifiuta di spegnere l'ultima abilitata e quella predefinita; `set_default` richiede un'integrazione
+  abilitata. I comandi Tauri sono `integrations_list` (ogni integrazione con contratti dichiarati, modelli, modello
+  predefinito e, per ogni ambiente, stato rilevato e `Readiness`), `set_integration_enabled`,
+  `set_default_integration`; ogni cambio emette `integrations-changed` col nuovo stato.
+- **Risolutore** (`resolve.rs` puro + `registry::resolve_agent`). L'unico punto in cui si sceglie l'agente di un uso:
+  `resolve_agent(explicit, workspace_agent, AgentUse)` prende il primo `Some` fra `explicit` (l'agente del task o
+  della voce “Avvia con…”), `workspace_agent` (`Workspace.agent`) e il predefinito globale. `AgentUse::Worker` pretende il
+  contratto `automation`, `AgentUse::Preset` il contratto `presets`; il predefinito globale deve dichiararlo come gli
+  altri. Una scelta presente ma non utilizzabile è un `AgentUnavailable` (`Unknown`, `Disabled`, `MissingContract`), mai
+  un ripiego su un altro agente; il testo è in inglese perché arriva al modello via RPC (“<nome> is disabled: enable it
+  in the integrations settings”, “<nome> does not support automated sessions” / “presets”, “unknown agent: <id>”).
+  `registry::find` invece cerca fra **tutte** le integrazioni, anche disabilitate: serve a hook, regole e comandi di un
+  agente il cui pacchetto è ancora installato, e non sostituisce `resolve_agent` per scegliere. Chi risolve: la board
+  (`board/agent.rs`, `resolve_spec_agent`, a proposta, accettazione, creazione e aggiornamento di un task),
+  `workspaces/validate.rs` (`normalize_workspace_agent`, per `Workspace.agent`), `registry::automation_command`
+  (comando di avvio del worker, `AgentUse::Worker`) e `agents/launches.rs` (preset, `AgentUse::Preset`).
+- **Modelli** (`models.rs`). Il core ragiona per fascia: `model_is_valid(integration, nome)` usa
+  `ModelCatalog::is_valid` se l'integrazione dichiara `models`, altrimenti la forma sicura di `validate::valid_model`;
+  `tier_models` dà il primo consigliato di `Standard` e `Strong` ed è ciò che finisce nelle descrizioni del campo `model`
+  dei tool MCP. Nessun nome di modello fuori dalla cartella dell'integrazione.
+- **Prontezza** (`readiness.rs`). `Readiness` = `Ready | NotFound | NotInstalled | Outdated | Disabled`, decisa da
+  `classify` con questa precedenza: non abilitata, agente non trovato nel target, pacchetto mancante, pacchetto di una
+  versione diversa da quella attesa (solo se l'integrazione dichiara `package`), pronta. Un'integrazione disabilitata
+  risponde `Disabled` senza rilevare nulla. Il sondaggio (`probe`: rilevamento + versione del pacchetto) lancia processi,
+  quindi sta fuori dal main thread e passa da una cache di 30 s per coppia agente × target, azzerata prima e dopo
+  ogni operazione sui pacchetti (installazione, aggiornamento, rimozione). `agent_readiness(app, id, target)` è la versione per chi ha solo l'id (l'automazione).
+
+**Avvii integrati** (`agents/launches.rs`). `builtin_launch_list_for(workspace_agent)` produce le voci delle sole
+integrazioni abilitate: `builtin:<agent_id>` per l'avvio interattivo, `builtin:preset:<preset>` per ogni preset con l'agente
+che il risolutore sceglie per quel workspace (`BuiltinLaunch.follows_workspace_agent`, `agent_id` già risolto) e
+`builtin:preset:<preset>@<agent_id>` per ogni agente abilitato che dichiara `presets` (sottomenu “Avvia con…”). Tutte
+portano `restore_command` (l'interattivo: il tab riprende la conversazione, non rilancia la skill). Un id salvato
+(avvio predefinito, tab) che punta a un'integrazione disabilitata non si cancella: l'avvio parte come shell con un avviso.
+
+**Avvio di un task con l'agente.**
+
+1. L'agente del task è sempre valorizzato: `resolve_spec_agent` lo risolve alla creazione (task → workspace → globale) e
+   controlla anche il modello con `model_is_valid`; non cambia se poi cambiano i predefiniti.
+2. Lo scheduler (puro) non considera candidato un task in coda il cui agente è nel *gate* del workspace
+   (`board/agent_gate.rs`, `AgentGate`): agenti non `Ready` oppure ancora in controllo. Il task non fallisce e non occupa
+   uno slot; la vista espone `agent_unavailable { agent, reason }`.
+3. La prontezza del gate non blocca mai sotto il lock del registro: `automation/agent_probe.rs` ricorda l'ultimo valore
+   noto per target × agente, lo rinnova su un thread bloccante dopo 15 s e, se cambia, fa rivalutare le board
+   (`recheck_agents`), come a ogni giro del timer.
+4. All'avvio (`automation/worktrees/start.rs`) il modello è `task.model`, poi `Workspace.worker_agents[<agente>].model`,
+   poi il predefinito del catalogo dell'agente (`None` = non si passa il modello); le regole allow/deny sono quelle di
+   `worker_agents[<agente>]`, preparate dal contratto `WorkerPermissions` *dello stesso agente*
+   (`worker_permissions_file`), e il comando viene da `automation_command(agente del task, …)`.
+5. Il worker nasce con `agent_id` del task; il resto (hook, `get_task`, `complete_task`) non dipende dall'agente.
+
 ### `board/` — modello, ciclo di vita e scheduler della coda
 
 Parte **pura**: nessun I/O, nessun `AppHandle`, tempo iniettato. Ogni workspace ha una `Board` (coda di `Task` con
@@ -593,6 +657,7 @@ Il contratto con il frontend e con i tool MCP è [BOARD.MD](BOARD.MD). File:
 | `queue.rs`, `cascade.rs` | specifiche, proposte (accetta/scarta), modifica, riordino, eliminazione anche a cascata (indice delle dipendenze inverse) |
 | `spec.rs` | `TaskSpec`/`TaskPatch`, id (anche generati dal titolo), repository, grafo delle dipendenze, parsing di proposte e limiti |
 | `scheduler.rs` | `schedule(board, ctx)`: quali task avviare adesso (funzione pura) |
+| `agent.rs`, `agent_gate.rs` | `resolve_spec_agent` (l'agente e il modello di una specifica, via `registry::resolve_agent`) e `AgentGate`/`AgentUnavailableView` (i task in coda con l'agente non pronto, che lo scheduler salta e la vista spiega) |
 | `view.rs` | `BoardView` / `TaskView` per il frontend (`waiting_on`, `attention`, `allowed_actions`, `can_edit`, `can_reorder`, `cascade`, `limits`) e righe compatte di `list_tasks` |
 | `worker.rs` | `WorkerStatus`/`WorkerActivity`/`WorkerEnd` e la tabella di transizione pura applicata agli hook |
 | `report.rs`, `review.rs`, `e2e.rs` | `TaskReport`, task di review (verdetto, task rivisti), tipi E2E e `check_gate` (il blocco della consegna) |
@@ -603,7 +668,8 @@ Il contratto con il frontend e con i tool MCP è [BOARD.MD](BOARD.MD). File:
 - **Scheduler.** `schedule` non fa nulla con la coda in pausa o con il gate chiuso (workspace archiviato, oppure con
   fasce attive e fuori fascia); sceglie i `queued` con tutte le dipendenze `done`, nell'ordine dell'array. In modalità
   parallela (`pr`/`local_merge` con `parallel`) fino a `max_parallel` running, altrimenti uno per repository, comunque
-  entro `max_parallel`.
+  entro `max_parallel`. Salta anche i task il cui agente è nel `AgentGate` del contesto (non pronto nel target del
+  workspace): restano `queued` e non occupano slot (vedi “Integrazioni: stato, risolutore e prontezza”).
 - **Azioni.** `permits` è la sola tabella di cosa si può fare a un task per stato; la usano le guardie delle operazioni,
   i messaggi di errore e `allowed_actions` della vista (BOARD.MD, "Azioni consentite").
 - **Persistenza.** `<app_data>/boards/<workspace_id>.json` su `store/` (`board_store`, una `JsonFile` per workspace;
