@@ -4,7 +4,7 @@ import type { Edge, ReactFlowInstance } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import TaskNode from "./TaskNode";
 import type { TaskFlowNode } from "./TaskNode";
-import { statusHex, taskIdsKey } from "../../lib/board";
+import { taskIdsKey } from "../../lib/board";
 import type { BoardView } from "../../lib/board";
 import { layoutBoard, layoutSignature } from "../../lib/boardLayout";
 
@@ -71,7 +71,7 @@ export default function DependencyGraph({ board, selectedId = null, onSelect }: 
       target: e.target,
       animated: byId.get(e.target)?.status === "running",
       style: {
-        stroke: byId.get(e.source)?.status === "done" ? statusHex("done") : "#3a4857",
+        stroke: byId.get(e.source)?.status === "done" ? "var(--status-finished)" : "var(--graph-edge)",
         strokeWidth: 1.5,
       },
     }));

@@ -1,7 +1,7 @@
 //! Campi di contesto di `TaskView`: azioni permesse, modificabilita' e cascata.
 
 use super::*;
-use crate::board::TaskSpec;
+use crate::board::{parse_max_parallel, TaskSpec};
 use serde_json::json;
 use TaskAction::{Delete, DeleteCascade, MarkDone, Retry, Stop, ToTop};
 
@@ -41,6 +41,7 @@ fn a_task_without_dependents_gets_the_actions_of_its_status() {
         let v = view(&board(&[("a", &[], status)]), "a");
         assert_eq!(v.allowed_actions, actions, "{status:?}");
         assert_eq!(v.can_edit, can_edit, "{status:?}");
+        assert_eq!(v.can_reorder, status == Queued, "{status:?}");
         assert_eq!(v.cascade, CascadeDelete::default(), "{status:?}");
     }
 }
@@ -124,6 +125,8 @@ fn the_view_agrees_with_the_operations_it_advertises() {
                 ToTop => copy.task_to_top(id, 2),
             }
         };
+        let mut reordered = b.clone();
+        assert_eq!(v.can_reorder, reordered.move_task(id, None, 2).is_ok(), "{id}");
         for action in TaskAction::ALL {
             let listed = v.allowed_actions.contains(&action);
             let ok = attempt(action).is_ok();
@@ -143,13 +146,25 @@ fn the_new_fields_have_stable_names_after_the_old_ones() {
     let v = serde_json::to_value(view(&b, "a")).unwrap();
     assert_eq!(v["allowed_actions"], json!(["retry", "mark_done", "delete_cascade"]));
     assert_eq!(v["can_edit"], true);
+    assert_eq!(v["can_reorder"], false);
     assert_eq!(v["cascade"], json!({"dependents": ["b"], "running": []}));
     let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
     assert!(keys.contains(&"waiting_on") && keys.contains(&"attention") && keys.contains(&"status"));
     let text = serde_json::to_string(&view(&b, "a")).unwrap();
     let pos = |k: &str| text.find(&format!("\"{k}\":")).unwrap();
     assert!(pos("updated_at") < pos("waiting_on") && pos("attention") < pos("allowed_actions"));
-    assert!(pos("allowed_actions") < pos("can_edit") && pos("can_edit") < pos("cascade"));
+    assert!(pos("allowed_actions") < pos("can_edit") && pos("can_edit") < pos("can_reorder"));
+    assert!(pos("can_reorder") < pos("cascade"));
+}
+
+#[test]
+fn the_board_view_publishes_the_limits_the_validation_enforces() {
+    let b = board(&[]);
+    let v = serde_json::to_value(b.view_with(None, false)).unwrap();
+    assert_eq!(v["limits"], json!({"max_parallel": {"min": 1, "max": 16}}));
+    let bounds = BoardLimits::CURRENT.max_parallel;
+    assert!(parse_max_parallel(&json!(bounds.min)).is_ok() && parse_max_parallel(&json!(bounds.max)).is_ok());
+    assert!(parse_max_parallel(&json!(bounds.min - 1)).is_err() && parse_max_parallel(&json!(bounds.max + 1)).is_err());
 }
 
 #[test]

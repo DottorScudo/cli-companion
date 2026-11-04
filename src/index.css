@@ -24,6 +24,7 @@
   --status-running: #f5b544;
   --status-attention: #fb923c;
   --status-finished: #34d399;
+  --graph-edge: #3a4857; /* arco del grafo delle dipendenze non ancora soddisfatto */
 
   /* Variabili shadcn */
   --background: #06090c;

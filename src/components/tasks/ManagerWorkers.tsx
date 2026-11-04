@@ -1,5 +1,5 @@
 import { Minus, Pause, Play, Plus } from "lucide-react";
-import { MAX_PARALLEL_MAX, MAX_PARALLEL_MIN, SERIAL_WORKERS_TEXT, isParallel } from "../../lib/board";
+import { SERIAL_WORKERS_TEXT, isParallel } from "../../lib/board";
 import type { BoardView } from "../../lib/board";
 import { Button } from "../ui/button";
 
@@ -15,8 +15,9 @@ const stepClass =
 
 /** Stepper dei worker (solo in modalità parallela) e Pausa / Riprendi della coda. */
 export default function ManagerWorkers({ board, busy, onMaxParallel, onTogglePause }: Props) {
-  const parallel = board !== null && isParallel(board.delivery);
-  const value = board?.max_parallel ?? MAX_PARALLEL_MIN;
+  // Lo stepper c'è solo in modalità parallela; gli estremi li dà il backend.
+  const workers =
+    board && isParallel(board.delivery) ? { value: board.max_parallel, ...board.limits.max_parallel } : null;
   return (
     <>
       <div
@@ -25,25 +26,25 @@ export default function ManagerWorkers({ board, busy, onMaxParallel, onTogglePau
         className="flex h-8 items-center gap-1 rounded-md border border-border-strong pl-2.5 pr-1"
       >
         <span className="mr-1 text-xs text-text-secondary">Worker</span>
-        {parallel ? (
+        {workers ? (
           <>
             <button
               type="button"
               aria-label="Meno worker"
-              disabled={busy || value <= MAX_PARALLEL_MIN}
-              onClick={() => onMaxParallel(value - 1)}
+              disabled={busy || workers.value <= workers.min}
+              onClick={() => onMaxParallel(workers.value - 1)}
               className={stepClass}
             >
               <Minus className="h-3.5 w-3.5" />
             </button>
             <span className="w-5 text-center font-mono text-[13px]" aria-live="polite">
-              {value}
+              {workers.value}
             </span>
             <button
               type="button"
               aria-label="Più worker"
-              disabled={busy || value >= MAX_PARALLEL_MAX}
-              onClick={() => onMaxParallel(value + 1)}
+              disabled={busy || workers.value >= workers.max}
+              onClick={() => onMaxParallel(workers.value + 1)}
               className={stepClass}
             >
               <Plus className="h-3.5 w-3.5" />

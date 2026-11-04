@@ -7,7 +7,7 @@ import { TaskE2eBadge } from "./E2eBadges";
 import { isReview } from "../../lib/review";
 import { displayStatus, waitingOnLabel, workerSubStatus } from "../../lib/board";
 import type { Task } from "../../lib/board";
-import { isDraggable, kanbanMeta } from "../../lib/taskViews";
+import { dragIntent, kanbanMeta } from "../../lib/taskViews";
 
 export type DropEdge = "before" | "after" | null;
 
@@ -51,7 +51,7 @@ function KanbanCard({
   const attention = status === "attention";
   const waiting = waitingOnLabel(task, tasks);
   const sub = attention ? null : workerSubStatus(task);
-  const draggable = isDraggable(task.status);
+  const draggable = dragIntent(task) !== null;
   return (
     <button
       type="button"

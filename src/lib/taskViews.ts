@@ -15,6 +15,7 @@ import {
   waitingOnLabel,
 } from "./board.ts";
 import type { Task, TaskFilter, TaskStatus } from "./board.ts";
+import { canDo } from "./taskActions.ts";
 
 // ---------------------------------------------------------------- viste
 
@@ -58,14 +59,18 @@ export function kanbanColumns(tasks: Task[], query: string, now: number): Kanban
   };
 }
 
-/** Si trascinano i Da fare (riordino) e i Falliti (Riprova). */
-export function isDraggable(status: TaskStatus): boolean {
-  return status === "queued" || status === "failed";
+/** Cosa fa il rilascio di un task trascinato sulla coda. */
+export type DragIntent = "reorder" | "retry";
+
+/** Cosa farebbe trascinare il task sulla coda, secondo il backend; null = non si trascina. */
+export function dragIntent(task: Pick<Task, "can_reorder" | "allowed_actions">): DragIntent | null {
+  if (task.can_reorder) return "reorder";
+  return canDo(task, "retry") ? "retry" : null;
 }
 
-/** La sola colonna "Da fare" accetta drop: da un Da fare (riordino) o da un Fallito (Riprova). */
-export function acceptsDrop(dragged: TaskStatus, column: KanbanColumnKey): boolean {
-  return column === "queued" && isDraggable(dragged);
+/** La sola colonna "Da fare" accetta drop, da un task che si può riordinare o riprovare. */
+export function acceptsDrop(intent: DragIntent | null, column: KanbanColumnKey): boolean {
+  return column === "queued" && intent !== null;
 }
 
 /**

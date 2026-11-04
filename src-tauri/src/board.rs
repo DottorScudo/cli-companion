@@ -47,8 +47,8 @@ pub use e2e::{
 pub use lifecycle::{permits, LifecycleError, Op, Outcome, TaskAction, TaskEvent};
 pub use model::{
     Board, PreviousAttempt, Proposal, Task, TaskStatus, WorktreeInfo, ARCHIVED_NOTE, DEFAULT_MAX_PARALLEL,
-    INTERRUPTED_NOTE, MAX_PARALLEL_LIMIT, MAX_PENDING_PROPOSALS, MAX_TASKS_PER_BOARD, NOTE_MAX, STOPPED_NOTE,
-    SUMMARY_MAX, TASK_MAX, TITLE_MAX,
+    INTERRUPTED_NOTE, MAX_PARALLEL_LIMIT, MAX_PENDING_PROPOSALS, MAX_TASKS_PER_BOARD, MIN_PARALLEL_LIMIT, NOTE_MAX,
+    STOPPED_NOTE, SUMMARY_MAX, TASK_MAX, TITLE_MAX,
 };
 pub use persist::{archive_line, board_store};
 pub use report::{build_report, parse_report_fields, ReportFields, TaskReport, TestRun, DIFFSTAT_MAX};
@@ -59,5 +59,5 @@ pub use spec::{
     id_from_title, parse_max_parallel, parse_proposal, parse_spec, repo_key, valid_id, validate_graph, TaskSpec,
 };
 pub use state::{FailCause, Finished, Run, RunPhase, TaskState};
-pub use view::{BoardView, TaskView};
+pub use view::{BoardLimits, BoardView, Bounds, TaskView};
 pub use worker::{WorkerActivity, WorkerEnd, WorkerSignal, WorkerStatus, WorkerStep};

@@ -10,7 +10,7 @@ import { useCommand } from "./useDetailCommand";
 import { useManagerNow } from "./useManagerNow";
 import { useManagerPrefs } from "./useManagerPrefs";
 import { useWorkspaceRepos } from "./useWorkspaceRepos";
-import { clampMaxParallel, deliveryLabel } from "../../lib/board";
+import { clampToBounds, deliveryLabel } from "../../lib/board";
 import type { BoardView, Task } from "../../lib/board";
 import { repoOptions } from "../../lib/taskForm";
 import { isTypingTarget } from "../../lib/taskViews";
@@ -147,7 +147,12 @@ export default function TasksManager({
         searchRef={searchRef}
         busy={header.busy}
         onBackToTerminals={onBackToTerminals}
-        onMaxParallel={(n) => void header.run(() => api.boardSet(workspace.id, { maxParallel: clampMaxParallel(n) }))}
+        onMaxParallel={(n) =>
+          board &&
+          void header.run(() =>
+            api.boardSet(workspace.id, { maxParallel: clampToBounds(n, board.limits.max_parallel) }),
+          )
+        }
         onTogglePause={() => board && void header.run(() => api.boardSet(workspace.id, { paused: !board.paused }))}
         onNewTask={() => setNewTaskOpen(true)}
         onOpenIntake={onOpenIntake}

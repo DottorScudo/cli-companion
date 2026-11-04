@@ -280,6 +280,7 @@ fn an_empty_or_partial_record_is_a_queued_task() {
 #[test]
 fn the_view_json_is_the_task_json_plus_the_new_fields() {
     use crate::board::Board;
+    const ADDED: [&str; 4] = ["allowed_actions", "can_edit", "can_reorder", "cascade"];
     for (name, task, _) in cases() {
         let mut b = Board::new("w");
         b.tasks.push(task.clone());
@@ -287,11 +288,11 @@ fn the_view_json_is_the_task_json_plus_the_new_fields() {
         let mut wire = serde_json::to_value(&task).unwrap();
         wire["waiting_on"] = json!([]);
         wire["attention"] = json!(task.needs_attention());
-        for added in ["allowed_actions", "can_edit", "cascade"] {
+        for added in ADDED {
             assert!(view.get(added).is_some(), "{name}: {added}");
         }
         let mut old_part = view.clone();
-        for added in ["allowed_actions", "can_edit", "cascade"] {
+        for added in ADDED {
             old_part.as_object_mut().unwrap().remove(added);
         }
         assert_eq!(old_part, wire, "{name}");

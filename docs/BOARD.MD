@@ -148,17 +148,18 @@ Limiti: 200 task per board, 20 task per proposta, 20 proposte pendenti per board
 | `failed` | **Fallito** | `note`/`report.summary` dicono perché. "Riprova" lo rimette in coda. |
 
 `BoardView` = board + per task: `waiting_on: string[]` (dipendenze non `done`, solo per
-`queued`), `attention: bool`, `allowed_actions`, `can_edit` e `cascade` (vedi "Azioni consentite"); + `rev` monotona (come oggi), `schedule_blocked: bool` (fascia
-chiusa per un workspace che usa le fasce), `delivery` del workspace (comodità per la UI).
+`queued`), `attention: bool`, `allowed_actions`, `can_edit`, `can_reorder` e `cascade` (vedi "Azioni consentite"); + `rev` monotona (come oggi), `schedule_blocked: bool` (fascia
+chiusa per un workspace che usa le fasce), `delivery` del workspace (comodità per la UI) e `limits: { max_parallel: { min, max } }`
+(gli estremi di `max_parallel`, gli stessi che validano `board_set` e `set_board`: la UI li legge da qui).
 
-### Azioni consentite (`allowed_actions`, `can_edit`, `cascade`)
+### Azioni consentite (`allowed_actions`, `can_edit`, `can_reorder`, `cascade`)
 
 Cosa si può fare a un task dipende solo dal suo stato; la tabella è una sola (`permits` in
 `board/lifecycle/actions.rs`) e la leggono le guardie delle operazioni, i messaggi di errore e la
 vista. `TaskAction` è l'azione di `task_action`, `snake_case` sul filo: `retry`, `mark_done`,
 `stop`, `delete`, `delete_cascade`, `to_top`.
 
-| status | azioni | modifica (`can_edit`) | riordino |
+| status | azioni | modifica (`can_edit`) | riordino (`can_reorder`) |
 |---|---|---|---|
 | `queued` | `to_top`, `delete`, `delete_cascade` | sì | sì |
 | `running` | `stop` | no | no |
@@ -170,8 +171,9 @@ Ogni task della vista porta, dopo i campi del task, `waiting_on` e `attention` p
 - `allowed_actions: TaskAction[]`: la tabella, ristretta dal contesto della board a ciò che
   riuscirebbe adesso (`delete` solo se nessun task non `done` ne dipende; `delete_cascade` solo se ci
   sono dipendenti e nessun task da togliere è `running`). La UI può mostrare i pulsanti da questa
-  lista invece di riderivarla dallo stato;
+  lista invece di riderivarla dallo stato: il frontend non ha una propria tabella delle transizioni;
 - `can_edit: bool`: il task si può modificare (`task_update`);
+- `can_reorder: bool`: il task si può riordinare (`task_move`); la UI lo usa per il trascinamento;
 - `cascade: { dependents: string[], running: string[] }`: cosa toglierebbe "Elimina tutti".
   `dependents` sono i task non `done` che dipendono dal task, direttamente o no (il task escluso);
   `running` i `running` fra il task e i suoi dipendenti. Vuoto per gli stati che non si possono

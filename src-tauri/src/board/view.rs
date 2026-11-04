@@ -3,7 +3,10 @@
 //! `list_tasks`.
 
 use super::cascade::{CascadeDelete, Waiters};
-use super::{permits, Board, Op, Proposal, SettingsProposalView, Task, TaskAction, TaskKind, TaskStatus};
+use super::{
+    permits, Board, Op, Proposal, SettingsProposalView, Task, TaskAction, TaskKind, TaskStatus, MAX_PARALLEL_LIMIT,
+    MIN_PARALLEL_LIMIT,
+};
 use crate::workspaces::{Delivery, Workspace};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -26,8 +29,29 @@ pub struct TaskView {
     pub allowed_actions: Vec<TaskAction>,
     /// Il task si puo' modificare (`update_task`).
     pub can_edit: bool,
+    /// Il task si puo' riordinare (`move_task`, trascinandolo nella coda).
+    pub can_reorder: bool,
     /// Cosa toglierebbe "Elimina con i dipendenti"; vuoto se il task non si puo' eliminare.
     pub cascade: CascadeDelete,
+}
+
+/// Intervallo ammesso per un valore numerico, estremi inclusi.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Bounds {
+    pub min: u8,
+    pub max: u8,
+}
+
+/// Gli estremi dei valori che l'utente imposta sulla board: la UI li legge da
+/// qui invece di duplicarli.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct BoardLimits {
+    pub max_parallel: Bounds,
+}
+
+impl BoardLimits {
+    pub const CURRENT: BoardLimits =
+        BoardLimits { max_parallel: Bounds { min: MIN_PARALLEL_LIMIT, max: MAX_PARALLEL_LIMIT } };
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -37,6 +61,8 @@ pub struct BoardView {
     /// scarta le risposte piu' vecchie di quella gia' vista.
     pub rev: u64,
     pub max_parallel: u8,
+    /// Estremi dei valori impostabili (oggi solo `max_parallel`).
+    pub limits: BoardLimits,
     pub paused: bool,
     pub updated_at: i64,
     pub tasks: Vec<TaskView>,
@@ -153,6 +179,7 @@ impl Board {
             attention: t.needs_attention(),
             allowed_actions,
             can_edit: permits(status, Op::Edit),
+            can_reorder: permits(status, Op::Reorder),
             cascade,
         }
     }
@@ -170,6 +197,7 @@ impl Board {
             workspace_id: self.workspace_id.clone(),
             rev: self.rev,
             max_parallel: self.max_parallel,
+            limits: BoardLimits::CURRENT,
             paused: self.paused,
             updated_at: self.updated_at,
             tasks: self.tasks.iter().map(|t| self.view_of(t, &waiters)).collect(),

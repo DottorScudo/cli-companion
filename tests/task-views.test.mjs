@@ -4,8 +4,8 @@ import {
   DEFAULT_SORT,
   MANAGER_PREFS_KEY,
   acceptsDrop,
+  dragIntent,
   defaultPrefs,
-  isDraggable,
   isTypingTarget,
   kanbanColumns,
   kanbanMeta,
@@ -94,14 +94,20 @@ describe("kanban", () => {
     assert.equal(c.running.length, 0);
     assert.equal(c.doneOlder, 0);
   });
-  it("drop: solo Da fare accetta, da Da fare e Fallito", () => {
-    assert.equal(acceptsDrop("queued", "queued"), true);
-    assert.equal(acceptsDrop("failed", "queued"), true);
-    assert.equal(acceptsDrop("failed", "failed"), false);
-    assert.equal(acceptsDrop("queued", "running"), false);
-    assert.equal(acceptsDrop("running", "queued"), false);
-    assert.equal(isDraggable("done"), false);
-    assert.equal(isDraggable("running"), false);
+  it("trascinare: il backend dice se si riordina, si riprova o niente", () => {
+    assert.equal(dragIntent({ can_reorder: true, allowed_actions: ["to_top", "delete"] }), "reorder");
+    assert.equal(dragIntent({ can_reorder: false, allowed_actions: ["retry", "mark_done"] }), "retry");
+    assert.equal(dragIntent({ can_reorder: false, allowed_actions: ["stop"] }), null);
+    assert.equal(dragIntent({ can_reorder: false, allowed_actions: [] }), null);
+    // La regola non dipende dallo stato: vale quanto dichiarato dal backend.
+    assert.equal(dragIntent({ status: "done", can_reorder: true, allowed_actions: [] }), "reorder");
+  });
+  it("drop: solo la colonna Da fare accetta, e solo un task trascinabile", () => {
+    assert.equal(acceptsDrop("reorder", "queued"), true);
+    assert.equal(acceptsDrop("retry", "queued"), true);
+    assert.equal(acceptsDrop(null, "queued"), false);
+    assert.equal(acceptsDrop("retry", "failed"), false);
+    assert.equal(acceptsDrop("reorder", "running"), false);
   });
   it("riordino: prima / dopo un altro, in fondo, nessun cambiamento", () => {
     const q = ["a", "b", "c", "d"];

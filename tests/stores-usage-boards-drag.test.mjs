@@ -80,6 +80,7 @@ const board = (workspace_id, rev, tasks = []) => ({
   workspace_id,
   rev,
   max_parallel: 3,
+  limits: { max_parallel: { min: 1, max: 16 } },
   paused: false,
   updated_at: rev,
   tasks,

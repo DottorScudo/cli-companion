@@ -21,7 +21,7 @@ export type ReviewVerdict = "passed" | "issues";
 /** Stato mostrato: i quattro stati più "Richiede attenzione" (running con `attention`). */
 export type DisplayStatus = TaskStatus | "attention";
 
-/** Azioni dell'utente sul task (`task_action`). */
+/** Azioni dell'utente sul task (`task_action`): le stesse stringhe di `TaskAction` in Rust. */
 export type TaskAction = "retry" | "mark_done" | "stop" | "delete" | "delete_cascade" | "to_top";
 
 export type DeliveryMode = "pr" | "local_merge" | "push" | "commit";
@@ -149,6 +149,22 @@ export interface Task {
   waiting_on: string[];
   /** Il worker aspetta l'utente (`needs_input`/`idle`): badge "Richiede attenzione". */
   attention: boolean;
+  /** Le azioni di `task_action` che riuscirebbero adesso, calcolate dal backend. */
+  allowed_actions: TaskAction[];
+  /** Il task si può modificare (`task_update`). */
+  can_edit: boolean;
+  /** Il task si può riordinare nella coda (`task_move`). */
+  can_reorder: boolean;
+  /** Cosa toglierebbe "Elimina tutti"; vuoto se il task non si può eliminare. */
+  cascade: CascadeDelete;
+}
+
+/** Task che l'eliminazione a cascata toglie e task in corso che la bloccano. */
+export interface CascadeDelete {
+  /** Id dei dipendenti non Fatti, diretti e indiretti (il task di partenza escluso). */
+  dependents: string[];
+  /** Id dei task dell'insieme (partenza inclusa) in corso: vanno fermati prima. */
+  running: string[];
 }
 
 /** Specifica di un task in una proposta. */
@@ -217,12 +233,24 @@ export interface SettingsProposalView {
   sensitive: string[];
 }
 
+/** Intervallo ammesso per un valore numerico, estremi inclusi. */
+export interface Bounds {
+  min: number;
+  max: number;
+}
+
+/** Estremi dei valori impostabili, decisi dal backend. */
+export interface BoardLimits {
+  max_parallel: Bounds;
+}
+
 export interface BoardView {
   workspace_id: string;
   /** Revisione monotona: cresce a ogni modifica della vista. */
   rev: number;
   /** Worker in parallelo (vale solo in modalità parallela). */
   max_parallel: number;
+  limits: BoardLimits;
   paused: boolean;
   updated_at: number;
   /** L'ordine dell'array È l'ordine della coda. */
@@ -272,9 +300,6 @@ export interface TaskNotifyEvent {
 
 // ---------------------------------------------------------------- stati
 
-export const MAX_PARALLEL_MIN = 1;
-export const MAX_PARALLEL_MAX = 16;
-
 /** Ordine dei quattro stati (legenda, filtri, conteggi). */
 export const STATUSES: TaskStatus[] = ["queued", "running", "done", "failed"];
 
@@ -286,8 +311,6 @@ interface StatusMeta {
   dot: string;
   /** Bordo del nodo nel grafo. */
   border: string;
-  /** Colore esadecimale per minimappa/archi (stessi valori di index.css). */
-  hex: string;
 }
 
 /**
@@ -300,35 +323,30 @@ const META: Record<DisplayStatus, StatusMeta> = {
     text: "text-muted-foreground",
     dot: "bg-muted-foreground",
     border: "border-border-strong",
-    hex: "#8a99a8",
   },
   running: {
     label: "In corso",
     text: "text-status-running",
     dot: "bg-status-running",
     border: "border-status-running/70",
-    hex: "#f5b544",
   },
   attention: {
     label: "Richiede attenzione",
     text: "text-status-attention",
     dot: "bg-status-attention",
     border: "border-status-attention/70",
-    hex: "#fb923c",
   },
   done: {
     label: "Fatto",
     text: "text-status-finished",
     dot: "bg-status-finished",
     border: "border-status-finished/50",
-    hex: "#34d399",
   },
   failed: {
     label: "Fallito",
     text: "text-destructive",
     dot: "bg-destructive",
     border: "border-destructive/70",
-    hex: "#f87171",
   },
 };
 
@@ -354,9 +372,6 @@ export function statusDotClass(s: string): string {
 }
 export function statusBorderClass(s: string): string {
   return metaOf(s).border;
-}
-export function statusHex(s: string): string {
-  return metaOf(s).hex;
 }
 
 // ---------------------------------------------------------------- selettori
@@ -469,10 +484,10 @@ export function taskIdsKey(tasks: Pick<Task, "id">[]): string {
     .join("\u0000");
 }
 
-/** Limita `max_parallel` all'intervallo consentito. */
-export function clampMaxParallel(n: number): number {
-  if (!Number.isFinite(n)) return MAX_PARALLEL_MIN;
-  return Math.min(MAX_PARALLEL_MAX, Math.max(MAX_PARALLEL_MIN, Math.round(n)));
+/** Limita un valore all'intervallo consentito dal backend. */
+export function clampToBounds(n: number, { min, max }: Bounds): number {
+  if (!Number.isFinite(n)) return min;
+  return Math.min(max, Math.max(min, Math.round(n)));
 }
 
 // ---------------------------------------------------------------- azioni
@@ -485,60 +500,6 @@ export const ACTION_LABELS: Record<TaskAction, string> = {
   delete_cascade: "Elimina tutti",
   to_top: "In cima alla coda",
 };
-
-/**
- * Azioni consentite per stato: Da fare = in cima alla coda ed elimina; In corso
- * = ferma; Fallito = riprova, segna come fatto ed elimina; Fatto = nessuna.
- */
-export function allowedActions(task: Pick<Task, "status">): TaskAction[] {
-  switch (task.status) {
-    case "queued":
-      return ["to_top", "delete"];
-    case "running":
-      return ["stop"];
-    case "failed":
-      return ["retry", "mark_done", "delete"];
-    default:
-      return [];
-  }
-}
-
-/** Titolo, testo, dipendenze, modello e repo si cambiano solo prima che parta o dopo un fallimento. */
-export function canEditTask(task: Pick<Task, "status">): boolean {
-  return task.status === "queued" || task.status === "failed";
-}
-
-/** Task che l'eliminazione a cascata toglie e task in corso che la bloccano. */
-export interface CascadeDelete {
-  /** Id dei dipendenti non Fatti, diretti e indiretti (il task di partenza escluso). */
-  dependents: string[];
-  /** Id dei task dell'insieme (partenza inclusa) in corso: vanno fermati prima. */
-  running: string[];
-}
-
-/**
- * Stessa regola del backend: il task più la chiusura dei task non Fatti che ne
- * dipendono; un task Fatto resta com'è e non si attraversa.
- */
-export function cascadeDelete(
-  taskId: string,
-  board: { tasks: Pick<Task, "id" | "status" | "depends_on">[] },
-): CascadeDelete {
-  const set = new Set([taskId]);
-  const frontier = [taskId];
-  for (let current = frontier.pop(); current !== undefined; current = frontier.pop()) {
-    for (const t of board.tasks) {
-      if (t.status === "done" || set.has(t.id) || !(t.depends_on ?? []).includes(current)) continue;
-      set.add(t.id);
-      frontier.push(t.id);
-    }
-  }
-  const inSet = board.tasks.filter((t) => set.has(t.id));
-  return {
-    dependents: inSet.filter((t) => t.id !== taskId).map((t) => t.id),
-    running: inSet.filter((t) => t.status === "running").map((t) => t.id),
-  };
-}
 
 /** "Apri terminale" ha senso solo se il task ha un tab worker. */
 export function canOpenTerminal(task: Pick<Task, "session">): boolean {
@@ -752,22 +713,6 @@ export const SERIAL_WORKERS_TEXT = "1 per repository";
 /** Stesso id di workspace? (evento `board-update` di un'altra board: ignorato) */
 export function isBoardOf(board: Pick<BoardView, "workspace_id">, workspaceId: string): boolean {
   return board.workspace_id === workspaceId;
-}
-
-/** Board vuota segnaposto (prima del caricamento o con il backend assente). */
-export function emptyBoard(workspaceId: string): BoardView {
-  return {
-    workspace_id: workspaceId,
-    rev: 0,
-    max_parallel: 3,
-    paused: false,
-    updated_at: 0,
-    tasks: [],
-    proposals: [],
-    settings_proposals: [],
-    schedule_blocked: false,
-    delivery: { ...DEFAULT_DELIVERY },
-  };
 }
 
 /**

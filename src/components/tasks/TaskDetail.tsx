@@ -11,7 +11,6 @@ import { TaskE2eBadge } from "./E2eBadges";
 import TaskEditForm from "./TaskEditForm";
 import { useCommand } from "./useDetailCommand";
 import {
-  canEditTask,
   canOpenTerminal,
   displayStatus,
   statusBorderClass,
@@ -81,7 +80,7 @@ export default function TaskDetail({
 
   // Se il task parte (o cambia stato) mentre lo si modifica, si esce dalla modifica.
   useEffect(() => {
-    if (editing && !canEditTask(task)) setEditing(false);
+    if (editing && !task.can_edit) setEditing(false);
   }, [editing, task]);
 
   const session = task.session ?? "";

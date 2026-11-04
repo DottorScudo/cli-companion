@@ -19,6 +19,7 @@ pub const NOTE_MAX: usize = 2000;
 /// `failed` restano come storico e non contano.
 pub const MAX_TASKS_PER_BOARD: usize = 200;
 pub const MAX_PENDING_PROPOSALS: usize = 20;
+pub const MIN_PARALLEL_LIMIT: u8 = 1;
 pub const MAX_PARALLEL_LIMIT: u8 = 16;
 pub const DEFAULT_MAX_PARALLEL: u8 = 3;
 

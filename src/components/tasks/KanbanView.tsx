@@ -5,7 +5,8 @@ import KanbanColumn from "./KanbanColumn";
 import { useCommand } from "./useDetailCommand";
 import { isParallel, statusDotClass } from "../../lib/board";
 import type { BoardView, Task, TaskStatus } from "../../lib/board";
-import { acceptsDrop, kanbanColumns, reorderTarget } from "../../lib/taskViews";
+import { acceptsDrop, dragIntent, kanbanColumns, reorderTarget } from "../../lib/taskViews";
+import type { DragIntent } from "../../lib/taskViews";
 import { api } from "../../lib/tauri";
 
 interface Props {
@@ -24,7 +25,9 @@ interface Props {
 
 interface Drag {
   id: string;
+  /** Colonna di partenza. */
   status: TaskStatus;
+  intent: DragIntent | null;
 }
 
 /** Posizione di rilascio sopra/sotto una card della coda. */
@@ -70,7 +73,7 @@ export default function KanbanView({
       e.dataTransfer.setData("text/plain", task.id);
       e.dataTransfer.effectAllowed = "move";
       clearError();
-      setDrag({ id: task.id, status: task.status });
+      setDrag({ id: task.id, status: task.status, intent: dragIntent(task) });
     },
     [clearError],
   );
@@ -78,7 +81,7 @@ export default function KanbanView({
   // Sopra una card della coda: dice se il rilascio cadrebbe prima o dopo di lei.
   const onCardDragOver = useCallback(
     (e: DragEvent<HTMLButtonElement>, task: Task) => {
-      if (!drag || drag.status !== "queued" || task.status !== "queued") return;
+      if (drag?.intent !== "reorder" || !task.can_reorder) return;
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = "move";
@@ -94,7 +97,7 @@ export default function KanbanView({
   );
 
   const onQueueDragOver = (e: DragEvent<HTMLElement>) => {
-    if (!drag || !acceptsDrop(drag.status, "queued")) return;
+    if (!drag || !acceptsDrop(drag.intent, "queued")) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     if (hover) setHover(null);
@@ -105,8 +108,8 @@ export default function KanbanView({
     const d = drag;
     const h = hover;
     endDrag();
-    if (!d || !acceptsDrop(d.status, "queued")) return;
-    if (d.status === "failed") {
+    if (!d || !acceptsDrop(d.intent, "queued")) return;
+    if (d.intent === "retry") {
       void run(() => api.taskAction(workspaceId, d.id, "retry"));
       return;
     }
@@ -115,8 +118,8 @@ export default function KanbanView({
   };
 
   const columnProps = (key: TaskStatus) => ({
-    accepting: drag !== null && acceptsDrop(drag.status, key),
-    dimmed: drag !== null && !acceptsDrop(drag.status, key) && key !== drag.status,
+    accepting: drag !== null && acceptsDrop(drag.intent, key),
+    dimmed: drag !== null && !acceptsDrop(drag.intent, key) && key !== drag.status,
   });
 
   const card = (t: Task, queued = false) => (
@@ -137,9 +140,9 @@ export default function KanbanView({
   );
 
   const empty = <p className="px-1 py-2 text-xs text-muted-foreground">{EMPTY_TEXT}</p>;
-  const dropArea = drag && acceptsDrop(drag.status, "queued") && (
+  const dropArea = drag && acceptsDrop(drag.intent, "queued") && (
     <div className="rounded-lg border border-dashed border-primary px-3.5 py-3.5 text-center text-xs text-primary">
-      {drag.status === "failed" ? "Rilascia qui per riprovare" : "Rilascia qui"}
+      {drag.intent === "retry" ? "Rilascia qui per riprovare" : "Rilascia qui"}
     </div>
   );
 

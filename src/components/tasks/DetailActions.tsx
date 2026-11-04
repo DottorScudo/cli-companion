@@ -10,8 +10,9 @@ import {
   OctagonX,
 } from "lucide-react";
 import { Button } from "../ui/button";
-import { ACTION_LABELS, canEditTask, cascadeDelete, prUrl, queuedTasks } from "../../lib/board";
+import { ACTION_LABELS, prUrl, queuedTasks } from "../../lib/board";
 import type { BoardView, Task, TaskAction } from "../../lib/board";
+import { canDo, deleteControl } from "../../lib/taskActions";
 
 interface Props {
   task: Task;
@@ -45,10 +46,13 @@ function dependentTitles(ids: string[], board: BoardView): string[] {
   return ids.map((id) => titles.get(id) ?? id);
 }
 
+/** Stati in cui ha senso aprire il tab del worker (in corso, o fallito con il tab ancora aperto). */
+const TERMINAL_STATUSES: Task["status"][] = ["running", "failed"];
+
 const btn = "h-[30px] gap-1.5 px-3 text-[13px]";
 const ghost = `${btn} bg-transparent`;
 
-/** Azioni del task per stato; Elimina, Ferma e Segna come fatto chiedono conferma in linea. */
+/** Azioni che il backend consente sul task; Elimina, Ferma e Segna come fatto chiedono conferma in linea. */
 export default function DetailActions({
   task,
   board,
@@ -60,7 +64,7 @@ export default function DetailActions({
   onOpenPr,
 }: Props) {
   const [confirm, setConfirm] = useState<Confirm | null>(null);
-  const cascade = cascadeDelete(task.id, board);
+  const { cascade } = task;
 
   if (confirm) {
     const confirmText =
@@ -97,89 +101,88 @@ export default function DetailActions({
   }
 
   const pr = prUrl(task);
-  const hasDependents = cascade.dependents.length > 0;
-  const deleteBlocked = cascade.running.length > 0;
-  const isFirst = queuedTasks(board)[0]?.id === task.id;
-
-  const terminal = canOpenTerminal && (
-    <Button type="button" onClick={onOpenTerminal} className={btn}>
-      <SquareTerminal /> Apri terminale
-    </Button>
-  );
-  const edit = canEditTask(task) && (
-    <Button type="button" variant="outline" disabled={busy} onClick={onEdit} className={ghost}>
-      <Pencil /> Modifica
-    </Button>
-  );
-  const remove = (task.status === "queued" || task.status === "failed") && (
-    <Button
-      type="button"
-      variant="outline"
-      disabled={busy || deleteBlocked}
-      title={
-        deleteBlocked ? `Prima ferma i task in esecuzione che ne dipendono: ${cascade.running.join(", ")}` : undefined
-      }
-      onClick={() => setConfirm(hasDependents ? "delete_cascade" : "delete")}
-      className={`${ghost} text-destructive hover:text-destructive`}
-    >
-      <Trash2 /> {ACTION_LABELS.delete}
-    </Button>
-  );
+  const remove = deleteControl(task);
+  const showTerminal = canOpenTerminal && TERMINAL_STATUSES.includes(task.status);
+  // Con "Riprova" è lui il pulsante principale.
+  const terminalVariant = canDo(task, "retry") ? "outline" : "default";
 
   return (
     <div className="flex flex-wrap gap-1.5">
-      {task.status === "queued" && (
-        <>
-          {edit}
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy || isFirst}
-            title={isFirst ? "È già il prossimo in coda" : undefined}
-            onClick={() => onAction("to_top")}
-            className={ghost}
-          >
-            <ArrowUpToLine /> {ACTION_LABELS.to_top}
-          </Button>
-          {remove}
-        </>
+      {canDo(task, "retry") && (
+        <Button type="button" disabled={busy} onClick={() => onAction("retry")} className={btn}>
+          <RotateCw /> {ACTION_LABELS.retry}
+        </Button>
       )}
-      {task.status === "running" && (
-        <>
-          {terminal}
-          <Button type="button" variant="outline" disabled={busy} onClick={() => setConfirm("stop")} className={ghost}>
-            <OctagonX /> {ACTION_LABELS.stop}
-          </Button>
-        </>
+      {canDo(task, "mark_done") && (
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy}
+          onClick={() => setConfirm("mark_done")}
+          className={ghost}
+        >
+          <CheckCheck /> {ACTION_LABELS.mark_done}
+        </Button>
+      )}
+      {task.can_edit && (
+        <Button type="button" variant="outline" disabled={busy} onClick={onEdit} className={ghost}>
+          <Pencil /> Modifica
+        </Button>
+      )}
+      {canDo(task, "to_top") && <ToTopButton task={task} board={board} busy={busy} onAction={onAction} />}
+      {showTerminal && (
+        <Button
+          type="button"
+          variant={terminalVariant}
+          onClick={onOpenTerminal}
+          className={terminalVariant === "outline" ? ghost : btn}
+        >
+          <SquareTerminal /> Apri terminale
+        </Button>
+      )}
+      {canDo(task, "stop") && (
+        <Button type="button" variant="outline" disabled={busy} onClick={() => setConfirm("stop")} className={ghost}>
+          <OctagonX /> {ACTION_LABELS.stop}
+        </Button>
       )}
       {task.status === "done" && pr && (
         <Button type="button" onClick={() => onOpenPr(pr)} className={btn}>
           <ExternalLink /> Apri PR
         </Button>
       )}
-      {task.status === "failed" && (
-        <>
-          <Button type="button" disabled={busy} onClick={() => onAction("retry")} className={btn}>
-            <RotateCw /> {ACTION_LABELS.retry}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy}
-            onClick={() => setConfirm("mark_done")}
-            className={ghost}
-          >
-            <CheckCheck /> {ACTION_LABELS.mark_done}
-          </Button>
-          {edit}
-          {terminal && (
-            <Button type="button" variant="outline" onClick={onOpenTerminal} className={ghost}>
-              <SquareTerminal /> Apri terminale
-            </Button>
-          )}
-          {remove}
-        </>
+      {remove && (
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy || remove.kind === "blocked"}
+          title={
+            remove.kind === "blocked"
+              ? `Prima ferma i task in esecuzione che ne dipendono: ${remove.running.join(", ")}`
+              : undefined
+          }
+          onClick={() => remove.kind !== "blocked" && setConfirm(remove.kind)}
+          className={`${ghost} text-destructive hover:text-destructive`}
+        >
+          <Trash2 /> {ACTION_LABELS.delete}
+        </Button>
       )}
     </div>
+  );
+}
+
+/** "In cima alla coda": disattivato se il task è già il prossimo. */
+function ToTopButton({ task, board, busy, onAction }: Pick<Props, "task" | "board" | "busy" | "onAction">) {
+  const isFirst = queuedTasks(board)[0]?.id === task.id;
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      disabled={busy || isFirst}
+      title={isFirst ? "È già il prossimo in coda" : undefined}
+      onClick={() => onAction("to_top")}
+      className={ghost}
+    >
+      <ArrowUpToLine /> {ACTION_LABELS.to_top}
+    </Button>
   );
 }

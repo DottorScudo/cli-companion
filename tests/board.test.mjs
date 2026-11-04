@@ -8,19 +8,15 @@ import {
   STATUSES,
   WORKER_RULES_MAX,
   activeCount,
-  allowedActions,
   attentionCount,
-  canEditTask,
-  cascadeDelete,
   canOpenTerminal,
-  clampMaxParallel,
+  clampToBounds,
   deliveryHelp,
   deliveryLabel,
   dependencyCandidates,
   displayStatus,
   doneTasks,
   effectiveDelivery,
-  emptyBoard,
   failedTasks,
   filterTasks,
   formatDuration,
@@ -42,7 +38,6 @@ import {
   sortByUpdated,
   statusBorderClass,
   statusDotClass,
-  statusHex,
   statusLabel,
   statusTextClass,
   taskCounts,
@@ -61,6 +56,10 @@ const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 
 const task = (extra = {}) => ({
+  allowed_actions: [],
+  can_edit: false,
+  can_reorder: false,
+  cascade: { dependents: [], running: [] },
   id: "a",
   title: "Task A",
   task: "Specifica di A",
@@ -87,7 +86,6 @@ describe("board: stati", () => {
     assert.equal(statusTextClass("attention"), "text-status-attention");
     assert.equal(statusDotClass("running"), "bg-status-running");
     assert.match(statusBorderClass("failed"), /destructive/);
-    assert.equal(statusHex("done"), "#34d399");
   });
   it("il blu (primary) non e' mai un colore di stato", () => {
     for (const s of [...STATUSES, "attention"]) {
@@ -183,11 +181,13 @@ describe("board: selettori", () => {
   it("repository dei task (root come '.')", () => {
     assert.deepEqual(taskRepos([{ repo: null }, { repo: "api" }, {}, { repo: "api" }]), [".", "api"]);
   });
-  it("max_parallel limitato a 1..16", () => {
-    assert.equal(clampMaxParallel(0), 1);
-    assert.equal(clampMaxParallel(99), 16);
-    assert.equal(clampMaxParallel(5), 5);
-    assert.equal(clampMaxParallel(NaN), 1);
+  it("un valore si limita agli estremi del backend", () => {
+    const bounds = { min: 2, max: 9 };
+    assert.equal(clampToBounds(0, bounds), 2);
+    assert.equal(clampToBounds(99, bounds), 9);
+    assert.equal(clampToBounds(5, bounds), 5);
+    assert.equal(clampToBounds(4.6, bounds), 5);
+    assert.equal(clampToBounds(NaN, bounds), 2);
   });
   it("chiave degli id: indipendente da ordine e stato", () => {
     const a = [
@@ -205,12 +205,6 @@ describe("board: selettori", () => {
 });
 
 describe("board: azioni", () => {
-  it("azioni per stato", () => {
-    assert.deepEqual(allowedActions(task()), ["to_top", "delete"]);
-    assert.deepEqual(allowedActions(task({ status: "running" })), ["stop"]);
-    assert.deepEqual(allowedActions(task({ status: "failed" })), ["retry", "mark_done", "delete"]);
-    assert.deepEqual(allowedActions(task({ status: "done" })), []);
-  });
   it("ogni azione ha un'etichetta italiana", () => {
     assert.deepEqual(ACTION_LABELS, {
       retry: "Riprova",
@@ -220,57 +214,6 @@ describe("board: azioni", () => {
       delete_cascade: "Elimina tutti",
       to_top: "In cima alla coda",
     });
-  });
-  it("si modifica solo un Da fare o un Fallito", () => {
-    for (const s of ["queued", "failed"]) assert.equal(canEditTask({ status: s }), true, s);
-    for (const s of ["running", "done"]) assert.equal(canEditTask({ status: s }), false, s);
-  });
-  it("eliminazione a cascata: task e dipendenti non fatti, diretti e indiretti", () => {
-    const tasks = [
-      task({ id: "a" }),
-      task({ id: "b", depends_on: ["a"] }),
-      task({ id: "c", depends_on: ["a"], status: "failed" }),
-      task({ id: "d", depends_on: ["b", "c"] }),
-      task({ id: "e", depends_on: ["d"] }),
-      task({ id: "x" }),
-      task({ id: "y", depends_on: ["x"] }),
-    ];
-    assert.deepEqual(cascadeDelete("a", { tasks }), { dependents: ["b", "c", "d", "e"], running: [] });
-    assert.deepEqual(cascadeDelete("b", { tasks }), { dependents: ["d", "e"], running: [] });
-    assert.deepEqual(cascadeDelete("e", { tasks }), { dependents: [], running: [] });
-    assert.deepEqual(cascadeDelete("x", { tasks }), { dependents: ["y"], running: [] });
-  });
-  it("eliminazione a cascata: un dipendente Fatto resta e non si attraversa", () => {
-    const tasks = [
-      task({ id: "a" }),
-      task({ id: "b", depends_on: ["a"], status: "done" }),
-      task({ id: "c", depends_on: ["b"] }),
-    ];
-    assert.deepEqual(cascadeDelete("a", { tasks }), { dependents: [], running: [] });
-  });
-  it("eliminazione a cascata: i task in corso dell'insieme bloccano", () => {
-    const tasks = [
-      task({ id: "a" }),
-      task({ id: "b", depends_on: ["a"] }),
-      task({ id: "c", depends_on: ["b"], status: "running" }),
-      task({ id: "d", depends_on: ["b"], status: "running" }),
-      task({ id: "z", status: "running" }),
-    ];
-    assert.deepEqual(cascadeDelete("a", { tasks }), { dependents: ["b", "c", "d"], running: ["c", "d"] });
-    assert.deepEqual(cascadeDelete("a", { tasks: [task({ id: "a" })] }).running, []);
-    // depends_on assente (vista parziale): nessun dipendente
-    assert.deepEqual(
-      cascadeDelete("a", {
-        tasks: [
-          { id: "a", status: "queued" },
-          { id: "b", status: "queued" },
-        ],
-      }),
-      {
-        dependents: [],
-        running: [],
-      },
-    );
   });
   it("apri terminale solo con una sessione", () => {
     assert.equal(canOpenTerminal({ session: "t1" }), true);
@@ -475,6 +418,20 @@ describe("boardLayout", () => {
   });
 });
 
+const emptyBoard = (workspaceId) => ({
+  workspace_id: workspaceId,
+  rev: 0,
+  max_parallel: 3,
+  limits: { max_parallel: { min: 1, max: 16 } },
+  paused: false,
+  updated_at: 0,
+  tasks: [],
+  proposals: [],
+  settings_proposals: [],
+  schedule_blocked: false,
+  delivery: { ...DEFAULT_DELIVERY },
+});
+
 describe("board: merge", () => {
   it("board di un altro workspace", () => {
     assert.equal(isBoardOf(emptyBoard("w1"), "w1"), true);
@@ -498,13 +455,6 @@ describe("board: merge", () => {
     const cur = { ...emptyBoard("w"), updated_at: 5, rev: 7 };
     const noRev = { ...emptyBoard("w"), updated_at: 6, rev: undefined };
     assert.equal(mergeBoard(cur, noRev), noRev);
-  });
-  it("board vuota segnaposto con consegna di default", () => {
-    const b = emptyBoard("w");
-    assert.deepEqual(b.tasks, []);
-    assert.deepEqual(b.proposals, []);
-    assert.equal(b.delivery.mode, "commit");
-    assert.equal(b.schedule_blocked, false);
   });
 });
 
