@@ -25,7 +25,7 @@ function rustCommands() {
     "toast.rs",
     "agents/commands.rs",
     "session.rs",
-    "automation.rs",
+    "automation/commands.rs",
     "automation/auto.rs",
     "launch_settings.rs",
     "bots.rs",

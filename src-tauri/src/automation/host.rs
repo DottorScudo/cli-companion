@@ -104,9 +104,10 @@ pub trait Host: Clone + Send + 'static {
 /// thread per timer. Il job gira su un thread del pool bloccante (puo' fare
 /// git e I/O) cosi' non ritarda gli altri timer.
 mod timer {
+    use crate::automation::lock;
     use std::cmp::Ordering;
     use std::collections::BinaryHeap;
-    use std::sync::{Condvar, Mutex, OnceLock};
+    use std::sync::{Condvar, Mutex, OnceLock, PoisonError};
     use std::time::{Duration, Instant};
 
     struct Entry {
@@ -160,17 +161,19 @@ mod timer {
 
     impl Timer {
         fn run(&self) {
-            let mut q = self.queue.lock().unwrap();
+            let mut q = lock(&self.queue);
             loop {
                 let now = Instant::now();
                 match q.heap.peek().map(|e| e.at) {
-                    None => q = self.wake.wait(q).unwrap(),
-                    Some(at) if at > now => q = self.wake.wait_timeout(q, at - now).unwrap().0,
+                    None => q = self.wake.wait(q).unwrap_or_else(PoisonError::into_inner),
+                    Some(at) if at > now => {
+                        q = self.wake.wait_timeout(q, at - now).unwrap_or_else(PoisonError::into_inner).0
+                    }
                     Some(_) => {
-                        let job = q.heap.pop().unwrap().job;
+                        let Some(entry) = q.heap.pop() else { continue };
                         drop(q);
-                        tauri::async_runtime::spawn_blocking(job);
-                        q = self.queue.lock().unwrap();
+                        tauri::async_runtime::spawn_blocking(entry.job);
+                        q = lock(&self.queue);
                     }
                 }
             }
@@ -179,7 +182,7 @@ mod timer {
 
     pub(super) fn schedule(delay: Duration, job: Box<dyn FnOnce() + Send>) {
         let t = timer();
-        let mut q = t.queue.lock().unwrap();
+        let mut q = lock(&t.queue);
         q.seq += 1;
         let seq = q.seq;
         q.heap.push(Entry { at: Instant::now() + delay, seq, job });

@@ -8,11 +8,12 @@
 //! prende nessun altro lock; l'attesa di fine esecuzione avviene fuori dal
 //! mutex, sul segnale dell'esecuzione.
 
+use crate::automation::lock;
 use crate::automation::process::CancelFlag;
 use crate::board::E2eRun;
 use std::collections::{HashMap, HashSet};
 use std::net::TcpListener;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 /// Tentativi di trovare una porta libera non gia' riservata da un'altra esecuzione.
@@ -88,7 +89,7 @@ impl E2eRuns {
     /// Il mutex avvelenato non blocca il rilascio delle cartelle: lo stato
     /// resta coerente perche' ogni modifica e' una singola operazione di mappa.
     fn lock(&self) -> MutexGuard<'_, Inner> {
-        self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.inner)
     }
 
     /// Prende la cartella per un'esecuzione e le riserva una porta. Il
@@ -169,7 +170,7 @@ impl E2eRuns {
 /// i casi chi chiama rilegge lo stato.
 fn wait_done(done: &Done, timeout: Duration) {
     let (finished, signal) = &**done;
-    let guard = finished.lock().unwrap_or_else(PoisonError::into_inner);
+    let guard = lock(finished);
     drop(signal.wait_timeout_while(guard, timeout, |finished| !*finished));
 }
 
@@ -192,7 +193,7 @@ impl Drop for RunGuard {
         };
         if let Some(run) = removed {
             let (finished, signal) = &*run.done;
-            *finished.lock().unwrap_or_else(PoisonError::into_inner) = true;
+            *lock(finished) = true;
             signal.notify_all();
         }
     }

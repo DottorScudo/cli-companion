@@ -70,7 +70,7 @@ deve collegare all'agente:
   ammessi: `session-start`, `finished`, `session-end`, `needs-input`,
   `permission-request` (`HookEventKind`). L'exe legge le variabili
   `CLI_COMPANION_SESSION` (tab di appartenenza; senza, l'evento è ignorato con
-  exit 0), `CLI_COMPANION_TOKEN` e `CLI_COMPANION_PORT`, che l'app imposta nel
+  exit 0), `CLI_COMPANION_TOKEN` (il segreto di quella sessione, non un token globale dell'app) e `CLI_COMPANION_PORT`, che l'app imposta nel
   terminale (su WSL anche in `WSLENV`). Lo stdin dell'hook, se presente, passa da
   `HookEvents::normalize`. L'unico output ammesso su stdout è la decisione di
   blocco del fine turno. Dettagli in `docs/DESIGN.MD`, sezione `ipc/`.
@@ -639,7 +639,7 @@ direttamente. Fino a quando non è provato, `finished` funziona come notifica pu
 
 Variabili d'ambiente per `--notify`: il plugin gira nel processo di OpenCode e
 `$` eredita il suo ambiente [doc: Plugins, `shell.env` imposta variabili per le
-shell]; `CLI_COMPANION_SESSION` e `CLI_COMPANION_TOKEN` sono quelle del terminale
+shell]; `CLI_COMPANION_SESSION` e `CLI_COMPANION_TOKEN` (id e segreto di quella sessione) sono quelle del terminale
 dell'app, quindi presenti **[da verificare]** (nessuna eccezione se OpenCode è
 avviato dal terminale di cli-companion).
 

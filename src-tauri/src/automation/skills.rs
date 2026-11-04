@@ -1,21 +1,21 @@
 //! Tool MCP per le skill globali dell'utente (`save_skill`, `list_skills`,
 //! `delete_skill`) e ripristino all'avvio. Le skill non appartengono a un
 //! workspace: non passano da `boards::rpc_session`. Restano pero' dietro lo
-//! stesso congelamento di `dispatch` (tab di un workspace archiviato) e sono
-//! vietate ai worker. La logica su file e' in `crate::user_skills`.
+//! stesso congelamento di `dispatch` (tab di un workspace archiviato) e, per la
+//! tabella di `roles`, sono vietate ai worker. La logica su file e' in
+//! `crate::user_skills`.
 
+use super::rpc::misrouted;
 use super::*;
 use crate::user_skills::{self, SkillInput};
 use serde_json::json;
 
-pub const SKILL_METHODS: [&str; 3] = ["save_skill", "list_skills", "delete_skill"];
-
-pub(super) fn rpc<H: Host>(host: &H, method: &str, params: &Value) -> Result<Value, String> {
+pub(super) fn rpc<H: Host>(host: &H, method: Method, params: &Value) -> Result<Value, String> {
     match method {
-        "save_skill" => save_skill(host, params),
-        "list_skills" => list_skills(host),
-        "delete_skill" => delete_skill(host, params),
-        _ => Err(format!("unknown method: {method}")),
+        Method::SaveSkill => save_skill(host, params),
+        Method::ListSkills => list_skills(host),
+        Method::DeleteSkill => delete_skill(host, params),
+        other => Err(misrouted(other)),
     }
 }
 

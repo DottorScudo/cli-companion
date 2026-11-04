@@ -23,11 +23,22 @@ const FRONTEND_EVENT: &str = "agent-event";
 /// Connessioni servite contemporaneamente: oltre, la connessione si scarta.
 const MAX_CONNECTIONS: usize = 32;
 
+/// Credenziale di una sessione: id (`SESSION_ENV`) e segreto (`TOKEN_ENV`).
+/// Il segreto vale finche' la credenziale e' viva (la revoca e' al drop, a cura
+/// di chi l'ha emessa) e non va mai loggato.
+pub trait Credential: Send {
+    fn session(&self) -> &str;
+    fn secret(&self) -> &str;
+}
+
 /// Quello che il core offre al canale: l'autenticazione delle sessioni, le RPC
 /// e la reazione agli eventi hook. Il canale non sa cosa ne fa il core.
 pub trait IpcHandler: Send + Sync {
-    /// Token che le sessioni ricevono in `TOKEN_ENV`.
-    fn session_token(&self) -> &str;
+    /// Il segreto e' quello della sessione `session`? Un evento hook si
+    /// ammette solo cosi'.
+    fn authenticate(&self, session: &str, secret: &str) -> bool;
+    /// Credenziale usa e getta per il self-test del canale.
+    fn probe_credential(&self) -> Result<Box<dyn Credential>, String>;
     fn rpc(&self, req: &RpcRequest) -> RpcResponse;
     /// Evento hook gia' ammesso; `Some(motivo)` = lo stop va bloccato.
     fn hook_event(&self, payload: &NotifyPayload) -> Option<String>;
@@ -162,7 +173,11 @@ fn process_notify(
     now: Instant,
     forward: impl FnOnce(&NotifyPayload) -> Result<(), String>,
 ) -> Result<NotifyReply, String> {
-    let admitted = gate.lock().unwrap_or_else(PoisonError::into_inner).admit(payload, handler.session_token(), now);
+    let admitted = gate.lock().unwrap_or_else(PoisonError::into_inner).admit(
+        payload,
+        |tab, secret| handler.authenticate(tab, secret),
+        now,
+    );
     let Some(payload) = admitted else {
         return Ok(NotifyReply::default());
     };
@@ -236,23 +251,26 @@ pub fn start_listener(app: &AppHandle, handler: Arc<dyn IpcHandler>) {
 /// arriva poi via evento al frontend come prova udibile.
 #[tauri::command]
 pub async fn test_agent_notify(state: tauri::State<'_, IpcState>) -> Result<String, String> {
-    let token = state.handler.session_token().to_string();
-    crate::blocking(move || self_test_blocking(&token)).await
+    let credential = state.handler.probe_credential()?;
+    crate::blocking(move || self_test_blocking(credential.as_ref())).await
 }
 
-fn self_test_blocking(token: &str) -> Result<String, String> {
+/// Il figlio ha la credenziale di prova (id e segreto casuali, mai di un tab
+/// reale): resta valida finche' il figlio non e' uscito e poi viene revocata
+/// al drop.
+fn self_test_blocking(credential: &dyn Credential) -> Result<String, String> {
     let port =
         listening_port().ok_or_else(|| ipc_status().error.unwrap_or_else(|| "listener non avviato".to_string()))?;
     let exe = std::env::current_exe().map_err(|e| format!("percorso exe: {e}"))?;
     let mut cmd = std::process::Command::new(&exe);
     crate::platform::hide_window(&mut cmd);
-    // Il figlio vede il token e la porta dell'app come un terminale di cli-companion,
-    // ma non il tab dell'eventuale terminale da cui l'app e' stata avviata.
+    // Il figlio vede sessione, segreto e porta come un terminale di cli-companion,
+    // ma non quelli dell'eventuale terminale da cui l'app e' stata avviata.
     let status = cmd
         .args(["--notify", "test", "self-test"])
-        .env(TOKEN_ENV, token)
+        .env(SESSION_ENV, credential.session())
+        .env(TOKEN_ENV, credential.secret())
         .env(PORT_ENV, port.to_string())
-        .env_remove(SESSION_ENV)
         .stdin(std::process::Stdio::null())
         .status()
         .map_err(|e| format!("self-test non avviabile: {e}"))?;

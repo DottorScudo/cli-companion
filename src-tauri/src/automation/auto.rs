@@ -38,7 +38,7 @@ impl ReadySignal {
 
     /// Accende il segnale e sveglia chi aspetta.
     pub fn signal(&self) {
-        *self.ready.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        *lock(&self.ready) = true;
         self.cv.notify_all();
     }
 
@@ -46,7 +46,7 @@ impl ReadySignal {
     /// ai risvegli spuri: si riaddormenta finche' il segnale non c'e' o il
     /// tempo non e' scaduto.
     pub fn wait(&self, timeout: Duration) -> bool {
-        let guard = self.ready.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = lock(&self.ready);
         let (guard, _) = self.cv.wait_timeout_while(guard, timeout, |ready| !*ready).unwrap_or_else(|e| e.into_inner());
         *guard
     }

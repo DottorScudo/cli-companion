@@ -139,11 +139,11 @@ fn color_env_declares_256_and_truecolor() {
 }
 
 #[test]
-fn apply_env_uses_the_app_token() {
+fn apply_env_uses_the_given_secret() {
     let mut cmd = CommandBuilder::new("dummy");
-    apply_env(&mut cmd, "tab-1", TargetKind::Windows);
+    apply_env(&mut cmd, "tab-1", "secret-1", TargetKind::Windows);
     assert_eq!(cmd.get_env(SESSION_ENV), Some(std::ffi::OsStr::new("tab-1")));
-    assert_eq!(cmd.get_env(TOKEN_ENV), Some(std::ffi::OsStr::new(crate::automation::token())));
+    assert_eq!(cmd.get_env(TOKEN_ENV), Some(std::ffi::OsStr::new("secret-1")));
     // Nei test il listener non e' avviato: nessuna porta (e quella ereditata e' rimossa).
     assert_eq!(cmd.get_env(PORT_ENV), None);
     assert_eq!(cmd.get_env("TERM"), Some(std::ffi::OsStr::new("xterm-256color")));
@@ -255,12 +255,14 @@ fn wsl_command_execs_the_requested_shell() {
 
 #[test]
 fn session_command_adds_the_environment_of_its_target() {
-    let windows = session_command(&Target::Windows, r"C:\work", None, "tab-1");
+    let windows = session_command(&Target::Windows, r"C:\work", None, "tab-1", "secret-1");
     assert_eq!(windows.get_env(SESSION_ENV), Some(std::ffi::OsStr::new("tab-1")));
+    assert_eq!(windows.get_env(TOKEN_ENV), Some(std::ffi::OsStr::new("secret-1")));
     assert_eq!(windows.get_env("COLORTERM"), Some(std::ffi::OsStr::new("truecolor")));
 
-    let wsl = session_command(&wsl("Ubuntu"), "/srv", None, "tab-2");
+    let wsl = session_command(&wsl("Ubuntu"), "/srv", None, "tab-2", "secret-2");
     assert_eq!(wsl.get_env(SESSION_ENV), Some(std::ffi::OsStr::new("tab-2")));
+    assert_eq!(wsl.get_env(TOKEN_ENV), Some(std::ffi::OsStr::new("secret-2")));
     let wslenv = wsl.get_env("WSLENV").unwrap().to_string_lossy().into_owned();
     assert!(wslenv.split(':').any(|e| e == "CLI_COMPANION_SESSION/u"), "{wslenv}");
     assert!(wslenv.split(':').any(|e| e == "CLI_COMPANION_TOKEN/u"), "{wslenv}");

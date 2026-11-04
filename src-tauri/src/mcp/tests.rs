@@ -2,11 +2,13 @@ use super::tools::{reviewer_tools, session_tools, settings_properties, worker_to
 use super::*;
 use crate::agents::{worker_rule_format, PermissionMode, RuleFormat};
 use crate::automation::settings::REASON_MAX;
+use crate::automation::Method;
 use crate::workspaces::{
     DeliveryMode, MergeMethod, MAX_COMMAND_LEN, MAX_E2E_TIMEOUT_MIN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_LAUNCHES,
     MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN,
 };
 use std::cell::RefCell;
+use std::collections::HashSet;
 
 /// Tool definitions and server instructions are sent to the model in every
 /// session: the ceilings are intentional. Do not raise one to fit new text,
@@ -550,5 +552,46 @@ fn rule_fields_of_propose_settings_exist_only_when_the_worker_agent_applies_rule
         assert_eq!(with[list]["maxItems"], 7, "{list}");
         assert_eq!(with[list]["items"]["maxLength"], 11, "{list}");
         assert_eq!(with[list]["description"], "Replaces the list, e.g. my-rule.", "{list}");
+    }
+}
+
+/// Nomi dei tool di una lista, nell'ordine in cui sono definiti.
+fn tool_names(tools: &[Value]) -> Vec<String> {
+    tools.iter().map(|t| t["name"].as_str().expect("every tool has a name").to_string()).collect()
+}
+
+#[test]
+fn every_mcp_tool_is_a_method_allowed_for_its_role() {
+    for role in Role::ALL {
+        let listed = tool_names(&tools_for(role));
+        let unique: HashSet<&String> = listed.iter().collect();
+        assert_eq!(unique.len(), listed.len(), "{}: duplicate tool names {listed:?}", role.as_str());
+        for name in &listed {
+            assert!(Method::parse(name).is_some(), "{}: tool {name} is not an RPC method", role.as_str());
+        }
+        let expected: HashSet<&str> =
+            Method::ALL.into_iter().filter(|m| m.allows(role) && !m.is_handshake()).map(|m| m.name()).collect();
+        let actual: HashSet<&str> = listed.iter().map(String::as_str).collect();
+        assert_eq!(actual, expected, "{}: the tools differ from the role table", role.as_str());
+    }
+}
+
+#[test]
+fn the_handshake_has_no_tool_for_any_role() {
+    for role in Role::ALL {
+        let listed = tool_names(&tools_for(role));
+        for m in Method::ALL.into_iter().filter(|m| m.is_handshake()) {
+            assert!(!listed.iter().any(|n| n == m.name()), "{}: {}", role.as_str(), m.name());
+        }
+    }
+}
+
+#[test]
+fn an_unknown_role_in_the_whoami_answer_is_an_error() {
+    let mut server = Server::default();
+    let b = Fake::new("admin");
+    assert_eq!(server.role(&b), Err("unknown role in the whoami response".to_string()));
+    for role in Role::ALL {
+        assert_eq!(Server::default().role(&Fake::new(role.as_str())), Ok(role));
     }
 }

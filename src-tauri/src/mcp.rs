@@ -22,8 +22,9 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
+use crate::automation::Role;
 use crate::ipc::{app_port, rpc_call, RpcRequest, RpcResponse, SESSION_ENV, TOKEN_ENV};
-use tools::{instructions, tools_for, Role};
+use tools::{instructions, tools_for};
 
 /// Versioni del protocollo MCP che sappiamo parlare (la prima e' il default).
 const PROTOCOL_VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
@@ -50,12 +51,11 @@ impl Server {
             return Ok(r);
         }
         let v = backend.rpc("whoami", &json!({}))?;
-        let role = match v.get("role").and_then(Value::as_str) {
-            Some("session") => Role::Session,
-            Some("worker") => Role::Worker,
-            Some("reviewer") => Role::Reviewer,
-            _ => return Err("unknown role in the whoami response".to_string()),
-        };
+        let role = v
+            .get("role")
+            .and_then(Value::as_str)
+            .and_then(Role::parse)
+            .ok_or_else(|| "unknown role in the whoami response".to_string())?;
         self.workspace = v.get("workspace").and_then(|w| {
             let field = |k: &str| w.get(k).and_then(Value::as_str);
             Some(format!("{} ({}, {})", field("name")?, field("kind")?, field("path")?))

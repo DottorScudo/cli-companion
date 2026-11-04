@@ -3,7 +3,7 @@
 //! degli effetti fuori dal lock.
 
 use super::*;
-use std::sync::{MutexGuard, PoisonError};
+use std::sync::MutexGuard;
 
 /// Salvataggi coalescenti: al massimo uno per board ogni `SAVE_EVERY_MS`,
 /// sempre con l'ultimo stato (le modifiche ravvicinate non riscrivono il JSON
@@ -92,16 +92,17 @@ pub struct AutomationState {
     /// Esecuzioni E2E in corso e ultimi esiti manuali. Mutex foglia: vedi
     /// `e2e::runs` per l'ordine dei lock.
     pub(super) e2e: Arc<e2e::runs::E2eRuns>,
-}
-
-/// Prende il lock anche se un altro thread e' andato in panico tenendolo: lo
-/// stato resta consistente (il registro cambia solo con chiamate ai suoi metodi)
-/// e un panico isolato non deve fermare l'app.
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
+    /// Segreti delle sessioni (un terminale = un segreto): vedi `auth`.
+    pub(super) keys: Arc<SessionKeys>,
 }
 
 impl AutomationState {
+    /// Emette il segreto della sessione `session` (id del tab): vale finche' la
+    /// credenziale restituita e' viva.
+    pub fn issue_credential(&self, session: &str) -> Result<SessionCredential, String> {
+        self.keys.issue(session)
+    }
+
     /// Il registro. Mai in mano insieme a `published` o `saves`.
     pub(super) fn registry(&self) -> MutexGuard<'_, Registry> {
         lock(&self.inner)

@@ -88,7 +88,7 @@ fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> Drain {
                 if n == 0 {
                     break;
                 }
-                let mut b = shared.lock().unwrap();
+                let mut b = lock(&shared);
                 b.extend_from_slice(&chunk[..n]);
                 // Si taglia a blocchi: memoria limitata a ~2x il tetto.
                 if b.len() > 2 * OUTPUT_KEEP_BYTES {
@@ -107,7 +107,7 @@ impl Drain {
     /// raccolto (lossy: un taglio dentro una sequenza UTF-8 non fa panico).
     fn collect(&self, deadline: Instant) -> String {
         let _ = self.done.recv_timeout(deadline.saturating_duration_since(Instant::now()));
-        let b = self.buf.lock().unwrap();
+        let b = lock(&self.buf);
         String::from_utf8_lossy(&b[b.len().saturating_sub(OUTPUT_KEEP_BYTES)..]).into_owned()
     }
 }

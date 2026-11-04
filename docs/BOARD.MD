@@ -433,7 +433,7 @@ esecuzioni in corso; archiviare o rimuovere il workspace annulla quelle di tutto
   processi secondari, o senza id dopo il legame, ignorati con una traccia nella nota; senza
   legame un evento senza id vale come prima). Se fallisce comunque il task mentre
   il tab del worker e' aperto, il `complete_task` di quel worker lo riapre e lo conclude con il
-  report, purche' nessun retry l'abbia ripreso (dettagli in DESIGN.MD, `automation.rs`).
+  report, purche' nessun retry l'abbia ripreso (dettagli in DESIGN.MD, `automation/`).
 - Stop hook del worker: se chiude il turno senza `complete_task` e senza lavoro in
   background, la prima volta l'app risponde con un blocco e il promemoria (inglese): "If the
   task is done, deliver it and call complete_task. If you are waiting for the user's

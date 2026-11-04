@@ -75,7 +75,10 @@ fn open_session(app: &AppHandle, request: &SpawnRequest, on_event: Channel<PtyEv
 
     let dir = start_dir(request.cwd.as_deref(), &ws.path);
     check_start_dir(&target, &dir)?;
-    let cmd = session_command(&target, &dir, ws.shell.as_deref(), &request.tab_id);
+    // Il segreto si emette solo a prenotazione riuscita: se un passo seguente
+    // fallisce, il drop della credenziale lo revoca.
+    let credential = app.state::<crate::automation::AutomationState>().issue_credential(&request.tab_id)?;
+    let cmd = session_command(&target, &dir, ws.shell.as_deref(), &request.tab_id, credential.secret());
     let opened = open_pty(cmd, pty_size(request.cols, request.rows))?;
 
     let session_id = reservation.id();
@@ -87,7 +90,13 @@ fn open_session(app: &AppHandle, request: &SpawnRequest, on_event: Channel<PtyEv
     })?;
 
     let registry = registry.clone();
-    spawn_reader(opened.reader, on_event, move || reap(&registry, session_id));
+    // La credenziale vive quanto il flusso della shell: la revoca avviene alla
+    // fine dell'output (shell uscita o `pty_close`), dopo `reap`. Finche' la
+    // shell e' viva, i suoi figli possono autenticarsi con quel segreto.
+    spawn_reader(opened.reader, on_event, move || {
+        reap(&registry, session_id);
+        drop(credential);
+    });
     Ok(session_id)
 }
 

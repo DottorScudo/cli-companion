@@ -1,0 +1,86 @@
+//! Punti d'ingresso dall'app reale: RPC dal socket, eventi degli hook, input
+//! dell'utente, uscita dall'app e caricamento delle board all'avvio.
+
+use super::*;
+
+/// Punto d'ingresso delle RPC dal socket: `rpc::handle` con lo stato reale.
+pub fn handle_rpc(app: &AppHandle, req: &RpcRequest) -> RpcResponse {
+    rpc::handle(&app.state::<AutomationState>(), &TauriHost(app.clone()), req)
+}
+
+/// Evento di un hook di una sessione autenticata (vedi `ipc`). Ritorna il
+/// motivo di blocco se lo Stop hook di un worker va fatto proseguire.
+pub fn on_hook_event(app: &AppHandle, payload: &NotifyPayload) -> Option<String> {
+    let tab = payload.tab_id.as_deref()?;
+    let hook = HookEvent {
+        event: &payload.event,
+        notification_type: payload.notification_type.as_deref(),
+        stop_hook_active: payload.stop_hook_active,
+        background_work: payload.background_work,
+        agent_session_id: payload.agent_session_id.as_deref(),
+        source: payload.source.as_deref(),
+        reason: payload.reason.as_deref(),
+    };
+    let st = app.state::<AutomationState>();
+    st.run(&TauriHost(app.clone()), |r| r.on_hook(tab, &hook, now_millis()))
+}
+
+/// Il core visto dal canale `ipc`: autenticazione con il segreto di sessione, RPC
+/// (`handle_rpc`) ed eventi hook (`on_hook_event`).
+pub struct IpcBridge(pub AppHandle);
+
+impl crate::ipc::IpcHandler for IpcBridge {
+    fn authenticate(&self, session: &str, secret: &str) -> bool {
+        self.0.state::<AutomationState>().keys.verify(session, secret)
+    }
+
+    fn probe_credential(&self) -> Result<Box<dyn crate::ipc::Credential>, String> {
+        let credential = self.0.state::<AutomationState>().keys.issue_probe()?;
+        Ok(Box::new(credential))
+    }
+
+    fn rpc(&self, req: &RpcRequest) -> RpcResponse {
+        handle_rpc(&self.0, req)
+    }
+
+    fn hook_event(&self, payload: &NotifyPayload) -> Option<String> {
+        on_hook_event(&self.0, payload)
+    }
+}
+
+/// L'utente ha premuto Invio nel terminale del tab (chiamato da `pty_write`).
+pub fn user_input(app: &AppHandle, tab: &str) {
+    let st = app.state::<AutomationState>();
+    st.run(&TauriHost(app.clone()), |r| r.user_input(tab, now_millis()));
+}
+
+/// Attesa massima, in tutto, della fine delle esecuzioni E2E annullate
+/// all'uscita: copre `process::KILL_WAIT` (10 s).
+const E2E_EXIT_WAIT: Duration = Duration::from_secs(12);
+
+/// Chiusura dell'app: annulla le esecuzioni E2E in corso (uccidendone l'albero
+/// di processi), poi salva le board con un salvataggio ancora in coda. Prima
+/// le E2E, cosi' l'esito "cancelled" finisce sul task salvato.
+pub fn flush_on_exit(app: &AppHandle) {
+    let st = app.state::<AutomationState>();
+    st.e2e.cancel_all_and_wait(E2E_EXIT_WAIT);
+    st.flush_pending_saves(&TauriHost(app.clone()));
+}
+
+/// Carica le board salvate (all'avvio dell'app): migra i file di uno schema
+/// vecchio e fa fallire come interrotti i task `running`. Un file corrotto o
+/// di una versione piu' recente viene messo da parte come backup datato (avviso
+/// `store-warning`); uno illeggibile resta dov'e' e non viene riscritto.
+pub fn load_boards(app: &tauri::App) {
+    let dir = match worktrees::boards_dir(app.handle()) {
+        Ok(dir) => dir,
+        Err(e) => {
+            log::error!("board: cartella dati non disponibile: {e}");
+            return;
+        }
+    };
+    let st = app.state::<AutomationState>();
+    for board in board_files::load_all(&dir, now_millis()) {
+        st.load_board(board);
+    }
+}

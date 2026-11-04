@@ -1,20 +1,38 @@
-//! Dispatch delle RPC dei tool MCP. Tre ruoli: il worker di un task
-//! (`get_task`, `complete_task`, `run_e2e`, `get_e2e_result`), il revisore, cioe' il worker di un task
-//! `review` (gli stessi piu' `get_task_details` e `propose_tasks`), e la
-//! sessione normale, Intake compreso (`propose_tasks`, `list_tasks`,
-//! `get_task_details`, `update_task`, `delete_task`, piu' le skill globali di
-//! `skills` e le impostazioni del workspace di `settings`). `whoami` e'
-//! l'handshake del server MCP, non un tool.
+//! Dispatch delle RPC dei tool MCP. Chi puo' chiamare cosa e' deciso dalla
+//! tabella di `roles` (`Method::roles`): qui si controlla l'accesso e si smista
+//! per ruolo. Il worker di un task consegna il lavoro (`get_task`,
+//! `complete_task`, `run_e2e`, `get_e2e_result`); il revisore, cioe' il worker di
+//! un task `review`, fa lo stesso piu' `get_task_details` e `propose_tasks`
+//! (`review`); la sessione normale, Intake compreso, gestisce la coda (`boards`),
+//! le skill globali (`skills`) e le impostazioni del workspace (`settings`).
+//! `whoami` e' l'handshake del server MCP, non un tool.
 
-use super::review::REVIEWER_METHODS;
-use super::settings::SETTINGS_METHODS;
-use super::skills::SKILL_METHODS;
 use super::*;
-use crate::board::TaskKind;
 use serde_json::json;
 
-const WORKER_METHODS: [&str; 4] = ["get_task", "complete_task", "run_e2e", "get_e2e_result"];
-const SESSION_METHODS: [&str; 5] = ["propose_tasks", "list_tasks", "get_task_details", "update_task", "delete_task"];
+/// Punto d'ingresso autenticato di una richiesta RPC: controlla versione e
+/// credenziali della sessione, poi smista. Senza `AppHandle`, cosi' si prova
+/// con un host finto.
+pub fn handle<H: Host>(st: &AutomationState, host: &H, req: &RpcRequest) -> RpcResponse {
+    if let Err(e) = authenticate(req, &st.keys) {
+        return RpcResponse::failure(e);
+    }
+    RpcResponse::from_result(dispatch(st, host, &req.session, &req.method, &req.params))
+}
+
+/// Errore di un metodo che il ruolo non puo' chiamare. La sessione normale non
+/// ha un task: i tool dei worker le sono riservati al contrario.
+pub(super) fn denied(method: Method, role: Role) -> String {
+    match role {
+        Role::Session => format!("{} is reserved for automated sessions", method.name()),
+        Role::Worker | Role::Reviewer => format!("{} is not available to automated sessions", method.name()),
+    }
+}
+
+/// Errore di un metodo arrivato a un modulo che non lo gestisce (smistamento sbagliato).
+pub(super) fn misrouted(method: Method) -> String {
+    format!("unknown method: {}", method.name())
+}
 
 /// Esegue un metodo RPC per `session`.
 pub fn dispatch<H: Host>(
@@ -27,47 +45,39 @@ pub fn dispatch<H: Host>(
     if !(params.is_null() || params.is_object()) {
         return Err("params must be an object".to_string());
     }
-    let kind = st.inner.lock().unwrap().worker_kind(session);
-    let worker = kind.is_some();
-    let reviewer = kind == Some(TaskKind::Review);
-    if WORKER_METHODS.contains(&method) && !worker {
-        return Err(format!("{method} is reserved for automated sessions"));
-    }
-    let session_only =
-        SESSION_METHODS.contains(&method) || SKILL_METHODS.contains(&method) || SETTINGS_METHODS.contains(&method);
-    let reviewer_call = reviewer && REVIEWER_METHODS.contains(&method);
-    if session_only && worker && !reviewer_call {
-        return Err(format!("{method} is not available to automated sessions"));
+    let method = Method::parse(method).ok_or_else(|| format!("unknown method: {method}"))?;
+    let role = Role::of_worker(st.registry().worker_kind(session));
+    if !method.allows(role) {
+        return Err(denied(method, role));
     }
     // Workspace archiviato: congelato, anche per un tab sopravvissuto.
     if host.tab_workspace(session).is_some_and(|w| w.archived) {
         return Err("workspace is archived".to_string());
     }
     match method {
-        "whoami" => Ok(whoami(host, session, kind)),
-        "get_task" => get_task(st, host, session),
-        "complete_task" => complete_task(st, host, session, params),
-        "run_e2e" => e2e::tools::run_e2e(st, host, session),
-        "get_e2e_result" => e2e::tools::get_e2e_result(st, session, params),
-        m if reviewer_call => review::rpc_reviewer(st, host, session, m, params),
-        m if SKILL_METHODS.contains(&m) => skills::rpc(host, m, params),
-        m if SETTINGS_METHODS.contains(&m) => settings::rpc(st, host, session, m, params),
-        m if SESSION_METHODS.contains(&m) => boards::rpc_session(st, host, session, m, params),
-        _ => Err(format!("unknown method: {method}")),
+        Method::Whoami => Ok(whoami(host, session, role)),
+        Method::GetTask => get_task(st, host, session),
+        Method::CompleteTask => complete_task(st, host, session, params),
+        Method::RunE2e => e2e::tools::run_e2e(st, host, session),
+        Method::GetE2eResult => e2e::tools::get_e2e_result(st, session, params),
+        Method::ProposeTasks | Method::GetTaskDetails => match role {
+            Role::Session => boards::rpc_session(st, host, session, method.name(), params),
+            Role::Reviewer => review::rpc_reviewer(st, host, session, method, params),
+            Role::Worker => Err(denied(method, role)),
+        },
+        Method::ListTasks | Method::UpdateTask | Method::DeleteTask => {
+            boards::rpc_session(st, host, session, method.name(), params)
+        }
+        Method::SaveSkill | Method::ListSkills | Method::DeleteSkill => skills::rpc(host, method, params),
+        Method::GetWorkspaceSettings | Method::ProposeSettings => settings::rpc(st, host, session, method, params),
     }
 }
 
-/// Ruolo del chiamante (`kind` = tipo del task se e' un worker) e, per una
-/// sessione normale, il suo workspace: lo usa il server MCP per scegliere i
-/// tool e scrivere le istruzioni.
-fn whoami<H: Host>(host: &H, session: &str, kind: Option<TaskKind>) -> Value {
-    let role = match kind {
-        Some(TaskKind::Review) => "reviewer",
-        Some(TaskKind::Work) => "worker",
-        None => "session",
-    };
-    let mut out = json!({ "role": role, "session": session });
-    if kind.is_none() {
+/// Ruolo del chiamante e, per una sessione normale, il suo workspace: lo usa il
+/// server MCP per scegliere i tool e scrivere le istruzioni.
+fn whoami<H: Host>(host: &H, session: &str, role: Role) -> Value {
+    let mut out = json!({ "role": role.as_str(), "session": session });
+    if role == Role::Session {
         if let Some(w) = host.tab_workspace(session) {
             out["workspace"] = json!({ "name": w.name, "kind": w.kind, "path": w.path });
         }

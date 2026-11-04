@@ -91,9 +91,15 @@ fn windows_command(dir: &str, shell: &str) -> CommandBuilder {
 }
 
 /// Comando completo di una sessione: shell del target piu' ambiente.
-pub(super) fn session_command(target: &Target, dir: &str, shell: Option<&str>, tab_id: &str) -> CommandBuilder {
+pub(super) fn session_command(
+    target: &Target,
+    dir: &str,
+    shell: Option<&str>,
+    tab_id: &str,
+    secret: &str,
+) -> CommandBuilder {
     let mut cmd = build_command(target, dir, shell);
-    apply_env(&mut cmd, tab_id, target.kind());
+    apply_env(&mut cmd, tab_id, secret, target.kind());
     cmd
 }
 

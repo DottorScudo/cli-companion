@@ -11,6 +11,7 @@ use crate::workspaces::{DeliveryMode, MergeMethod, RepoConfig, SettingsPatch};
 use serde_json::json;
 
 mod archive;
+mod auth;
 mod board_flow;
 mod e2e;
 mod e2e_cancel;
@@ -19,6 +20,7 @@ mod ready;
 mod reconcile;
 mod reconcile_git;
 mod review;
+mod roles;
 mod schedule;
 mod session_end;
 mod settings;

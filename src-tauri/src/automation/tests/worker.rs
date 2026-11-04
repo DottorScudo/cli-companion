@@ -328,29 +328,6 @@ fn silent_worker_is_failed_by_the_watchdog() {
 }
 
 #[test]
-fn tokens_and_rpc_authentication() {
-    let t = token();
-    assert_eq!(t.len(), 32);
-    assert!(t.chars().all(|c| c.is_ascii_hexdigit()));
-    assert_eq!(t, token());
-    assert_ne!(generate_token(), generate_token());
-    assert!(token_matches(Some(t)) && !token_matches(Some("")) && !token_matches(Some("zzz")) && !token_matches(None));
-    let req = |rpc, token: &str, session: &str| RpcRequest {
-        rpc,
-        token: token.to_string(),
-        session: session.to_string(),
-        method: "whoami".to_string(),
-        params: Value::Null,
-    };
-    assert!(authenticate(&req(1, "abc", "tab-1"), "abc").is_ok());
-    assert!(authenticate(&req(2, "abc", "tab-1"), "abc").is_err());
-    assert!(authenticate(&req(1, "", "tab-1"), "").is_err());
-    assert!(authenticate(&req(1, "x", "tab-1"), "abc").is_err());
-    assert!(authenticate(&req(1, "abc", "a b"), "abc").is_err());
-    assert!(authenticate(&req(1, "abc", ""), "abc").is_err());
-}
-
-#[test]
 fn helpers_validate_text() {
     assert_eq!(req_text("t", "  x ", 3).unwrap(), "x");
     assert!(req_text("t", "  ", 3).is_err() && req_text("t", "abcd", 3).is_err());

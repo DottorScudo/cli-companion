@@ -4,13 +4,13 @@
 //! protezione contro la riscrittura di un file che non si e' potuto leggere
 //! (quarantena fallita, permessi) deve valere anche per i salvataggi successivi.
 
-use super::worktrees;
+use super::{lock, worktrees};
 use crate::board::{archive_line, board_store, Board, Task};
 use crate::store::JsonFile;
 use std::collections::HashMap;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock};
 
 const ARCHIVE_DIR: &str = "archive";
 const ARCHIVE_EXT: &str = "jsonl";
@@ -22,7 +22,7 @@ static FILES: OnceLock<Mutex<Files>> = OnceLock::new();
 /// Il file della board di `ws_id`; l'id deve essere valido (non esce dalla cartella).
 fn file_of(dir: &Path, ws_id: &str) -> Result<Arc<JsonFile<Board>>, String> {
     worktrees::board_file(dir, ws_id)?;
-    let mut files = FILES.get_or_init(Mutex::default).lock().unwrap_or_else(PoisonError::into_inner);
+    let mut files = lock(FILES.get_or_init(Mutex::default));
     Ok(files.entry(ws_id.to_string()).or_insert_with(|| Arc::new(board_store(format!("{ws_id}.json")))).clone())
 }
 
@@ -95,7 +95,7 @@ pub(super) fn delete(dir: &Path, ws_id: &str) {
             return;
         }
     };
-    FILES.get_or_init(Mutex::default).lock().unwrap_or_else(PoisonError::into_inner).remove(ws_id);
+    lock(FILES.get_or_init(Mutex::default)).remove(ws_id);
     for path in [file, archive_file(dir, ws_id)] {
         match std::fs::remove_file(&path) {
             Ok(()) => {}

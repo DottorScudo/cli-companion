@@ -19,6 +19,19 @@ fn payload(event: &str, token: Option<&str>) -> NotifyPayload {
     }
 }
 
+/// Credenziale finta del self-test.
+struct FakeCredential;
+
+impl Credential for FakeCredential {
+    fn session(&self) -> &str {
+        "probe-fake"
+    }
+
+    fn secret(&self) -> &str {
+        "probe-secret"
+    }
+}
+
 /// Handler finto: ricorda cosa riceve e blocca gli stop se `block` e' impostato.
 struct FakeHandler {
     block: Option<String>,
@@ -36,8 +49,12 @@ impl FakeHandler {
 }
 
 impl IpcHandler for FakeHandler {
-    fn session_token(&self) -> &str {
-        "secret"
+    fn authenticate(&self, session: &str, secret: &str) -> bool {
+        session == "tab-1" && secret == "secret"
+    }
+
+    fn probe_credential(&self) -> Result<Box<dyn Credential>, String> {
+        Ok(Box::new(FakeCredential))
     }
 
     fn rpc(&self, req: &RpcRequest) -> RpcResponse {
@@ -76,6 +93,21 @@ fn events_without_the_right_token_reach_nobody() {
         let (reply, forwarded) = run(&handler, payload("finished", token));
         assert_eq!(reply, Ok(NotifyReply::default()), "{token:?}");
         assert!(forwarded.is_empty(), "{token:?}");
+    }
+    assert!(handler.received().is_empty());
+}
+
+#[test]
+fn events_with_the_secret_of_another_tab_or_without_a_tab_reach_nobody() {
+    let handler = FakeHandler::new(Some("never"));
+    let mut other_tab = payload("finished", Some("secret"));
+    other_tab.tab_id = Some("tab-2".to_string());
+    let mut no_tab = payload("finished", Some("secret"));
+    no_tab.tab_id = None;
+    for p in [other_tab, no_tab] {
+        let (reply, forwarded) = run(&handler, p);
+        assert_eq!(reply, Ok(NotifyReply::default()));
+        assert!(forwarded.is_empty());
     }
     assert!(handler.received().is_empty());
 }

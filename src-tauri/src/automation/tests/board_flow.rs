@@ -110,7 +110,7 @@ fn accept_queues_in_order_discard_removes_and_a_failed_accept_keeps_the_proposal
     assert!(boards::proposal_decide(&st, &h, "ws-1", "p-nope", false).is_err());
     // Rivalidazione all'accettazione: un id nel frattempo occupato la fa fallire.
     let p3 = call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [spec("d", &[])]})).unwrap();
-    st.inner.lock().unwrap().boards.get_mut("ws-1").unwrap().tasks.push(Task::from_spec(
+    st.registry().boards.get_mut("ws-1").unwrap().tasks.push(Task::from_spec(
         TaskSpec { id: "d".into(), title: "D".into(), task: "x".into(), ..Default::default() },
         0,
     ));
@@ -399,7 +399,7 @@ fn start_failure_fails_the_task_notifies_and_retry_reuses_the_worktree() {
     finish(&st, &h, &session_of(&st, &h, "a"), "failed");
     h.dirs.lock().unwrap().clear();
     h.git_rule("rev-parse --verify --quiet refs/heads/task/a", true, "abc\n", "");
-    st.inner.lock().unwrap().boards.get_mut("ws-1").unwrap().task_mut("a").unwrap().worktree = None;
+    st.registry().boards.get_mut("ws-1").unwrap().task_mut("a").unwrap().worktree = None;
     boards::task_action(&st, &h, "ws-1", "a", TaskAction::Retry).unwrap();
     assert!(has_git(&h, "C:\\p|worktree add C:\\p\\.worktrees\\a task/a"), "{:?}", h.git_log());
 }
@@ -483,7 +483,7 @@ fn stop_fails_the_task_closes_the_tab_and_is_quiet() {
     let (st, h) = pr_parallel();
     queue(&st, &h, vec![spec("a", &[])]);
     {
-        let mut reg = st.inner.lock().unwrap();
+        let mut reg = st.registry();
         let t = reg.boards.get_mut("ws-1").unwrap().task_mut("a").unwrap();
         t.set_state(preparing_state(0, None, 0));
     }
@@ -690,7 +690,7 @@ fn board_is_published_in_order_and_saved_with_the_latest_state() {
     assert!(ev.windows(2).all(|p| p[0].rev < p[1].rev), "rev crescente");
     assert_eq!(ev.last().unwrap().tasks[0].task.status(), TaskStatus::Done);
     assert_eq!(ev.last().unwrap().workspace_id, "ws-1");
-    assert_eq!(saved.rev, st.inner.lock().unwrap().boards["ws-1"].rev);
+    assert_eq!(saved.rev, st.registry().boards["ws-1"].rev);
     // Ogni vista porta la consegna del workspace.
     assert_eq!(ev.last().unwrap().delivery.mode, DeliveryMode::Commit);
     // La board si ricarica dal file com'e' (i running diventano failed, qui non ce ne sono).
@@ -743,7 +743,7 @@ fn watchdog_fails_a_start_that_never_finished() {
     queue(&st, &h, vec![spec("a", &[])]);
     {
         // Simula il thread di avvio bloccato: running, nessuna sessione.
-        let mut reg = st.inner.lock().unwrap();
+        let mut reg = st.registry();
         let t = reg.boards.get_mut("ws-1").unwrap().task_mut("a").unwrap();
         t.set_state(preparing_state(1_000, None, 1_000));
     }
@@ -758,7 +758,7 @@ fn watchdog_fails_a_start_that_never_finished() {
     let (st, h) = pr_parallel();
     queue(&st, &h, vec![spec("a", &[])]);
     {
-        let mut reg = st.inner.lock().unwrap();
+        let mut reg = st.registry();
         let t = reg.boards.get_mut("ws-1").unwrap().task_mut("a").unwrap();
         t.set_state(preparing_state(1_000, Some("setup 1/1: npm ci"), 1_000));
     }

@@ -1,7 +1,7 @@
 // Sessioni automatiche (worker avviati dallo scheduler dei task): metadati del
 // tab, etichette di stato, tooltip ed esclusione dalla persistenza. Funzioni
 // pure a zero dipendenze, importabili sia dall'app sia dai test `node --test`
-// (type-stripping). Il backend e' src-tauri/src/automation.rs.
+// (type-stripping). Il backend e' src-tauri/src/automation/.
 
 /** Stati di un worker (vedi `WorkerStatus` in automation/state.rs). */
 export type WorkerStatus =

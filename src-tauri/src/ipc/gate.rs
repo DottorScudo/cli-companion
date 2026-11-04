@@ -2,7 +2,7 @@
 //! prima che vadano all'handler e al frontend. Logica PURA: niente `AppHandle`,
 //! niente globali, il tempo entra come argomento.
 
-use super::wire::{NotifyPayload, EVENT_FINISHED, EVENT_NEEDS_INPUT, EVENT_PERMISSION_REQUEST};
+use super::wire::{is_valid_tab_id, NotifyPayload, EVENT_FINISHED, EVENT_NEEDS_INPUT, EVENT_PERMISSION_REQUEST};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -23,18 +23,22 @@ pub(super) struct NotifyGate {
 }
 
 impl NotifyGate {
-    /// `None` = scartato. `Some` = ammesso, con il token tolto (al frontend
+    /// `None` = scartato. `Some` = ammesso, con il segreto tolto (al frontend
     /// non deve arrivare) e `permission-request` riscritto in `needs-input`.
-    /// Un evento senza il token giusto non e' di un figlio di un terminale
-    /// dell'app: non va ne' all'handler ne' al frontend.
+    /// Si ammette solo un evento con un tab valido e il segreto di QUEL tab
+    /// (`authentic(tab, segreto)`): senza, non e' di un figlio del terminale
+    /// del tab e non va ne' all'handler ne' al frontend.
     pub(super) fn admit(
         &mut self,
         mut payload: NotifyPayload,
-        expected_token: &str,
+        authentic: impl FnOnce(&str, &str) -> bool,
         now: Instant,
     ) -> Option<NotifyPayload> {
-        let token_ok = !expected_token.is_empty() && payload.token.as_deref() == Some(expected_token);
-        if !token_ok {
+        let proven = match (payload.tab_id.as_deref(), payload.token.as_deref()) {
+            (Some(tab), Some(secret)) => is_valid_tab_id(tab) && !secret.is_empty() && authentic(tab, secret),
+            _ => false,
+        };
+        if !proven {
             return None;
         }
         payload.token = None;
@@ -84,7 +88,25 @@ pub(super) fn forwards_to_frontend(payload: &NotifyPayload, blocked: bool) -> bo
 mod tests {
     use super::*;
 
+    /// Segreti dei tab noti ai test: ognuno vale solo per il suo tab.
     const TOKEN: &str = "secret";
+    const TOKEN_T2: &str = "secret-2";
+
+    fn authentic(tab: &str, secret: &str) -> bool {
+        match tab {
+            "t1" => secret == TOKEN,
+            "t2" => secret == TOKEN_T2,
+            _ => false,
+        }
+    }
+
+    fn token_of(tab: &str) -> Option<&'static str> {
+        match tab {
+            "t1" => Some(TOKEN),
+            "t2" => Some(TOKEN_T2),
+            _ => None,
+        }
+    }
 
     fn payload(event: &str, tab: Option<&str>, token: Option<&str>) -> NotifyPayload {
         NotifyPayload {
@@ -104,36 +126,80 @@ mod tests {
         }
     }
 
-    fn prompt(tab: Option<&str>) -> NotifyPayload {
-        let mut p = payload("needs-input", tab, Some(TOKEN));
+    /// Evento del tab `tab` con il suo segreto.
+    fn from_tab(event: &str, tab: &str) -> NotifyPayload {
+        payload(event, Some(tab), token_of(tab))
+    }
+
+    fn prompt(tab: &str) -> NotifyPayload {
+        let mut p = from_tab("needs-input", tab);
         p.notification_type = Some(PERMISSION_PROMPT.to_string());
         p
     }
 
     #[test]
-    fn events_without_a_valid_token_are_dropped() {
+    fn events_without_a_valid_secret_are_dropped() {
         let mut gate = NotifyGate::default();
         let now = Instant::now();
         for token in [None, Some(""), Some("wrong"), Some("SECRET"), Some("secret ")] {
-            assert_eq!(gate.admit(payload("finished", Some("t1"), token), TOKEN, now), None, "{token:?}");
+            assert_eq!(gate.admit(payload("finished", Some("t1"), token), authentic, now), None, "{token:?}");
         }
-        // Token atteso vuoto: nessun token e' valido, nemmeno uno vuoto.
-        assert_eq!(gate.admit(payload("finished", Some("t1"), Some("")), "", now), None);
-        assert_eq!(gate.admit(payload("finished", Some("t1"), None), "", now), None);
+        // Un segreto vuoto non arriva al verificatore, anche se ammettesse tutto.
+        assert_eq!(gate.admit(payload("finished", Some("t1"), Some("")), |_, _| true, now), None);
+        assert_eq!(gate.admit(payload("finished", Some("t1"), None), |_, _| true, now), None);
         // Un evento scartato non lascia traccia nel cancello.
         let mut rejected = payload("permission-request", Some("t1"), Some("wrong"));
         rejected.tool_name = Some("tool".into());
-        assert_eq!(gate.admit(rejected, TOKEN, now), None);
-        assert_eq!(gate.admit(prompt(Some("t1")), TOKEN, now).map(|p| p.event), Some("needs-input".into()));
+        assert_eq!(gate.admit(rejected, authentic, now), None);
+        assert_eq!(gate.admit(prompt("t1"), authentic, now).map(|p| p.event), Some("needs-input".into()));
+    }
+
+    #[test]
+    fn the_secret_of_another_tab_is_dropped() {
+        let mut gate = NotifyGate::default();
+        let now = Instant::now();
+        // Segreto giusto, ma di un altro tab; tab sconosciuto; id non valido.
+        for (tab, token) in [("t1", TOKEN_T2), ("t2", TOKEN), ("t3", TOKEN), ("a b", TOKEN), ("", TOKEN)] {
+            let p = payload("finished", Some(tab), Some(token));
+            assert_eq!(gate.admit(p, authentic, now), None, "{tab:?}");
+        }
+        // Un id non valido non arriva nemmeno al verificatore.
+        let p = payload("finished", Some("a b"), Some(TOKEN));
+        assert_eq!(gate.admit(p, |_, _| true, now), None);
+    }
+
+    #[test]
+    fn events_without_a_tab_are_dropped() {
+        let mut gate = NotifyGate::default();
+        let now = Instant::now();
+        assert_eq!(gate.admit(payload("finished", None, Some(TOKEN)), |_, _| true, now), None);
+        assert_eq!(gate.admit(payload("permission-request", None, Some(TOKEN)), |_, _| true, now), None);
+        assert!(gate.recent_permissions.is_empty());
+    }
+
+    #[test]
+    fn the_verifier_receives_the_tab_and_the_secret_of_the_event() {
+        let mut gate = NotifyGate::default();
+        let mut seen = Vec::new();
+        let out = gate.admit(
+            payload("finished", Some("t2"), Some(TOKEN_T2)),
+            |tab, secret| {
+                seen.push((tab.to_string(), secret.to_string()));
+                true
+            },
+            Instant::now(),
+        );
+        assert!(out.is_some());
+        assert_eq!(seen, vec![("t2".to_string(), TOKEN_T2.to_string())]);
     }
 
     #[test]
     fn admitted_events_lose_the_token_and_keep_the_rest() {
         let mut gate = NotifyGate::default();
-        let mut p = payload("finished", Some("t1"), Some(TOKEN));
+        let mut p = from_tab("finished", "t1");
         p.message = Some("m".into());
         p.background_work = Some(0);
-        let out = gate.admit(p.clone(), TOKEN, Instant::now()).unwrap();
+        let out = gate.admit(p.clone(), authentic, Instant::now()).unwrap();
         assert_eq!(out.token, None);
         assert_eq!(NotifyPayload { token: None, ..p }, out);
     }
@@ -141,10 +207,10 @@ mod tests {
     #[test]
     fn permission_request_becomes_a_permission_prompt() {
         let mut gate = NotifyGate::default();
-        let mut p = payload("permission-request", Some("t1"), Some(TOKEN));
+        let mut p = from_tab("permission-request", "t1");
         p.message = Some("Permesso richiesto".into());
         p.tool_name = Some("tool".into());
-        let out = gate.admit(p, TOKEN, Instant::now()).unwrap();
+        let out = gate.admit(p, authentic, Instant::now()).unwrap();
         assert_eq!(out.event, "needs-input");
         assert_eq!(out.notification_type.as_deref(), Some(PERMISSION_PROMPT));
         assert_eq!((out.message.as_deref(), out.tool_name.as_deref()), (Some("Permesso richiesto"), Some("tool")));
@@ -156,32 +222,26 @@ mod tests {
         let mut gate = NotifyGate::default();
         let t0 = Instant::now();
         // Nessun permission-request prima: il needs-input passa.
-        assert!(gate.admit(prompt(Some("t1")), TOKEN, t0).is_some());
-        gate.admit(payload("permission-request", Some("t1"), Some(TOKEN)), TOKEN, t0).unwrap();
-        assert_eq!(gate.admit(prompt(Some("t1")), TOKEN, t0 + Duration::from_secs(6)), None);
-        assert_eq!(gate.admit(prompt(Some("t1")), TOKEN, t0 + Duration::from_secs(59)), None);
+        assert!(gate.admit(prompt("t1"), authentic, t0).is_some());
+        gate.admit(from_tab("permission-request", "t1"), authentic, t0).unwrap();
+        assert_eq!(gate.admit(prompt("t1"), authentic, t0 + Duration::from_secs(6)), None);
+        assert_eq!(gate.admit(prompt("t1"), authentic, t0 + Duration::from_secs(59)), None);
         // Scaduta la finestra: e' una richiesta nuova.
-        assert!(gate.admit(prompt(Some("t1")), TOKEN, t0 + PERMISSION_DEDUPE).is_some());
+        assert!(gate.admit(prompt("t1"), authentic, t0 + PERMISSION_DEDUPE).is_some());
     }
 
     #[test]
     fn dedupe_is_per_tab_and_only_for_permission_prompts() {
         let mut gate = NotifyGate::default();
         let t0 = Instant::now();
-        gate.admit(payload("permission-request", Some("t1"), Some(TOKEN)), TOKEN, t0).unwrap();
-        // Altro tab, tab assente, altro tipo di notifica, altro evento: passano.
-        assert!(gate.admit(prompt(Some("t2")), TOKEN, t0).is_some());
-        assert!(gate.admit(prompt(None), TOKEN, t0).is_some());
-        let mut idle = payload("needs-input", Some("t1"), Some(TOKEN));
+        gate.admit(from_tab("permission-request", "t1"), authentic, t0).unwrap();
+        // Altro tab, altro tipo di notifica, altro evento: passano.
+        assert!(gate.admit(prompt("t2"), authentic, t0).is_some());
+        let mut idle = from_tab("needs-input", "t1");
         idle.notification_type = Some("idle".into());
-        assert!(gate.admit(idle, TOKEN, t0).is_some());
-        assert!(gate.admit(payload("needs-input", Some("t1"), Some(TOKEN)), TOKEN, t0).is_some());
-        assert!(gate.admit(payload("finished", Some("t1"), Some(TOKEN)), TOKEN, t0).is_some());
-        // Un permission-request senza tab non ricorda nulla.
-        let mut fresh = NotifyGate::default();
-        fresh.admit(payload("permission-request", None, Some(TOKEN)), TOKEN, t0).unwrap();
-        assert!(fresh.recent_permissions.is_empty());
-        assert!(fresh.admit(prompt(None), TOKEN, t0).is_some());
+        assert!(gate.admit(idle, authentic, t0).is_some());
+        assert!(gate.admit(from_tab("needs-input", "t1"), authentic, t0).is_some());
+        assert!(gate.admit(from_tab("finished", "t1"), authentic, t0).is_some());
     }
 
     #[test]

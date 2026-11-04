@@ -394,7 +394,7 @@ export const api = {
 
   removeAgentPlugin: (agentId: string, envKey: string) => invoke<string>("remove_agent_plugin", { agentId, envKey }),
 
-  // Sessioni automatiche (backend: src-tauri/src/automation.rs).
+  // Sessioni automatiche (backend: src-tauri/src/automation/).
   /** Un tab automatico e' stato chiuso (utente, app o shell uscita). */
   automationTabClosed: (tabId: string) => invoke<void>("automation_tab_closed", { tabId }),
 

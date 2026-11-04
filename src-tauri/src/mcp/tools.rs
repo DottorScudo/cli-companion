@@ -1,25 +1,17 @@
 //! Definizione dei tool MCP e delle istruzioni del server (le legge il
 //! modello: inglese, concise). Tre insiemi: i tool del worker di un task, quelli
 //! del revisore (il worker di un task `review`) e quelli di una sessione normale
-//! (Intake compreso).
+//! (Intake compreso). Quali metodi spettano a ogni ruolo lo decide la tabella di
+//! `crate::automation::roles`: un test verifica che i tool coincidano.
 
 use crate::agents::{worker_rule_format, PermissionMode, RuleFormat};
 use crate::automation::settings::REASON_MAX;
+use crate::automation::Role;
 use crate::workspaces::{
     DeliveryMode, MergeMethod, MAX_COMMAND_LEN, MAX_E2E_TIMEOUT_MIN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_LAUNCHES,
     MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_REPO_PATH_LEN, MAX_RULES_LEN, MIN_E2E_TIMEOUT_MIN,
 };
 use serde_json::{json, Value};
-
-/// Ruolo del chiamante, come riportato da `whoami`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Role {
-    /// Qualunque tab di cli-companion che non e' il worker di un task.
-    Session,
-    Worker,
-    /// Il worker di un task `review`: verifica il risultato integrato e propone le correzioni.
-    Reviewer,
-}
 
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
     json!({

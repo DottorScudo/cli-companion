@@ -25,7 +25,7 @@ fn plain_report() -> Value {
     json!({"status": "completed", "summary": "done a"})
 }
 
-fn reviewer(mode: DeliveryMode, parallel: bool) -> (AutomationState, FakeHost, String) {
+pub(super) fn reviewer(mode: DeliveryMode, parallel: bool) -> (AutomationState, FakeHost, String) {
     let (st, h) = (AutomationState::default(), FakeHost::with_delivery(mode, parallel));
     let r = started_review(&st, &h, plain_report());
     (st, h, r)
@@ -113,7 +113,7 @@ fn only_the_reviewer_gets_the_two_session_tools() {
 }
 
 /// Sessione (chiusa) del task `a` gia' concluso: serve solo come chiamante worker.
-fn session_of_done(st: &AutomationState, h: &FakeHost) -> String {
+pub(super) fn session_of_done(st: &AutomationState, h: &FakeHost) -> String {
     st.run(h, |r| r.workers.values().find(|w| w.task_id == "a").map(|w| w.session.clone())).expect("worker di a")
 }
 
@@ -179,7 +179,7 @@ fn get_task_of_a_review_asks_for_the_e2e_run_when_a_reviewed_task_requires_it() 
         call(st, h, &r, "get_task", json!({})).unwrap()["instructions"].as_str().unwrap().to_string()
     };
     let flag = |st: &AutomationState, on: bool| {
-        st.inner.lock().unwrap().boards.get_mut("ws-1").unwrap().task_mut("a").unwrap().e2e = on;
+        st.registry().boards.get_mut("ws-1").unwrap().task_mut("a").unwrap().e2e = on;
     };
     let e2e_cfg = RepoConfig {
         e2e: Some(crate::workspaces::E2eConfig {

@@ -5,6 +5,7 @@
 //! validazione sono in `crate::workspaces`, lo stoccaggio in `crate::board`.
 
 use super::boards::{session_workspace, workspace_of};
+use super::rpc::misrouted;
 use super::*;
 use crate::agents::{builtin_launch_list, worker_rule_format, PermissionMode, RuleFormat};
 use crate::board::SettingsProposal;
@@ -14,8 +15,6 @@ use crate::workspaces::{
 };
 use serde_json::json;
 use std::collections::BTreeMap;
-
-pub const SETTINGS_METHODS: [&str; 2] = ["get_workspace_settings", "propose_settings"];
 
 /// Lunghezza massima della motivazione di una proposta.
 pub(crate) const REASON_MAX: usize = 2000;
@@ -27,14 +26,14 @@ pub(super) fn rpc<H: Host>(
     st: &AutomationState,
     host: &H,
     session: &str,
-    method: &str,
+    method: Method,
     params: &Value,
 ) -> Result<Value, String> {
     let ws = session_workspace(host, session)?;
     match method {
-        "get_workspace_settings" => Ok(get_settings(st, host, &ws)),
-        "propose_settings" => propose_settings(st, host, session, &ws, params),
-        _ => Err(format!("unknown method: {method}")),
+        Method::GetWorkspaceSettings => Ok(get_settings(st, host, &ws)),
+        Method::ProposeSettings => propose_settings(st, host, session, &ws, params),
+        other => Err(misrouted(other)),
     }
 }
 
@@ -229,7 +228,7 @@ pub(super) fn settings_proposal_decide<H: Host>(
 ) -> Result<SettingsDecision, String> {
     // Per tutta la decisione: un doppio clic non applica due volte la stessa
     // proposta e uno scarto non gareggia con un'approvazione.
-    let _serial = st.settings_decisions.lock().unwrap();
+    let _serial = lock(&st.settings_decisions);
     workspace_of(host, ws_id)?;
     let proposal = st.run(host, |r| r.settings_proposal(ws_id, proposal_id))?;
     let workspace = accept.then(|| host.apply_settings(ws_id, &proposal.patch)).transpose()?;

@@ -1,6 +1,6 @@
 //! Variabili d'ambiente di una sessione PTY: capacita' colore, identita'
 //! della sessione per gli hook degli agenti e `WSLENV` per attraversare WSL.
-//! `env_vars` e' pura (token e `WSLENV` ereditato entrano come argomenti);
+//! `env_vars` e' pura (segreto e `WSLENV` ereditato entrano come argomenti);
 //! `apply_env` e' l'unico punto che legge il processo.
 
 use portable_pty::CommandBuilder;
@@ -33,19 +33,19 @@ pub(super) fn merge_wslenv(existing: Option<&str>, vars: &[&str]) -> String {
 }
 
 /// Tutte le variabili da impostare al figlio: colori, `CLI_COMPANION_SESSION`
-/// (id del tab), `CLI_COMPANION_TOKEN` e `CLI_COMPANION_PORT` (se il listener
-/// e' in ascolto) per gli hook degli agenti e il server MCP e, su WSL, `WSLENV`
-/// che le fa attraversare il confine.
+/// (id del tab), `CLI_COMPANION_TOKEN` (il segreto di quella sessione) e
+/// `CLI_COMPANION_PORT` (se il listener e' in ascolto) per gli hook degli
+/// agenti e il server MCP e, su WSL, `WSLENV` che le fa attraversare il confine.
 pub(super) fn env_vars(
     tab_id: &str,
-    token: &str,
+    secret: &str,
     port: Option<u16>,
     kind: TargetKind,
     parent_wslenv: Option<&str>,
 ) -> Vec<(String, String)> {
     let mut vars: Vec<(String, String)> = COLOR_ENV.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
     vars.push((SESSION_ENV.to_string(), tab_id.to_string()));
-    vars.push((TOKEN_ENV.to_string(), token.to_string()));
+    vars.push((TOKEN_ENV.to_string(), secret.to_string()));
     let mut forwarded = vec![SESSION_ENV, TOKEN_ENV];
     if let Some(port) = port {
         vars.push((PORT_ENV.to_string(), port.to_string()));
@@ -57,11 +57,11 @@ pub(super) fn env_vars(
     vars
 }
 
-/// Imposta sul comando l'ambiente della sessione `tab_id`.
-pub(super) fn apply_env(cmd: &mut CommandBuilder, tab_id: &str, kind: TargetKind) {
+/// Imposta sul comando l'ambiente della sessione `tab_id`, con il suo `secret`.
+pub(super) fn apply_env(cmd: &mut CommandBuilder, tab_id: &str, secret: &str, kind: TargetKind) {
     let parent_wslenv = std::env::var(WSLENV_VAR).ok();
     let port = crate::ipc::listening_port();
-    for (key, value) in env_vars(tab_id, crate::automation::token(), port, kind, parent_wslenv.as_deref()) {
+    for (key, value) in env_vars(tab_id, secret, port, kind, parent_wslenv.as_deref()) {
         cmd.env(key, value);
     }
     // Senza listener non si eredita la porta di un'altra istanza (app avviata da un suo terminale).

@@ -15,10 +15,11 @@ pub const DEFAULT_PORT: u16 = 17421;
 /// Variabile d'ambiente impostata dal pty con l'id del tab: gli hook la
 /// ereditano (anche da WSL, via WSLENV) e cosi' l'evento si lega al tab.
 pub const SESSION_ENV: &str = "CLI_COMPANION_SESSION";
-/// Token casuale dell'app, impostato dal pty accanto a `SESSION_ENV`: chi lo
-/// conosce e' un processo figlio di un terminale di cli-companion.
+/// Segreto casuale della sessione (non un token globale dell'app), impostato
+/// dal pty accanto a `SESSION_ENV` e verificato insieme all'id del tab: chi lo
+/// conosce e' un processo figlio del terminale di quel tab.
 pub const TOKEN_ENV: &str = "CLI_COMPANION_TOKEN";
-/// Porta su cui l'app e' in ascolto, impostata dal pty accanto al token.
+/// Porta su cui l'app e' in ascolto, impostata dal pty accanto al segreto.
 /// Assente = `DEFAULT_PORT`.
 pub const PORT_ENV: &str = "CLI_COMPANION_PORT";
 
@@ -52,8 +53,9 @@ pub struct NotifyPayload {
     pub agent_session_id: Option<String>,
     pub notification_type: Option<String>,
     pub message: Option<String>,
-    /// Token dell'app (da `TOKEN_ENV`). Serve solo al backend: prima di
-    /// emettere verso il frontend va azzerato.
+    /// Segreto della sessione (da `TOKEN_ENV`), da verificare insieme a
+    /// `tab_id`. Serve solo al backend: prima di emettere verso il frontend va
+    /// azzerato.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
     /// Solo `finished`: l'agente sta gia' proseguendo perche' uno stop e' stato

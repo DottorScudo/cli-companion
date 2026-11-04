@@ -133,7 +133,7 @@ ed eventi Tauri (`emit`/`listen`) per lo stream di output dei terminali.
     aggiunge `CLI_COMPANION_SESSION/u` a `WSLENV` (valore del processo padre
     preservato, senza duplicati: `merge_wslenv`) perche' la variabile attraversi
     il confine verso la distro e, via interop, torni all'exe Windows dell'hook;
-  - impostano anche `CLI_COMPANION_TOKEN` (token dell'app, `automation::token()`),
+  - impostano anche `CLI_COMPANION_TOKEN` (il segreto della sessione, emesso da `AutomationState::issue_credential` e revocato quando la shell finisce),
     propagato su WSL con `/u` nello stesso `WSLENV` (`merge_wslenv` accetta piu'
     variabili): serve a `--notify` e `--mcp` per autenticarsi sul socket;
   - impostano `CLI_COMPANION_PORT` (porta del listener, `ipc::listening_port()`) se il listener
@@ -199,14 +199,14 @@ implementato in `agents/claude_code/hook_events.rs`); cosa farne lo decide il co
   `{event, agent, tab_id?, agent_session_id?, notification_type?, message?, token?,
   stop_hook_active?, background_work?, source?, reason?, transcript_path?, tool_name?}` (campi
   opzionali: i client vecchi restano validi; i nomi sono quelli del protocollo e non si rinominano).
-  `token` viene da `CLI_COMPANION_TOKEN`. Per `permission-request` il messaggio e'
+  `token` viene da `CLI_COMPANION_TOKEN` ed e' il segreto del tab `tab_id`. Per `permission-request` il messaggio e'
   "Permesso richiesto: <tool> - <riassunto>", costruito dal client.
 - Porta: il listener (aperto in modo sincrono nel `setup`, prima di ogni pty) prova `DEFAULT_PORT`
   (17421); se e' occupata (altra istanza) ripiega su una porta libera e lo logga. La porta in ascolto
   arriva ai terminali in `CLI_COMPANION_PORT` (anche in `WSLENV`, solo se impostata); `--notify` e
   `--mcp` la leggono con `app_port()` (assente o non valida = `DEFAULT_PORT`). Il comando `ipc_status`
   ritorna `{port, preferred_port, error}`.
-- Cancello (`gate.rs`, puro, tempo iniettato): un evento senza il token giusto e' scartato (non va ne'
+- Cancello (`gate.rs`, puro, tempo iniettato): un evento senza `tab_id` valido e senza il segreto di QUEL tab (`IpcHandler::authenticate`) e' scartato (non va ne'
   all'handler ne' al frontend); gli altri perdono il token; `permission-request` diventa `needs-input`
   con `notification_type: permission_prompt`; un `needs-input`/`permission_prompt` per un tab con un
   `permission-request` negli ultimi 60 s e' un duplicato e si scarta (memoria limitata a 256 tab).
@@ -224,13 +224,13 @@ implementato in `agents/claude_code/hook_events.rs`); cosa farne lo decide il co
     Nient'altro viene mai scritto su stdout da `--notify`;
   - **RPC**: `{"rpc":1,"token","session","method","params"}`, limite 1 MB,
     risposta di una riga `{"ok":true,"result":..}` o `{"ok":false,"error":".."}`.
-    Token errato o `session` non valida (`is_valid_tab_id`) -> `ok:false`.
+    Segreto errato, sessione sconosciuta o non valida (`is_valid_tab_id`) -> `ok:false` con un unico messaggio (`invalid session credentials`).
     `IpcHandler::rpc` (-> `automation::handle_rpc` -> `automation::rpc::dispatch`) la esegue. Il
     client `rpc_call(port, line, timeout)` e' usato da `mcp.rs`; il timeout di lettura della
     richiesta e' 2 s. Nessuna RPC resta in attesa: rispondono tutte subito.
 - Da WSL l'exe gira sull'host via interop: il TCP resta locale, nessun
   networking cross-VM.
-- Comandi: `test_agent_notify` (self-test via --notify, con token e porta dell'app) e `ipc_status`.
+- Comandi: `test_agent_notify` (self-test via --notify, con una credenziale di prova usa e getta e la porta dell'app) e `ipc_status`.
 
 ### `toast.rs` — notifica cliccabile (Windows)
 
@@ -324,16 +324,23 @@ implementato in `agents/claude_code/hook_events.rs`); cosa farne lo decide il co
     `cli-companion-notify@cli-companion-local` (array o oggetto con `plugins`).
   - rimozione: `plugin uninstall` + `marketplace remove` + cartella generata.
 
-### `automation.rs` — Task Manager: coda, scheduler e worker
+### `automation/` — Task Manager: coda, scheduler e worker
 
 Ogni workspace ha una coda di task; l'app la esegue con uno scheduler deterministico e un
 worker (tab PTY marcato automatico) per task. Il worker consegna da solo e riferisce con
 `complete_task`; l'Intake (una sessione normale) propone task. Contratto completo (modello
 dati, consegna, scheduler, tool, UI): [BOARD.MD](BOARD.MD). Struttura a strati, in `automation/`:
 
-- `automation.rs`: `Registry`, nucleo **puro** (niente `AppHandle`, tempo iniettato): worker
-  (stati, hook, `get_task`, `complete_task`, chiusura del tab), board e `Effect` da eseguire.
-  Tetto di 256 worker tracciati in memoria. Qui anche i comandi Tauri.
+- `mod.rs`: API del modulo e re-export dei comandi Tauri (`commands.rs`); `bridge.rs`: punti
+  d'ingresso dall'app reale (RPC autenticate, eventi hook, avvio e chiusura).
+- `registry.rs`: `Registry`, nucleo **puro** (niente `AppHandle`, tempo iniettato): worker
+  (`get_task`, `complete_task`), board e `Effect` da eseguire. Tetto di 256 worker tracciati.
+- `worker.rs`: tipi dei worker e macchina a stati degli hook (attività, Stop bloccato, fine
+  sessione, chiusura del tab).
+- `auth.rs`: segreto per sessione (CSPRNG) emesso all'apertura di ogni terminale, legato all'id
+  del tab e revocato alla fine della shell; ogni RPC ed evento hook verifica la coppia.
+- `roles.rs`: tabella unica ruolo → metodi RPC, usata dal dispatch (`rpc.rs`) e dalla lista dei
+  tool MCP (un test verifica che coincidano).
 - `state.rs`: `AutomationState { Mutex<Registry> }` (managed state). `run` modifica sotto lock,
   schedula le board toccate (`flush_boards`) e applica gli effetti **fuori** dal lock;
   pubblicazione ordinata per `rev` (evento `board-update` + salvataggio coalescente, max 1/s).
@@ -374,7 +381,7 @@ dati, consegna, scheduler, tool, UI): [BOARD.MD](BOARD.MD). Struttura a strati, 
   `session-end` (sotto).
 
 Stati del worker: `starting` -> `running` (`get_task`) -> `completed` | `failed`
-(`complete_task`) -> `closed` (tab chiuso). In mezzo, dagli hook di `--notify` (solo con token
+(`complete_task`) -> `closed` (tab chiuso). In mezzo, dagli hook di `--notify` (solo con segreto
 valido): `needs_input` (hook needs-input, tranne `idle_prompt`), `background` e `idle`.
 `Registry::on_hook` su `finished`: con `background_work > 0` -> `background`; altrimenti, con
 `stop_hook_active != true`, risposta `block` con `STOP_BLOCK_REASON` (promemoria in inglese);

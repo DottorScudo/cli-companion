@@ -67,7 +67,7 @@ fn a_run_in_progress_is_an_interrupted_error_after_a_restart() {
     let (st, h, w) = flagged(DeliveryMode::Commit, false);
     h.hold_defers();
     run_e2e(&st, &h, &w);
-    let raw = serde_json::to_string(st.inner.lock().unwrap().boards.get("ws-1").unwrap()).unwrap();
+    let raw = serde_json::to_string(st.registry().boards.get("ws-1").unwrap()).unwrap();
     let loaded = Board::from_json(&raw, 1).unwrap();
     let run = loaded.task("a").unwrap().e2e_run.as_ref().unwrap();
     assert_eq!((run.status, run.error.as_deref()), (E2eStatus::Error, Some(board::INTERRUPTED_NOTE)));
