@@ -223,20 +223,59 @@ fn input_profile(source: &dyn InputProfileSource) -> Vec<String> {
     v
 }
 
+/// Nome di programma (o flag) utilizzabile cosi' com'e' in una riga di comando.
+fn plain_token(token: &str) -> bool {
+    !token.is_empty() && !token.contains(char::is_whitespace) && shell_safe(token) && !token.contains('"')
+}
+
 fn session_resume(i: &dyn AgentIntegration, resume: &dyn SessionResume) -> Vec<String> {
     let mut v = Vec::new();
-    let interactive = i.interactive_command();
-    if !resume.is_agent_command(interactive) {
-        v.push("session_resume: is_agent_command non riconosce il comando interattivo".to_string());
+    let spec = resume.resume_spec();
+    if spec.command_names.is_empty() {
+        v.push("session_resume: command_names vuoto".to_string());
     }
-    let resumed = resume.resume_command(interactive, "abc-123");
-    if !resumed.contains("abc-123") {
-        v.push(format!("session_resume: il comando non contiene l'id di sessione: {resumed:?}"));
+    for name in &spec.command_names {
+        if !plain_token(name) || *name != name.to_lowercase() {
+            v.push(format!("session_resume: nome di comando non valido (minuscolo, senza spazi): {name:?}"));
+        }
     }
-    if !resume.is_agent_command(&resumed) {
-        v.push(format!("session_resume: is_agent_command non riconosce il comando ripreso: {resumed:?}"));
+    let program = i.interactive_command().split_whitespace().next().unwrap_or_default().to_lowercase();
+    if !spec.command_names.iter().any(|name| *name == program) {
+        v.push(format!("session_resume: il comando interattivo ({program:?}) non e' tra i command_names"));
+    }
+    for flag in &spec.strip_flags {
+        if flag.names.is_empty() {
+            v.push("session_resume: flag senza nomi".to_string());
+        }
+        for name in &flag.names {
+            if !plain_token(name) || !name.starts_with('-') {
+                v.push(format!("session_resume: nome di flag non valido (deve iniziare con '-'): {name:?}"));
+            }
+        }
+    }
+    let template = spec.resume_template;
+    for placeholder in [COMMAND_PLACEHOLDER, SESSION_ID_PLACEHOLDER] {
+        let found = template.matches(placeholder).count();
+        if found != 1 {
+            v.push(format!(
+                "session_resume: il modello deve contenere {placeholder} una volta, ne ha {found}: {template:?}"
+            ));
+        }
+    }
+    let canonical = spec.command_names.first().copied().unwrap_or_default();
+    let resumed = template.replace(COMMAND_PLACEHOLDER, canonical).replace(SESSION_ID_PLACEHOLDER, "abc-123");
+    if !shell_safe(&resumed) {
+        v.push(format!("session_resume: comando di ripresa non sicuro per la shell: {resumed:?}"));
     }
     v
+}
+
+fn usage_limits(limits: &dyn UsageLimits) -> Vec<String> {
+    if limits.notice().trim().is_empty() {
+        vec!["usage_limits: notice vuoto".to_string()]
+    } else {
+        Vec::new()
+    }
 }
 
 fn hook_events(events: &dyn HookEvents) -> Vec<String> {
@@ -309,6 +348,9 @@ fn violations(i: &dyn AgentIntegration) -> Vec<String> {
     if let Some(c) = caps.session_usage {
         v.extend(session_usage(c));
     }
+    if let Some(c) = caps.usage_limits {
+        v.extend(usage_limits(c));
+    }
     v.into_iter().map(|m| format!("{}: {m}", i.id())).collect()
 }
 
@@ -340,6 +382,13 @@ fn an_unsafe_automation_command_is_reported() {
     let broken = FakeIntegration::full("broken-dollar").with_flaw(Flaw::AutomationLetsDollarThrough);
     let found = violations(&broken);
     assert!(found.iter().any(|m| m.contains("automation:") && m.contains("'$'")), "{found:?}");
+}
+
+#[test]
+fn a_resume_template_without_the_session_id_is_reported() {
+    let broken = FakeIntegration::full("broken-resume").with_flaw(Flaw::ResumeTemplateWithoutId);
+    let found = violations(&broken);
+    assert!(found.iter().any(|m| m.contains("session_resume:") && m.contains(SESSION_ID_PLACEHOLDER)), "{found:?}");
 }
 
 #[test]

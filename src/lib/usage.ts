@@ -2,6 +2,8 @@
 // per sessione. Logica pura, a zero dipendenze: importabile dall'app e dai
 // test `node --test`. I tipi sono strutturali (compatibili con quelli di tauri.ts).
 
+import { agentRowKey } from "./agents.ts";
+
 export interface LimitWindowLike {
   used_percentage: number;
   resets_at: string | null;
@@ -80,13 +82,57 @@ export function formatResetFull(iso: string | null | undefined): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Integrazioni con i limiti di utilizzo
+// ---------------------------------------------------------------------------
+
+/** Capability che un'integrazione dichiara se espone i limiti di utilizzo. */
+const USAGE_LIMITS_CAPABILITY = "usage-limits";
+
+/** Campi di `AgentProfile` (tauri.ts) usati per i limiti. */
+export interface UsageProfileLike {
+  agent_id: string;
+  agent_name: string;
+  capabilities: string[];
+  usage_limits_notice: string | null;
+}
+
+/** Una coppia (agente, ambiente) di cui leggere i limiti. */
+export interface UsageTarget<E> {
+  /** Chiave stabile della coppia (stessa di `agentRowKey`). */
+  key: string;
+  agentName: string;
+  env: E;
+}
+
+/** Coppie (agente, ambiente) con l'agente installato il cui profilo dichiara i limiti di utilizzo. */
+export function usageTargets<E extends { agent_id: string; env_key: string; found: boolean; installed: boolean }>(
+  profiles: UsageProfileLike[],
+  envs: E[],
+): UsageTarget<E>[] {
+  const targets: UsageTarget<E>[] = [];
+  for (const env of envs) {
+    if (!env.found || !env.installed) continue;
+    const profile = profiles.find((p) => p.agent_id === env.agent_id);
+    if (!profile?.capabilities.includes(USAGE_LIMITS_CAPABILITY)) continue;
+    targets.push({ key: agentRowKey(env), agentName: profile.agent_name, env });
+  }
+  return targets;
+}
+
+/** Avvisi sui limiti dichiarati dalle integrazioni: senza doppioni, nell'ordine dei profili. */
+export function usageLimitsNotices(profiles: Pick<UsageProfileLike, "usage_limits_notice">[]): string[] {
+  const notices = profiles.flatMap((p) => (p.usage_limits_notice ? [p.usage_limits_notice] : []));
+  return [...new Set(notices)];
+}
+
+// ---------------------------------------------------------------------------
 // Barra di stato
 // ---------------------------------------------------------------------------
 
 export interface LimitItem {
   key: "5h" | "7d" | "expired";
   text: string;
-  /** `muted` per il suggerimento "apri Claude Code". */
+  /** `muted` per il suggerimento "apri <agente>". */
   severity: LimitSeverity | "muted";
   title: string;
 }
@@ -104,15 +150,19 @@ function windowItem(key: "5h" | "7d", short: string, long: string, w: LimitWindo
 }
 
 /** Voci da mostrare per la risposta di un ambiente (vuoto = nascosto). */
-export function limitItems(reply: UsageLimitsLike | null | undefined, now: Date = new Date()): LimitItem[] {
+export function limitItems(
+  reply: UsageLimitsLike | null | undefined,
+  agentName: string,
+  now: Date = new Date(),
+): LimitItem[] {
   if (!reply) return [];
   if (reply.state === "expired") {
     return [
       {
         key: "expired",
-        text: "5h: apri Claude Code",
+        text: `5h: apri ${agentName}`,
         severity: "muted",
-        title: reply.message?.trim() || "Accesso scaduto: apri Claude Code per rinnovarlo.",
+        title: reply.message?.trim() || `Accesso scaduto: apri ${agentName} per rinnovarlo.`,
       },
     ];
   }
@@ -124,23 +174,30 @@ export function limitItems(reply: UsageLimitsLike | null | undefined, now: Date 
 }
 
 export interface LimitGroup {
-  envKey: string;
-  /** Prefisso con l'etichetta dell'ambiente, solo se ne compaiono più d'uno. */
+  /** Chiave della coppia (agente, ambiente). */
+  key: string;
+  /** Prefisso con l'ambiente (e l'agente, se ne compaiono più d'uno), solo se i gruppi sono più d'uno. */
   prefix: string | null;
   items: LimitItem[];
 }
 
-/** Gruppi per ambiente; il prefisso c'è solo quando i gruppi non vuoti sono più di uno. */
+/** Gruppi per coppia (agente, ambiente); il prefisso c'è solo quando i gruppi non vuoti sono più di uno. */
 export function limitGroups(
-  entries: Array<{ envKey: string; label: string; reply: UsageLimitsLike | null | undefined }>,
+  entries: Array<{
+    key: string;
+    agentName: string;
+    label: string;
+    reply: UsageLimitsLike | null | undefined;
+  }>,
   now: Date = new Date(),
 ): LimitGroup[] {
   const groups = entries
-    .map((e) => ({ envKey: e.envKey, label: e.label, items: limitItems(e.reply, now) }))
+    .map((e) => ({ ...e, items: limitItems(e.reply, e.agentName, now) }))
     .filter((g) => g.items.length > 0);
+  const severalAgents = new Set(groups.map((g) => g.agentName)).size > 1;
   return groups.map((g) => ({
-    envKey: g.envKey,
-    prefix: groups.length > 1 ? g.label : null,
+    key: g.key,
+    prefix: groups.length > 1 ? (severalAgents ? `${g.agentName} · ${g.label}` : g.label) : null,
     items: g.items,
   }));
 }

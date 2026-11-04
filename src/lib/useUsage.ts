@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./tauri";
 import { report } from "./errors";
-import type { AgentEnvStatus, SessionUsage, UsageLimitsReply, Workspace } from "./tauri";
-import { CLAUDE_AGENT_ID } from "./session";
+import type { AgentEnvStatus, AgentProfile, SessionUsage, UsageLimitsReply, Workspace } from "./tauri";
 import type { AgentTabState } from "./agents";
 import {
   LIMITS_POLL_MS,
   SESSION_POLL_MS,
   sessionPollInterval,
   shouldRefreshSessionUsage,
+  usageTargets,
   workspaceEnvKey,
 } from "./usage";
 
@@ -19,15 +19,16 @@ interface UsageTab {
 }
 
 /**
- * Polling dell'utilizzo di Claude Code: limiti per ambiente (all'avvio e ogni
- * 3 minuti) e token per sessione (a fine lavoro / richiesta di risposta /
- * avvio sessione e ogni 20 s mentre l'agente lavora). Con `enabled` falso non
- * parte alcuna chiamata e lo stato e' vuoto.
+ * Polling dell'utilizzo dei coding agent: limiti per coppia (agente, ambiente)
+ * delle integrazioni che li dichiarano (all'avvio e ogni 3 minuti) e token per
+ * sessione (a fine lavoro / richiesta di risposta / avvio sessione e ogni 20 s
+ * mentre l'agente lavora). Con `enabled` falso non parte alcuna chiamata e lo
+ * stato e' vuoto. `limits` e' indicizzato per `UsageTarget.key`.
  */
 /** Confronto per valore di risposte piccole (evita re-render con dati identici). */
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-export function useUsage(enabled: boolean, agentEnvs: AgentEnvStatus[], tabs: UsageTab[]) {
+export function useUsage(enabled: boolean, profiles: AgentProfile[], agentEnvs: AgentEnvStatus[], tabs: UsageTab[]) {
   const [limits, setLimits] = useState<Record<string, UsageLimitsReply>>({});
   const [sessions, setSessions] = useState<Record<string, SessionUsage>>({});
   const enabledRef = useRef(enabled);
@@ -35,25 +36,23 @@ export function useUsage(enabled: boolean, agentEnvs: AgentEnvStatus[], tabs: Us
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
 
-  // Ambienti con Claude Code installato (chiave stabile per l'effetto).
-  const envKeys = agentEnvs
-    .filter((e) => e.agent_id === CLAUDE_AGENT_ID && e.found && e.installed)
-    .map((e) => e.env_key);
-  const envSig = envKeys.join("\n");
+  // Coppie (agente, ambiente) con i limiti da leggere (chiave stabile per l'effetto).
+  const targets = usageTargets(profiles, agentEnvs);
+  const targetSig = targets.map((t) => t.key).join("\n");
 
   useEffect(() => {
-    if (!enabled || envKeys.length === 0) {
+    if (!enabled || targets.length === 0) {
       setLimits((p) => (Object.keys(p).length === 0 ? p : {}));
       return;
     }
     let cancelled = false;
     const load = () => {
-      for (const env of envKeys) {
+      for (const { key, env } of targets) {
         api
-          .agentUsageLimits(CLAUDE_AGENT_ID, env)
+          .agentUsageLimits(env.agent_id, env.env_key)
           .then((reply) => {
             if (cancelled) return;
-            setLimits((p) => (env in p && sameJson(p[env], reply) ? p : { ...p, [env]: reply }));
+            setLimits((p) => (key in p && sameJson(p[key], reply) ? p : { ...p, [key]: reply }));
           })
           .catch((e) => report("lettura dei limiti di utilizzo", e));
       }
@@ -64,9 +63,9 @@ export function useUsage(enabled: boolean, agentEnvs: AgentEnvStatus[], tabs: Us
       cancelled = true;
       clearInterval(id);
     };
-    // envKeys e' derivato da envSig.
+    // targets e' derivato da targetSig.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, envSig]);
+  }, [enabled, targetSig]);
 
   const refreshSession = useCallback(
     (key: string, transcriptOverride?: string | null, agentOverride?: string | null) => {

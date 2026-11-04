@@ -179,11 +179,47 @@ export interface InputRule {
   send: string;
 }
 
-/** Profilo di input di un agente (vedi `AgentProfile` in agents/mod.rs). */
+/** Flag di ripresa da togliere dal comando originale (vedi `agents/contracts/session_resume.rs`). */
+export interface ResumeStripFlag {
+  names: string[];
+  /** Il flag accetta un valore (`--flag x` o `--flag=x`). */
+  takes_value: boolean;
+}
+
+/** Come un agente riprende una sessione (vedi `agents/contracts/session_resume.rs`). */
+export interface SessionResumeSpec {
+  /** Nomi del programma (primo token del comando); il primo e' quello canonico. */
+  command_names: string[];
+  strip_flags: ResumeStripFlag[];
+  /** Modello del comando di ripresa, con i segnaposto `{command}` e `{id}`. */
+  resume_template: string;
+}
+
+/** Funzionalita' che un'integrazione dichiara (kebab-case, come nel backend). */
+export type AgentCapability =
+  | "package"
+  | "hook-events"
+  | "session-resume"
+  | "automation"
+  | "worker-permissions"
+  | "presets"
+  | "user-skills"
+  | "usage-limits"
+  | "session-usage"
+  | "input-profile";
+
+/** Profilo di un agente (vedi `AgentProfile` in agents/mod.rs). */
 export interface AgentProfile {
   agent_id: string;
   agent_name: string;
+  capabilities: AgentCapability[];
+  /** Integrazione predefinita dichiarata dal backend. */
+  is_default: boolean;
   input_profile: { rules: InputRule[] };
+  /** `null` se l'integrazione non dichiara la ripresa delle sessioni. */
+  session_resume: SessionResumeSpec | null;
+  /** Avviso sui limiti di utilizzo; `null` se non dichiara "usage-limits". */
+  usage_limits_notice: string | null;
 }
 
 /** Evento `automation-spawn` (vedi automation/host.rs): apri un tab worker. */

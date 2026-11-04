@@ -1,5 +1,3 @@
-import { CLAUDE_AGENT_ID, isClaudeCommand } from "./session.ts";
-
 // Coding agent: stato per ambiente (Impostazioni) e stato per tab (macchina
 // a stati degli eventi degli hook). File volutamente a zero dipendenze:
 // importabile sia dall'app sia dai test `node --test` (type-stripping).
@@ -83,9 +81,9 @@ export type AgentPhase = "idle" | "running" | "finished" | "needs-input";
 
 export interface AgentTabState {
   phase: AgentPhase;
-  /** Id di sessione dell'agente (per `claude --resume`), se noto. */
+  /** Id di sessione dell'agente (per riprendere la sessione), se noto. */
   agentSessionId?: string;
-  /** Id del provider (es. "claude-code"), se noto. */
+  /** Id del provider dell'agente, se noto. */
   agentId?: string;
   /** Percorso del transcript della sessione (come lo vede l'agente); non si salva. */
   transcriptPath?: string;
@@ -251,9 +249,37 @@ export function resolveInputOverride(
   return rule ? rule.send : null;
 }
 
+/** Campi di `SessionResumeSpec` (tauri.ts) usati per riconoscere e riprendere un agente. */
+export interface SessionResumeLike {
+  command_names: string[];
+  strip_flags: { names: string[]; takes_value: boolean }[];
+  resume_template: string;
+}
+
+/** Campi di `AgentProfile` (tauri.ts) usati per riconoscere il comando di un agente. */
+export interface CommandProfileLike {
+  agent_id: string;
+  session_resume: SessionResumeLike | null;
+}
+
+/** `true` se il primo token del comando e' uno dei nomi del programma (senza distinguere le maiuscole). */
+export function isResumeCommand(resume: Pick<SessionResumeLike, "command_names">, command: string): boolean {
+  const program = command.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  return resume.command_names.some((name) => name.toLowerCase() === program);
+}
+
+/** Integrazione che riconosce il comando di avvio, se ce n'e' una. */
+export function profileForCommand<P extends CommandProfileLike>(
+  command: string | null | undefined,
+  profiles: P[],
+): P | null {
+  const text = command ?? "";
+  return profiles.find((p) => p.session_resume !== null && isResumeCommand(p.session_resume, text)) ?? null;
+}
+
 /** Agente riconosciuto dal primo token di un comando di avvio (senza plugin). */
-export function agentIdForCommand(command: string | null | undefined): string | null {
-  return isClaudeCommand(command ?? "") ? CLAUDE_AGENT_ID : null;
+export function agentIdForCommand(command: string | null | undefined, profiles: CommandProfileLike[]): string | null {
+  return profileForCommand(command, profiles)?.agent_id ?? null;
 }
 
 /**
@@ -262,12 +288,15 @@ export function agentIdForCommand(command: string | null | undefined): string | 
  * e' una shell); senza plugin si ripiega sul comando con cui il tab e' stato
  * aperto/ripristinato.
  */
-export function tabAgentId(tab: {
-  agent?: Pick<AgentTabState, "agentId" | "ended">;
-  startCommand?: string;
-}): string | null {
+export function tabAgentId(
+  tab: {
+    agent?: Pick<AgentTabState, "agentId" | "ended">;
+    startCommand?: string;
+  },
+  profiles: CommandProfileLike[],
+): string | null {
   if (tab.agent?.ended) return null;
-  return tab.agent?.agentId ?? agentIdForCommand(tab.startCommand);
+  return tab.agent?.agentId ?? agentIdForCommand(tab.startCommand, profiles);
 }
 
 // ---------------------------------------------------------------------------
@@ -276,7 +305,7 @@ export function tabAgentId(tab: {
 
 /**
  * Riepilogo degli ambienti con il plugin installato, per la barra di stato:
- * "Claude Code · Windows, Ubuntu-24.04". Più agenti sono separati da "; ".
+ * "Nome agente · Windows, Ubuntu-24.04". Più agenti sono separati da "; ".
  * Stringa vuota se non c'è nulla di installato.
  */
 export function installedAgentsSummary(

@@ -27,7 +27,9 @@ pub use input_profile::{InputEvent, InputProfile, InputProfileSource, InputRule}
 pub use integration::{AgentIntegration, Detection};
 pub use package::{plugins_dir, sanitize_env_key, InstallCtx, IntegrationPackage, PackageFile};
 pub use presets::PresetLauncher;
-pub use session_resume::SessionResume;
+pub use session_resume::{ResumeFlag, ResumeSpec, SessionResume};
+#[cfg(test)]
+pub use session_resume::{COMMAND_PLACEHOLDER, SESSION_ID_PLACEHOLDER};
 pub use session_usage::{SessionUsage, SessionUsageReader, TokenTotals};
 pub use usage_limits::{LimitWindow, UsageLimits, UsageLimitsReply};
 pub use user_skills::UserSkills;

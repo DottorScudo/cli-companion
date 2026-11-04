@@ -34,4 +34,8 @@ impl UsageLimitsReply {
 pub trait UsageLimits: Sync {
     /// Limiti nel target. Bloccante (rete): da chiamare fuori dal main thread.
     fn limits(&self, target: &Target) -> UsageLimitsReply;
+
+    /// Avviso (italiano) sull'affidabilita' dei limiti, mostrato accanto
+    /// all'interruttore dei consumi.
+    fn notice(&self) -> &'static str;
 }

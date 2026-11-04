@@ -7,6 +7,8 @@ import {
   limitItems,
   limitGroups,
   limitGroupText,
+  usageLimitsNotices,
+  usageTargets,
   usageText,
   usageTooltip,
   shouldRefreshSessionUsage,
@@ -58,6 +60,62 @@ describe("usage: gravita e reset", () => {
   });
 });
 
+describe("usage: integrazioni con i limiti", () => {
+  const profile = (agent_id, agent_name, capabilities, usage_limits_notice = null) => ({
+    agent_id,
+    agent_name,
+    capabilities,
+    usage_limits_notice,
+  });
+  const env = (agent_id, env_key, found = true, installed = true) => ({ agent_id, env_key, found, installed });
+
+  const profiles = [
+    profile("claude-code", "Claude Code", ["hook-events", "usage-limits"], "Endpoint non documentato."),
+    profile("foo", "Foo", ["usage-limits"], "Endpoint non documentato."),
+    profile("bar", "Bar", ["hook-events"]),
+  ];
+
+  it("coppie agente/ambiente installate, solo per chi dichiara usage-limits", () => {
+    const envs = [
+      env("claude-code", "windows"),
+      env("claude-code", "Ubuntu"),
+      env("foo", "windows"),
+      env("bar", "windows"),
+      env("unknown", "windows"),
+    ];
+    const targets = usageTargets(profiles, envs);
+    assert.deepEqual(
+      targets.map((t) => [t.key, t.agentName]),
+      [
+        ["claude-code::windows", "Claude Code"],
+        ["claude-code::Ubuntu", "Claude Code"],
+        ["foo::windows", "Foo"],
+      ],
+    );
+    assert.equal(targets[1].env, envs[1]);
+  });
+
+  it("ambienti non trovati o senza plugin: esclusi", () => {
+    const envs = [env("foo", "windows", false, false), env("foo", "Ubuntu", true, false), env("foo", "Debian")];
+    assert.deepEqual(
+      usageTargets(profiles, envs).map((t) => t.key),
+      ["foo::Debian"],
+    );
+    assert.deepEqual(usageTargets([], [env("foo", "windows")]), []);
+    assert.deepEqual(usageTargets(profiles, []), []);
+  });
+
+  it("avvisi: uno per testo distinto, nell'ordine, senza vuoti", () => {
+    assert.deepEqual(usageLimitsNotices(profiles), ["Endpoint non documentato."]);
+    assert.deepEqual(
+      usageLimitsNotices([profile("a", "A", [], "uno"), profile("b", "B", []), profile("c", "C", [], "due")]),
+      ["uno", "due"],
+    );
+    assert.deepEqual(usageLimitsNotices([profile("a", "A", [], "")]), []);
+    assert.deepEqual(usageLimitsNotices([]), []);
+  });
+});
+
 describe("usage: barra di stato", () => {
   const ok = {
     state: "ok",
@@ -67,7 +125,8 @@ describe("usage: barra di stato", () => {
   };
 
   it("testo di un ambiente", () => {
-    const [g] = limitGroups([{ envKey: "windows", label: "WIN", reply: ok }], now);
+    const [g] = limitGroups([{ key: "a::windows", agentName: "Agente", label: "WIN", reply: ok }], now);
+    assert.equal(g.key, "a::windows");
     assert.equal(g.prefix, null);
     assert.equal(limitGroupText(g), "5h 45% · 14:20 │ sett. 2% · 28/10");
     assert.deepEqual(
@@ -80,9 +139,9 @@ describe("usage: barra di stato", () => {
     const hidden = { state: "unavailable", five_hour: null, seven_day: null, message: "x" };
     const two = limitGroups(
       [
-        { envKey: "windows", label: "WIN", reply: ok },
-        { envKey: "Ubuntu", label: "Ubuntu", reply: ok },
-        { envKey: "Debian", label: "Debian", reply: hidden },
+        { key: "a::windows", agentName: "Agente", label: "WIN", reply: ok },
+        { key: "a::Ubuntu", agentName: "Agente", label: "Ubuntu", reply: ok },
+        { key: "a::Debian", agentName: "Agente", label: "Debian", reply: hidden },
       ],
       now,
     );
@@ -93,19 +152,58 @@ describe("usage: barra di stato", () => {
     assert.ok(limitGroupText(two[1]).startsWith("Ubuntu 5h 45%"));
   });
 
-  it("scaduto: suggerimento muto; altri stati nascosti", () => {
-    const [item] = limitItems({ state: "expired", five_hour: null, seven_day: null, message: "login" }, now);
-    assert.equal(item.text, "5h: apri Claude Code");
+  it("prefisso con più agenti: nome dell'agente e ambiente", () => {
+    const hidden = { state: "unavailable", five_hour: null, seven_day: null, message: "x" };
+    const groups = limitGroups(
+      [
+        { key: "a::windows", agentName: "Alfa", label: "WIN", reply: ok },
+        { key: "b::windows", agentName: "Beta", label: "WIN", reply: ok },
+        { key: "c::windows", agentName: "Gamma", label: "WIN", reply: hidden },
+      ],
+      now,
+    );
+    assert.deepEqual(
+      groups.map((g) => [g.key, g.prefix]),
+      [
+        ["a::windows", "Alfa · WIN"],
+        ["b::windows", "Beta · WIN"],
+      ],
+    );
+    assert.ok(limitGroupText(groups[0]).startsWith("Alfa · WIN 5h 45%"));
+  });
+
+  it("un solo agente visibile: niente nome nel prefisso", () => {
+    const hidden = { state: "unavailable", five_hour: null, seven_day: null, message: "x" };
+    const groups = limitGroups(
+      [
+        { key: "a::windows", agentName: "Alfa", label: "WIN", reply: ok },
+        { key: "a::Ubuntu", agentName: "Alfa", label: "Ubuntu", reply: ok },
+        { key: "b::windows", agentName: "Beta", label: "WIN", reply: hidden },
+      ],
+      now,
+    );
+    assert.deepEqual(
+      groups.map((g) => g.prefix),
+      ["WIN", "Ubuntu"],
+    );
+  });
+
+  it("scaduto: suggerimento muto con il nome dell'agente; altri stati nascosti", () => {
+    const expired = { state: "expired", five_hour: null, seven_day: null, message: "login" };
+    const [item] = limitItems(expired, "Alfa", now);
+    assert.equal(item.text, "5h: apri Alfa");
     assert.equal(item.severity, "muted");
     assert.equal(item.title, "login");
+    const noMessage = limitItems({ ...expired, message: null }, "Alfa", now);
+    assert.equal(noMessage[0].title, "Accesso scaduto: apri Alfa per rinnovarlo.");
     for (const state of ["unavailable", "disabled", "unsupported"]) {
-      assert.deepEqual(limitItems({ state, five_hour: null, seven_day: null, message: null }, now), []);
+      assert.deepEqual(limitItems({ state, five_hour: null, seven_day: null, message: null }, "Alfa", now), []);
     }
-    assert.deepEqual(limitItems(null, now), []);
+    assert.deepEqual(limitItems(null, "Alfa", now), []);
   });
 
   it("gravita sulla finestra", () => {
-    const items = limitItems({ ...ok, five_hour: { used_percentage: 100, resets_at: null } }, now);
+    const items = limitItems({ ...ok, five_hour: { used_percentage: 100, resets_at: null } }, "Alfa", now);
     assert.equal(items[0].text, "5h 100%");
     assert.equal(items[0].severity, "critical");
   });

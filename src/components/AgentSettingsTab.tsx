@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { api } from "../lib/tauri";
-import type { AgentEnvStatus } from "../lib/tauri";
+import type { AgentEnvStatus, AgentProfile } from "../lib/tauri";
 import {
   agentEnvBadge,
   agentEnvState,
@@ -13,17 +13,20 @@ import {
   groupByAgent,
 } from "../lib/agents";
 import { report } from "../lib/errors";
+import { usageLimitsNotices } from "../lib/usage";
 import { cn } from "../lib/utils";
 
 /** Tab "Coding agent": installa il plugin di notifica negli env (Windows + WSL). */
 interface Props {
+  /** Profili dei coding agent: da qui gli avvisi sui limiti di utilizzo. */
+  profiles: AgentProfile[];
   /** Notifica l'elenco aggiornato degli ambienti (barra di stato). */
   onEnvs?: (envs: AgentEnvStatus[]) => void;
   /** Notifica il nuovo valore dell'interruttore "Mostra utilizzo". */
   onShowUsage?: (enabled: boolean) => void;
 }
 
-export default function AgentSettingsTab({ onEnvs, onShowUsage }: Props) {
+export default function AgentSettingsTab({ profiles, onEnvs, onShowUsage }: Props) {
   const [showUsage, setShowUsage] = useState(true);
 
   useEffect(() => {
@@ -163,9 +166,11 @@ export default function AgentSettingsTab({ onEnvs, onShowUsage }: Props) {
           />
           Mostra utilizzo (limiti 5h/settimanali e token per sessione)
         </label>
-        <p className="mt-1 text-[11px] text-muted-foreground">
-          I limiti arrivano da un endpoint non documentato di Claude e potrebbero smettere di funzionare.
-        </p>
+        {usageLimitsNotices(profiles).map((notice) => (
+          <p key={notice} className="mt-1 text-[11px] text-muted-foreground">
+            {notice}
+          </p>
+        ))}
       </div>
 
       <div>

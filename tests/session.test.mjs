@@ -135,22 +135,53 @@ describe("sessione: id sicuri", () => {
   });
 });
 
+// Profili come li invia il backend (dati reali dell'integrazione predefinita).
+const CLAUDE = {
+  agent_id: "claude-code",
+  is_default: true,
+  session_resume: {
+    command_names: ["claude", "claude.exe"],
+    strip_flags: [
+      { names: ["--resume", "-r"], takes_value: true },
+      { names: ["--continue", "-c"], takes_value: false },
+    ],
+    resume_template: "{command} --resume {id}",
+  },
+};
+// Integrazione inventata: prova che nome, flag e modello vengono dal profilo.
+const FOO = {
+  agent_id: "foo",
+  is_default: false,
+  session_resume: {
+    command_names: ["foo", "Foo.cmd"],
+    strip_flags: [
+      { names: ["--old", "-o"], takes_value: true },
+      { names: ["--again"], takes_value: false },
+      { names: ["--a.b"], takes_value: false },
+    ],
+    resume_template: "{command} --restart {id}",
+  },
+};
+const NO_RESUME = { agent_id: "bar", is_default: false, session_resume: null };
+const PROFILES = [CLAUDE, FOO, NO_RESUME];
+
 describe("restoreCommand", () => {
   const SID = "0b9e8c1a-1234-4abc-9def-0123456789ab";
+  const restore = (tab, profiles = PROFILES) => restoreCommand(tab, profiles);
 
   it("senza sessione agente: comando originale", () => {
-    assert.equal(restoreCommand({ command: "" }), "");
-    assert.equal(restoreCommand({ command: "  npm run dev " }), "npm run dev");
-    assert.equal(restoreCommand({ command: "claude" }), "claude");
+    assert.equal(restore({ command: "" }), "");
+    assert.equal(restore({ command: "  npm run dev " }), "npm run dev");
+    assert.equal(restore({ command: "claude" }), "claude");
   });
 
-  it("comando claude: aggiunge --resume", () => {
-    assert.equal(restoreCommand({ command: "claude", agentSessionId: SID }), `claude --resume ${SID}`);
+  it("comando dell'agente: aggiunge --resume", () => {
+    assert.equal(restore({ command: "claude", agentSessionId: SID }), `claude --resume ${SID}`);
     assert.equal(
-      restoreCommand({ command: "claude.exe --model opus", agentSessionId: SID }),
+      restore({ command: "claude.exe --model opus", agentSessionId: SID }),
       `claude.exe --model opus --resume ${SID}`,
     );
-    assert.equal(restoreCommand({ command: "CLAUDE", agentSessionId: SID }), `CLAUDE --resume ${SID}`);
+    assert.equal(restore({ command: "CLAUDE", agentSessionId: SID }), `CLAUDE --resume ${SID}`);
   });
 
   it("toglie --resume/-r/--continue/-c esistenti", () => {
@@ -165,36 +196,82 @@ describe("restoreCommand", () => {
       ['claude --append-system-prompt "a b" -r x', 'claude --append-system-prompt "a b"'],
     ];
     for (const [command, base] of cases) {
-      assert.equal(restoreCommand({ command, agentSessionId: SID }), `${base} --resume ${SID}`, command);
+      assert.equal(restore({ command, agentSessionId: SID }), `${base} --resume ${SID}`, command);
     }
   });
 
   it("non tocca flag simili (--cwd, -cc)", () => {
     assert.equal(
-      restoreCommand({ command: "claude --color auto", agentSessionId: SID }),
+      restore({ command: "claude --color auto", agentSessionId: SID }),
       `claude --color auto --resume ${SID}`,
     );
   });
 
-  it("shell semplice o altro comando con sessione agente: claude --resume", () => {
-    assert.equal(restoreCommand({ command: "", agentSessionId: SID }), `claude --resume ${SID}`);
-    assert.equal(restoreCommand({ command: "npm run dev", agentSessionId: SID }), `claude --resume ${SID}`);
-    assert.equal(restoreCommand({ command: "claudette", agentSessionId: SID }), `claude --resume ${SID}`);
-    assert.equal(
-      restoreCommand({ command: "x", agentId: "claude-code", agentSessionId: SID }),
-      `claude --resume ${SID}`,
-    );
+  it("shell semplice o altro comando con sessione agente: nome canonico", () => {
+    assert.equal(restore({ command: "", agentSessionId: SID }), `claude --resume ${SID}`);
+    assert.equal(restore({ command: "npm run dev", agentSessionId: SID }), `claude --resume ${SID}`);
+    assert.equal(restore({ command: "claudette", agentSessionId: SID }), `claude --resume ${SID}`);
+    assert.equal(restore({ command: "x", agentId: "claude-code", agentSessionId: SID }), `claude --resume ${SID}`);
   });
 
   it("agentSessionId non sicuro: ignorato", () => {
     for (const bad of ["a; rm -rf /", "$(x)", "a b", ""]) {
-      assert.equal(restoreCommand({ command: "claude -c", agentSessionId: bad }), "claude -c");
-      assert.equal(restoreCommand({ command: "", agentSessionId: bad }), "");
+      assert.equal(restore({ command: "claude -c", agentSessionId: bad }), "claude -c");
+      assert.equal(restore({ command: "", agentSessionId: bad }), "");
     }
   });
 
-  it("altro agente: mai claude --resume", () => {
-    assert.equal(restoreCommand({ command: "codex", agentId: "codex", agentSessionId: SID }), "codex");
+  it("agentId senza profilo: comando originale", () => {
+    assert.equal(restore({ command: "codex", agentId: "codex", agentSessionId: SID }), "codex");
+    assert.equal(restore({ command: "claude", agentId: "codex", agentSessionId: SID }), "claude");
+    assert.equal(restore({ command: "claude", agentId: "claude-code", agentSessionId: SID }, []), "claude");
+  });
+
+  it("integrazione senza contratto di ripresa: comando originale", () => {
+    assert.equal(restore({ command: "bar --x", agentId: "bar", agentSessionId: SID }), "bar --x");
+    assert.equal(restore({ command: "", agentId: "bar", agentSessionId: SID }), "");
+    // Sessione vecchia con predefinita senza ripresa.
+    const profiles = [{ ...NO_RESUME, is_default: true }, FOO];
+    assert.equal(restore({ command: "npm run dev", agentSessionId: SID }, profiles), "npm run dev");
+  });
+
+  it("tab senza agentId (sessioni vecchie): riconosciuto dal comando, poi predefinito", () => {
+    assert.equal(restore({ command: "foo --old x", agentSessionId: SID }), `foo --restart ${SID}`);
+    assert.equal(restore({ command: "claude -c", agentSessionId: SID }), `claude --resume ${SID}`);
+    // Non riconosciuto: l'integrazione predefinita.
+    assert.equal(restore({ command: "npm run dev", agentSessionId: SID }), `claude --resume ${SID}`);
+    assert.equal(restore({ command: "", agentSessionId: SID }, [FOO, CLAUDE]), `claude --resume ${SID}`);
+    // Nessun predefinito: comando originale.
+    assert.equal(restore({ command: "npm run dev", agentSessionId: SID }, [FOO]), "npm run dev");
+    assert.equal(restore({ command: "", agentSessionId: SID }, []), "");
+  });
+
+  it("comando sconosciuto con agentId: nome canonico dell'integrazione del tab", () => {
+    assert.equal(restore({ command: "npm run dev", agentId: "foo", agentSessionId: SID }), `foo --restart ${SID}`);
+  });
+
+  it("nulla e' cablato: nome, flag e modello vengono dal profilo", () => {
+    const tab = (command) => ({ command, agentId: "foo", agentSessionId: SID });
+    assert.equal(restore(tab("foo")), `foo --restart ${SID}`);
+    assert.equal(restore(tab("FOO.CMD --model x")), `FOO.CMD --model x --restart ${SID}`);
+    assert.equal(restore(tab("foo --old abc --model x")), `foo --model x --restart ${SID}`);
+    assert.equal(restore(tab("foo -o=abc --again")), `foo --restart ${SID}`);
+    assert.equal(restore(tab("foo --a.b --model x")), `foo --model x --restart ${SID}`);
+    // I flag e il nome di un'altra integrazione non contano.
+    assert.equal(restore(tab("foo --resume abc -c")), `foo --resume abc -c --restart ${SID}`);
+    assert.equal(restore(tab("claude --old x")), `foo --restart ${SID}`);
+    // I metacaratteri nei nomi dei flag non fanno da regex.
+    assert.equal(restore(tab("foo --axb")), `foo --axb --restart ${SID}`);
+  });
+
+  it("`$` e segnaposto nel comando o nel modello non rompono la sostituzione", () => {
+    assert.equal(
+      restore({ command: 'claude --append-system-prompt "$& $1 {id}"', agentSessionId: SID }),
+      `claude --append-system-prompt "$& $1 {id}" --resume ${SID}`,
+    );
+    const template = "$& {command} -- {id} $1";
+    const profiles = [{ ...CLAUDE, session_resume: { ...CLAUDE.session_resume, resume_template: template } }];
+    assert.equal(restore({ command: "claude", agentSessionId: SID }, profiles), `$& claude -- ${SID} $1`);
   });
 });
 
@@ -203,12 +280,12 @@ describe("restoreCommand: comandi lunghi", () => {
   it("--resume <id> non viene mai troncato", () => {
     const long = "claude --append-system-prompt " + "x".repeat(970);
     assert.equal(long.length, 1000);
-    const r = restoreCommand({ command: long, agentSessionId: SID });
+    const r = restoreCommand({ command: long, agentSessionId: SID }, PROFILES);
     assert.ok(r.length > 1000);
     assert.ok(r.endsWith(` --resume ${SID}`));
   });
   it("la base e' limitata a 1000 caratteri prima del resume", () => {
-    const r = restoreCommand({ command: "claude " + "y".repeat(1500), agentSessionId: SID });
+    const r = restoreCommand({ command: "claude " + "y".repeat(1500), agentSessionId: SID }, PROFILES);
     assert.ok(r.endsWith(` --resume ${SID}`));
     assert.equal(r.length, 1000 + ` --resume ${SID}`.length);
   });

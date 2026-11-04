@@ -251,23 +251,40 @@ describe("profili di input", () => {
     assert.equal(resolveInputOverride([], "claude-code", "windows", "image-paste"), null);
   });
 
-  it("agentIdForCommand: solo claude / claude.exe", () => {
-    assert.equal(agentIdForCommand("claude"), "claude-code");
-    assert.equal(agentIdForCommand("  Claude.exe --resume abc"), "claude-code");
-    assert.equal(agentIdForCommand("claude-foo"), null);
-    assert.equal(agentIdForCommand("npm run dev"), null);
-    assert.equal(agentIdForCommand(""), null);
-    assert.equal(agentIdForCommand(undefined), null);
+  const resumeSpec = (...names) => ({ command_names: names, strip_flags: [], resume_template: "{command} {id}" });
+  const commandProfiles = [
+    { agent_id: "claude-code", session_resume: resumeSpec("claude", "claude.exe") },
+    { agent_id: "no-resume", session_resume: null },
+    { agent_id: "foo", session_resume: resumeSpec("Foo", "foo.cmd") },
+  ];
+
+  it("agentIdForCommand: primo token tra i nomi del profilo", () => {
+    assert.equal(agentIdForCommand("claude", commandProfiles), "claude-code");
+    assert.equal(agentIdForCommand("  Claude.exe --resume abc", commandProfiles), "claude-code");
+    assert.equal(agentIdForCommand("FOO --x", commandProfiles), "foo");
+    assert.equal(agentIdForCommand("foo.cmd", commandProfiles), "foo");
+    assert.equal(agentIdForCommand("claude-foo", commandProfiles), null);
+    assert.equal(agentIdForCommand("npm run dev", commandProfiles), null);
+    assert.equal(agentIdForCommand("", commandProfiles), null);
+    assert.equal(agentIdForCommand(undefined, commandProfiles), null);
+  });
+
+  it("agentIdForCommand: senza profili o senza contratto di ripresa nessun agente", () => {
+    assert.equal(agentIdForCommand("claude", []), null);
+    assert.equal(agentIdForCommand("no-resume", commandProfiles), null);
   });
 
   it("tabAgentId: plugin > comando; finito = null", () => {
-    assert.equal(tabAgentId({ agent: { agentId: "claude-code" }, startCommand: "" }), "claude-code");
-    assert.equal(tabAgentId({ startCommand: "claude --resume x" }), "claude-code");
-    assert.equal(tabAgentId({ startCommand: "" }), null);
-    assert.equal(tabAgentId({}), null);
-    assert.equal(tabAgentId({ agent: { agentId: "claude-code", ended: true }, startCommand: "claude" }), null);
+    const id = (tab) => tabAgentId(tab, commandProfiles);
+    assert.equal(id({ agent: { agentId: "claude-code" }, startCommand: "" }), "claude-code");
+    assert.equal(id({ startCommand: "claude --resume x" }), "claude-code");
+    assert.equal(id({ startCommand: "foo" }), "foo");
+    assert.equal(id({ startCommand: "" }), null);
+    assert.equal(id({}), null);
+    assert.equal(id({ agent: { agentId: "claude-code", ended: true }, startCommand: "claude" }), null);
     // Stato agente senza id (evento senza agente): ripiega sul comando.
-    assert.equal(tabAgentId({ agent: {}, startCommand: "claude" }), "claude-code");
+    assert.equal(id({ agent: {}, startCommand: "claude" }), "claude-code");
+    assert.equal(tabAgentId({ startCommand: "claude" }, []), null);
   });
 });
 

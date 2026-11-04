@@ -6,9 +6,9 @@ interface Props {
   terminalCount: number;
   /** Terminali che aspettano una risposta. */
   attentionCount: number;
-  /** Plugin agent installati ("Claude Code · Windows, Ubuntu"); vuoto = nascosto. */
+  /** Plugin agent installati ("Nome agente · Windows, Ubuntu"); vuoto = nascosto. */
   agentsSummary: string;
-  /** Limiti di utilizzo per ambiente; vuoto = nascosti. */
+  /** Limiti di utilizzo per agente e ambiente; vuoto = nascosti. */
   limits?: LimitGroup[];
 }
 
@@ -27,7 +27,7 @@ export default function StatusBar({ terminalCount, attentionCount, agentsSummary
       {attentionCount > 0 && <span className="text-status-attention">{attentionCount} in attesa di risposta</span>}
       <span className="flex-1" />
       {limits.map((g) => (
-        <span key={g.envKey} className="flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap">
+        <span key={g.key} className="flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap">
           {g.prefix && <span className="text-faint">{g.prefix}</span>}
           {g.items.map((item, i) => (
             <span key={item.key} className="flex items-center gap-1.5">

@@ -16,6 +16,9 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+/// Avviso mostrato accanto all'interruttore dei consumi.
+const LIMITS_NOTICE: &str =
+    "I limiti arrivano da un endpoint non documentato di Claude e potrebbero smettere di funzionare.";
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 /// Un risultato valido si riusa per questo tempo.
 const LIMITS_FRESH: Duration = Duration::from_secs(3 * 60);
@@ -250,6 +253,10 @@ fn limits(env: &Target) -> UsageLimitsReply {
 impl UsageLimits for ClaudeCode {
     fn limits(&self, target: &Target) -> UsageLimitsReply {
         limits(target)
+    }
+
+    fn notice(&self) -> &'static str {
+        LIMITS_NOTICE
     }
 }
 

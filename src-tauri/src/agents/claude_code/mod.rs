@@ -9,6 +9,7 @@ mod input_profile;
 mod package;
 mod plugin;
 mod presets;
+mod resume;
 mod session_usage;
 mod usage_limits;
 
@@ -62,7 +63,7 @@ impl AgentIntegration for ClaudeCode {
         Capabilities {
             package: Some(self),
             hook_events: None,
-            session_resume: None,
+            session_resume: Some(self),
             automation: Some(self),
             worker_permissions: None,
             presets: Some(self),

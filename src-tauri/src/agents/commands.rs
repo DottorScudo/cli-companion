@@ -2,7 +2,9 @@
 //! input, consumi e ciclo di vita dei pacchetti. Generici: parlano solo con i
 //! contratti delle integrazioni.
 
-use super::contracts::{AgentIntegration, Capability, InputProfile, InstallCtx, SessionUsage, UsageLimitsReply};
+use super::contracts::{
+    AgentIntegration, Capability, InputProfile, InstallCtx, ResumeSpec, SessionUsage, UsageLimitsReply,
+};
 use super::detection::{invalidate_detection_cache, list_targets};
 use super::launches::{builtin_launch_list, BuiltinLaunch};
 use super::package::{self, OutdatedPlugin, PluginUpdateResult};
@@ -72,6 +74,13 @@ pub struct AgentProfile {
     pub capabilities: Vec<Capability>,
     /// Vuoto se l'integrazione non dichiara `input_profile`.
     pub input_profile: InputProfile,
+    /// `true` per l'integrazione predefinita (`DEFAULT_WORKER_AGENT`), la stessa
+    /// che usano i worker.
+    pub is_default: bool,
+    /// Dati per riprendere le sessioni; `None` se non dichiara `session_resume`.
+    pub session_resume: Option<ResumeSpec>,
+    /// Avviso sui limiti dell'abbonamento; `None` se non dichiara `usage_limits`.
+    pub usage_limits_notice: Option<&'static str>,
 }
 
 fn collect_profiles(integrations: &[&dyn AgentIntegration]) -> Vec<AgentProfile> {
@@ -84,6 +93,9 @@ fn collect_profiles(integrations: &[&dyn AgentIntegration]) -> Vec<AgentProfile>
                 agent_name: i.display_name().to_string(),
                 capabilities: caps.declared(),
                 input_profile: caps.input_profile.map(|p| p.input_profile()).unwrap_or_default(),
+                is_default: i.id() == registry::DEFAULT_WORKER_AGENT,
+                session_resume: caps.session_resume.map(|resume| resume.resume_spec()),
+                usage_limits_notice: caps.usage_limits.map(|limits| limits.notice()),
             }
         })
         .collect()
@@ -228,6 +240,12 @@ mod tests {
         assert!(
             caps.contains(&serde_json::json!("input-profile")) && caps.contains(&serde_json::json!("usage-limits"))
         );
+        assert_eq!(v["is_default"], true);
+        assert_eq!(v["session_resume"]["command_names"], serde_json::json!(["claude", "claude.exe"]));
+        assert_eq!(v["session_resume"]["strip_flags"][0]["names"], serde_json::json!(["--resume", "-r"]));
+        assert_eq!(v["session_resume"]["strip_flags"][0]["takes_value"], true);
+        assert_eq!(v["session_resume"]["resume_template"], "{command} --resume {id}");
+        assert!(!v["usage_limits_notice"].as_str().unwrap().is_empty());
     }
 
     #[test]
@@ -235,10 +253,17 @@ mod tests {
         let bare = FakeIntegration::bare("bare", "bare-cli");
         let p = &collect_profiles(&[&bare])[0];
         assert!(p.capabilities.is_empty() && p.input_profile.rules.is_empty());
+        let v = serde_json::to_value(p).unwrap();
+        assert!(v["session_resume"].is_null() && v["usage_limits_notice"].is_null());
+        assert_eq!(v["is_default"], false);
         let full = FakeIntegration::full("full");
         let p = &collect_profiles(&[&full])[0];
         assert_eq!(p.capabilities.len(), 10);
         assert!(!p.input_profile.rules.is_empty());
+        let v = serde_json::to_value(p).unwrap();
+        assert_eq!(v["is_default"], false);
+        assert_eq!(v["session_resume"]["command_names"], serde_json::json!(["fake"]));
+        assert!(!v["usage_limits_notice"].as_str().unwrap().is_empty());
     }
 
     #[test]

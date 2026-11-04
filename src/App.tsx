@@ -53,7 +53,7 @@ import {
   tabStatus,
 } from "./lib/agents";
 import type { AgentTabState, TabStatus } from "./lib/agents";
-import { limitGroups, usageText, usageTooltip } from "./lib/usage";
+import { limitGroups, usageTargets, usageText, usageTooltip } from "./lib/usage";
 import { useUsage } from "./lib/useUsage";
 import {
   INTAKE_LAUNCH_ID,
@@ -83,7 +83,6 @@ import {
 import type { LayoutState } from "./lib/layout";
 import {
   CLOSE_FLUSH_TIMEOUT_MS,
-  CLAUDE_AGENT_ID,
   SESSION_SAVE_MAX_MS,
   SESSION_SAVE_MS,
   debounceDelay,
@@ -191,6 +190,8 @@ export default function App() {
   builtinsRef.current = builtinLaunches;
   const [globalLaunch, setGlobalLaunch] = useState<string | null>(null);
   const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([]);
+  // Profili caricati (o errore gia' segnalato): il ripristino della sessione li aspetta.
+  const [profilesReady, setProfilesReady] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
   // Salvataggio abilitato solo se la lettura della sessione e' riuscita (file
   // assente compreso): dopo un errore di I/O non si sovrascrive session.json.
@@ -236,7 +237,8 @@ export default function App() {
     api
       .agentProfiles()
       .then(setAgentProfiles)
-      .catch((e) => report("caricamento dei profili degli agenti", e, { notify: true }));
+      .catch((e) => report("caricamento dei profili degli agenti", e, { notify: true }))
+      .finally(() => setProfilesReady(true));
   }, []);
 
   useEffect(() => {
@@ -271,7 +273,7 @@ export default function App() {
   // salvato e CLI_COMPANION_SESSION.
   const restoredRef = useRef(false);
   useEffect(() => {
-    if (loading || loadError || restoredRef.current) return;
+    if (loading || loadError || !profilesReady || restoredRef.current) return;
     restoredRef.current = true;
     void (async () => {
       let raw: string | null = null;
@@ -300,7 +302,7 @@ export default function App() {
             workspace: byId.get(t.workspaceId)!,
             launchId: t.launchId,
             command: t.command,
-            startCommand: restoreCommand(t),
+            startCommand: restoreCommand(t, agentProfiles),
             bot: botNames.get(t.tabId)!,
             restored: true,
             title: t.title,
@@ -325,7 +327,7 @@ export default function App() {
       setSaveEnabled(loaded);
       setSessionReady(true);
     })();
-  }, [loading, loadError, workspaces]);
+  }, [loading, loadError, profilesReady, agentProfiles, workspaces]);
 
   // Salvataggio della sessione (debounce) a ogni modifica rilevante.
   // La chiave di confronto NON include i titoli (cambiano di continuo con lo
@@ -542,7 +544,7 @@ export default function App() {
   }, []);
 
   // Polling dell'utilizzo: limiti per ambiente e token per sessione.
-  const usage = useUsage(showUsage, agentEnvs, tabs);
+  const usage = useUsage(showUsage, agentProfiles, agentEnvs, tabs);
   const usageEventRef = useRef(usage.onAgentEvent);
   usageEventRef.current = usage.onAgentEvent;
 
@@ -665,7 +667,7 @@ export default function App() {
       .catch(ignoreError("la versione è solo un'etichetta nel footer; fuori da Tauri non esiste"));
   }, []);
 
-  // `agent_env_status` lancia processi (wsl.exe, claude): una sola volta, in
+  // `agent_env_status` lancia processi (wsl.exe, la CLI dell'agente): una sola volta, in
   // background e con un po' di ritardo, quando la sessione e' gia' ripristinata.
   // Non blocca la UI; dopo install/rimozione lo aggiornano le Impostazioni.
   useEffect(() => {
@@ -1028,13 +1030,12 @@ export default function App() {
   const agentsSummary = installedAgentsSummary(agentEnvs);
   const limitEntries = showUsage
     ? limitGroups(
-        agentEnvs
-          .filter((e) => e.agent_id === CLAUDE_AGENT_ID && e.found && e.installed)
-          .map((e) => ({
-            envKey: e.env_key,
-            label: agentEnvBadge(e),
-            reply: usage.limits[e.env_key],
-          })),
+        usageTargets(agentProfiles, agentEnvs).map((t) => ({
+          key: t.key,
+          agentName: t.agentName,
+          label: agentEnvBadge(t.env),
+          reply: usage.limits[t.key],
+        })),
       )
     : [];
   const anyPaneVisible = Object.values(paneLayouts).some((p) => p.visible);
@@ -1195,7 +1196,12 @@ export default function App() {
                     tabId={t.key}
                     workspace={t.workspace}
                     initialCommand={t.startCommand}
-                    imagePasteSeq={resolveInputOverride(agentProfiles, tabAgentId(t), t.workspace.kind, "image-paste")}
+                    imagePasteSeq={resolveInputOverride(
+                      agentProfiles,
+                      tabAgentId(t, agentProfiles),
+                      t.workspace.kind,
+                      "image-paste",
+                    )}
                     restore={t.restored}
                     rect={pl?.rect ?? null}
                     active={pl?.visible ?? false}
@@ -1300,6 +1306,7 @@ export default function App() {
         onRemoveWorkspace={handleRemove}
         onUpdateAvailable={setUpdateAvailable}
         updateAvailable={updateAvailable}
+        agentProfiles={agentProfiles}
         onAgentEnvs={setAgentEnvs}
         onShowUsage={setShowUsage}
         builtinLaunches={builtinLaunches}

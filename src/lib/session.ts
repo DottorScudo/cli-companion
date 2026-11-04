@@ -3,6 +3,8 @@
 // dipendenze, importabili sia dall'app sia dai test `node --test`
 // (type-stripping). Il backend (session.rs) conserva solo un blob opaco.
 
+import { isResumeCommand, profileForCommand } from "./agents.ts";
+import type { CommandProfileLike, SessionResumeLike } from "./agents.ts";
 import { sanitizeBotName } from "./bots.ts";
 
 export const SESSION_VERSION = 1;
@@ -209,46 +211,66 @@ export function parseSession(raw: string | null | undefined, workspaceIds: Itera
 // Comando di ripristino
 // ---------------------------------------------------------------------------
 
-/** Provider di Claude Code (vedi `AGENT_ID` in agents/claude_code.rs). */
-export const CLAUDE_AGENT_ID = "claude-code";
-
-/** `true` se il primo token del comando e' `claude` o `claude.exe`. */
-export function isClaudeCommand(command: string): boolean {
-  const first = command.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
-  return first === "claude" || first === "claude.exe";
+/** Profilo di un agente come serve a `restoreCommand` (campi di `AgentProfile` in tauri.ts). */
+export interface RestoreProfileLike extends CommandProfileLike {
+  is_default: boolean;
 }
 
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /**
- * Toglie dal comando `--resume [x]`, `--resume=x`, `-r [x]`, `--continue`,
- * `-c`, lasciando intatto il resto (spaziatura e virgolette comprese).
+ * Toglie dal comando i flag di ripresa dichiarati dall'agente (`--flag x`,
+ * `--flag=x` per quelli con valore), lasciando intatto il resto (spaziatura
+ * e virgolette comprese).
  */
-function stripResumeFlags(command: string): string {
-  return command
-    .replace(/(^|\s)(?:--resume|-r)(?:=\S+|\s+(?!-)\S+)?(?=\s|$)/g, "$1")
-    .replace(/(^|\s)(?:--continue|-c)(?=\s|$)/g, "$1")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+function stripResumeFlags(command: string, flags: SessionResumeLike["strip_flags"]): string {
+  let result = command;
+  for (const flag of flags) {
+    if (flag.names.length === 0) continue;
+    const names = flag.names.map(escapeRegExp).join("|");
+    const value = flag.takes_value ? "(?:=\\S+|\\s+(?!-)\\S+)?" : "";
+    result = result.replace(new RegExp(`(^|\\s)(?:${names})${value}(?=\\s|$)`, "g"), "$1");
+  }
+  return result.replace(/\s{2,}/g, " ").trim();
 }
 
 /**
- * Comando da eseguire quando un tab viene ripristinato.
- * - con `agentSessionId` (valido) e comando `claude`: il comando originale
- *   senza flag di ripresa, piu' ` --resume <id>`;
- * - con `agentSessionId` ma senza comando `claude` (shell dove l'utente ha
- *   lanciato claude a mano): `claude --resume <id>`;
- * - altrimenti il comando originale ("" = shell semplice).
- * Un agente diverso da Claude Code non viene mai ripreso con `claude`.
+ * Profilo con cui riprendere un tab: quello salvato; per le sessioni vecchie
+ * (senza `agentId`) quello che riconosce il comando, poi il predefinito.
+ */
+function resumeProfile(tab: { agentId?: string }, original: string, profiles: RestoreProfileLike[]) {
+  if (tab.agentId !== undefined) return profiles.find((p) => p.agent_id === tab.agentId);
+  return profileForCommand(original, profiles) ?? profiles.find((p) => p.is_default);
+}
+
+/**
+ * Comando da eseguire quando un tab viene ripristinato, guidato dal contratto
+ * di ripresa (`session_resume`) dell'integrazione del tab:
+ * - con `agentSessionId` (valido) e comando dell'agente: il comando originale
+ *   senza i flag di ripresa, inserito nel modello di ripresa;
+ * - con `agentSessionId` ma senza comando dell'agente (shell dove l'utente ha
+ *   lanciato l'agente a mano): il modello con il nome canonico del programma;
+ * - altrimenti il comando originale ("" = shell semplice), anche se
+ *   l'integrazione non dichiara la ripresa.
  * Il risultato non va passato da `sanitizeLaunchCommand` (1000 caratteri).
  */
-export function restoreCommand(tab: { command: string; agentId?: string; agentSessionId?: string }): string {
+export function restoreCommand(
+  tab: { command: string; agentId?: string; agentSessionId?: string },
+  profiles: RestoreProfileLike[],
+): string {
   const original = (tab.command ?? "").trim();
   const sid = tab.agentSessionId;
-  const claudeAgent = tab.agentId === undefined || tab.agentId === CLAUDE_AGENT_ID;
-  if (!isSafeAgentSessionId(sid) || !claudeAgent) return original;
-  // Il comando di base si limita PRIMA di aggiungere `--resume <id>`: il
-  // risultato puo' superare COMMAND_MAX e non va ritagliato (spezzerebbe l'id).
-  if (isClaudeCommand(original)) {
-    return `${stripResumeFlags(original).slice(0, COMMAND_MAX).trim()} --resume ${sid}`;
-  }
-  return `claude --resume ${sid}`;
+  if (!isSafeAgentSessionId(sid)) return original;
+  const resume = resumeProfile(tab, original, profiles)?.session_resume;
+  if (!resume) return original;
+  // Il comando di base si limita PRIMA di applicare il modello: il risultato
+  // puo' superare COMMAND_MAX e non va ritagliato (spezzerebbe l'id).
+  const command = isResumeCommand(resume, original)
+    ? stripResumeFlags(original, resume.strip_flags).slice(0, COMMAND_MAX).trim()
+    : resume.command_names[0];
+  // Un'unica passata: un segnaposto dentro il comando non viene riespanso e
+  // `$` non ha significato speciale.
+  return resume.resume_template.replace(/\{command\}|\{id\}/g, (placeholder) =>
+    placeholder === "{command}" ? command : sid,
+  );
 }

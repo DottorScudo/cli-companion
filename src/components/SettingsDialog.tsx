@@ -12,7 +12,7 @@ import RepoPage from "./settings/RepoPage";
 import DeliveryPage from "./settings/DeliveryPage";
 import ArchivedPage from "./settings/ArchivedPage";
 import { SettingsPage, selectClass } from "./settings/shared";
-import type { AgentEnvStatus, BotSettings, BuiltinLaunch, Workspace } from "../lib/tauri";
+import type { AgentEnvStatus, AgentProfile, BotSettings, BuiltinLaunch, Workspace } from "../lib/tauri";
 import { cn } from "../lib/utils";
 
 export type SettingsTab =
@@ -61,6 +61,8 @@ interface Props {
   onUpdateAvailable?: (available: boolean) => void;
   /** C'è un aggiornamento disponibile (pallino sulla voce del menu). */
   updateAvailable?: boolean;
+  /** Profili dei coding agent (dichiarati dal backend). */
+  agentProfiles: AgentProfile[];
   /** Elenco aggiornato degli ambienti dei coding agent (per la barra di stato). */
   onAgentEnvs?: (envs: AgentEnvStatus[]) => void;
   /** Interruttore "Mostra utilizzo" cambiato nelle Impostazioni. */
@@ -85,6 +87,7 @@ export default function SettingsDialog({
   onRemoveWorkspace,
   onUpdateAvailable,
   updateAvailable = false,
+  agentProfiles,
   onAgentEnvs,
   onShowUsage,
   builtinLaunches = [],
@@ -178,7 +181,7 @@ export default function SettingsDialog({
             title="Coding agent"
             description="Il plugin che avvisa l’app quando un agente ha finito o ha bisogno di te."
           >
-            <AgentSettingsTab onEnvs={onAgentEnvs} onShowUsage={onShowUsage} />
+            <AgentSettingsTab profiles={agentProfiles} onEnvs={onAgentEnvs} onShowUsage={onShowUsage} />
           </SettingsPage>
         );
       case "updates":

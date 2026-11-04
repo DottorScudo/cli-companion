@@ -14,6 +14,8 @@ pub enum Flaw {
     PresetSkillMissing,
     /// Il comando di automazione lascia passare `$` nel prompt.
     AutomationLetsDollarThrough,
+    /// Il modello del comando di ripresa non contiene il segnaposto dell'id.
+    ResumeTemplateWithoutId,
 }
 
 #[derive(Debug, Clone)]
@@ -137,12 +139,14 @@ impl HookEvents for FakeIntegration {
 }
 
 impl SessionResume for FakeIntegration {
-    fn is_agent_command(&self, command: &str) -> bool {
-        command.split_whitespace().next() == self.interactive.split_whitespace().next()
-    }
-
-    fn resume_command(&self, original_command: &str, session_id: &str) -> String {
-        format!("{original_command} --resume {session_id}")
+    fn resume_spec(&self) -> ResumeSpec {
+        let program = self.interactive.split_whitespace().next().unwrap_or_default();
+        let resume_template = if self.flaw == Some(Flaw::ResumeTemplateWithoutId) {
+            "{command} --resume"
+        } else {
+            "{command} --resume {id}"
+        };
+        ResumeSpec { command_names: vec![program], strip_flags: Vec::new(), resume_template }
     }
 }
 
@@ -211,6 +215,10 @@ impl UserSkills for FakeIntegration {
 impl UsageLimits for FakeIntegration {
     fn limits(&self, _: &Target) -> UsageLimitsReply {
         UsageLimitsReply::status("unavailable", Some("finto"))
+    }
+
+    fn notice(&self) -> &'static str {
+        "Avviso finto."
     }
 }
 
