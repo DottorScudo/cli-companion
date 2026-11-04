@@ -73,7 +73,7 @@ export interface SessionData {
   tabs: SessionTab[];
 }
 
-/** Id tab ammesso (stesso insieme di `is_valid_tab_id` in agent_notify.rs). */
+/** Id tab ammesso (stesso insieme di `is_valid_tab_id` in ipc/wire.rs). */
 export function isSafeTabId(id: unknown): id is string {
   return typeof id === "string" && id.length <= TAB_ID_MAX && /^[A-Za-z0-9_-]+$/.test(id);
 }

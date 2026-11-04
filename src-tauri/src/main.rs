@@ -11,7 +11,8 @@ fn print_help() {
            cli-companion --notify <evento> [agente]  Segnala un evento di un coding\n  \
              agent (session-start|session-end|finished|needs-input|permission-request|test) all'istanza in esecuzione ed\n  \
              esce; legge il JSON dell'hook da stdin e l'id tab da CLI_COMPANION_SESSION\n  \
-             (eventi non riconosciuti o senza tab: ignorati, exit 0)\n  \
+             (eventi non riconosciuti o senza tab: ignorati, exit 0); la porta\n  \
+             dell'istanza e' in CLI_COMPANION_PORT (assente: 17421)\n  \
            cli-companion --mcp           Server MCP (stdio) con i tool per orchestrare sessioni\n  \
              automatiche; lanciato da Claude Code, usa CLI_COMPANION_SESSION e\n  \
              CLI_COMPANION_TOKEN (fuori da cli-companion espone zero tool)\n  \
@@ -42,7 +43,7 @@ fn main() {
     if let Some(pos) = args.iter().position(|a| a == "--notify") {
         let event = args.get(pos + 1).cloned().unwrap_or_default();
         let agent = args.get(pos + 2).cloned().unwrap_or("local".to_string());
-        match cli_companion_lib::agent_notify::run_notify(&event, &agent) {
+        match cli_companion_lib::ipc::run_notify(&event, &agent) {
             Ok(()) => std::process::exit(0),
             Err(e) => {
                 eprintln!("notify fallita: {e}");

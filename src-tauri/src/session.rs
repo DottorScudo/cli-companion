@@ -5,7 +5,7 @@
 //! - `session.json`: l'ultimo stato salvato;
 //! - `scrollback/<tab_id>.txt`: output serializzato di un terminale.
 
-use crate::agent_notify::is_valid_tab_id;
+use crate::ipc::is_valid_tab_id;
 use crate::store::data_dir;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

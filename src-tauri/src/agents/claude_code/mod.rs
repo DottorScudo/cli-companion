@@ -5,6 +5,7 @@
 
 mod automation;
 mod config_dir;
+mod hook_events;
 mod input_profile;
 mod package;
 mod plugin;
@@ -62,7 +63,7 @@ impl AgentIntegration for ClaudeCode {
     fn capabilities(&self) -> Capabilities<'_> {
         Capabilities {
             package: Some(self),
-            hook_events: None,
+            hook_events: Some(self),
             session_resume: Some(self),
             automation: Some(self),
             worker_permissions: None,

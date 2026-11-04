@@ -58,7 +58,7 @@ pub async fn pty_spawn(
     cwd: Option<String>,
     on_event: Channel<PtyEvent>,
 ) -> Result<u32, String> {
-    if !crate::agent_notify::is_valid_tab_id(&tab_id) {
+    if !crate::ipc::is_valid_tab_id(&tab_id) {
         return Err("id tab non valido".to_string());
     }
     let request = SpawnRequest { workspace_id, tab_id, cols, rows, cwd };

@@ -21,7 +21,7 @@ function rustCommands() {
     "workspaces/explorer.rs",
     "wsl.rs",
     "updater.rs",
-    "agent_notify.rs",
+    "ipc/server.rs",
     "toast.rs",
     "agents/commands.rs",
     "session.rs",

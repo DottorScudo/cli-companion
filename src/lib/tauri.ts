@@ -97,7 +97,7 @@ export interface E2eConfig {
 /** Messaggi sul canale dedicato di una sessione pty (vedi PtyEvent in pty/mod.rs). */
 export type PtyEvent = { kind: "output"; data: string } | { kind: "exit" };
 
-/** Evento di un coding agent (vedi `NotifyPayload` in agent_notify.rs). */
+/** Evento di un coding agent (vedi `NotifyPayload` in ipc/wire.rs). */
 export interface AgentEvent {
   event: "test" | "session-start" | "finished" | "needs-input" | string;
   agent: string;
@@ -108,6 +108,14 @@ export interface AgentEvent {
   transcript_path?: string | null;
   notification_type?: string | null;
   message?: string | null;
+}
+
+/** Stato del listener locale degli agenti (vedi `IpcStatus` in ipc/server.rs). */
+export interface IpcStatus {
+  /** Porta in ascolto; null se il listener non e' partito. */
+  port: number | null;
+  preferred_port: number;
+  error: string | null;
 }
 
 /** Finestra di un limite di utilizzo. */
@@ -339,6 +347,8 @@ export const api = {
   ptyClose: (sessionId: number) => invoke<void>("pty_close", { sessionId }),
 
   testAgentNotify: () => invoke<string>("test_agent_notify"),
+
+  ipcStatus: () => invoke<IpcStatus>("ipc_status"),
 
   /** Toast cliccabile (solo Windows): al click focus + `notification-activated`. */
   showAgentNotification: (tabId: string, title: string, body: string) =>

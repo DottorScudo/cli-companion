@@ -17,8 +17,8 @@
 //! Il token dell'app (`token()`) autentica le chiamate RPC e gli eventi degli
 //! hook: solo i processi figli di un terminale di cli-companion lo conoscono.
 
-use crate::agent_notify::{is_valid_tab_id, RpcRequest, RpcResponse};
 use crate::board::{self, build_report, Board, BoardView, ReportFields, TaskKind, TaskStatus, WorktreeInfo};
+use crate::ipc::{is_valid_tab_id, NotifyPayload, RpcRequest, RpcResponse};
 use crate::workspaces::{Delivery, Workspace};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -751,9 +751,9 @@ pub fn handle_rpc(app: &AppHandle, req: &RpcRequest) -> RpcResponse {
     RpcResponse::from_result(rpc::dispatch(&st, &TauriHost(app.clone()), &req.session, &req.method, &req.params))
 }
 
-/// Evento di un hook con token valido (vedi `agent_notify`). Ritorna il
+/// Evento di un hook con token valido (vedi `ipc`). Ritorna il
 /// motivo di blocco se lo Stop hook di un worker va fatto proseguire.
-pub fn on_hook_event(app: &AppHandle, payload: &crate::agent_notify::NotifyPayload) -> Option<String> {
+pub fn on_hook_event(app: &AppHandle, payload: &NotifyPayload) -> Option<String> {
     let tab = payload.tab_id.as_deref()?;
     let hook = HookEvent {
         event: &payload.event,
@@ -766,6 +766,24 @@ pub fn on_hook_event(app: &AppHandle, payload: &crate::agent_notify::NotifyPaylo
     };
     let st = app.state::<AutomationState>();
     st.run(&TauriHost(app.clone()), |r| r.on_hook(tab, &hook, now_millis()))
+}
+
+/// Il core visto dal canale `ipc`: autenticazione con il token dell'app, RPC
+/// (`handle_rpc`) ed eventi hook (`on_hook_event`).
+pub struct IpcBridge(pub AppHandle);
+
+impl crate::ipc::IpcHandler for IpcBridge {
+    fn session_token(&self) -> &str {
+        token()
+    }
+
+    fn rpc(&self, req: &RpcRequest) -> RpcResponse {
+        handle_rpc(&self.0, req)
+    }
+
+    fn hook_event(&self, payload: &NotifyPayload) -> Option<String> {
+        on_hook_event(&self.0, payload)
+    }
 }
 
 /// L'utente ha premuto Invio nel terminale del tab (chiamato da `pty_write`).

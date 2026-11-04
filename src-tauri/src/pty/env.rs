@@ -5,7 +5,7 @@
 
 use portable_pty::CommandBuilder;
 
-use crate::agent_notify::{SESSION_ENV, TOKEN_ENV};
+use crate::ipc::{PORT_ENV, SESSION_ENV, TOKEN_ENV};
 use crate::platform::TargetKind;
 
 const WSLENV_VAR: &str = "WSLENV";
@@ -33,19 +33,26 @@ pub(super) fn merge_wslenv(existing: Option<&str>, vars: &[&str]) -> String {
 }
 
 /// Tutte le variabili da impostare al figlio: colori, `CLI_COMPANION_SESSION`
-/// (id del tab), `CLI_COMPANION_TOKEN` per gli hook degli agenti e il server
-/// MCP e, su WSL, `WSLENV` che le fa attraversare il confine.
+/// (id del tab), `CLI_COMPANION_TOKEN` e `CLI_COMPANION_PORT` (se il listener
+/// e' in ascolto) per gli hook degli agenti e il server MCP e, su WSL, `WSLENV`
+/// che le fa attraversare il confine.
 pub(super) fn env_vars(
     tab_id: &str,
     token: &str,
+    port: Option<u16>,
     kind: TargetKind,
     parent_wslenv: Option<&str>,
 ) -> Vec<(String, String)> {
     let mut vars: Vec<(String, String)> = COLOR_ENV.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
     vars.push((SESSION_ENV.to_string(), tab_id.to_string()));
     vars.push((TOKEN_ENV.to_string(), token.to_string()));
+    let mut forwarded = vec![SESSION_ENV, TOKEN_ENV];
+    if let Some(port) = port {
+        vars.push((PORT_ENV.to_string(), port.to_string()));
+        forwarded.push(PORT_ENV);
+    }
     if kind == TargetKind::Wsl {
-        vars.push((WSLENV_VAR.to_string(), merge_wslenv(parent_wslenv, &[SESSION_ENV, TOKEN_ENV])));
+        vars.push((WSLENV_VAR.to_string(), merge_wslenv(parent_wslenv, &forwarded)));
     }
     vars
 }
@@ -53,7 +60,12 @@ pub(super) fn env_vars(
 /// Imposta sul comando l'ambiente della sessione `tab_id`.
 pub(super) fn apply_env(cmd: &mut CommandBuilder, tab_id: &str, kind: TargetKind) {
     let parent_wslenv = std::env::var(WSLENV_VAR).ok();
-    for (key, value) in env_vars(tab_id, crate::automation::token(), kind, parent_wslenv.as_deref()) {
+    let port = crate::ipc::listening_port();
+    for (key, value) in env_vars(tab_id, crate::automation::token(), port, kind, parent_wslenv.as_deref()) {
         cmd.env(key, value);
+    }
+    // Senza listener non si eredita la porta di un'altra istanza (app avviata da un suo terminale).
+    if port.is_none() {
+        cmd.env_remove(PORT_ENV);
     }
 }

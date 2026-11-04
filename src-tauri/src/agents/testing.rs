@@ -136,6 +136,10 @@ impl HookEvents for FakeIntegration {
     fn normalize(&self, _: HookEventKind, _: &str) -> HookEvent {
         HookEvent::default()
     }
+
+    fn stop_block_output(&self, reason: &str) -> String {
+        format!("fake-stop {reason}")
+    }
 }
 
 impl SessionResume for FakeIntegration {

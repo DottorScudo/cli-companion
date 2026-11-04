@@ -1,9 +1,9 @@
-pub mod agent_notify;
 mod agents;
 pub mod automation;
 mod awake;
 pub mod board;
 mod bots;
+pub mod ipc;
 mod launch_settings;
 mod logging;
 pub mod mcp;
@@ -63,7 +63,7 @@ pub fn run() {
             automation::load_boards(app);
             automation::auto::init(app);
             automation::skills::restore_in_background(automation::TauriHost(app.handle().clone()));
-            agent_notify::start_listener(app.handle());
+            ipc::start_listener(app.handle(), std::sync::Arc::new(automation::IpcBridge(app.handle().clone())));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -100,7 +100,8 @@ pub fn run() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_close,
-            agent_notify::test_agent_notify,
+            ipc::test_agent_notify,
+            ipc::ipc_status,
             automation::automation_tab_closed,
             automation::automation_sessions,
             automation::board_get,

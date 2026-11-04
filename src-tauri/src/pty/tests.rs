@@ -6,7 +6,7 @@ use super::spawn::{
     build_command, check_start_dir, is_powershell, open_pty, pty_size, session_command, start_dir,
     POWERSHELL_TITLE_HOOK,
 };
-use crate::agent_notify::{SESSION_ENV, TOKEN_ENV};
+use crate::ipc::{PORT_ENV, SESSION_ENV, TOKEN_ENV};
 use crate::platform::{Target, TargetKind};
 use portable_pty::CommandBuilder;
 use std::io::Write;
@@ -106,20 +106,34 @@ fn wslenv_merge_handles_several_vars() {
 
 #[test]
 fn session_env_is_set_and_wsl_adds_wslenv() {
-    let windows = env_vars("tab-1", "tok", TargetKind::Windows, Some("PATH/l"));
+    let windows = env_vars("tab-1", "tok", Some(17500), TargetKind::Windows, Some("PATH/l"));
     assert_eq!(env_value(&windows, SESSION_ENV).as_deref(), Some("tab-1"));
     assert_eq!(env_value(&windows, TOKEN_ENV).as_deref(), Some("tok"));
+    assert_eq!(env_value(&windows, PORT_ENV).as_deref(), Some("17500"));
     assert_eq!(env_value(&windows, "WSLENV"), None);
 
-    let wsl = env_vars("tab-1", "tok", TargetKind::Wsl, Some("PATH/l"));
+    let wsl = env_vars("tab-1", "tok", Some(17500), TargetKind::Wsl, Some("PATH/l"));
     assert_eq!(env_value(&wsl, SESSION_ENV).as_deref(), Some("tab-1"));
     assert_eq!(env_value(&wsl, TOKEN_ENV).as_deref(), Some("tok"));
+    assert_eq!(env_value(&wsl, PORT_ENV).as_deref(), Some("17500"));
+    assert_eq!(
+        env_value(&wsl, "WSLENV").as_deref(),
+        Some("PATH/l:CLI_COMPANION_SESSION/u:CLI_COMPANION_TOKEN/u:CLI_COMPANION_PORT/u")
+    );
+}
+
+#[test]
+fn port_is_set_and_forwarded_only_when_the_listener_is_up() {
+    let wsl = env_vars("tab-1", "tok", None, TargetKind::Wsl, Some("PATH/l"));
+    assert_eq!(env_value(&wsl, PORT_ENV), None);
     assert_eq!(env_value(&wsl, "WSLENV").as_deref(), Some("PATH/l:CLI_COMPANION_SESSION/u:CLI_COMPANION_TOKEN/u"));
+    let windows = env_vars("tab-1", "tok", None, TargetKind::Windows, None);
+    assert_eq!(env_value(&windows, PORT_ENV), None);
 }
 
 #[test]
 fn color_env_declares_256_and_truecolor() {
-    let vars = env_vars("tab-1", "tok", TargetKind::Windows, None);
+    let vars = env_vars("tab-1", "tok", None, TargetKind::Windows, None);
     assert_eq!(env_value(&vars, "TERM").as_deref(), Some("xterm-256color"));
     assert_eq!(env_value(&vars, "COLORTERM").as_deref(), Some("truecolor"));
 }
@@ -130,6 +144,8 @@ fn apply_env_uses_the_app_token() {
     apply_env(&mut cmd, "tab-1", TargetKind::Windows);
     assert_eq!(cmd.get_env(SESSION_ENV), Some(std::ffi::OsStr::new("tab-1")));
     assert_eq!(cmd.get_env(TOKEN_ENV), Some(std::ffi::OsStr::new(crate::automation::token())));
+    // Nei test il listener non e' avviato: nessuna porta (e quella ereditata e' rimossa).
+    assert_eq!(cmd.get_env(PORT_ENV), None);
     assert_eq!(cmd.get_env("TERM"), Some(std::ffi::OsStr::new("xterm-256color")));
 }
 

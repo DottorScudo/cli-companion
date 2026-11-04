@@ -136,6 +136,8 @@ ed eventi Tauri (`emit`/`listen`) per lo stream di output dei terminali.
   - impostano anche `CLI_COMPANION_TOKEN` (token dell'app, `automation::token()`),
     propagato su WSL con `/u` nello stesso `WSLENV` (`merge_wslenv` accetta piu'
     variabili): serve a `--notify` e `--mcp` per autenticarsi sul socket;
+  - impostano `CLI_COMPANION_PORT` (porta del listener, `ipc::listening_port()`) se il listener
+    e' in ascolto, anch'essa propagata con `/u`; senza listener la variabile ereditata viene rimossa;
   - `cwd` opzionale (usato dalle sessioni automatiche) al posto della cartella del
     workspace, validato come questa (Windows `is_dir`, WSL `wsl_dir_exists`);
   - ricontrolla che la cartella esista al momento dello spawn.
@@ -152,61 +154,83 @@ ed eventi Tauri (`emit`/`listen`) per lo stream di output dei terminali.
   `pty_close` uccide il processo figlio; il thread di lettura invia comunque
   `exit`, così frontend e backend non divergono.
 
-### `agent_notify.rs` — canale di notifica degli agenti (niente semaforo)
+### `ipc/` — canale di notifica degli agenti (niente semaforo)
 
+Modulo generico: non sa nulla di Claude Code. Il formato dello stdin degli hook e della
+decisione di blocco e' il contratto `HookEvents` dell'integrazione (`agents/contracts/hook_events.rs`,
+implementato in `agents/claude_code/hook_events.rs`); cosa farne lo decide il core tramite il trait
+`IpcHandler` (implementato da `automation::IpcBridge`), quindi `ipc` non importa `automation`.
+
+- File: `wire.rs` (tipi del protocollo, costanti, parsing di una riga), `client.rs` (`--notify` e
+  `rpc_call`), `gate.rs` (cancello puro: quali eventi ammettere), `server.rs` (listener, limite di
+  connessioni, stato, comandi Tauri). I test lunghi stanno in `client/tests.rs` e `server/tests.rs`.
 - Gli hook dei coding agent chiamano questo stesso exe:
   `cli-companion --notify <evento> [<agente>]` (ramo con early-return in
   `main.rs`, come `--check-update`).
-- Eventi (`KNOWN_EVENTS`): `test` (self-test), `session-start`, `finished`,
-  `needs-input`. Gli sconosciuti (es. i vecchi `stop`/`session-end` dei plugin
-  Muse) sono ignorati in silenzio con exit 0.
+- Eventi (`KNOWN_EVENTS`): `test` (self-test), `session-start`, `session-end`, `finished`,
+  `needs-input`, `permission-request`. Gli sconosciuti (es. i vecchi `stop` dei plugin
+  Muse) sono ignorati in silenzio con exit 0. Gli eventi diversi da `test` corrispondono a un
+  `HookEventKind` (`hook_kind`).
 - Il tab di appartenenza arriva dalla variabile `CLI_COMPANION_SESSION`: un
   evento diverso da `test` senza (o con valore non valido) e' ignorato con exit 0,
   perche' la sessione dell'agente gira fuori da cli-companion
   (`should_send(event, tab_id)`, pura). Solo l'invio fallito di un evento da
   inviare da' exit 1.
 - `run_notify` e' solo il wrapper che legge l'ambiente reale (`CLI_COMPANION_SESSION`,
-  `CLI_COMPANION_TOKEN`) e usa la porta `NOTIFY_PORT`; la logica sta in `notify_target`, che
-  riceve tab, token, porta, lettura di stdin e stdout espliciti. I test usano solo
-  `notify_target` con porte effimere: la suite gira anche dal terminale di un worker, dove
-  quelle variabili sono vere, e un evento partito da un test arriverebbe all'app a nome del
-  worker (un `session-end` gli faceva fallire il task). Protezione: notifiche e RPC si connettono
-  solo da `connect_local`, che nei build di test (`cfg(test)`) fallisce con un panic se la porta
-  e' `NOTIFY_PORT`, prima di connettersi; due test `should_panic` lo verificano.
+  `CLI_COMPANION_TOKEN`, `CLI_COMPANION_PORT`) e cerca il contratto dell'agente nel registro
+  (`agents::registry::find(agente)` -> `capabilities().hook_events`); la logica sta in
+  `notify_target`, che riceve tab, token, porta, lettura di stdin, contratto e stdout espliciti.
+  Agente sconosciuto o senza contratto: l'evento parte senza dettagli e non c'e' mai un output di
+  blocco. I test usano solo `notify_target` con porte effimere e un contratto finto: la suite gira
+  anche dal terminale di un worker, dove quelle variabili sono vere, e un evento partito da un test
+  arriverebbe all'app a nome del worker (un `session-end` gli faceva fallire il task). Protezione:
+  notifiche e RPC si connettono solo da `connect_local`, che nei build di test (`cfg(test)`) va in
+  panic se la porta e' `DEFAULT_PORT` o quella dichiarata in `CLI_COMPANION_PORT`, prima di
+  connettersi; due test `should_panic` lo verificano.
 - Se stdin non e' un terminale (`IsTerminal`) viene letta (tetto 1 MB, solo dopo
-  la decisione di inviare) e parsata come JSON, con tolleranza ai fallimenti:
-  `session_id` -> `agent_session_id`, `notification_type`, `message`
-  (troncato), `source` (`session-start`: `startup|resume|clear|compact|fork`), `reason`
-  (`session-end`: `clear|resume|logout|prompt_input_exit|other`), `stop_hook_active` (bool) e
-  `background_work` (numero di
-  `background_tasks` con stato non concluso, tollerante e senza maiuscole, piu' le
-  voci di `session_crons`; `None` se i due array mancano). Il self-test lancia
-  l'exe con stdin nulla.
-- Payload (una riga JSON su TCP `127.0.0.1:17421`, poi uguale nell'evento Tauri
+  la decisione di inviare) e passata a `HookEvents::normalize(kind, raw)`, che la parsa con
+  tolleranza ai fallimenti e restituisce un `HookEvent` neutro (id sessione dell'agente,
+  `notification_type`, `message` troncato, `start_source`, `end_reason`, `already_continuing`,
+  `background_work`, `transcript_path`, `tool_name`, `tool_summary`). Per Claude Code i nomi dei
+  campi dello stdin (`session_id`, `background_tasks`, `session_crons`, `tool_input`...) stanno solo
+  in `agents/claude_code/hook_events.rs`. Il self-test lancia l'exe con stdin nulla.
+- Payload (una riga JSON su TCP `127.0.0.1:<porta>`, poi uguale nell'evento Tauri
   `agent-event`):
   `{event, agent, tab_id?, agent_session_id?, notification_type?, message?, token?,
-  stop_hook_active?, background_work?, source?, reason?}` (campi opzionali: i client vecchi
-  restano validi).
-  `token` viene da `CLI_COMPANION_TOKEN`; il listener lo toglie prima dell'`emit`
-  verso il frontend e, se valido, passa l'evento hook anche ad `automation`.
+  stop_hook_active?, background_work?, source?, reason?, transcript_path?, tool_name?}` (campi
+  opzionali: i client vecchi restano validi; i nomi sono quelli del protocollo e non si rinominano).
+  `token` viene da `CLI_COMPANION_TOKEN`. Per `permission-request` il messaggio e'
+  "Permesso richiesto: <tool> - <riassunto>", costruito dal client.
+- Porta: il listener (aperto in modo sincrono nel `setup`, prima di ogni pty) prova `DEFAULT_PORT`
+  (17421); se e' occupata (altra istanza) ripiega su una porta libera e lo logga. La porta in ascolto
+  arriva ai terminali in `CLI_COMPANION_PORT` (anche in `WSLENV`, solo se impostata); `--notify` e
+  `--mcp` la leggono con `app_port()` (assente o non valida = `DEFAULT_PORT`). Il comando `ipc_status`
+  ritorna `{port, preferred_port, error}`.
+- Cancello (`gate.rs`, puro, tempo iniettato): un evento senza il token giusto e' scartato (non va ne'
+  all'handler ne' al frontend); gli altri perdono il token; `permission-request` diventa `needs-input`
+  con `notification_type: permission_prompt`; un `needs-input`/`permission_prompt` per un tab con un
+  `permission-request` negli ultimi 60 s e' un duplicato e si scarta (memoria limitata a 256 tab).
+  Uno `finished` bloccato o con lavoro in background non va al frontend (`forwards_to_frontend`).
+- Connessioni: un thread per connessione, al massimo `MAX_CONNECTIONS` (32) insieme; oltre, la
+  connessione si scarta con un warning.
 - Sullo stesso socket passano due tipi di riga, distinti dalla chiave `rpc`:
   - **notify**: il payload sopra, limite 64 KB. Il listener risponde con una riga JSON,
-    `{}` oppure `{"block":"<motivo>"}`, scritta dopo che `automation` ha elaborato l'hook
-    (scrittura best-effort: un client che ha gia' chiuso non e' un errore). Solo
+    `{}` oppure `{"block":"<motivo>"}`, scritta dopo che il core (`IpcHandler::hook_event`) ha
+    elaborato l'hook (scrittura best-effort: un client che ha gia' chiuso non e' un errore). Solo
     `--notify finished` con token legge la riga (timeout 4 s; timeout, chiusura o
-    risposta illeggibile = exit 0 senza output, come prima): se contiene `block` stampa su
-    stdout esattamente `{"decision":"block","reason":"<motivo>"}` (formato dello Stop hook
-    di Claude Code, che fa proseguire il turno) ed esce con 0. Nient'altro viene mai
-    scritto su stdout da `--notify`;
-  - **RPC** (nuova): `{"rpc":1,"token","session","method","params"}`, limite 1 MB,
+    risposta illeggibile = exit 0 senza output): se contiene `block` stampa su stdout
+    esattamente `HookEvents::stop_block_output(motivo)` (per Claude Code
+    `{"decision":"block","reason":"<motivo>"}`, che fa proseguire il turno) ed esce con 0.
+    Nient'altro viene mai scritto su stdout da `--notify`;
+  - **RPC**: `{"rpc":1,"token","session","method","params"}`, limite 1 MB,
     risposta di una riga `{"ok":true,"result":..}` o `{"ok":false,"error":".."}`.
     Token errato o `session` non valida (`is_valid_tab_id`) -> `ok:false`.
-    `automation::rpc::dispatch` la esegue. Il client `rpc_call(port, line,
-    timeout)` e' usato da `mcp.rs`; il timeout di lettura della richiesta e' 2 s.
-    Nessuna RPC resta in attesa: rispondono tutte subito.
+    `IpcHandler::rpc` (-> `automation::handle_rpc` -> `automation::rpc::dispatch`) la esegue. Il
+    client `rpc_call(port, line, timeout)` e' usato da `mcp.rs`; il timeout di lettura della
+    richiesta e' 2 s. Nessuna RPC resta in attesa: rispondono tutte subito.
 - Da WSL l'exe gira sull'host via interop: il TCP resta locale, nessun
   networking cross-VM.
-- Comando: `test_agent_notify` (self-test via --notify).
+- Comandi: `test_agent_notify` (self-test via --notify, con token e porta dell'app) e `ipc_status`.
 
 ### `toast.rs` — notifica cliccabile (Windows)
 
@@ -439,8 +463,8 @@ finche' c'e' un task `running` in un workspace non archiviato. Comandi: `schedul
 - Ramo con early-return in `main.rs` come `--notify`. JSON-RPC 2.0 newline-delimited su
   stdin/stdout: `initialize`, `notifications/initialized`, `ping`, `tools/list`,
   `tools/call`; metodo ignoto con id -> errore -32601. Niente altro su stdout.
-- E' uno **shim**: ogni `tools/call` apre una connessione TCP a `127.0.0.1:17421`
-  (`agent_notify::rpc_call`), invia la riga RPC con `CLI_COMPANION_TOKEN` e
+- E' uno **shim**: ogni `tools/call` apre una connessione TCP a `127.0.0.1:<porta>` (`CLI_COMPANION_PORT`, default 17421)
+  (`ipc::rpc_call`), invia la riga RPC con `CLI_COMPANION_TOKEN` e
   `CLI_COMPANION_SESSION` dall'ambiente e restituisce il risultato come testo JSON
   (errore RPC -> `isError: true`). Read timeout 30 s.
 - Il ruolo si risolve con `whoami` e decide i tool esposti: worker (`get_task`,
@@ -456,7 +480,7 @@ File nella cartella dati dell'app, scritti con `write_atomic`:
   tetto 2 MB. Comandi `load_session` / `save_session`.
 - `scrollback/<tab_id>.txt`: cronologia serializzata di un terminale, tetto 4 MB.
   `save_scrollback`, `load_scrollback`, `delete_scrollback`; il `tab_id` è validato
-  con `agent_notify::is_valid_tab_id` (stesso charset del `CLI_COMPANION_SESSION`).
+  con `ipc::is_valid_tab_id` (stesso charset del `CLI_COMPANION_SESSION`).
   `prune_scrollback(keep)` elimina i file dei tab non elencati (chiamato dopo il ripristino).
 
 ### `store/` — persistenza JSON comune

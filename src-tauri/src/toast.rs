@@ -3,7 +3,7 @@
 //! `tauri-winrt-notification` (lo stesso crate sotto notify-rust) con
 //! `on_activated`, che porta in primo piano la finestra e avvisa il frontend.
 
-use crate::agent_notify::is_valid_tab_id;
+use crate::ipc::is_valid_tab_id;
 
 /// Evento Tauri emesso al click: `{ tab_id }`.
 #[cfg(windows)]

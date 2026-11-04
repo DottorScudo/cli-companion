@@ -6,7 +6,6 @@ use serde::Serialize;
 /// Evento che l'hook dell'agente segnala con `cli-companion --notify <evento> <agente>`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
-#[cfg_attr(not(test), expect(dead_code, reason = "wired by a later task (ipc-hook-events)"))]
 pub enum HookEventKind {
     SessionStart,
     Finished,
@@ -16,7 +15,8 @@ pub enum HookEventKind {
 }
 
 impl HookEventKind {
-    #[cfg_attr(not(test), expect(dead_code, reason = "wired by a later task (ipc-hook-events)"))]
+    /// Tutti i tipi, per le suite di conformita' e di protocollo.
+    #[cfg(test)]
     pub const ALL: [HookEventKind; 5] = [
         HookEventKind::SessionStart,
         HookEventKind::Finished,
@@ -29,7 +29,6 @@ impl HookEventKind {
 /// Dettagli di un evento in forma neutra, indipendente dall'agente. Ogni
 /// campo e' opzionale: l'agente fornisce quelli che conosce.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "wired by a later task (ipc-hook-events)"))]
 pub struct HookEvent {
     pub agent_session_id: Option<String>,
     pub notification_type: Option<String>,
@@ -50,6 +49,9 @@ pub struct HookEvent {
 pub trait HookEvents: Sync {
     /// Normalizza lo stdin grezzo dell'hook. Tollerante: un input malformato
     /// da' un evento senza dettagli, mai un errore.
-    #[cfg_attr(not(test), expect(dead_code, reason = "wired by a later task (ipc-hook-events)"))]
     fn normalize(&self, kind: HookEventKind, raw: &str) -> HookEvent;
+
+    /// Riga da scrivere su stdout dell'hook di fine turno perche' l'agente
+    /// prosegua invece di fermarsi.
+    fn stop_block_output(&self, reason: &str) -> String;
 }

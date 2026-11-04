@@ -21,7 +21,6 @@ mod worker_permissions;
 
 pub use automation::{AutomationRequest, PermissionMode, WorkerAutomation};
 pub use capabilities::{Capabilities, Capability};
-#[cfg_attr(not(test), expect(unused_imports, reason = "wired by a later task (ipc-hook-events)"))]
 pub use hook_events::{HookEvent, HookEventKind, HookEvents};
 pub use input_profile::{InputEvent, InputProfile, InputProfileSource, InputRule};
 pub use integration::{AgentIntegration, Detection};

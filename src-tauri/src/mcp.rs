@@ -3,7 +3,7 @@
 //! Lanciato da Claude Code (plugin `cli-companion-notify`), parla JSON-RPC 2.0
 //! a righe su stdin/stdout ed espone i tool della coda di task. Ogni tool call
 //! e' una richiesta RPC al listener dell'app (stesso socket delle notifiche,
-//! vedi `agent_notify::rpc_call`).
+//! vedi `ipc::rpc_call`).
 //!
 //! L'insieme dei tool dipende dal ruolo (`whoami`): un worker legge il task e
 //! riferisce l'esito, un revisore (worker di un task di revisione) verifica il
@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::agent_notify::{rpc_call, RpcRequest, RpcResponse, NOTIFY_PORT, SESSION_ENV, TOKEN_ENV};
+use crate::ipc::{app_port, rpc_call, RpcRequest, RpcResponse, SESSION_ENV, TOKEN_ENV};
 use tools::{instructions, tools_for, Role};
 
 /// Versioni del protocollo MCP che sappiamo parlare (la prima e' il default).
@@ -205,7 +205,7 @@ impl TcpBackend {
 impl Backend for TcpBackend {
     fn rpc(&self, method: &str, params: &Value) -> Result<Value, String> {
         let line = request_line(&self.session, &self.token, method, params);
-        let answer = rpc_call(NOTIFY_PORT, &line, RPC_TIMEOUT)?;
+        let answer = rpc_call(app_port(), &line, RPC_TIMEOUT)?;
         parse_response(&answer)
     }
 }

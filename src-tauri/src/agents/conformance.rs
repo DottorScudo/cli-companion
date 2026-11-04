@@ -287,6 +287,10 @@ fn hook_events(events: &dyn HookEvents) -> Vec<String> {
             }
         }
     }
+    let line = events.stop_block_output("x");
+    if line.is_empty() || !line.contains('x') {
+        v.push(format!("hook_events: stop_block_output(\"x\") vuoto o senza il motivo: {line:?}"));
+    }
     v
 }
 
