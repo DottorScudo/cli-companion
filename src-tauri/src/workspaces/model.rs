@@ -32,8 +32,8 @@ pub struct WorkerSettings {
     /// Modello di default (None = quello dell'agente); vale quando il task non ne indica uno.
     #[serde(rename = "worker_model", default)]
     pub model: Option<String>,
-    /// Regole di permesso Claude Code pre-approvate (es. `Bash(git:*)`), passate
-    /// con `claude --settings` (vedi `worker_permissions`).
+    /// Regole di permesso pre-approvate nella sintassi dell'agente dei worker, passate
+    /// dal contratto `WorkerPermissions` dell'agente (vedi `agents::worker_rules`).
     #[serde(rename = "worker_allow", default)]
     pub allow: Vec<String>,
     /// Regole di permesso vietate.

@@ -29,10 +29,10 @@ pub trait Host: Clone + Send + 'static {
     /// La cartella esiste nell'ambiente del workspace?
     fn dir_exists(&self, ws: &Workspace, path: &str) -> bool;
     fn launch_command(&self, agent: &str, env_kind: TargetKind, req: &AutomationRequest) -> Result<String, String>;
-    /// File settings con le regole di permesso pre-approvate/vietate del
-    /// workspace per l'agente `agent` (solo Claude Code), nel formato di path
-    /// del suo ambiente. `None` = nessuna regola o agente senza supporto.
-    fn worker_settings_path(&self, _ws: &Workspace, _agent: &str) -> Result<Option<String>, String> {
+    /// File con le regole di permesso pre-approvate/vietate del workspace per
+    /// l'agente `agent`, scritto dal contratto `WorkerPermissions` e nel formato
+    /// di path del suo ambiente. `None` = nessuna regola o agente senza il contratto.
+    fn worker_permissions_file(&self, _ws: &Workspace, _agent: &str) -> Result<Option<String>, String> {
         Ok(None)
     }
     fn emit_spawn(&self, ev: &SpawnEvent);
@@ -211,13 +211,9 @@ impl Host for TauriHost {
         agents::automation_command(agent, env_kind, req)
     }
 
-    fn worker_settings_path(&self, ws: &Workspace, agent: &str) -> Result<Option<String>, String> {
-        // Solo Claude Code sa leggere `--settings`.
-        if agent != DEFAULT_AGENT {
-            return Ok(None);
-        }
+    fn worker_permissions_file(&self, ws: &Workspace, agent: &str) -> Result<Option<String>, String> {
         let data_dir = auto::data_dir(&self.0)?;
-        crate::worker_permissions::prepare_settings_file(&data_dir, &ws.id, ws.kind, &ws.worker.allow, &ws.worker.deny)
+        agents::worker_permissions_file(agent, &data_dir, &ws.id, ws.kind, (&ws.worker.allow, &ws.worker.deny))
     }
 
     fn emit_spawn(&self, ev: &SpawnEvent) {

@@ -295,10 +295,31 @@ fn hook_events(events: &dyn HookEvents) -> Vec<String> {
 }
 
 fn worker_permissions(permissions: &dyn WorkerPermissions, data_dir: &Path) -> Vec<String> {
-    match permissions.prepare(data_dir, "ws-conformance", TargetKind::Windows, &[], &[]) {
-        Ok(None) => Vec::new(),
-        other => vec![format!("worker_permissions: senza regole atteso Ok(None), ottenuto {other:?}")],
+    let mut v = Vec::new();
+    let format = permissions.rule_format();
+    if format.max_rules == 0 || format.max_rule_chars == 0 || format.example.trim().is_empty() {
+        v.push(format!("worker_permissions: forma delle regole incompleta: {format:?}"));
     }
+    let guide = permissions.guide();
+    if guide.rules_help.trim().is_empty() || guide.bypass_note.trim().is_empty() {
+        v.push("worker_permissions: guida vuota".to_string());
+    }
+    let blank = ["".to_string(), "  ".to_string()];
+    match permissions.validate_rules(&blank) {
+        Ok(rules) if rules.is_empty() => {}
+        other => v.push(format!("worker_permissions: righe vuote attese scartate, ottenuto {other:?}")),
+    }
+    match permissions.validate_rules(&[format.example.to_string()]) {
+        Ok(rules) if rules == [format.example] => {}
+        other => {
+            v.push(format!("worker_permissions: l'esempio {:?} non e' una regola valida: {other:?}", format.example))
+        }
+    }
+    match permissions.prepare(data_dir, "ws-conformance", TargetKind::Windows, &[], &[]) {
+        Ok(None) => {}
+        other => v.push(format!("worker_permissions: senza regole atteso Ok(None), ottenuto {other:?}")),
+    }
+    v
 }
 
 fn user_skills(skills: &dyn UserSkills) -> Vec<String> {
@@ -412,6 +433,6 @@ fn registry_ids_are_unique_and_the_default_worker_agent_can_automate() {
     unique.sort();
     unique.dedup();
     assert_eq!(unique.len(), ids.len(), "id duplicati: {ids:?}");
-    let default = registry::find(registry::DEFAULT_WORKER_AGENT).expect("agente dei worker registrato");
+    let default = registry::find(registry::default_worker_integration().id()).expect("agente dei worker registrato");
     assert!(default.capabilities().automation.is_some(), "l'agente dei worker deve dichiarare automation");
 }

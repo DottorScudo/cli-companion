@@ -1,5 +1,5 @@
 //! `$HOME` dell'utente di default di una distro WSL, risolto una volta per
-//! processo. Serve a raggiungere `~/.claude` della distro da Windows (path UNC).
+//! processo. Serve a raggiungere la home della distro da Windows (path UNC).
 
 use crate::platform::{is_valid_distro_name, output_with_timeout, wsl_exe};
 use std::collections::HashMap;

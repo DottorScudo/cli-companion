@@ -8,20 +8,21 @@ mod config_dir;
 mod hook_events;
 mod input_profile;
 mod package;
+mod permissions;
 mod plugin;
 mod presets;
 mod resume;
 mod session_usage;
+mod skills;
 mod usage_limits;
 
 use super::contracts::{AgentIntegration, Capabilities, Detection};
 use super::detection::{parse_version, resolve_wsl_command_cached, DETECT_TIMEOUT};
 use crate::platform::Target;
-pub(crate) use config_dir::windows_claude_dir;
 
 pub struct ClaudeCode;
 
-pub(crate) const AGENT_ID: &str = "claude-code";
+const AGENT_ID: &str = "claude-code";
 /// Comando che avvia Claude Code in modo interattivo (base anche dei preset).
 const INTERACTIVE_COMMAND: &str = "claude --dangerously-skip-permissions";
 const MARKETPLACE: &str = "cli-companion-local";
@@ -66,9 +67,9 @@ impl AgentIntegration for ClaudeCode {
             hook_events: Some(self),
             session_resume: Some(self),
             automation: Some(self),
-            worker_permissions: None,
+            worker_permissions: Some(self),
             presets: Some(self),
-            user_skills: None,
+            user_skills: Some(self),
             usage_limits: Some(self),
             session_usage: Some(self),
             input_profile: Some(self),

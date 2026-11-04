@@ -1,8 +1,7 @@
-use super::tools::{reviewer_tools, session_tools, worker_tools};
+use super::tools::{reviewer_tools, session_tools, settings_properties, worker_tools};
 use super::*;
-use crate::agents::PermissionMode;
+use crate::agents::{worker_rule_format, PermissionMode, RuleFormat};
 use crate::automation::settings::REASON_MAX;
-use crate::worker_permissions::{MAX_RULES, MAX_RULE_CHARS};
 use crate::workspaces::{
     DeliveryMode, MergeMethod, MAX_COMMAND_LEN, MAX_E2E_TIMEOUT_MIN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_LAUNCHES,
     MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN,
@@ -53,6 +52,11 @@ impl Backend for Fake {
         }
         self.reply.clone()
     }
+}
+
+/// Limiti delle regole dell'agente predefinito dei worker.
+fn rule_limits() -> RuleFormat {
+    worker_rule_format().expect("the default worker agent applies permission rules")
 }
 
 fn send(server: &mut Server, b: &dyn Backend, msg: Value) -> Option<Value> {
@@ -267,8 +271,8 @@ fn schemas_match_the_rust_validation() {
     assert_eq!(props["worker_permission"]["enum"], json!(["plan", "default", "accept-edits", "bypass"]));
     assert_eq!(props["worker_permission"]["enum"], json!(PermissionMode::ALL.map(PermissionMode::as_str)));
     for list in ["worker_allow", "worker_deny"] {
-        assert_eq!(props[list]["maxItems"], MAX_RULES, "{list}");
-        assert_eq!(props[list]["items"]["maxLength"], MAX_RULE_CHARS, "{list}");
+        assert_eq!(props[list]["maxItems"], rule_limits().max_rules, "{list}");
+        assert_eq!(props[list]["items"]["maxLength"], rule_limits().max_rule_chars, "{list}");
     }
     let delivery = &props["delivery"];
     assert_eq!(keys(&delivery["properties"]), ["merge_method", "mode", "parallel"]);
@@ -533,4 +537,18 @@ fn a_reviewer_cannot_call_the_queue_or_settings_tools() {
         .unwrap();
     assert!(r["result"].get("isError").is_none());
     assert_eq!(b.calls.borrow().last().unwrap().0, "get_task_details");
+}
+
+#[test]
+fn rule_fields_of_propose_settings_exist_only_when_the_worker_agent_applies_rules() {
+    let without = settings_properties(None);
+    assert!(without.get("worker_allow").is_none() && without.get("worker_deny").is_none());
+    assert!(without.get("worker_permission").is_some());
+    let format = RuleFormat { max_rules: 7, max_rule_chars: 11, example: "my-rule" };
+    let with = settings_properties(Some(format));
+    for list in ["worker_allow", "worker_deny"] {
+        assert_eq!(with[list]["maxItems"], 7, "{list}");
+        assert_eq!(with[list]["items"]["maxLength"], 11, "{list}");
+        assert_eq!(with[list]["description"], "Replaces the list, e.g. my-rule.", "{list}");
+    }
 }

@@ -1,8 +1,8 @@
 //! Tool MCP delle impostazioni del workspace e decisione dell'utente.
 
 use super::*;
-use crate::agents::{builtin_launch_list, PermissionMode};
-use crate::automation::settings::{settings_proposal_decide, SettingsDecision, REASON_MAX};
+use crate::agents::{builtin_launch_list, PermissionMode, RuleFormat};
+use crate::automation::settings::{limits_json, settings_proposal_decide, SettingsDecision, REASON_MAX};
 use crate::workspaces::{Launch, MAX_RULES_LEN};
 
 const REASON: &str = "the project needs it";
@@ -484,4 +484,14 @@ fn null_values_clear_a_field_and_null_repos_are_removed_end_to_end() {
     assert_eq!(w.repos["api"].base_branch, None);
     assert_eq!(w.repos["api"].setup, ["npm ci"], "other fields of the repository stay");
     assert!(!w.repos.contains_key("old"));
+}
+
+#[test]
+fn permission_rule_limits_exist_only_when_the_worker_agent_applies_rules() {
+    let without = limits_json(None);
+    assert!(without.get("permission_rules").is_none() && without.get("permission_rule_chars").is_none());
+    assert_eq!(without["worker_rules_chars"], MAX_RULES_LEN);
+    let format = RuleFormat { max_rules: 7, max_rule_chars: 11, example: "x" };
+    let with = limits_json(Some(format));
+    assert_eq!((with["permission_rules"].as_u64(), with["permission_rule_chars"].as_u64()), (Some(7), Some(11)));
 }

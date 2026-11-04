@@ -1,6 +1,10 @@
 use super::*;
+use crate::agents::testing::FakeIntegration;
 use crate::user_skills::{remove_from, save, sync_one, SkillInput, MANAGED_MARKER, SKILL_FILE};
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Integrazione finta che dichiara le skill utente (`C:/fake/skills`, `.fake/skills`).
+const AGENT: &str = "fake-agent";
 
 /// Cartella temporanea unica per test, rimossa a fine test.
 struct TempDir(PathBuf);
@@ -15,11 +19,11 @@ impl TempDir {
         Self(dir)
     }
 
-    /// Cartella dati con le cartelle plugin di Claude Code per gli ambienti dati.
-    fn with_plugins(envs: &[&str]) -> Self {
+    /// Cartella dati con le cartelle pacchetto di `agent` per gli ambienti dati.
+    fn with_plugins(agent: &str, envs: &[&str]) -> Self {
         let data = Self::new();
         for env in envs {
-            fs::create_dir_all(plugins_dir(&data.0, CLAUDE_CODE_ID).join(env)).unwrap();
+            fs::create_dir_all(plugins_dir(&data.0, agent).join(env)).unwrap();
         }
         data
     }
@@ -58,41 +62,45 @@ fn distros_in_use_matches_the_sanitized_folder_name() {
 
 #[test]
 fn wsl_skills_dir_is_a_unc_path_under_the_home() {
-    let expected = PathBuf::from("\\\\wsl.localhost\\Ubuntu\\home\\u\\.claude\\skills");
-    assert_eq!(wsl_skills_dir("Ubuntu", "/home/u"), Ok(expected.clone()));
-    assert_eq!(wsl_skills_dir("Ubuntu", "/home/u/"), Ok(expected));
-    assert!(wsl_skills_dir("Ubuntu", "home/u").is_err());
+    let expected = PathBuf::from(r"\\wsl.localhost\Ubuntu\home\u\.fake\skills");
+    assert_eq!(wsl_skills_dir("Ubuntu", "/home/u", ".fake/skills"), Ok(expected.clone()));
+    assert_eq!(wsl_skills_dir("Ubuntu", "/home/u/", ".fake/skills"), Ok(expected));
+    assert!(wsl_skills_dir("Ubuntu", "home/u", ".fake/skills").is_err());
 }
 
 #[test]
 fn plugin_env_dirs_ignores_windows_and_plain_files() {
-    let data = TempDir::with_plugins(&["windows", "Ubuntu", "Debian"]);
-    fs::write(plugins_dir(&data.0, CLAUDE_CODE_ID).join("stray.txt"), "x").unwrap();
-    let mut dirs = plugin_env_dirs(&data.0);
+    let data = TempDir::with_plugins(AGENT, &["windows", "Ubuntu", "Debian"]);
+    fs::write(plugins_dir(&data.0, AGENT).join("stray.txt"), "x").unwrap();
+    let mut dirs = plugin_env_dirs(&data.0, AGENT);
     dirs.sort();
     assert_eq!(dirs, strings(&["Debian", "Ubuntu"]));
-    assert!(plugin_env_dirs(&data.0.join("missing")).is_empty());
+    assert!(plugin_env_dirs(&data.0.join("missing"), AGENT).is_empty());
+    assert!(plugin_env_dirs(&data.0, "other-agent").is_empty());
 }
 
 #[test]
 fn targets_are_windows_only_without_distro_plugins_and_never_list_distros() {
-    let data = TempDir::with_plugins(&["windows"]);
-    let targets = targets_with(&data.0, || panic!("wsl -l must not run"), |_| panic!("no home needed"));
+    let agent = FakeIntegration::full(AGENT);
+    let data = TempDir::with_plugins(AGENT, &["windows"]);
+    let targets = targets_with(&data.0, &[&agent], || panic!("wsl -l must not run"), |_| panic!("no home needed"));
     assert_eq!(targets.iter().map(|t| t.env.as_str()).collect::<Vec<_>>(), [WINDOWS_ENV]);
+    assert_eq!(targets[0].dir, Ok(PathBuf::from("C:/fake/skills")));
 }
 
 #[test]
 fn an_unreachable_distro_is_an_error_target_and_does_not_hide_the_others() {
-    let data = TempDir::with_plugins(&["windows", "Ubuntu", "Debian", "Unused"]);
+    let agent = FakeIntegration::full(AGENT);
+    let data = TempDir::with_plugins(AGENT, &["windows", "Ubuntu", "Debian", "Unused"]);
     let installed = || Ok(strings(&["Ubuntu", "Debian", "Unused", "docker-desktop"]));
     let home = |d: &str| match d {
         "Debian" => Err("Cannot resolve the home folder of WSL distro 'Debian': timed out".to_string()),
         _ => Ok("/home/me".to_string()),
     };
-    let targets = targets_with(&data.0, installed, home);
+    let targets = targets_with(&data.0, &[&agent], installed, home);
     let envs: Vec<&str> = targets.iter().map(|t| t.env.as_str()).collect();
     assert_eq!(envs, [WINDOWS_ENV, "Ubuntu", "Debian", "Unused"]);
-    assert_eq!(targets[1].dir, Ok(PathBuf::from("\\\\wsl.localhost\\Ubuntu\\home\\me\\.claude\\skills")));
+    assert_eq!(targets[1].dir, Ok(PathBuf::from(r"\\wsl.localhost\Ubuntu\home\me\.fake\skills")));
     assert_eq!(
         targets[2].dir.as_ref().unwrap_err(),
         "Cannot resolve the home folder of WSL distro 'Debian': timed out"
@@ -102,14 +110,36 @@ fn an_unreachable_distro_is_an_error_target_and_does_not_hide_the_others() {
 
 #[test]
 fn a_failing_distro_listing_leaves_only_windows() {
-    let data = TempDir::with_plugins(&["Ubuntu"]);
-    let targets = targets_with(&data.0, || Err("wsl missing".to_string()), |_| panic!("no home needed"));
+    let agent = FakeIntegration::full(AGENT);
+    let data = TempDir::with_plugins(AGENT, &["Ubuntu"]);
+    let targets = targets_with(&data.0, &[&agent], || Err("wsl missing".to_string()), |_| panic!("no home needed"));
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0].env, WINDOWS_ENV);
 }
 
-/// End-to-end su una distro reale, in una cartella usa e getta (non nel vero
-/// `~/.claude/skills`): sync via UNC, verifica da entrambi i lati e rimozione.
+#[test]
+fn an_integration_without_the_contract_has_no_targets() {
+    let bare = FakeIntegration::bare("bare-agent", "bare-cli");
+    let data = TempDir::with_plugins("bare-agent", &["windows", "Ubuntu"]);
+    let targets = targets_with(&data.0, &[&bare], || panic!("wsl -l must not run"), |_| panic!("no home needed"));
+    assert!(targets.is_empty());
+    assert!(windows_targets(&with_skills(&[&bare])).is_empty());
+}
+
+#[test]
+fn only_integrations_with_the_contract_get_targets() {
+    let agent = FakeIntegration::full(AGENT);
+    let bare = FakeIntegration::bare("bare-agent", "bare-cli");
+    let data = TempDir::with_plugins(AGENT, &["windows", "Ubuntu"]);
+    fs::create_dir_all(plugins_dir(&data.0, "bare-agent").join("Debian")).unwrap();
+    let installed = || Ok(strings(&["Ubuntu", "Debian"]));
+    let targets = targets_with(&data.0, &[&bare, &agent], installed, |_| Ok("/home/me".to_string()));
+    let envs: Vec<&str> = targets.iter().map(|t| t.env.as_str()).collect();
+    assert_eq!(envs, [WINDOWS_ENV, "Ubuntu"]);
+}
+
+/// End-to-end su una distro reale, in una cartella usa e getta (non nella vera
+/// cartella delle skill): sync via UNC, verifica da entrambi i lati e rimozione.
 /// `cargo test -- --ignored wsl_skills_real --nocapture`
 #[test]
 #[ignore]

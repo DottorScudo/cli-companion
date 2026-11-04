@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { api } from "../../lib/tauri";
-import type { Workspace } from "../../lib/tauri";
+import type { AgentProfile, Workspace } from "../../lib/tauri";
 import {
   WORKER_PERMISSIONS,
   normalizeWorkerPermission,
@@ -23,11 +23,12 @@ const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.
 
 interface Props {
   workspace: Workspace;
+  agentProfiles: AgentProfile[];
   onWorkspaceUpdated: (ws: Workspace) => void;
 }
 
 /** Workspace › Worker: permessi, modello, regole e fasce orarie dei worker automatici. */
-export default function WorkerPage({ workspace, onWorkspaceUpdated }: Props) {
+export default function WorkerPage({ workspace, agentProfiles, onWorkspaceUpdated }: Props) {
   const { run, saving, error } = useWorkspaceOp(onWorkspaceUpdated);
 
   // Bozze: seguono il workspace selezionato e il valore salvato.
@@ -58,12 +59,14 @@ export default function WorkerPage({ workspace, onWorkspaceUpdated }: Props) {
     setDenyDraft(rulesToText(workspace.worker_deny));
   }, [workspace.id, workspace.worker_allow, workspace.worker_deny]);
 
+  // I worker usano l'agente predefinito: i testi sui permessi sono suoi.
+  const agent = agentProfiles.find((p) => p.is_default);
+  const guide = agent?.worker_permissions ?? null;
   const permission = normalizeWorkerPermission(workspace.worker_permission);
-  const allowParsed = useMemo(() => parseWorkerRules(allowDraft), [allowDraft]);
-  const denyParsed = useMemo(() => parseWorkerRules(denyDraft), [denyDraft]);
+  const allowRules = useMemo(() => parseWorkerRules(allowDraft), [allowDraft]);
+  const denyRules = useMemo(() => parseWorkerRules(denyDraft), [denyDraft]);
   const rulesChanged =
-    !sameList(allowParsed.rules, workspace.worker_allow ?? []) ||
-    !sameList(denyParsed.rules, workspace.worker_deny ?? []);
+    !sameList(allowRules, workspace.worker_allow ?? []) || !sameList(denyRules, workspace.worker_deny ?? []);
 
   return (
     <SettingsPage
@@ -89,65 +92,69 @@ export default function WorkerPage({ workspace, onWorkspaceUpdated }: Props) {
           </select>
           {permission === "bypass" && (
             <p className="mt-1 text-[11px] text-destructive">
-              I worker eseguiranno qualsiasi comando senza conferma. Claude Code mostra una conferma una tantum, a meno
-              che in ~/.claude/settings.json ci sia skipDangerousModePermissionPrompt: true.
+              I worker eseguiranno qualsiasi comando senza conferma. {guide?.bypass_note}
             </p>
           )}
         </Field>
       </Section>
 
-      <Section>
-        <Field
-          label="Comandi pre-approvati"
-          help="Solo worker Claude Code. Una regola per riga, nella sintassi dei permessi di Claude Code: Bash(git:*), Bash(docker exec:*), Edit, WebFetch(domain:example.com). Un prefisso come Bash(docker exec:*) consente qualsiasi comando che inizia così (anche docker exec … mysql): scegli prefissi stretti. Un * in mezzo al comando può non funzionare nelle versioni vecchie di Claude Code. I divieti vincono sempre sui consentiti, ma non sono un confine di sicurezza (lo stesso programma lanciato in altra forma, es. con un path o dentro sh -c, può sfuggire). Valgono per i worker avviati da ora in poi."
-        >
-          {permission === "bypass" && (
-            <p className="mb-2 text-[11px] text-muted-foreground">
-              Con i permessi a bypass i worker non chiedono mai conferma: i Consentiti non servono, i Vietati restano in
-              vigore.
-            </p>
-          )}
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <div className="mb-1 text-[11px] font-medium">Consentiti</div>
-              <textarea
-                value={allowDraft}
-                onChange={(e) => setAllowDraft(e.target.value)}
-                disabled={permission === "bypass"}
-                rows={5}
-                spellCheck={false}
-                placeholder={"Bash(git:*)\nBash(npm run:*)\nBash(docker exec freud-manager:*)"}
-                className={rulesAreaClass}
-              />
-              {allowParsed.error && <p className="mt-1 text-[11px] text-destructive">{allowParsed.error}</p>}
+      {guide ? (
+        <Section>
+          <Field label="Comandi pre-approvati" help={guide.rules_help}>
+            {permission === "bypass" && (
+              <p className="mb-2 text-[11px] text-muted-foreground">
+                Con i permessi a bypass i worker non chiedono mai conferma: i Consentiti non servono, i Vietati restano
+                in vigore.
+              </p>
+            )}
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <div className="mb-1 text-[11px] font-medium">Consentiti</div>
+                <textarea
+                  value={allowDraft}
+                  onChange={(e) => setAllowDraft(e.target.value)}
+                  disabled={permission === "bypass"}
+                  rows={5}
+                  spellCheck={false}
+                  placeholder={guide.allow_placeholder}
+                  className={rulesAreaClass}
+                />
+              </div>
+              <div>
+                <div className="mb-1 text-[11px] font-medium">Vietati</div>
+                <textarea
+                  value={denyDraft}
+                  onChange={(e) => setDenyDraft(e.target.value)}
+                  rows={5}
+                  spellCheck={false}
+                  placeholder={guide.deny_placeholder}
+                  className={rulesAreaClass}
+                />
+              </div>
             </div>
-            <div>
-              <div className="mb-1 text-[11px] font-medium">Vietati</div>
-              <textarea
-                value={denyDraft}
-                onChange={(e) => setDenyDraft(e.target.value)}
-                rows={5}
-                spellCheck={false}
-                placeholder={"Bash(rm -rf:*)\nBash(git push:*)\nRead(./.env)"}
-                className={rulesAreaClass}
-              />
-              {denyParsed.error && <p className="mt-1 text-[11px] text-destructive">{denyParsed.error}</p>}
+            <div className="mt-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={saving || !rulesChanged}
+                onClick={() => void run(() => api.setWorkerPermissionRules(workspace.id, allowRules, denyRules))}
+              >
+                Salva
+              </Button>
             </div>
-          </div>
-          <div className="mt-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={saving || allowParsed.error !== null || denyParsed.error !== null || !rulesChanged}
-              onClick={() =>
-                void run(() => api.setWorkerPermissionRules(workspace.id, allowParsed.rules, denyParsed.rules))
-              }
-            >
-              Salva
-            </Button>
-          </div>
-        </Field>
-      </Section>
+          </Field>
+        </Section>
+      ) : (
+        agent && (
+          <Section>
+            <Field label="Comandi pre-approvati">
+              <p className="text-[11px] text-muted-foreground">
+                {agent.agent_name} non supporta i comandi pre-approvati: le regole non si applicano ai worker.
+              </p>
+            </Field>
+          </Section>
+        )
+      )}
 
       <Section>
         <Field

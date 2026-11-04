@@ -71,3 +71,24 @@ pub trait WorkerAutomation: Sync {
     /// modello o nel path).
     fn command(&self, env_kind: TargetKind, req: &AutomationRequest) -> Option<String>;
 }
+
+/// `true` se il path sta in modo letterale tra doppi apici in PowerShell,
+/// cmd e bash: l'unica forma ammessa per `AutomationRequest::permissions_file`
+/// in una riga di comando.
+pub fn is_shell_safe_path(p: &str) -> bool {
+    !p.is_empty() && !p.chars().any(|c| matches!(c, '"' | '$' | '`' | '%' | '!') || c.is_control())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_safe_paths() {
+        assert!(is_shell_safe_path(r"C:\Users\Mario Rossi\AppData\x.json"));
+        assert!(is_shell_safe_path("/mnt/c/Users/o'neil/x.json"));
+        for bad in [r"C:\a$b\x.json", r"C:\a`b", r"C:\100%\x", "C:\\a\"b", r"C:\hi!\x", ""] {
+            assert!(!is_shell_safe_path(bad), "{bad:?}");
+        }
+    }
+}

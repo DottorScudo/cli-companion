@@ -5,11 +5,15 @@ use super::claude_code;
 use super::contracts::{AgentIntegration, AutomationRequest};
 use crate::platform::TargetKind;
 
-/// Integrazioni supportate. Per aggiungerne una: una riga qui.
+/// Integrazioni supportate. Per aggiungerne una: una riga qui. La prima e' quella
+/// predefinita dei worker (vedi `default_worker_integration`).
 static INTEGRATIONS: &[&dyn AgentIntegration] = &[&claude_code::ClaudeCode];
 
-/// Integrazione che usano i worker quando un task non ne indica una.
-pub const DEFAULT_WORKER_AGENT: &str = claude_code::AGENT_ID;
+/// Integrazione che usano i worker quando un task non ne indica una: la prima
+/// del registro.
+pub fn default_worker_integration() -> &'static dyn AgentIntegration {
+    INTEGRATIONS[0]
+}
 
 pub fn all() -> &'static [&'static dyn AgentIntegration] {
     INTEGRATIONS
@@ -53,12 +57,12 @@ mod tests {
             model: None,
             permissions_file: None,
         };
-        assert!(automation_command(DEFAULT_WORKER_AGENT, TargetKind::Wsl, &req).is_ok());
+        assert!(automation_command(default_worker_integration().id(), TargetKind::Wsl, &req).is_ok());
         assert_eq!(automation_command("nope", TargetKind::Windows, &req), Err("unknown agent: nope".to_string()));
         // Richiesta non rappresentabile in modo sicuro.
         let bad = AutomationRequest { bootstrap_prompt: "a$b", ..req };
         assert_eq!(
-            automation_command(DEFAULT_WORKER_AGENT, TargetKind::Windows, &bad),
+            automation_command(default_worker_integration().id(), TargetKind::Windows, &bad),
             Err("Claude Code does not support automated sessions".to_string())
         );
     }

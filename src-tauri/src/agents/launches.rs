@@ -2,7 +2,7 @@
 
 use super::contracts::{AgentIntegration, PresetLauncher};
 use super::presets::{Preset, PRESETS};
-use super::registry::{self, DEFAULT_WORKER_AGENT};
+use super::registry::{self, default_worker_integration};
 use serde::Serialize;
 
 /// Avvio integrato derivato dal registro.
@@ -53,7 +53,7 @@ pub(super) fn collect_builtin_launches(
 
 /// Avvii integrati di tutti gli agenti (usata anche per validare gli id).
 pub fn builtin_launch_list() -> Vec<BuiltinLaunch> {
-    collect_builtin_launches(registry::all(), DEFAULT_WORKER_AGENT, PRESETS)
+    collect_builtin_launches(registry::all(), default_worker_integration().id(), PRESETS)
 }
 
 #[cfg(test)]

@@ -5,6 +5,7 @@
 use super::contracts::*;
 use super::presets::{Preset, PRESETS};
 use crate::platform::{Target, TargetKind};
+use crate::validate::{ErrorCode, ValidationError};
 use std::path::{Path, PathBuf};
 
 /// Difetto voluto, per provare che la conformita' lo segnala.
@@ -164,7 +165,7 @@ impl WorkerAutomation for FakeIntegration {
         }
         let mut cmd = format!("{} \"{}\"", self.id, req.bootstrap_prompt);
         if let Some(file) = req.permissions_file {
-            if !crate::worker_permissions::is_shell_safe_path(file) {
+            if !crate::agents::is_shell_safe_path(file) {
                 return None;
             }
             cmd.push_str(&format!(" --rules \"{file}\""));
@@ -183,6 +184,33 @@ impl WorkerAutomation for FakeIntegration {
 }
 
 impl WorkerPermissions for FakeIntegration {
+    fn rule_format(&self) -> RuleFormat {
+        RuleFormat { max_rules: 5, max_rule_chars: 20, example: "fake-rule" }
+    }
+
+    fn guide(&self) -> PermissionsGuide {
+        PermissionsGuide {
+            rules_help: "Regole finte.",
+            bypass_note: "Nota finta.",
+            allow_placeholder: "fake-allow",
+            deny_placeholder: "fake-deny",
+        }
+    }
+
+    /// Una regola e' una parola senza spazi.
+    fn validate_rules(&self, rules: &[String]) -> Result<Vec<String>, ValidationError> {
+        let mut out: Vec<String> = Vec::new();
+        for rule in rules.iter().map(|r| r.trim()).filter(|r| !r.is_empty()) {
+            if rule.contains(char::is_whitespace) {
+                return Err(ValidationError::new(ErrorCode::PermissionRuleBadShape).value(rule.to_string()));
+            }
+            if !out.iter().any(|r| r == rule) {
+                out.push(rule.to_string());
+            }
+        }
+        Ok(out)
+    }
+
     fn prepare(
         &self,
         _: &Path,

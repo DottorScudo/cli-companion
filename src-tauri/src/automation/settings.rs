@@ -6,9 +6,8 @@
 
 use super::boards::{session_workspace, workspace_of};
 use super::*;
-use crate::agents::{builtin_launch_list, PermissionMode};
+use crate::agents::{builtin_launch_list, worker_rule_format, PermissionMode, RuleFormat};
 use crate::board::SettingsProposal;
-use crate::worker_permissions::{MAX_RULES, MAX_RULE_CHARS};
 use crate::workspaces::{
     DeliveryMode, MergeMethod, SettingsPatch, MAX_COMMAND_LEN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_LAUNCHES,
     MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN,
@@ -93,7 +92,7 @@ fn get_settings<H: Host>(st: &AutomationState, host: &H, ws: &Workspace) -> Valu
         "settings": settings_json(ws),
         "repos": repos_json(ws, &detected),
         "allowed": allowed_json(ws),
-        "limits": limits_json(),
+        "limits": limits_json(worker_rule_format()),
         "pending_settings_proposals": pending,
     });
     if let Some(e) = repos_error {
@@ -140,19 +139,23 @@ fn allowed_json(ws: &Workspace) -> Value {
     })
 }
 
-fn limits_json() -> Value {
-    json!({
+pub(super) fn limits_json(rules: Option<RuleFormat>) -> Value {
+    let mut limits = json!({
         "reason_chars": REASON_MAX,
         "worker_rules_chars": MAX_RULES_LEN,
-        "permission_rules": MAX_RULES,
-        "permission_rule_chars": MAX_RULE_CHARS,
         "launches": MAX_PATCH_LAUNCHES,
         "launch_name_chars": MAX_LAUNCH_NAME_LEN,
         "launch_command_chars": MAX_COMMAND_LEN,
         "repos_per_proposal": MAX_PATCH_REPOS,
         "repo_commands": MAX_REPO_COMMANDS,
         "repo_command_chars": MAX_REPO_COMMAND_LEN,
-    })
+    });
+    // Le regole di permesso esistono solo se l'agente dei worker le applica.
+    if let Some(format) = rules {
+        limits["permission_rules"] = json!(format.max_rules);
+        limits["permission_rule_chars"] = json!(format.max_rule_chars);
+    }
+    limits
 }
 
 // ---------------------------------------------------------------------------

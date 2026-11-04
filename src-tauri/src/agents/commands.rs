@@ -3,7 +3,8 @@
 //! contratti delle integrazioni.
 
 use super::contracts::{
-    AgentIntegration, Capability, InputProfile, InstallCtx, ResumeSpec, SessionUsage, UsageLimitsReply,
+    AgentIntegration, Capability, InputProfile, InstallCtx, PermissionsGuide, ResumeSpec, SessionUsage,
+    UsageLimitsReply,
 };
 use super::detection::{invalidate_detection_cache, list_targets};
 use super::launches::{builtin_launch_list, BuiltinLaunch};
@@ -74,13 +75,16 @@ pub struct AgentProfile {
     pub capabilities: Vec<Capability>,
     /// Vuoto se l'integrazione non dichiara `input_profile`.
     pub input_profile: InputProfile,
-    /// `true` per l'integrazione predefinita (`DEFAULT_WORKER_AGENT`), la stessa
+    /// `true` per l'integrazione predefinita (`default_worker_integration`), la stessa
     /// che usano i worker.
     pub is_default: bool,
     /// Dati per riprendere le sessioni; `None` se non dichiara `session_resume`.
     pub session_resume: Option<ResumeSpec>,
     /// Avviso sui limiti dell'abbonamento; `None` se non dichiara `usage_limits`.
     pub usage_limits_notice: Option<&'static str>,
+    /// Testi sui comandi pre-approvati dei worker; `None` se non dichiara
+    /// `worker_permissions`: le regole non si applicano.
+    pub worker_permissions: Option<PermissionsGuide>,
 }
 
 fn collect_profiles(integrations: &[&dyn AgentIntegration]) -> Vec<AgentProfile> {
@@ -93,9 +97,10 @@ fn collect_profiles(integrations: &[&dyn AgentIntegration]) -> Vec<AgentProfile>
                 agent_name: i.display_name().to_string(),
                 capabilities: caps.declared(),
                 input_profile: caps.input_profile.map(|p| p.input_profile()).unwrap_or_default(),
-                is_default: i.id() == registry::DEFAULT_WORKER_AGENT,
+                is_default: i.id() == registry::default_worker_integration().id(),
                 session_resume: caps.session_resume.map(|resume| resume.resume_spec()),
                 usage_limits_notice: caps.usage_limits.map(|limits| limits.notice()),
+                worker_permissions: caps.worker_permissions.map(|permissions| permissions.guide()),
             }
         })
         .collect()
@@ -246,6 +251,8 @@ mod tests {
         assert_eq!(v["session_resume"]["strip_flags"][0]["takes_value"], true);
         assert_eq!(v["session_resume"]["resume_template"], "{command} --resume {id}");
         assert!(!v["usage_limits_notice"].as_str().unwrap().is_empty());
+        assert!(v["worker_permissions"]["rules_help"].as_str().unwrap().contains("Bash(git:*)"));
+        assert!(!v["worker_permissions"]["bypass_note"].as_str().unwrap().is_empty());
     }
 
     #[test]
@@ -254,7 +261,9 @@ mod tests {
         let p = &collect_profiles(&[&bare])[0];
         assert!(p.capabilities.is_empty() && p.input_profile.rules.is_empty());
         let v = serde_json::to_value(p).unwrap();
-        assert!(v["session_resume"].is_null() && v["usage_limits_notice"].is_null());
+        assert!(
+            v["session_resume"].is_null() && v["usage_limits_notice"].is_null() && v["worker_permissions"].is_null()
+        );
         assert_eq!(v["is_default"], false);
         let full = FakeIntegration::full("full");
         let p = &collect_profiles(&[&full])[0];
@@ -264,6 +273,7 @@ mod tests {
         assert_eq!(v["is_default"], false);
         assert_eq!(v["session_resume"]["command_names"], serde_json::json!(["fake"]));
         assert!(!v["usage_limits_notice"].as_str().unwrap().is_empty());
+        assert_eq!(v["worker_permissions"]["rules_help"], "Regole finte.");
     }
 
     #[test]

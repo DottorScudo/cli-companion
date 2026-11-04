@@ -523,7 +523,7 @@ fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Res
         (None, Vec::new(), base)
     };
     let workdir = worktree.as_ref().map_or_else(|| dir.clone(), |w| w.path.clone());
-    let permissions_file = host.worker_settings_path(ws, &task.agent)?;
+    let permissions_file = host.worker_permissions_file(ws, &task.agent)?;
     let req = AutomationRequest {
         bootstrap_prompt: BOOTSTRAP_PROMPT,
         permission_mode: ws.worker.permission,

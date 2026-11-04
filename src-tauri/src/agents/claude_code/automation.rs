@@ -24,7 +24,7 @@ impl WorkerAutomation for ClaudeCode {
         // doppi apici, valido in PowerShell, cmd e bash se privo di
         // `" $ ` % !` (altrimenti niente comando).
         let settings = match req.permissions_file {
-            Some(p) if crate::worker_permissions::is_shell_safe_path(p) => format!(" --settings \"{p}\""),
+            Some(p) if crate::agents::is_shell_safe_path(p) => format!(" --settings \"{p}\""),
             Some(_) => return None,
             None => String::new(),
         };

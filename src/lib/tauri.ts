@@ -216,6 +216,15 @@ export type AgentCapability =
   | "session-usage"
   | "input-profile";
 
+/** Testi dell'integrazione sui permessi dei worker (vedi `PermissionsGuide` in agents/contracts). */
+export interface WorkerPermissionsGuide {
+  rules_help: string;
+  bypass_note: string;
+  /** Esempi (uno per riga) nei campi vuoti dei Consentiti e dei Vietati. */
+  allow_placeholder: string;
+  deny_placeholder: string;
+}
+
 /** Profilo di un agente (vedi `AgentProfile` in agents/mod.rs). */
 export interface AgentProfile {
   agent_id: string;
@@ -228,6 +237,8 @@ export interface AgentProfile {
   session_resume: SessionResumeSpec | null;
   /** Avviso sui limiti di utilizzo; `null` se non dichiara "usage-limits". */
   usage_limits_notice: string | null;
+  /** Testi sui comandi pre-approvati; `null` se non dichiara "worker-permissions": le regole non si applicano. */
+  worker_permissions: WorkerPermissionsGuide | null;
 }
 
 /** Evento `automation-spawn` (vedi automation/host.rs): apri un tab worker. */

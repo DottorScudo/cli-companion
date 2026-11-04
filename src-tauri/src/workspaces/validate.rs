@@ -52,7 +52,7 @@ pub fn normalize_worker_model(model: Option<String>) -> Result<Option<String>, V
 
 /// Valida una lista di regole di permesso; l'errore porta la lista di appartenenza.
 pub fn normalize_permission_rules(rules: &[String], list: RuleList) -> Result<Vec<String>, ValidationError> {
-    crate::worker_permissions::validate_rules(rules).map_err(|e| e.in_rules(list))
+    crate::agents::validate_worker_rules(rules).map_err(|e| e.in_rules(list))
 }
 
 /// Trim del comando, troncato a MAX_COMMAND_LEN caratteri (spacing interno

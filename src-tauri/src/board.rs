@@ -26,7 +26,8 @@ pub use spec::{
     id_from_title, parse_max_parallel, parse_proposal, parse_spec, repo_key, valid_id, validate_graph, TaskSpec,
 };
 
-use crate::automation::{clip_chars, WorkerStatus, DEFAULT_AGENT};
+use crate::agents::default_worker_integration;
+use crate::automation::{clip_chars, WorkerStatus};
 use crate::workspaces::{Delivery, Workspace};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -306,7 +307,7 @@ impl Task {
             task: s.task,
             depends_on: s.depends_on,
             repo: s.repo,
-            agent: DEFAULT_AGENT.to_string(),
+            agent: default_worker_integration().id().to_string(),
             model: s.model,
             kind: s.kind,
             e2e: s.e2e,
@@ -407,7 +408,7 @@ impl Board {
         }
         b.max_parallel = b.max_parallel.clamp(1, MAX_PARALLEL_LIMIT);
         for t in b.tasks.iter_mut().filter(|t| t.agent.is_empty()) {
-            t.agent = DEFAULT_AGENT.to_string();
+            t.agent = default_worker_integration().id().to_string();
         }
         for t in &mut b.tasks {
             t.interrupt_e2e();

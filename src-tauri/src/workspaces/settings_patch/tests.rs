@@ -1,9 +1,13 @@
 use super::super::{MAX_LAUNCH_NAME_LEN, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN};
 use super::*;
-use crate::agents::PermissionMode;
+use crate::agents::{worker_rule_format, PermissionMode, RuleFormat};
 use crate::validate::ErrorCode;
-use crate::worker_permissions::{MAX_RULES, MAX_RULE_CHARS};
 use serde_json::json;
+
+/// Limiti delle regole dell'agente predefinito dei worker.
+fn rule_limits() -> RuleFormat {
+    worker_rule_format().expect("the default worker agent applies permission rules")
+}
 
 fn ws() -> Workspace {
     let raw = r#"{"id":"ws-1","name":"p","kind":"windows","path":"C:\\p","created_at":1}"#;
@@ -146,9 +150,9 @@ fn invalid_values_fail_with_the_english_texts_for_the_model() {
             json!({"worker_deny": ["mcp__srv__tool(x)"]}),
             "worker_deny: rule \"mcp__srv__tool(x)\": mcp__ rules take no parentheses",
         ),
-        (json!({"worker_deny": [format!("Bash({})", "a".repeat(MAX_RULE_CHARS))]}), "worker_deny: rule"),
+        (json!({"worker_deny": [format!("Bash({})", "a".repeat(rule_limits().max_rule_chars))]}), "worker_deny: rule"),
         (
-            json!({"worker_allow": (0..=MAX_RULES).map(|i| format!("R{i}")).collect::<Vec<_>>()}),
+            json!({"worker_allow": (0..=rule_limits().max_rules).map(|i| format!("R{i}")).collect::<Vec<_>>()}),
             "worker_allow: too many rules",
         ),
         (json!({"delivery": {}}), "delivery"),
@@ -244,18 +248,20 @@ fn errors_carry_a_code_and_the_place_where_they_happened() {
 #[test]
 fn rule_errors_name_their_list_and_keep_limits() {
     let w = ws();
-    let too_long = format!("Bash({})", "a".repeat(MAX_RULE_CHARS));
+    let too_long = format!("Bash({})", "a".repeat(rule_limits().max_rule_chars));
     let err = patch(json!({"worker_deny": [too_long]})).normalized(&w).unwrap_err();
     assert_eq!(err.code(), ErrorCode::PermissionRuleTooLong);
     assert!(err.message_en().starts_with("worker_deny: rule \"Bash(aaa"), "{}", err.message_en());
-    assert!(err.message_en().ends_with(&format!("longer than {MAX_RULE_CHARS} characters")));
+    let max_rule_chars = rule_limits().max_rule_chars;
+    assert!(err.message_en().ends_with(&format!("longer than {max_rule_chars} characters")));
     assert!(err.message_it().starts_with("Vietati: regola \"Bash(aaa"), "{}", err.message_it());
     let err = patch(json!({"worker_allow": ["a b"]})).normalized(&w).unwrap_err();
     assert_eq!(err.message_en(), "worker_allow: rule \"a b\": expected Name or Name(...), e.g. Bash(git:*)");
     assert_eq!(err.message_it(), "Consentiti: regola \"a b\": forma attesa: Nome oppure Nome(...), es. Bash(git:*)");
-    let many: Vec<String> = (0..=MAX_RULES).map(|i| format!("R{i}")).collect();
+    let many: Vec<String> = (0..=rule_limits().max_rules).map(|i| format!("R{i}")).collect();
     let err = patch(json!({"worker_deny": many})).normalized(&w).unwrap_err();
-    assert_eq!(err.message_en(), format!("worker_deny: too many rules (max {MAX_RULES})"));
+    let max_rules = rule_limits().max_rules;
+    assert_eq!(err.message_en(), format!("worker_deny: too many rules (max {max_rules})"));
 }
 #[test]
 fn default_launch_is_checked_against_launches_after_the_patch() {

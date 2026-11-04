@@ -19,7 +19,7 @@ mod usage_limits;
 mod user_skills;
 mod worker_permissions;
 
-pub use automation::{AutomationRequest, PermissionMode, WorkerAutomation};
+pub use automation::{is_shell_safe_path, AutomationRequest, PermissionMode, WorkerAutomation};
 pub use capabilities::{Capabilities, Capability};
 pub use hook_events::{HookEvent, HookEventKind, HookEvents};
 pub use input_profile::{InputEvent, InputProfile, InputProfileSource, InputRule};
@@ -32,4 +32,4 @@ pub use session_resume::{COMMAND_PLACEHOLDER, SESSION_ID_PLACEHOLDER};
 pub use session_usage::{SessionUsage, SessionUsageReader, TokenTotals};
 pub use usage_limits::{LimitWindow, UsageLimits, UsageLimitsReply};
 pub use user_skills::UserSkills;
-pub use worker_permissions::WorkerPermissions;
+pub use worker_permissions::{PermissionsGuide, RuleFormat, WorkerPermissions};

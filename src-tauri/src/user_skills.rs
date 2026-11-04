@@ -1,7 +1,7 @@
 //! Skill globali create dall'utente: archivio e sincronizzazione. Solo logica
 //! pura su path passati come parametri (nessun `AppHandle`), cosi' i test usano
 //! una cartella temporanea e il sync puo' puntare a qualunque cartella delle
-//! skill (`~/.claude/skills` di Windows e delle distro WSL: vedi `targets`).
+//! skill (la cartella di ogni integrazione che dichiara `UserSkills`, su Windows e nelle distro WSL: vedi `targets`).
 //!
 //! Le skill NON stanno nel plugin `cli-companion-notify`: salvarne una non
 //! cambia la versione del plugin ne' innesca reinstallazioni. L'archivio

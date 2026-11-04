@@ -165,7 +165,7 @@ fn fetch_limits_http(token: &str) -> Fetched {
     .map(|s| s.to_string())
     .collect();
     // L'header segreto passa da stdin: non compare nella lista dei processi.
-    match crate::updater::run_curl_stdin(&args, format!("Authorization: Bearer {token}\n").as_bytes()) {
+    match crate::net::run_curl_stdin(&args, format!("Authorization: Bearer {token}\n").as_bytes()) {
         Ok(out) => classify_response(&String::from_utf8_lossy(&out)),
         Err(e) => Fetched::Failed(format!("Richiesta non riuscita: {e}")),
     }

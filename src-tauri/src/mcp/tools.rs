@@ -3,9 +3,8 @@
 //! del revisore (il worker di un task `review`) e quelli di una sessione normale
 //! (Intake compreso).
 
-use crate::agents::PermissionMode;
+use crate::agents::{worker_rule_format, PermissionMode, RuleFormat};
 use crate::automation::settings::REASON_MAX;
-use crate::worker_permissions::{MAX_RULES, MAX_RULE_CHARS};
 use crate::workspaces::{
     DeliveryMode, MergeMethod, MAX_COMMAND_LEN, MAX_E2E_TIMEOUT_MIN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_LAUNCHES,
     MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_REPO_PATH_LEN, MAX_RULES_LEN, MIN_E2E_TIMEOUT_MIN,
@@ -186,28 +185,22 @@ pub fn session_tools() -> Vec<Value> {
              proposal in the app; fields that run commands or widen permissions are shown to the user as sensitive. Nothing \
              changes before the decision and you get NO feedback after it: never wait. All-or-nothing validation. Returns \
              {proposal, status: \"pending\"}.",
-            settings_properties(),
+            settings_properties(worker_rule_format()),
             &["reason"],
         ),
     ]
 }
 
 /// Campi di `propose_settings`; i limiti rispecchiano la validazione di
-/// `crate::workspaces` e `crate::worker_permissions`.
-fn settings_properties() -> Value {
-    let rules = json!({
-        "type": "array",
-        "items": { "type": "string", "maxLength": MAX_RULE_CHARS },
-        "maxItems": MAX_RULES,
-        "description": "Replaces the list, e.g. Bash(npm test:*)."
-    });
+/// `crate::workspaces` e del contratto `WorkerPermissions` dell'agente predefinito.
+pub(super) fn settings_properties(rules: Option<RuleFormat>) -> Value {
     let commands = json!({
         "type": "array",
         "items": { "type": "string", "maxLength": MAX_REPO_COMMAND_LEN },
         "maxItems": MAX_REPO_COMMANDS,
         "description": "Single-line commands in order; replaces the list."
     });
-    json!({
+    let mut props = json!({
         "reason": { "type": "string", "minLength": 1, "maxLength": REASON_MAX, "description": "Why, shown to the user." },
         "worker_rules": {
             "type": "string",
@@ -220,8 +213,6 @@ fn settings_properties() -> Value {
             "description": "Null = agent default."
         },
         "worker_permission": { "type": "string", "enum": PermissionMode::ALL.map(PermissionMode::as_str) },
-        "worker_allow": rules,
-        "worker_deny": rules,
         "delivery": {
             "type": "object",
             "properties": {
@@ -279,7 +270,19 @@ fn settings_properties() -> Value {
             },
             "description": "Key = repository folder ('.' = root); null removes its config."
         }
-    })
+    });
+    // Le regole esistono solo se l'agente dei worker le applica.
+    if let Some(format) = rules {
+        let rules = json!({
+            "type": "array",
+            "items": { "type": "string", "maxLength": format.max_rule_chars },
+            "maxItems": format.max_rules,
+            "description": format!("Replaces the list, e.g. {}.", format.example)
+        });
+        props["worker_allow"] = rules.clone();
+        props["worker_deny"] = rules;
+    }
+    props
 }
 
 /// Campi di `save_skill`; i limiti rispecchiano `user_skills::validate`.

@@ -295,7 +295,7 @@ fn port_resolution_falls_back_to_the_default() {
 
 #[test]
 fn only_registered_agents_with_the_contract_have_hooks() {
-    assert!(hook_events_of(crate::agents::DEFAULT_WORKER_AGENT).is_some());
+    assert!(hook_events_of(crate::agents::default_worker_integration().id()).is_some());
     assert!(hook_events_of("nope").is_none());
 }
 

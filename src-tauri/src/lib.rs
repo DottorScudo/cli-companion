@@ -7,6 +7,7 @@ pub mod ipc;
 mod launch_settings;
 mod logging;
 pub mod mcp;
+mod net;
 mod platform;
 mod pty;
 pub mod schedule;
@@ -17,7 +18,6 @@ mod ttl_cache;
 pub mod updater;
 pub mod user_skills;
 mod validate;
-mod worker_permissions;
 mod workspaces;
 mod wsl;
 

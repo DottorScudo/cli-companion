@@ -63,6 +63,10 @@ error_codes! {
         "regola \"{value}\": forma attesa: Nome oppure Nome(...), es. Bash(git:*)",
         "rule \"{value}\": expected Name or Name(...), e.g. Bash(git:*)"
     ),
+    PermissionRulesUnsupported => (
+        "l'agente dei worker non supporta le regole di permesso",
+        "the worker agent does not support permission rules"
+    ),
     PermissionRuleMcpParens => (
         "regola \"{value}\": le regole mcp__ non accettano parentesi",
         "rule \"{value}\": mcp__ rules take no parentheses"

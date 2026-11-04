@@ -20,9 +20,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::process::Command;
 
-use crate::platform::hide_window;
+use crate::net::{env_override, run_curl};
 
 // ---------------------------------------------------------------------------
 // Config
@@ -50,10 +49,6 @@ pub struct UpdateConfig {
     pub current_version: String,
     pub api_url: String,
     pub message: String,
-}
-
-fn env_override(name: &str) -> Option<String> {
-    std::env::var(name).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
 }
 
 /// Carica la config effettiva: JSON embedded + override da variabili d'ambiente.
@@ -179,58 +174,12 @@ pub struct UpdateStatus {
     pub published_at: String,
 }
 
-pub(crate) fn curl_bin() -> String {
-    if let Some(custom) = env_override("CLI_COMPANION_UPDATER_CURL") {
-        return custom;
-    }
-    if cfg!(windows) {
-        "curl.exe".to_string()
-    } else {
-        "curl".to_string()
-    }
-}
-
 fn latest_release_url(cfg: &UpdateConfig) -> String {
     // Hook per test/mock: punta direttamente a un JSON di release (anche file://).
     if let Some(custom) = env_override("CLI_COMPANION_UPDATE_LATEST_URL") {
         return custom;
     }
     format!("{}/repos/{}/{}/releases/latest", cfg.api_url.trim_end_matches('/'), cfg.owner, cfg.repo)
-}
-
-pub(crate) fn run_curl(args: &[String]) -> Result<Vec<u8>, String> {
-    run_curl_with(args, None)
-}
-
-/// Come `run_curl` ma scrive `stdin` sullo stdin di curl: serve per passare
-/// header segreti con `-H @-` senza metterli nella riga di comando.
-pub(crate) fn run_curl_stdin(args: &[String], stdin: &[u8]) -> Result<Vec<u8>, String> {
-    run_curl_with(args, Some(stdin))
-}
-
-fn run_curl_with(args: &[String], stdin: Option<&[u8]>) -> Result<Vec<u8>, String> {
-    use std::io::Write;
-    use std::process::Stdio;
-    let bin = curl_bin();
-    let spawn_err = |e: std::io::Error| {
-        format!(
-            "Impossibile eseguire '{bin}' (curl non trovato nel PATH?): {e}. Su Windows 10+ curl.exe è preinstallato."
-        )
-    };
-    let mut cmd = Command::new(&bin);
-    hide_window(&mut cmd).args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
-    cmd.stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() });
-    let mut child = cmd.spawn().map_err(spawn_err)?;
-    if let (Some(data), Some(mut pipe)) = (stdin, child.stdin.take()) {
-        // Errore ignorato: se curl chiude prima, l'esito si vede dall'exit code.
-        let _ = pipe.write_all(data);
-    }
-    let out = child.wait_with_output().map_err(spawn_err)?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        return Err(format!("curl fallito (exit {}): {}", out.status, err.trim()));
-    }
-    Ok(out.stdout)
 }
 
 /// Scarica e interpreta la latest release. Errore chiaro se repo non configurato.

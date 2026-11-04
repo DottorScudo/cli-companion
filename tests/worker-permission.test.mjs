@@ -4,6 +4,8 @@ import {
   DEFAULT_WORKER_PERMISSION,
   WORKER_PERMISSIONS,
   normalizeWorkerPermission,
+  parseWorkerRules,
+  rulesToText,
   workerPermissionLabel,
   workerPermissionRank,
 } from "../src/lib/workerPermission.ts";
@@ -27,5 +29,16 @@ describe("workerPermission", () => {
     assert.equal(normalizeWorkerPermission("bypass"), "bypass");
     assert.equal(normalizeWorkerPermission(undefined), "accept-edits");
     assert.equal(normalizeWorkerPermission("yolo"), "accept-edits");
+  });
+
+  it("una regola per riga: trim, righe vuote e doppioni tolti, sintassi lasciata all'agente", () => {
+    assert.deepEqual(parseWorkerRules("  Bash(git:*) \r\n\n Edit\nBash(git:*)\n"), ["Bash(git:*)", "Edit"]);
+    assert.deepEqual(parseWorkerRules("qualunque forma\n"), ["qualunque forma"]);
+    assert.deepEqual(parseWorkerRules(""), []);
+  });
+
+  it("le regole tornano a testo una per riga", () => {
+    assert.equal(rulesToText(["a", "b"]), "a\nb");
+    assert.equal(rulesToText(undefined), "");
   });
 });

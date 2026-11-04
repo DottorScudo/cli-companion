@@ -23,12 +23,11 @@ mod package;
 pub mod presets;
 pub mod registry;
 #[cfg(test)]
-mod testing;
+pub(crate) mod testing;
+mod worker_rules;
 
-/// Id e cartella di configurazione di Claude Code: le skill utente (`user_skills`)
-/// li usano ancora direttamente, fino al task agent-boundaries.
-pub(crate) use claude_code::{windows_claude_dir, AGENT_ID as CLAUDE_CODE_ID};
 pub use commands::*;
 pub use contracts::*;
 pub use launches::{builtin_launch_list, BuiltinLaunch};
-pub use registry::{automation_command, DEFAULT_WORKER_AGENT};
+pub use registry::{automation_command, default_worker_integration};
+pub use worker_rules::{validate_worker_rules, worker_permissions_file, worker_rule_format};

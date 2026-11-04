@@ -211,7 +211,9 @@ export default function SettingsDialog({
           />
         );
       case "worker":
-        return <WorkerPage workspace={selected} onWorkspaceUpdated={onWorkspaceUpdated} />;
+        return (
+          <WorkerPage workspace={selected} agentProfiles={agentProfiles} onWorkspaceUpdated={onWorkspaceUpdated} />
+        );
       case "delivery":
         return <DeliveryPage workspace={selected} onWorkspaceUpdated={onWorkspaceUpdated} />;
       case "repos":
