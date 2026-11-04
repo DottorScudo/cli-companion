@@ -2,8 +2,9 @@
 //!
 //! Aggiungere un preset = una voce in `PRESETS` + un file in `presets/<id>.md`
 //! (SKILL.md completo di frontmatter `name`/`description`, in inglese: lo legge il
-//! modello). Il plugin dell'agente ne installa la skill e l'app espone una voce
-//! rapida `builtin:preset:<id>` per ogni preset (vedi `collect_builtin_launches`).
+//! modello). Il pacchetto di ogni integrazione che dichiara `presets` ne spedisce
+//! la skill e l'app espone una voce rapida `builtin:preset:<id>` per ogni preset
+//! (vedi `launches.rs`).
 
 /// Un preset: id (= nome della skill e della cartella), nome mostrato e SKILL.md.
 pub struct Preset {

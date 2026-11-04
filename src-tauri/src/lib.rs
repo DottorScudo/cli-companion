@@ -53,7 +53,6 @@ pub fn run() {
         .manage(launch_settings::new_store())
         .manage(bots::new_store())
         .manage(AutomationState::default())
-        .manage(agents::TranscriptCache::default())
         .setup(|app| {
             store::install_emitter(app.handle());
             store::legacy::migrate_legacy_data(app);

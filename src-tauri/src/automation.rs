@@ -61,7 +61,7 @@ pub(crate) const TASK_UNASSIGNED: &str = "this task is no longer assigned to thi
 pub(crate) const TITLE_MAX: usize = 80;
 pub(crate) const TASK_MAX: usize = 100_000;
 pub(crate) const SUMMARY_MAX: usize = 50_000;
-pub(crate) const DEFAULT_AGENT: &str = "claude-code";
+pub(crate) const DEFAULT_AGENT: &str = crate::agents::DEFAULT_WORKER_AGENT;
 
 /// Prompt passato in riga di comando: ASCII semplice, sicuro in ogni shell
 /// (niente virgolette, `$`, backtick, `%`, `!`, `\`). Lo legge il modello:

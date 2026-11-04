@@ -43,7 +43,7 @@ pub struct SkillTarget {
 /// Cartella delle skill personali di Claude Code su Windows
 /// (`CLAUDE_CONFIG_DIR` o `~/.claude`, come il resto dell'app).
 pub fn windows_skills_dir() -> Result<PathBuf, String> {
-    crate::agents::claude_usage::windows_claude_dir().map(|dir| dir.join("skills"))
+    crate::agents::windows_claude_dir().map(|dir| dir.join("skills"))
 }
 
 /// Il solo target Windows (sempre presente, sempre primo).

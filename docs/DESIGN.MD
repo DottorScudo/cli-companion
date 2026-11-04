@@ -224,18 +224,20 @@ ed eventi Tauri (`emit`/`listen`) per lo stream di output dei terminali.
 
 ### `agents/` — plugin dei coding agent
 
-- `mod.rs`: `Env` (Windows | distro WSL; `command()` = `cmd /c prog` su Windows,
-  `wsl.exe -d D -- prog` su WSL, sempre `CREATE_NO_WINDOW`), il trait
-  `AgentProvider` (`id`, `display_name`, `detect`, `is_installed`, `install`,
-  `uninstall`), il registro `PROVIDERS` e i comandi Tauri
-  `agent_env_status` (sonda in parallelo, con `std::thread::scope`, ogni coppia
-  agente x env: Windows + ogni distro, escluse quelle `docker-desktop*`),
-  `install_agent_plugin(agent_id, env_key)`, `remove_agent_plugin(agent_id, env_key)`.
-- Aggiungere un agente: un file in `agents/` che implementa `AgentProvider` + una
-  riga in `PROVIDERS`. La UI (Impostazioni -> Coding agent) raggruppa per agente
+- `mod.rs`: solo dichiarazioni e riesportazioni. `contracts/` ha un file per contratto
+  (`AgentIntegration` + `Capabilities`, `IntegrationPackage`, `WorkerAutomation`,
+  `PresetLauncher`, `UsageLimits`, `SessionUsageReader`, `InputProfileSource`, ...);
+  `registry.rs` il registro `INTEGRATIONS`; `detection.rs` il rilevamento dei target
+  (Windows + ogni distro, escluse `docker-desktop*`); `package.rs` il ciclo di vita dei
+  pacchetti (lock per agente x target); `commands.rs` i comandi Tauri `agent_env_status`
+  (sonda in parallelo ogni coppia agente x target), `install_agent_plugin(agent_id, env_key)`,
+  `remove_agent_plugin(agent_id, env_key)`.
+- Aggiungere un agente: una cartella `agents/<nome>/` che implementa `AgentIntegration` +
+  i contratti dichiarati in `capabilities()` + una riga in `registry.rs`. La UI
+  (Impostazioni -> Coding agent) raggruppa per agente
   da sola.
-- Automazione (facoltativa): `AgentProvider::automation_command(env_kind, &AutomationRequest)
-  -> Option<String>` (default `None`) costruisce il comando da digitare nel tab per
+- Automazione (facoltativa): `WorkerAutomation::command(env_kind, &AutomationRequest)
+  -> Option<String>` costruisce il comando da digitare nel tab per
   avviare una sessione automatica. `AutomationRequest { bootstrap_prompt,
   permission_mode: PermissionMode (Default | AcceptEdits | Plan | Bypass), model }`.
   Helper pubblico `automation_command(agent_id, env_kind, req)`.
@@ -245,7 +247,7 @@ ed eventi Tauri (`emit`/`listen`) per lo stream di output dei terminali.
   necessario perche' `acceptEdits` non approva i tool MCP). `bypassPermissions` al primo
   avvio interattivo mostra un dialogo di conferma (salta con
   `skipDangerousModePermissionPrompt: true` in `~/.claude/settings.json`).
-- Profili di input: `AgentProvider::input_profile() -> InputProfile` (default vuoto)
+- Profili di input: `InputProfileSource::input_profile() -> InputProfile` (vuoto se non dichiarato)
   con regole dichiarative `InputRule { event: InputEvent, env_kind: Option<"windows"|"wsl">,
   send }`. `InputEvent` (kebab-case) e' il punto di estensione; oggi solo
   `ImagePaste`. Claude Code: `ESC v` (Alt+V) per windows e wsl. Il comando
@@ -256,7 +258,7 @@ ed eventi Tauri (`emit`/`listen`) per lo stream di output dei terminali.
   (`claude`/`claude.exe`). `TerminalView` riceve la sequenza gia' risolta
   (`imagePasteSeq`, via ref) e la invia al posto di `` quando gli appunti non
   hanno testo; senza regola il comportamento resta invariato.
-- `claude_code.rs`:
+- `claude_code/` (un file per contratto):
   - rilevamento: Windows `cmd /c claude --version`; WSL: path assoluto via
     `bash -lc 'command -v claude'` (ripiego `bash -ic`, ultima riga che inizia con
     `/`), poi `<abs> --version`; il path assoluto serve per tutti i comandi

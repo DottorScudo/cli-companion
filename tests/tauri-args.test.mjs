@@ -21,7 +21,7 @@ function rustCommands() {
     "updater.rs",
     "agent_notify.rs",
     "toast.rs",
-    "agents/mod.rs",
+    "agents/commands.rs",
     "session.rs",
     "automation.rs",
     "automation/auto.rs",

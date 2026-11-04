@@ -1,0 +1,232 @@
+//! Integrazione finta configurabile, condivisa dai test (avvii, pacchetti,
+//! comandi, conformita'). Implementa tutti i contratti con logica semplice e
+//! corretta in vocabolario del core; `declares` decide quali dichiarare.
+
+use super::contracts::*;
+use super::presets::{Preset, PRESETS};
+use crate::platform::{Target, TargetKind};
+use std::path::{Path, PathBuf};
+
+/// Difetto voluto, per provare che la conformita' lo segnala.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flaw {
+    /// Il pacchetto non spedisce la skill del primo preset.
+    PresetSkillMissing,
+    /// Il comando di automazione lascia passare `$` nel prompt.
+    AutomationLetsDollarThrough,
+}
+
+#[derive(Debug, Clone)]
+pub struct FakeIntegration {
+    pub id: &'static str,
+    pub interactive: &'static str,
+    /// Prefisso del comando dei preset.
+    pub preset_cmd: &'static str,
+    /// Versione del pacchetto.
+    pub version: &'static str,
+    pub declares: Vec<Capability>,
+    pub flaw: Option<Flaw>,
+}
+
+impl FakeIntegration {
+    /// Nessun contratto dichiarato.
+    pub fn bare(id: &'static str, interactive: &'static str) -> Self {
+        Self { id, interactive, preset_cmd: "fake-run", version: "1.0-hfake", declares: Vec::new(), flaw: None }
+    }
+
+    /// Dichiara solo il pacchetto, con la versione data.
+    pub fn versioned(id: &'static str, version: &'static str) -> Self {
+        Self { version, declares: vec![Capability::Package], ..Self::bare(id, "fake-cli") }
+    }
+
+    /// Dichiara solo i preset, con il prefisso di comando dato.
+    pub fn presets_only(id: &'static str, interactive: &'static str, preset_cmd: &'static str) -> Self {
+        Self { preset_cmd, declares: vec![Capability::Presets], ..Self::bare(id, interactive) }
+    }
+
+    /// Dichiara tutti i contratti.
+    pub fn full(id: &'static str) -> Self {
+        let declares = vec![
+            Capability::Package,
+            Capability::HookEvents,
+            Capability::SessionResume,
+            Capability::Automation,
+            Capability::WorkerPermissions,
+            Capability::Presets,
+            Capability::UserSkills,
+            Capability::UsageLimits,
+            Capability::SessionUsage,
+            Capability::InputProfile,
+        ];
+        Self { declares, ..Self::bare(id, "fake --yes") }
+    }
+
+    pub fn with_flaw(mut self, flaw: Flaw) -> Self {
+        self.flaw = Some(flaw);
+        self
+    }
+}
+
+impl AgentIntegration for FakeIntegration {
+    fn id(&self) -> &'static str {
+        self.id
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Fake"
+    }
+
+    fn detect(&self, _: &Target) -> Detection {
+        Detection::default()
+    }
+
+    fn interactive_command(&self) -> &'static str {
+        self.interactive
+    }
+
+    fn capabilities(&self) -> Capabilities<'_> {
+        let on = |c| self.declares.contains(&c);
+        Capabilities {
+            package: on(Capability::Package).then_some(self as &dyn IntegrationPackage),
+            hook_events: on(Capability::HookEvents).then_some(self as &dyn HookEvents),
+            session_resume: on(Capability::SessionResume).then_some(self as &dyn SessionResume),
+            automation: on(Capability::Automation).then_some(self as &dyn WorkerAutomation),
+            worker_permissions: on(Capability::WorkerPermissions).then_some(self as &dyn WorkerPermissions),
+            presets: on(Capability::Presets).then_some(self as &dyn PresetLauncher),
+            user_skills: on(Capability::UserSkills).then_some(self as &dyn UserSkills),
+            usage_limits: on(Capability::UsageLimits).then_some(self as &dyn UsageLimits),
+            session_usage: on(Capability::SessionUsage).then_some(self as &dyn SessionUsageReader),
+            input_profile: on(Capability::InputProfile).then_some(self as &dyn InputProfileSource),
+        }
+    }
+}
+
+impl IntegrationPackage for FakeIntegration {
+    fn version(&self, _: &InstallCtx, _: &Target) -> Option<String> {
+        Some(self.version.to_string())
+    }
+
+    fn files(&self, _: &InstallCtx, _: &Target) -> Result<Vec<PackageFile>, String> {
+        let manifest =
+            PackageFile { path: "manifest.json".into(), content: format!("{{\"version\":\"{}\"}}", self.version) };
+        let skipped = usize::from(self.flaw == Some(Flaw::PresetSkillMissing));
+        let skills = PRESETS
+            .iter()
+            .skip(skipped)
+            .map(|p| PackageFile { path: PresetLauncher::skill_path(self, p), content: p.skill_text() });
+        Ok(std::iter::once(manifest).chain(skills).collect())
+    }
+
+    fn is_installed(&self, _: &Target, _: &Detection) -> bool {
+        false
+    }
+
+    fn install(&self, _: &InstallCtx, _: &Target, _: &Detection) -> Result<String, String> {
+        Ok(String::new())
+    }
+
+    fn uninstall(&self, _: &InstallCtx, _: &Target, _: &Detection) -> Result<String, String> {
+        Ok(String::new())
+    }
+}
+
+impl HookEvents for FakeIntegration {
+    fn normalize(&self, _: HookEventKind, _: &str) -> HookEvent {
+        HookEvent::default()
+    }
+}
+
+impl SessionResume for FakeIntegration {
+    fn is_agent_command(&self, command: &str) -> bool {
+        command.split_whitespace().next() == self.interactive.split_whitespace().next()
+    }
+
+    fn resume_command(&self, original_command: &str, session_id: &str) -> String {
+        format!("{original_command} --resume {session_id}")
+    }
+}
+
+impl WorkerAutomation for FakeIntegration {
+    fn command(&self, _: TargetKind, req: &AutomationRequest) -> Option<String> {
+        let leaks_dollar = self.flaw == Some(Flaw::AutomationLetsDollarThrough);
+        let unsafe_char =
+            |c: char| matches!(c, '"' | '`' | '%' | '!' | '\\') || c.is_control() || (c == '$' && !leaks_dollar);
+        if req.bootstrap_prompt.is_empty() || req.bootstrap_prompt.chars().any(unsafe_char) {
+            return None;
+        }
+        let mut cmd = format!("{} \"{}\"", self.id, req.bootstrap_prompt);
+        if let Some(file) = req.permissions_file {
+            if !crate::worker_permissions::is_shell_safe_path(file) {
+                return None;
+            }
+            cmd.push_str(&format!(" --rules \"{file}\""));
+        }
+        if let Some(model) = req.model {
+            let valid = !model.is_empty()
+                && model.len() <= 64
+                && model.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+            if !valid {
+                return None;
+            }
+            cmd.push_str(&format!(" --model {model}"));
+        }
+        Some(cmd)
+    }
+}
+
+impl WorkerPermissions for FakeIntegration {
+    fn prepare(
+        &self,
+        _: &Path,
+        workspace_id: &str,
+        _: TargetKind,
+        allow: &[String],
+        deny: &[String],
+    ) -> Result<Option<String>, String> {
+        let any = !allow.is_empty() || !deny.is_empty();
+        Ok(any.then(|| format!("rules/{workspace_id}.json")))
+    }
+}
+
+impl PresetLauncher for FakeIntegration {
+    fn command(&self, preset: &Preset) -> String {
+        format!("{} {}", self.preset_cmd, preset.id)
+    }
+
+    fn skill_path(&self, preset: &Preset) -> String {
+        format!("skills/{}/SKILL.md", preset.id)
+    }
+}
+
+impl UserSkills for FakeIntegration {
+    fn windows_dir(&self) -> Result<PathBuf, String> {
+        Ok(PathBuf::from("C:/fake/skills"))
+    }
+
+    fn wsl_home_subpath(&self) -> &'static str {
+        ".fake/skills"
+    }
+}
+
+impl UsageLimits for FakeIntegration {
+    fn limits(&self, _: &Target) -> UsageLimitsReply {
+        UsageLimitsReply::status("unavailable", Some("finto"))
+    }
+}
+
+impl SessionUsageReader for FakeIntegration {
+    fn session_usage(&self, _: &Target, transcript_path: &str) -> Result<SessionUsage, String> {
+        if transcript_path.is_empty() || transcript_path.contains("..") {
+            return Err("percorso non valido".to_string());
+        }
+        Ok(SessionUsage::default())
+    }
+}
+
+impl InputProfileSource for FakeIntegration {
+    fn input_profile(&self) -> InputProfile {
+        InputProfile {
+            rules: vec![InputRule { event: InputEvent::ImagePaste, env_kind: None, send: "\x1bv".to_string() }],
+        }
+    }
+}

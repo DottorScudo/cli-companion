@@ -131,24 +131,29 @@ in una sottocartella `agent-plugins` della cartella dati dell'app (`%APPDATA%`) 
 mano: usa “Rimuovi”. “Prova notifica” verifica il canale. Gli agenti avviati
 fuori da cli-companion vengono ignorati.
 
-Aggiungere un nuovo agente: crea `src-tauri/src/agents/<nome>.rs` con una
-struct che implementa `AgentProvider` (`detect`, `is_installed`, `install`,
-`uninstall`; gli hook devono eseguire `cli-companion --notify <evento> <agente>`
-con eventi `session-start`, `finished`, `needs-input`) e registrala in `PROVIDERS`
-in `agents/mod.rs`. La UI non cambia. Per supportare anche le sessioni
-automatiche (vedi sotto) implementa `automation_command(env_kind, req)`, che
-restituisce il comando da digitare nella shell per avviare l'agente con prompt
-iniziale, modalità permessi e modello, e dichiara nel plugin dell'agente il
-server MCP `cli-companion` (`cli-companion --mcp`).
+Aggiungere un nuovo agente: il core non sa come funziona un agente, offre dei
+contratti (`src-tauri/src/agents/contracts/`, uno per capacità) e ogni integrazione
+implementa quelli che le servono. Crea la cartella `src-tauri/src/agents/<nome>/`
+(modello: `claude_code/`) con una struct che implementa `AgentIntegration` (id,
+nome, `detect`, comando interattivo) e, in `capabilities()`, elenca **tutti** i
+contratti: `package` (file generati, installazione, rimozione; gli hook devono
+eseguire `cli-companion --notify <evento> <agente>` con eventi `session-start`,
+`finished`, `needs-input`, e il pacchetto dichiara il server MCP `cli-companion`,
+`cli-companion --mcp`), `automation` (sessioni automatiche, vedi sotto: il comando
+da digitare nella shell con prompt iniziale, modalità permessi e modello),
+`presets`, `usage_limits`, `session_usage`, `input_profile` e gli altri; quelli che
+non servono restano `None`. Poi registrala in `agents/registry.rs`. La UI non cambia
+e i test di conformità (`agents/conformance.rs`) verificano da soli i contratti
+dichiarati.
 
 Profilo di input (facoltativo): se l'agente vuole tasti propri nel terminale,
-implementa `input_profile()` con regole dichiarative `InputRule { event, env_kind,
+dichiara `input_profile` con regole dichiarative `InputRule { event, env_kind,
 send }` (`env_kind` = `windows` | `wsl` | nessuno per tutti). Oggi l'unico evento è
 `image-paste` (incolla con appunti senza testo): al posto di Ctrl+V il terminale
 invia `send` (Claude Code: Alt+V = `ESC v`, su Windows e WSL). Nuovi eventi: una
 variante di `InputEvent` e la sua gestione in `TerminalView`. Il frontend legge i
-profili all'avvio (`agent_profiles`) e li risolve con `resolveInputOverride`
-(`src/lib/agents.ts`).
+profili all'avvio (`agent_profiles`, che riporta anche i contratti dichiarati da
+ogni agente) e li risolve con `resolveInputOverride` (`src/lib/agents.ts`).
 
 ## Tasks Manager (sessioni automatiche)
 

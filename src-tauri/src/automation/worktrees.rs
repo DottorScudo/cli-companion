@@ -522,12 +522,12 @@ fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Res
         (None, Vec::new(), base)
     };
     let workdir = worktree.as_ref().map_or_else(|| dir.clone(), |w| w.path.clone());
-    let settings_path = host.worker_settings_path(ws, &task.agent)?;
+    let permissions_file = host.worker_settings_path(ws, &task.agent)?;
     let req = AutomationRequest {
         bootstrap_prompt: BOOTSTRAP_PROMPT,
         permission_mode: ws.worker_permission_mode(),
         model: task.model.as_deref().or(ws.worker_model.as_deref()),
-        settings_path: settings_path.as_deref(),
+        permissions_file: permissions_file.as_deref(),
     };
     let command = host.launch_command(&task.agent, ws.kind, &req)?;
     Ok(Prepared {

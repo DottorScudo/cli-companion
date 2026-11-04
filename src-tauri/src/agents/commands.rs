@@ -1,0 +1,274 @@
+//! Comandi Tauri sugli agenti: avvii integrati, stato per target, profili di
+//! input, consumi e ciclo di vita dei pacchetti. Generici: parlano solo con i
+//! contratti delle integrazioni.
+
+use super::contracts::{AgentIntegration, Capability, InputProfile, InstallCtx, SessionUsage, UsageLimitsReply};
+use super::detection::{invalidate_detection_cache, list_targets};
+use super::launches::{builtin_launch_list, BuiltinLaunch};
+use super::package::{self, OutdatedPlugin, PluginUpdateResult};
+use super::registry;
+use crate::launch_settings::LaunchSettingsStore;
+use crate::platform::{forward_slashes, is_valid_distro_name, Target, TargetKind};
+use serde::Serialize;
+use tauri::{AppHandle, Manager, State};
+
+/// Comando Tauri `builtin_launches`: economico, nessun processo.
+#[tauri::command]
+pub fn builtin_launches() -> Vec<BuiltinLaunch> {
+    builtin_launch_list()
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentEnvStatus {
+    pub agent_id: String,
+    pub agent_name: String,
+    pub env_key: String,
+    pub env_label: String,
+    pub env_kind: TargetKind,
+    pub found: bool,
+    pub version: Option<String>,
+    pub installed: bool,
+}
+
+fn status_for(integration: &dyn AgentIntegration, target: &Target) -> AgentEnvStatus {
+    let det = integration.detect(target);
+    let installed =
+        det.found && integration.capabilities().package.is_some_and(|package| package.is_installed(target, &det));
+    AgentEnvStatus {
+        agent_id: integration.id().to_string(),
+        agent_name: integration.display_name().to_string(),
+        env_key: target.key(),
+        env_label: target.label(),
+        env_kind: target.kind(),
+        found: det.found,
+        version: det.version,
+        installed,
+    }
+}
+
+/// Ogni coppia agente x target costa piu' processi e su WSL anche l'avvio
+/// della VM: si sondano tutte in parallelo.
+fn collect_status(integrations: &[&dyn AgentIntegration], targets: &[Target]) -> Vec<AgentEnvStatus> {
+    std::thread::scope(|s| {
+        let handles: Vec<_> = targets
+            .iter()
+            .flat_map(|target| integrations.iter().map(move |i| (*i, target)))
+            .map(|(i, target)| s.spawn(move || status_for(i, target)))
+            .collect();
+        handles.into_iter().filter_map(|h| h.join().ok()).collect()
+    })
+}
+
+#[tauri::command]
+pub async fn agent_env_status() -> Result<Vec<AgentEnvStatus>, String> {
+    crate::blocking(|| Ok(collect_status(registry::all(), &list_targets()))).await
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentProfile {
+    pub agent_id: String,
+    pub agent_name: String,
+    /// Contratti che l'integrazione dichiara.
+    pub capabilities: Vec<Capability>,
+    /// Vuoto se l'integrazione non dichiara `input_profile`.
+    pub input_profile: InputProfile,
+}
+
+fn collect_profiles(integrations: &[&dyn AgentIntegration]) -> Vec<AgentProfile> {
+    integrations
+        .iter()
+        .map(|i| {
+            let caps = i.capabilities();
+            AgentProfile {
+                agent_id: i.id().to_string(),
+                agent_name: i.display_name().to_string(),
+                capabilities: caps.declared(),
+                input_profile: caps.input_profile.map(|p| p.input_profile()).unwrap_or_default(),
+            }
+        })
+        .collect()
+}
+
+/// Profili di input di tutti gli agenti: economico, nessun processo.
+#[tauri::command]
+pub fn agent_profiles() -> Vec<AgentProfile> {
+    collect_profiles(registry::all())
+}
+
+/// Target dal frontend per le letture dei consumi. Il nome della distro finisce
+/// in un path UNC: niente separatori o caratteri insoliti.
+fn usage_env(env_key: &str) -> Result<Target, String> {
+    let target = Target::from_key(env_key)?;
+    if let Target::Wsl { distro: d } = &target {
+        if !is_valid_distro_name(d) {
+            return Err(format!("nome distro non valido: {d}"));
+        }
+    }
+    Ok(target)
+}
+
+/// Limiti dell'abbonamento; "unsupported" se l'integrazione non li espone.
+fn usage_limits_for(integration: &dyn AgentIntegration, target: &Target) -> UsageLimitsReply {
+    match integration.capabilities().usage_limits {
+        Some(limits) => limits.limits(target),
+        None => UsageLimitsReply::status("unsupported", None),
+    }
+}
+
+/// Consumi di una sessione; `None` se l'integrazione non li espone.
+fn session_usage_for(
+    integration: &dyn AgentIntegration,
+    target: &Target,
+    transcript_path: &str,
+) -> Result<Option<SessionUsage>, String> {
+    match integration.capabilities().session_usage {
+        Some(reader) => reader.session_usage(target, transcript_path).map(Some),
+        None => Ok(None),
+    }
+}
+
+/// Limiti dell'abbonamento dell'agente. Stato "disabled" se l'utente ha
+/// spento i consumi, "unsupported" se l'agente non li espone.
+#[tauri::command]
+pub async fn agent_usage_limits(
+    settings: State<'_, LaunchSettingsStore>,
+    agent_id: String,
+    env: String,
+) -> Result<UsageLimitsReply, String> {
+    let integration = registry::find(&agent_id)?;
+    let target = usage_env(&env)?;
+    if !settings.get().show_usage {
+        return Ok(UsageLimitsReply::status("disabled", None));
+    }
+    crate::blocking(move || Ok(usage_limits_for(integration, &target))).await
+}
+
+/// Token consumati da una sessione (dal transcript). `None` se l'agente non
+/// li espone o i consumi sono spenti.
+#[tauri::command]
+pub async fn agent_session_usage(
+    settings: State<'_, LaunchSettingsStore>,
+    agent_id: String,
+    env: String,
+    transcript_path: String,
+) -> Result<Option<SessionUsage>, String> {
+    let integration = registry::find(&agent_id)?;
+    let target = usage_env(&env)?;
+    if !settings.get().show_usage {
+        return Ok(None);
+    }
+    crate::blocking(move || session_usage_for(integration, &target, &transcript_path)).await
+}
+
+/// Contesto di installazione: exe corrente e cartella dati dell'app.
+fn install_ctx(app: &AppHandle) -> Result<InstallCtx, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("percorso exe: {e}"))?;
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(InstallCtx { exe: forward_slashes(&exe.to_string_lossy()), data_dir })
+}
+
+/// Pacchetti installati da aggiornare (nessun processo dell'agente).
+#[tauri::command]
+pub async fn agent_plugins_outdated(app: AppHandle) -> Result<Vec<OutdatedPlugin>, String> {
+    crate::blocking(move || {
+        let ctx = install_ctx(&app)?;
+        Ok(package::find_outdated(registry::all(), &ctx, &mut list_targets))
+    })
+    .await
+}
+
+/// Reinstalla tutti i pacchetti non aggiornati, in parallelo.
+#[tauri::command]
+pub async fn agent_plugins_update(app: AppHandle) -> Result<Vec<PluginUpdateResult>, String> {
+    crate::blocking(move || {
+        invalidate_detection_cache();
+        let ctx = install_ctx(&app)?;
+        Ok(package::update_all(&ctx))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn install_agent_plugin(app: AppHandle, agent_id: String, env_key: String) -> Result<String, String> {
+    crate::blocking(move || {
+        invalidate_detection_cache();
+        package::install(&install_ctx(&app)?, &agent_id, &env_key)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn remove_agent_plugin(app: AppHandle, agent_id: String, env_key: String) -> Result<String, String> {
+    crate::blocking(move || {
+        invalidate_detection_cache();
+        package::remove(&install_ctx(&app)?, &agent_id, &env_key)
+    })
+    .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::testing::FakeIntegration;
+
+    #[test]
+    fn profiles_cover_all_integrations_and_serialize_kebab_case() {
+        let profiles = collect_profiles(registry::all());
+        assert_eq!(profiles.len(), registry::all().len());
+        let cc = profiles.iter().find(|p| p.agent_id == "claude-code").unwrap();
+        assert_eq!(cc.agent_name, "Claude Code");
+        let v = serde_json::to_value(cc).unwrap();
+        let rules = v["input_profile"]["rules"].as_array().unwrap();
+        for kind in [TargetKind::Windows, TargetKind::Wsl] {
+            assert!(rules
+                .iter()
+                .any(|r| r["event"] == "image-paste" && r["env_kind"] == kind.as_str() && r["send"] == "\u{1b}v"));
+        }
+        let caps = v["capabilities"].as_array().unwrap();
+        assert!(
+            caps.contains(&serde_json::json!("input-profile")) && caps.contains(&serde_json::json!("usage-limits"))
+        );
+    }
+
+    #[test]
+    fn profile_without_input_profile_is_empty() {
+        let bare = FakeIntegration::bare("bare", "bare-cli");
+        let p = &collect_profiles(&[&bare])[0];
+        assert!(p.capabilities.is_empty() && p.input_profile.rules.is_empty());
+        let full = FakeIntegration::full("full");
+        let p = &collect_profiles(&[&full])[0];
+        assert_eq!(p.capabilities.len(), 10);
+        assert!(!p.input_profile.rules.is_empty());
+    }
+
+    #[test]
+    fn status_covers_every_integration_and_target() {
+        let a = FakeIntegration::bare("a", "a-cli");
+        let b = FakeIntegration::full("b");
+        let targets = [Target::Windows, Target::Wsl { distro: "Ubuntu".into() }];
+        let mut status = collect_status(&[&a, &b], &targets);
+        status.sort_by(|x, y| (&x.agent_id, &x.env_key).cmp(&(&y.agent_id, &y.env_key)));
+        let keys: Vec<_> = status.iter().map(|s| (s.agent_id.as_str(), s.env_key.as_str())).collect();
+        assert_eq!(keys, vec![("a", "Ubuntu"), ("a", "windows"), ("b", "Ubuntu"), ("b", "windows")]);
+        assert!(status.iter().all(|s| !s.found && !s.installed));
+    }
+
+    #[test]
+    fn usage_is_unsupported_without_the_contracts_and_env_is_validated() {
+        let bare = FakeIntegration::bare("f", "f-cli");
+        assert_eq!(usage_limits_for(&bare, &Target::Windows).state, "unsupported");
+        assert_eq!(session_usage_for(&bare, &Target::Windows, "x"), Ok(None));
+        let full = FakeIntegration::full("g");
+        assert_ne!(usage_limits_for(&full, &Target::Windows).state, "unsupported");
+        assert!(session_usage_for(&full, &Target::Windows, "").is_err());
+        assert!(session_usage_for(&full, &Target::Windows, "p/projects/s/a.jsonl").unwrap().is_some());
+        assert_eq!(usage_env("windows"), Ok(Target::Windows));
+        assert_eq!(usage_env("Ubuntu-24.04"), Ok(Target::Wsl { distro: "Ubuntu-24.04".into() }));
+        for bad in ["", "a\\b", "a/b", "..", "x:y", "a\nb"] {
+            assert!(usage_env(bad).is_err(), "{bad:?}");
+        }
+        let v = serde_json::to_value(UsageLimitsReply::status("disabled", None)).unwrap();
+        assert_eq!(v["state"], "disabled");
+        assert!(v["five_hour"].is_null() && v["message"].is_null());
+    }
+}
