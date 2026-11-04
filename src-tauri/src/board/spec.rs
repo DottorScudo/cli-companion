@@ -2,7 +2,7 @@
 //! update_task), id, branch, repository, grafo delle dipendenze, id generati
 //! dal titolo. Funzioni pure, nessun I/O.
 
-use super::{Task, TaskKind, TASK_MAX, TITLE_MAX};
+use super::{check_kind_input, Task, TaskKind, TASK_MAX, TITLE_MAX};
 use crate::validate::{clip_chars, req_text};
 use crate::validate::{normalize_repo, valid_model_shape};
 use serde::{Deserialize, Serialize};
@@ -64,7 +64,7 @@ pub struct NewTaskSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
     pub model: Option<String>,
-    /// Assente = `work`. Una `review` richiede almeno una dipendenza.
+    /// Assente = `work`. Una `review` richiede almeno una dipendenza; `plan` e' riservato all'app.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub kind: Option<TaskKind>,
@@ -246,6 +246,7 @@ pub fn parse_spec(v: &Value, base: Option<&TaskSpec>) -> Result<TaskSpec, String
             .ok_or_else(|| format!("invalid kind '{}' (allowed: work, review)", clip_chars(s, 20)))?,
         Some(_) => return Err("kind must be a string".to_string()),
     };
+    check_kind_input(kind, base.map(|b| b.kind))?;
     let e2e = match obj.get("e2e") {
         None => base.is_some_and(|b| b.e2e),
         Some(Value::Null) => false,

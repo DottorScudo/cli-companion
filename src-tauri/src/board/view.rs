@@ -121,7 +121,7 @@ fn compact_row(v: &TaskView) -> Value {
     if !v.waiting_on.is_empty() {
         o["waiting_on"] = json!(v.waiting_on);
     }
-    if t.kind == TaskKind::Review {
+    if t.kind != TaskKind::Work {
         o["kind"] = Value::from(t.kind.as_str());
     }
     if let Some(u) = &v.agent_unavailable {

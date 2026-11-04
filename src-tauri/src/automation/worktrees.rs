@@ -178,17 +178,30 @@ pub(super) fn ensure_repos<'a, H: Host>(
                 return Err(format!("the repository folder '{r}' ({dir}) does not exist in the workspace"));
             }
         }
-        if ws.delivery.uses_branches() {
-            let inside = host
-                .git(ws, &dir, &["rev-parse", "--is-inside-work-tree"])
-                .map_err(|e| format!("git is not available: {e}"))?;
-            if !(inside.ok && inside.stdout.trim() == "true") {
-                return Err(format!(
-                    "{dir} is not a git repository: the delivery mode of this workspace works on branches and needs one. \
-                     Fix the repo of the task or ask the user to run git init there"
-                ));
-            }
+        if ws.delivery.uses_branches() && !is_git_repo(host, ws, &dir)? {
+            return Err(format!(
+                "{dir} is not a git repository: the delivery mode of this workspace works on branches and needs one. \
+                 Fix the repo of the task or ask the user to run git init there"
+            ));
         }
+    }
+    Ok(())
+}
+
+/// `dir` e' dentro un repository git? Errore se git non c'e'.
+fn is_git_repo<H: Host>(host: &H, ws: &Workspace, dir: &str) -> Result<bool, String> {
+    let inside =
+        host.git(ws, dir, &["rev-parse", "--is-inside-work-tree"]).map_err(|e| format!("git is not available: {e}"))?;
+    Ok(inside.ok && inside.stdout.trim() == "true")
+}
+
+/// Il repository esiste ed e' un repository git, qualunque sia la modalita' di
+/// consegna: un task `isolated` lavora sempre in un worktree. Fuori dal lock.
+pub(super) fn ensure_git_repo<H: Host>(host: &H, ws: &Workspace, repo: Option<&str>) -> Result<(), String> {
+    ensure_repos(host, ws, [repo])?;
+    let dir = repo_dir(ws, repo);
+    if !is_git_repo(host, ws, &dir)? {
+        return Err(format!("{dir} is not a git repository: planning reads the code in a git worktree and needs one"));
     }
     Ok(())
 }

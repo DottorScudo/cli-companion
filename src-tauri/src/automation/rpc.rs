@@ -3,7 +3,9 @@
 //! per ruolo. Il worker di un task consegna il lavoro (`get_task`,
 //! `complete_task`, `run_e2e`, `get_e2e_result`); il revisore, cioe' il worker di
 //! un task `review`, fa lo stesso piu' `get_task_details` e `propose_tasks`
-//! (`review`); la sessione normale, Intake compreso, gestisce la coda (`boards`),
+//! (`review`); il pianificatore, worker di un task `plan`, legge il suo task, la
+//! coda e le impostazioni e propone (`planner`), senza E2E; la sessione
+//! normale, Intake compreso, gestisce la coda (`boards`),
 //! le skill globali (`skills`) e le impostazioni del workspace (`settings`).
 //! `whoami` e' l'handshake del server MCP, non un tool.
 
@@ -25,7 +27,9 @@ pub fn handle<H: Host>(st: &AutomationState, host: &H, req: &RpcRequest) -> RpcR
 pub(super) fn denied(method: Method, role: Role) -> String {
     match role {
         Role::Session => format!("{} is reserved for automated sessions", method.name()),
-        Role::Worker | Role::Reviewer => format!("{} is not available to automated sessions", method.name()),
+        Role::Worker | Role::Reviewer | Role::Planner => {
+            format!("{} is not available to automated sessions", method.name())
+        }
     }
 }
 
@@ -60,10 +64,15 @@ pub fn dispatch<H: Host>(
         Method::CompleteTask => complete_task(st, host, session, params),
         Method::RunE2e => e2e::tools::run_e2e(st, host, session),
         Method::GetE2eResult => e2e::tools::get_e2e_result(st, session, params),
+        Method::ProposeTasks | Method::GetTaskDetails | Method::ListTasks | Method::GetWorkspaceSettings
+            if role == Role::Planner =>
+        {
+            planner::rpc_planner(st, host, session, method, params)
+        }
         Method::ProposeTasks | Method::GetTaskDetails => match role {
             Role::Session => boards::rpc_session(st, host, session, method.name(), params),
             Role::Reviewer => review::rpc_reviewer(st, host, session, method, params),
-            Role::Worker => Err(denied(method, role)),
+            Role::Worker | Role::Planner => Err(denied(method, role)),
         },
         Method::ListTasks | Method::UpdateTask | Method::DeleteTask => {
             boards::rpc_session(st, host, session, method.name(), params)
@@ -95,8 +104,9 @@ fn complete_task<H: Host>(st: &AutomationState, host: &H, session: &str, params:
     let status = req_str(params, "status")?;
     let summary = req_str(params, "summary")?;
     let fields = board::parse_report_fields(params)?;
-    // Diffstat dei task con worktree: git fuori dal lock.
-    let diffstat = st.worktree_of(session).and_then(|(ws_id, wt)| {
+    // Diffstat dei task con worktree (non dei piani, che non consegnano): git fuori dal lock.
+    let plan = st.registry().worker_kind(session) == Some(TaskKind::Plan);
+    let diffstat = st.worktree_of(session).filter(|_| !plan).and_then(|(ws_id, wt)| {
         let ws = host.workspace(&ws_id)?;
         worktrees::compute_diffstat(host, &ws, &wt)
     });

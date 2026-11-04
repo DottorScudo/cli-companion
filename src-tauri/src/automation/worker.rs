@@ -106,6 +106,8 @@ pub(super) struct Worker {
     pub(super) tab_open: bool,
     /// Task concluso con un worktree: da ripulire quando il tab si chiude.
     pub(super) cleanup_on_close: bool,
+    /// Solo pianificatori: la proposta (una sola) e' stata registrata.
+    pub(super) proposed: bool,
 }
 
 impl Worker {

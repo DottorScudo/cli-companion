@@ -1,6 +1,7 @@
 //! Definizione dei tool MCP e delle istruzioni del server (le legge il
-//! modello: inglese, concise). Tre insiemi: i tool del worker di un task, quelli
-//! del revisore (il worker di un task `review`) e quelli di una sessione normale
+//! modello: inglese, concise). Quattro insiemi: i tool del worker di un task, quelli
+//! del revisore (il worker di un task `review`), del pianificatore (task `plan`,
+//! in `planner`) e quelli di una sessione normale
 //! (Intake compreso). Quali metodi spettano a ogni ruolo lo decide la tabella di
 //! `crate::automation::roles`: un test verifica che i tool coincidano.
 
@@ -13,6 +14,11 @@ use crate::workspaces::{
     MIN_E2E_TIMEOUT_MIN,
 };
 use serde_json::{json, Value};
+
+mod planner;
+
+pub use planner::planner_tools;
+use planner::PLANNER_INSTRUCTIONS;
 
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
     json!({
@@ -146,24 +152,28 @@ fn get_task_details_tool() -> Value {
     )
 }
 
+fn list_tasks_tool() -> Value {
+    tool(
+        "list_tasks",
+        "List the task queue: counts per status, pending proposals and one \
+         compact row per task (id, title, status, kind unless work, verdict for reviews, attention, waiting_on, summary, note).",
+        json!({
+            "status": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["queued", "running", "done", "failed"] },
+                "description": "Only tasks in these statuses (default: all)."
+            }
+        }),
+        &[],
+    )
+}
+
 pub fn session_tools() -> Vec<Value> {
     let mut update = task_properties(false);
     update["id"] = json!({ "type": "string", "description": "Id of the task to change." });
     vec![
         propose_tasks_tool(),
-        tool(
-            "list_tasks",
-            "List the task queue: counts per status, pending proposals and one \
-             compact row per task (id, title, status, kind and verdict for reviews, attention, waiting_on, summary, note).",
-            json!({
-                "status": {
-                    "type": "array",
-                    "items": { "type": "string", "enum": ["queued", "running", "done", "failed"] },
-                    "description": "Only tasks in these statuses (default: all)."
-                }
-            }),
-            &[],
-        ),
+        list_tasks_tool(),
         get_task_details_tool(),
         tool(
             "update_task",
@@ -496,6 +506,7 @@ pub fn tools_for(role: Role) -> Vec<Value> {
         Role::Session => session_tools(),
         Role::Worker => worker_tools(),
         Role::Reviewer => reviewer_tools(),
+        Role::Planner => planner_tools(),
     }
 }
 
@@ -524,6 +535,7 @@ pub fn instructions(role: Option<Role>, workspace: Option<&str>) -> String {
              and ALWAYS finish with complete_task and a verdict. If you need a decision from the user, ask in plain text and end \
              your turn."
             .to_string(),
+        Some(Role::Planner) => PLANNER_INSTRUCTIONS.to_string(),
         None => "cli-companion: tools are only available in cli-companion terminals with the app running.".to_string(),
     }
 }

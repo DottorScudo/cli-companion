@@ -21,7 +21,8 @@ const REVIEWED_LIST_MAX: usize = 30;
 /// Lunghezza massima di un follow-up e dei dettagli di un test.
 const REVIEWED_ITEM_MAX: usize = 300;
 
-/// Tipo di un task: `work` consegna, `review` verifica il risultato integrato.
+/// Tipo di un task: `work` consegna, `review` verifica il risultato integrato,
+/// `plan` esplora il repository e propone i task (vedi `plan`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
@@ -29,15 +30,17 @@ pub enum TaskKind {
     #[default]
     Work,
     Review,
+    Plan,
 }
 
 impl TaskKind {
-    pub const ALL: [TaskKind; 2] = [TaskKind::Work, TaskKind::Review];
+    pub const ALL: [TaskKind; 3] = [TaskKind::Work, TaskKind::Review, TaskKind::Plan];
 
     pub fn as_str(self) -> &'static str {
         match self {
             TaskKind::Work => "work",
             TaskKind::Review => "review",
+            TaskKind::Plan => "plan",
         }
     }
 
@@ -85,7 +88,7 @@ pub fn check_review_deps(spec: &TaskSpec) -> Result<(), String> {
 /// completata chiude con un verdetto, e `issues` con l'elenco dei problemi.
 pub fn check_verdict(kind: TaskKind, completed: bool, f: &ReportFields) -> Result<(), String> {
     match (kind, completed, f.verdict) {
-        (TaskKind::Work, _, verdict) if verdict.is_some() || !f.findings.is_empty() => {
+        (TaskKind::Work | TaskKind::Plan, _, verdict) if verdict.is_some() || !f.findings.is_empty() => {
             Err("verdict and findings are only accepted for review tasks".to_string())
         }
         (TaskKind::Review, true, None) => {

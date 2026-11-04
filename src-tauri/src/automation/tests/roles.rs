@@ -1,6 +1,7 @@
 //! Il controllo d'accesso di `dispatch` segue la tabella di `roles`: ogni
 //! coppia metodo/ruolo vietata viene rifiutata col messaggio del suo ruolo.
 
+use super::plan::started_plan;
 use super::review::{reviewer, session_of_done};
 use super::*;
 
@@ -8,18 +9,26 @@ const RESERVED: &str = "is reserved for automated sessions";
 const NOT_AVAILABLE: &str = "is not available to automated sessions";
 
 /// Un chiamante per ogni ruolo, sulla stessa board: l'Intake, il worker del
-/// task `a` (concluso, ma ancora un worker per `dispatch`) e il revisore.
-fn callers() -> (AutomationState, FakeHost, [(Role, String); 3]) {
+/// task `a` (concluso, ma ancora un worker per `dispatch`), il revisore e il
+/// pianificatore.
+fn callers() -> (AutomationState, FakeHost, [(Role, String); 4]) {
     let (st, h, reviewer_tab) = reviewer(DeliveryMode::Commit, false);
     let worker_tab = session_of_done(&st, &h);
-    (st, h, [(Role::Session, INTAKE.to_string()), (Role::Worker, worker_tab), (Role::Reviewer, reviewer_tab)])
+    let (_, planner_tab) = started_plan(&st, &h);
+    let callers = [
+        (Role::Session, INTAKE.to_string()),
+        (Role::Worker, worker_tab),
+        (Role::Reviewer, reviewer_tab),
+        (Role::Planner, planner_tab),
+    ];
+    (st, h, callers)
 }
 
 /// Messaggio atteso quando `role` chiama `method` e la tabella lo vieta.
 fn rejection(method: Method, role: Role) -> String {
     let suffix = match role {
         Role::Session => RESERVED,
-        Role::Worker | Role::Reviewer => NOT_AVAILABLE,
+        Role::Worker | Role::Reviewer | Role::Planner => NOT_AVAILABLE,
     };
     format!("{} {suffix}", method.name())
 }

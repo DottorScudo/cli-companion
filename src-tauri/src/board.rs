@@ -13,7 +13,8 @@
 //! `cascade` (dipendenze inverse), `scheduler`, `view` (vista per frontend e
 //! MCP), `worker` (stati del worker e tabella degli hook), `persist` (busta e
 //! schema del file, riga dell'archivio), `legacy` (migrazioni dello schema),
-//! `recovery` (recupero dopo un riavvio), `archive` (task conclusi da archiviare).
+//! `recovery` (recupero dopo un riavvio), `archive` (task conclusi da archiviare),
+//! `review` e `plan` (regole dei task di revisione e di pianificazione).
 
 mod agent;
 mod agent_gate;
@@ -25,6 +26,7 @@ mod legacy_settings;
 mod lifecycle;
 mod model;
 mod persist;
+mod plan;
 mod queue;
 mod record;
 mod recovery;
@@ -56,6 +58,7 @@ pub use model::{
     STOPPED_NOTE, SUMMARY_MAX, TASK_MAX, TITLE_MAX,
 };
 pub use persist::{archive_line, board_store};
+pub use plan::{check_kind_input, check_plan_report, check_plan_spec, PLAN_KIND_RESERVED};
 pub use report::{build_report, parse_report_fields, ReportFields, TaskReport, TestRun, DIFFSTAT_MAX};
 pub use review::{check_review_deps, check_verdict, reviewed_tasks, TaskKind, Verdict};
 pub use scheduler::{schedule, SchedCtx};

@@ -11,6 +11,9 @@ pub const WORKER_GUARDRAILS: &str = include_str!("prompts/worker_guardrails.md")
 /// Istruzioni del revisore di un task `review` (al posto di quelle e dei passi di consegna del worker).
 pub const REVIEWER_INSTRUCTIONS: &str = include_str!("prompts/reviewer_instructions.md");
 
+/// Istruzioni del pianificatore di un task `plan` (niente standard di ingegneria ne' consegna).
+pub const PLANNER_INSTRUCTIONS: &str = include_str!("prompts/planner_instructions.md");
+
 /// Passo di consegna dei task con `e2e`: gli E2E li esegue l'app, non il worker.
 pub const E2E_STEP: &str = "Run the E2E tests through the app: call run_e2e, then call get_e2e_result with wait_seconds 25 until the status is no longer \"running\". \
 Only the app's run counts: running the E2E command yourself does not. Continue only if the status is \"passed\"; otherwise fix the code, commit, \
@@ -84,6 +87,38 @@ pub fn reviewer_instructions(e: &EnvInfo, workspace_rules: &str, reviewed_e2e: b
         s.push_str(E2E_REVIEWER);
     }
     push_workspace_rules(&mut s, workspace_rules);
+    s
+}
+
+/// Istruzioni del pianificatore di un task `plan`: cartella di lavoro, regole
+/// del pianificatore e del workspace (contesto per le specifiche).
+pub fn planner_instructions(e: &EnvInfo, workspace_rules: &str) -> String {
+    let mut s = format!(
+        "You are an automated cli-companion planner. Work only inside {dir}; never touch other folders.\n\n{PLANNER_INSTRUCTIONS}",
+        dir = e.workdir
+    );
+    s.truncate(s.trim_end().len());
+    push_workspace_rules(&mut s, workspace_rules);
+    s
+}
+
+/// Testo `environment` di `get_task` per un task `plan`: dove legge il codice,
+/// senza modalita' di consegna.
+pub fn planner_environment(e: &EnvInfo) -> String {
+    let mut s = String::from("Environment of this task\n");
+    s.push_str(&format!("- Workspace root: {}\n", e.root));
+    if let Some(r) = &e.task.repo {
+        s.push_str(&format!("- Repository: {r} (a folder of the workspace root)\n"));
+    }
+    s.push_str(&format!("- Repository checkout: {} (the user's copy: never touch it)\n", e.repo_dir));
+    s.push_str(&format!("- Your working folder: {}\n", e.workdir));
+    if let Some(w) = &e.task.worktree {
+        s.push_str(&format!(
+            "- Git worktree: branch {} (created from {}), a disposable copy for reading the code. Do not modify files, \
+             commit or create branches: the app removes it when you are done.\n",
+            w.branch, w.base
+        ));
+    }
     s
 }
 

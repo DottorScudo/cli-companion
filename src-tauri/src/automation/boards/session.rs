@@ -1,5 +1,5 @@
-//! Tool MCP delle sessioni normali (Intake) e del revisore: propongono task e
-//! consultano la coda del workspace del tab chiamante.
+//! Tool MCP delle sessioni normali (Intake), del revisore e del pianificatore:
+//! propongono task e consultano la coda del workspace del tab chiamante.
 
 use super::commands::update_checked;
 use crate::automation::worktrees::{check_e2e_configured, ensure_repos};
@@ -27,12 +27,7 @@ pub(in crate::automation) fn rpc_session<H: Host>(
     let now = now_millis();
     match method {
         "propose_tasks" => propose_tasks(st, host, &ws, session, None, params),
-        "list_tasks" => {
-            let statuses = parse_statuses(params)?;
-            let minute = host.local_minute(now);
-            let view = st.run(host, |r| r.board_view(&ws, minute));
-            Ok(view.to_list_json(statuses.as_deref()))
-        }
+        "list_tasks" => list_tasks(st, host, &ws, params),
         "get_task_details" => task_details(st, host, &ws, params),
         "update_task" => {
             let id = req_str(params, "id")?.trim().to_string();
@@ -69,6 +64,19 @@ pub(in crate::automation) fn propose_tasks<H: Host>(
         "status": "pending",
         "message": "The user will accept or discard it in the app. Do not wait for the decision."
     }))
+}
+
+/// `list_tasks`: la coda di `ws` in forma compatta, filtrata per stato.
+pub(in crate::automation) fn list_tasks<H: Host>(
+    st: &AutomationState,
+    host: &H,
+    ws: &Workspace,
+    params: &Value,
+) -> Result<Value, String> {
+    let statuses = parse_statuses(params)?;
+    let minute = host.local_minute(now_millis());
+    let view = st.run(host, |r| r.board_view(ws, minute));
+    Ok(view.to_list_json(statuses.as_deref()))
 }
 
 /// `get_task_details`: il task di `ws` con il testo della specifica.

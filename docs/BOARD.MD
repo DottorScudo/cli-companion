@@ -76,7 +76,7 @@ Task:
   "title": "Modalità di consegna",       // 1..=80
   "task": "...",            // specifica per il worker, 1..=100000
   "depends_on": ["task-schema"],         // id esistenti, niente cicli, max 50
-  "kind": "work",           // work | review (default work, vedi "Task di review"); una review richiede almeno una dipendenza
+  "kind": "work",           // work | review | plan (default work, vedi "Task di review" e "Task di pianificazione"); una review richiede almeno una dipendenza; plan lo crea solo l'app
   "e2e": false,             // true = deve superare gli E2E del repository; omesso se false (vedi "Test E2E")
   "repo": null,             // cartella relativa alla root; null = la root (multi-repo)
   "agent": "claude-code",   // sempre valorizzato: risolto alla creazione (agente del task, poi del workspace, poi il predefinito globale) e non cambia con i predefiniti
@@ -135,8 +135,8 @@ Proposal:
   "id": "p-<millis>-<n>",
   "source_tab": "tab-...",  // tab dell'Intake che l'ha proposta
   "created_at": 0,
-  "source_task": "review-x", // opzionale: task di review il cui reviewer l'ha proposta (omesso se assente);
-                             // in quel caso source_tab è il tab del reviewer
+  "source_task": "review-x", // opzionale: task di review o di pianificazione il cui worker l'ha proposta
+                             // (omesso se assente); in quel caso source_tab è il tab di quel worker
   "tasks": [ /* TaskSpec: id, title, task, depends_on, repo, agent?, model, kind, e2e */ ]
 }
 ```
@@ -320,6 +320,9 @@ riuso al retry, guardiano dei 5 minuti, timeout git 120 s, WSL via `wsl.exe -e`.
   del timeout, si uccide l'intero albero di processi (vedi "Test E2E", Annullamento).
 - Le **review** (`kind: "review"`) ricevono il worktree dalla base come ogni task (`task/<id>`);
   la pulizia a `done` funziona anche senza commit sul branch (worktree rimosso, branch cancellato).
+- I **task di pianificazione** (`kind: "plan"`) hanno un worktree `task/<id>` dalla base **in ogni
+  modalità**, anche in quelle senza worktree (vedi "Task di pianificazione"): niente hook `setup`
+  (leggono solo il codice), niente precondizione `local_merge` sul checkout, stessa pulizia a `done`.
 - `pr`: prima della creazione `git fetch origin <base>` (cache 60 s, come oggi) e worktree da
   `origin/<base>` se esiste, altrimenti dal `<base>` locale.
 - `local_merge`: worktree dal `<base>` locale. **Precondizione** all'avvio: il checkout del
@@ -396,6 +399,11 @@ fa merge): restituisce le istruzioni di `src-tauri/src/board/prompts/reviewer_in
 (incluso con `include_str!`, in inglese), più `environment` normale e le regole del workspace
 accodate come al solito. Vedi "Task di review".
 
+**Istruzioni del pianificatore.** Per i task `plan` `get_task` non restituisce `delivery` né lo
+standard di ingegneria: restituisce le istruzioni di `src-tauri/src/board/prompts/planner_instructions.md`
+(inglese, derivate dal preset Task Intake), un `environment` proprio (`planner_environment`: senza
+modalità di consegna, con il worktree di sola lettura) e le regole del workspace. Vedi "Task di pianificazione".
+
 **Task marcati E2E** (`e2e: true`, `work`). Il testo cambia solo per loro; per gli altri è
 identico a prima. Il passo `E2E_STEP` (`board/texts.rs`) dice di lanciare `run_e2e`, poi
 `get_e2e_result` con `wait_seconds: 25` finché lo stato non è più `running`, che conta solo
@@ -442,7 +450,7 @@ Funzione pura dopo ogni modifica (come oggi):
    cambio; `get_workspace_settings` la riporta per agente in `agents[].readiness`.
 3. Slot: in modalità parallela (`pr`/`local_merge` con `parallel`) fino a `max_parallel`
    running nella board; altrimenti **1 running per repository** (chiave `repo`), comunque
-   entro `max_parallel`.
+   entro `max_parallel`. Un task `plan`, che gira sempre nel suo worktree, non occupa il repository.
 4. Ogni scelto passa a `running` (`worker_status = starting`, `attempts += 1`,
    `started_at`), l'avvio vero (git + spawn) gira fuori dal lock su un thread separato.
 
@@ -474,7 +482,8 @@ queued|failed --utente: Elimina tutti--> rimosso insieme ai dipendenti non done,
 
 Una review (`kind: "review"`) segue lo stesso ciclo: `complete_task completed` la porta sempre a
 `done`, **anche con `verdict: "issues"`** (il verdetto sta nel report); una review `failed` resta
-`failed`.
+`failed`. Un task di pianificazione (`kind: "plan"`) segue lo stesso ciclo: `completed` (con la
+proposta o con le domande per l'utente nel `summary`) → `done`, senza consegna né diffstat.
 
 **E2E nel ciclo.** `complete_task completed` di un task `work` con `e2e: true` passa dal blocco
 (vedi "Test E2E", Il blocco): se è rifiutato il task resta `running`, senza altri effetti.
@@ -520,26 +529,28 @@ un **segreto suo**:
   (`probe-<casuale>`), non quella di un terminale.
 
 Il **ruolo** del chiamante lo decide l'app, non il chiamante: viene dal tab (`Role::of_worker`). Il worker di un task
-`work` è `worker`, quello di un task `review` è `reviewer`, ogni altro tab di cli-companion (Intake compreso) è
-`session`. La tabella unica dei metodi consentiti a ogni ruolo è `Method::roles` in `automation/roles.rs`
+`work` è `worker`, quello di un task `review` è `reviewer`, quello di un task `plan` è `planner`, ogni altro tab
+di cli-companion (Intake compreso) è `session`. La tabella unica dei metodi consentiti a ogni ruolo è `Method::roles` in `automation/roles.rs`
 (un `match` esaustivo: aggiungere un metodo obbliga a decidere chi lo chiama); `rpc::dispatch` la usa per il
 controllo di accesso e il server MCP per scegliere i tool, e un test verifica che coincidano. Un metodo non consentito
 risponde "`<metodo>` is reserved for automated sessions" (a una sessione) o "`<metodo>` is not available to
 automated sessions" (a un worker); un tab di un workspace archiviato risponde "workspace is archived" a tutto.
 
-| Metodo | `worker` | `reviewer` | `session` |
-|---|:-:|:-:|:-:|
-| `whoami` (handshake del server MCP, non è un tool) | sì | sì | sì |
-| `get_task`, `complete_task`, `run_e2e`, `get_e2e_result` | sì | sì | no |
-| `propose_tasks`, `get_task_details` | no | sì | sì |
-| `list_tasks`, `update_task`, `delete_task` | no | no | sì |
-| `get_workspace_settings`, `propose_settings` | no | no | sì |
-| `save_skill`, `list_skills`, `delete_skill` | no | no | sì |
+| Metodo | `worker` | `reviewer` | `planner` | `session` |
+|---|:-:|:-:|:-:|:-:|
+| `whoami` (handshake del server MCP, non è un tool) | sì | sì | sì | sì |
+| `get_task`, `complete_task` | sì | sì | sì | no |
+| `run_e2e`, `get_e2e_result` | sì | sì | no | no |
+| `propose_tasks`, `get_task_details` | no | sì | sì | sì |
+| `list_tasks`, `get_workspace_settings` | no | no | sì | sì |
+| `update_task`, `delete_task`, `propose_settings` | no | no | no | sì |
+| `save_skill`, `list_skills`, `delete_skill` | no | no | no | sì |
 
 ## Tool MCP
 
 Il server MCP sceglie il ruolo con la RPC interna `whoami` (non è un tool) ed espone tool diversi in base al tab: **worker** (`role: "worker"`, tab registrato come worker di
-un task `work`), **reviewer** (`role: "reviewer"`, worker di un task `review`) oppure **sessione**
+un task `work`), **reviewer** (`role: "reviewer"`, worker di un task `review`), **planner**
+(`role: "planner"`, worker di un task `plan`) oppure **sessione**
 (`role: "session"`, qualunque altro tab di cli-companion: Intake o terminale
 normale). Fuori da cli-companion nessun tool. Se l'app non risponde a `whoami` entro 3 s l'handshake
 non si blocca: la lista è vuota, il server riprova in background e, appena riceve il ruolo, avvisa il client
@@ -591,12 +602,33 @@ Istruzioni del server MCP per il reviewer (inglese): automated reviewer; call ge
 verify the integrated result without changing files; propose fixes with propose_tasks; always
 finish with complete_task and a verdict.
 
+Planner (worker di un task `plan`; tool in `mcp/tools/planner.rs`; mai `update_task`,
+`delete_task`, E2E, `propose_settings` o tool di skill):
+- `get_task` → `{ task, title, instructions, environment, previous_attempt? }`, **senza
+  `delivery`** (vedi "Istruzioni del pianificatore").
+- `complete_task { status, summary }`: con `status: "completed"` `commit` e `pr_url` sono un
+  errore ("commit and pr_url are not accepted for plan tasks: a plan delivers no code"), `verdict` e
+  `findings` lo sono sempre ("only accepted for review tasks"); `failed` come per ogni worker.
+  Niente diffstat. Il tool espone solo `status` e `summary`.
+- `propose_tasks`: come per la sessione, con `source_task` = id del task `plan`. **Una sola**
+  proposta registrata per worker: la seconda risponde "this plan task already made its proposal: a
+  planner calls propose_tasks once. Call complete_task now." (una chiamata rifiutata dalla
+  validazione non conta).
+- `list_tasks`, `get_task_details`, `get_workspace_settings`: come per la sessione, nel workspace
+  del task (la descrizione di `get_workspace_settings` non cita `propose_settings`).
+
+Istruzioni del server MCP per il planner (inglese): automated planner; call get_task first;
+explore without changing anything; a single propose_tasks call or the questions in the summary;
+always finish with complete_task; nobody reads the terminal.
+
 Sessione (workspace = quello del tab):
 - `propose_tasks { tasks: TaskSpec[] }` — `TaskSpec = { id, title, task, model, agent?,
   depends_on?, repo?, kind? }` (`model` obbligatorio nelle proposte; `kind` `work` | `review`,
   default `work`; una `review` richiede almeno una dipendenza, controllata a proposta,
   accettazione, creazione manuale e aggiornamento: "task '<id>': a review task needs at least one
-  dependency (depends_on: the tasks it reviews)"). `e2e` (bool, default `false`) richiede che il
+  dependency (depends_on: the tasks it reviews)"). `kind: "plan"` è rifiutato qui come in
+  `update_task`, `task_create` e `task_update` (`kind "plan" is reserved to the app: …`), e un task
+  `plan` non cambia tipo ("the kind of a plan task cannot be changed"). `e2e` (bool, default `false`) richiede che il
   repository del task abbia `e2e` configurato, controllato negli stessi quattro punti: "task
   '<id>': e2e requires an E2E command configured for repository '<repo>'". Valida tutto (id unici anche rispetto ai task esistenti e alle altre
   proposte, dipendenze verso la proposta stessa o task esistenti, niente cicli, `repo`
@@ -609,7 +641,7 @@ Sessione (workspace = quello del tab):
   support automated sessions", "invalid model for <nome>: <modello>"). La proposta tiene
   `agent` com'è scritto; all'accettazione si risolve con l'agente del workspace di quel momento.
 - `list_tasks { status?: string[] }` → righe compatte `{ id, title, status, kind? (solo
-  `review`), e2e? (solo `true`), verdict? (se il report ne ha uno), attention?,
+  `review` e `plan`), e2e? (solo `true`), verdict? (se il report ne ha uno), attention?,
   waiting_on?, agent_unavailable? (`{ agent, reason }`, vedi “Agente e modello di un task”), summary? (300),
   note? (200) }` + `counts` + `proposals_pending`.
 - `get_task_details { id }` → task completo (testo, report, worktree, `agent`, `model`) con la sua vista (`agent_unavailable` compreso).
@@ -796,6 +828,45 @@ tutti `done` (nessuna modifica allo scheduler).
 - **Nessun ciclo automatico**: le correzioni le decide l'utente accettando o scartando la
   proposta.
 
+## Task di pianificazione
+
+Contratto del backend (tappa 3 dell'Agents HUB). Un **task di pianificazione** è un task
+`kind: "plan"`: un coding agent esplora il repository in sola lettura, scrive le specifiche e chiude
+con una proposta di task, o con le domande per l'utente. È un `kind` e non un preset perché non
+consegna codice: niente branch da integrare, niente istruzioni di consegna. Regole pure in
+`board/plan.rs`, lato automazione `automation/planner.rs`.
+
+- **Chi lo crea**: solo l'app, con l'API interna `automation::create_plan_task(st, host, ws_id,
+  &PlanRequest { title, task, model?, repo? })` (dall'app reale `automation::queue_plan_task(app, …)`,
+  che fa git: fuori dal main thread). Il task entra **direttamente in coda** (niente proposta), con
+  l'id generato dal titolo come `task_create` e l'agente del workspace; `model` assente = quello dei
+  worker del workspace. Titolo, testo, modello e repo si validano come ogni task; il workspace non deve
+  essere archiviato e il repository deve essere un repository git in qualunque modalità ("… is not a
+  git repository: planning reads the code in a git worktree and needs one").
+- **Mai da fuori**: `propose_tasks` (Intake, revisore, pianificatore), `update_task`, `task_create` e
+  `task_update` rifiutano `kind: "plan"`. `task_create` non lo espone di proposito: un piano ha senso
+  solo con chi ne consuma l'esito (l'HUB, che lega proposta e domande al suo thread); creato a mano
+  sarebbe un Intake senza utente. Un `plan` in coda si modifica (titolo, testo, modello…) ma non
+  cambia tipo e non accetta `e2e: true` ("a plan task cannot require E2E tests"). `depends_on` è
+  ammesso ma non obbligatorio.
+- **Esecuzione**: sempre in un worktree `task/<id>` dalla base, anche nelle modalità senza worktree:
+  il pianificatore non tocca mai la copia di lavoro dell'utente, e un worktree è più semplice da
+  garantire di un "non scrivere" affidato alle istruzioni. Niente hook `setup`, niente precondizione
+  `local_merge`. Lo scheduler lo conta in `max_parallel` ma **non occupa il repository**: nelle
+  modalità in place può girare accanto al task `work` del checkout.
+- **Chi lo esegue**: un **planner** (`whoami` → `role: "planner"`), con le istruzioni di
+  `planner_instructions.md` (derivate da `agents/presets/task-intake.md`): esplorazione in sola
+  lettura, coda letta per evitare duplicati e trovare le dipendenze, task autosufficienti (Goal,
+  Context, Constraints, Done when, Verify), dimensionamento, review di obiettivo, scenari E2E se il
+  repository ha una suite. Differenze dall'Intake: nessun utente nel terminale, nessuna modifica né
+  commit, al massimo **una** proposta e poi `complete_task`; se la richiesta è troppo ambigua non
+  propone e chiude `completed` con un `summary` che inizia con "Questions for the user:" e le domande
+  numerate.
+- **Esito**: `complete_task` senza `commit`, `pr_url`, `verdict`, `findings` (vedi "Tool MCP");
+  `done` → tab chiuso → worktree rimosso e branch cancellato (`-D` in `pr`, `-d` altrimenti), mai
+  merge, push o PR. Un piano `failed` tiene il worktree per il retry, come ogni task; eliminarlo lo
+  ripulisce.
+
 ## Proposte (approvazione)
 
 - `propose_tasks` aggiunge una `Proposal` alla board → `board-update`.
@@ -806,7 +877,8 @@ tutti `done` (nessuna modifica allo scheduler).
   nuova validazione; se fallisce (es. un id nel frattempo occupato) la card mostra l'errore.
 - Scarta → la proposta sparisce. Nessun feedback all'Intake.
 - Una proposta fatta dal reviewer di una review registra `source_task` (id della review) e
-  `source_tab` (tab del reviewer); le proposte dell'Intake non hanno `source_task`.
+  `source_tab` (tab del reviewer); lo stesso per il pianificatore di un task `plan` (id del task
+  `plan`, al massimo una proposta per worker); le proposte dell'Intake non hanno `source_task`.
 - Comando Tauri `proposal_decide(workspace_id, proposal_id, accept: bool) -> BoardView`.
 
 ### Proposte di impostazioni
@@ -908,7 +980,7 @@ Argomenti camelCase lato JS.
 - `board_set(workspace_id, max_parallel?, paused?) -> BoardView`
 - `task_create(workspace_id, spec: { title, task, depends_on?, repo?, agent?, model?, kind? }) -> BoardView`
   (id generato dal titolo: slug ASCII, max 40, suffisso `-2`, `-3`… se occupato; vuoto →
-  `task-<n>`). Manuale, senza proposta.
+  `task-<n>`). Manuale, senza proposta. `kind: "plan"` non è ammesso (vedi "Task di pianificazione").
 - `task_update(workspace_id, task_id, patch) -> BoardView` (stesse regole di `update_task`).
 - `task_action(workspace_id, task_id, action) -> BoardView`, `action` è un `TaskAction` (vedi "Azioni consentite"; una stringa sconosciuta è rifiutata in deserializzazione) ∈ `retry` (failed →
   queued in fondo) | `mark_done` (failed → done a mano: tiene report e worktree, sblocca i

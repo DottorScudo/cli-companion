@@ -20,7 +20,7 @@ agent?: string | null,
  */
 model?: string | null, 
 /**
- * Assente = `work`. Una `review` richiede almeno una dipendenza.
+ * Assente = `work`. Una `review` richiede almeno una dipendenza; `plan` e' riservato all'app.
  */
 kind?: TaskKind, 
 /**

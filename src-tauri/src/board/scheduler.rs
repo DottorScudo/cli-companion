@@ -18,7 +18,8 @@ pub struct SchedCtx {
 ///
 /// In modalita' parallela (worktree) fino a `max_parallel` running nella
 /// board; altrimenti un solo running per repository, comunque entro
-/// `max_parallel`. I task il cui agente non e' pronto (`gate`) restano in
+/// `max_parallel` (un task `isolated`, nel suo worktree, non occupa il
+/// repository). I task il cui agente non e' pronto (`gate`) restano in
 /// coda e non occupano ne' il repository ne' un posto: ne partono altri.
 pub fn schedule(board: &Board, ctx: &SchedCtx, gate: &AgentGate) -> Vec<String> {
     if board.paused || !ctx.gate_open {
@@ -28,7 +29,9 @@ pub fn schedule(board: &Board, ctx: &SchedCtx, gate: &AgentGate) -> Vec<String> 
     let mut running = 0usize;
     for t in board.tasks.iter().filter(|t| t.status() == TaskStatus::Running) {
         running += 1;
-        busy.insert(repo_key(t.repo.as_deref()));
+        if !t.kind.isolated() {
+            busy.insert(repo_key(t.repo.as_deref()));
+        }
     }
     let parallel = ctx.delivery.worktrees();
     let mut chosen = Vec::new();
@@ -39,7 +42,7 @@ pub fn schedule(board: &Board, ctx: &SchedCtx, gate: &AgentGate) -> Vec<String> 
         if gate.is_blocked(&t.agent) {
             continue;
         }
-        if !parallel && !busy.insert(repo_key(t.repo.as_deref())) {
+        if !parallel && !t.kind.isolated() && !busy.insert(repo_key(t.repo.as_deref())) {
             continue;
         }
         chosen.push(t.id.clone());

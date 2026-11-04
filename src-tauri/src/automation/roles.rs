@@ -15,10 +15,12 @@ pub enum Role {
     Worker,
     /// Il worker di un task `review`: verifica il risultato integrato e propone le correzioni.
     Reviewer,
+    /// Il worker di un task `plan`: esplora il repository in sola lettura e propone i task.
+    Planner,
 }
 
 impl Role {
-    pub const ALL: [Role; 3] = [Role::Session, Role::Worker, Role::Reviewer];
+    pub const ALL: [Role; 4] = [Role::Session, Role::Worker, Role::Reviewer, Role::Planner];
 
     /// Valore di `whoami` sul filo.
     pub fn as_str(self) -> &'static str {
@@ -26,6 +28,7 @@ impl Role {
             Role::Session => "session",
             Role::Worker => "worker",
             Role::Reviewer => "reviewer",
+            Role::Planner => "planner",
         }
     }
 
@@ -39,6 +42,7 @@ impl Role {
             None => Role::Session,
             Some(TaskKind::Work) => Role::Worker,
             Some(TaskKind::Review) => Role::Reviewer,
+            Some(TaskKind::Plan) => Role::Planner,
         }
     }
 }
@@ -66,10 +70,14 @@ pub enum Method {
 
 /// Tutti i ruoli.
 const EVERYONE: &[Role] = &Role::ALL;
-/// I worker automatici: consegnano un task e ne riferiscono l'esito.
-const AUTOMATED: &[Role] = &[Role::Worker, Role::Reviewer];
-/// Gestione della coda di task: il revisore ne ha solo una parte.
-const SESSION_AND_REVIEWER: &[Role] = &[Role::Session, Role::Reviewer];
+/// I worker automatici: leggono il loro task e ne riferiscono l'esito.
+const AUTOMATED: &[Role] = &[Role::Worker, Role::Reviewer, Role::Planner];
+/// Chi verifica il codice con gli E2E: il pianificatore non scrive codice.
+const E2E_RUNNERS: &[Role] = &[Role::Worker, Role::Reviewer];
+/// Proposte e dettaglio dei task: il revisore e il pianificatore ne hanno bisogno.
+const PROPOSERS: &[Role] = &[Role::Session, Role::Reviewer, Role::Planner];
+/// Lettura della coda e delle impostazioni: anche il pianificatore.
+const SESSION_AND_PLANNER: &[Role] = &[Role::Session, Role::Planner];
 /// Strumenti dell'utente (coda, skill, impostazioni): vietati ai worker.
 const SESSION_ONLY: &[Role] = &[Role::Session];
 
@@ -121,15 +129,15 @@ impl Method {
     pub fn roles(self) -> &'static [Role] {
         match self {
             Method::Whoami => EVERYONE,
-            Method::GetTask | Method::CompleteTask | Method::RunE2e | Method::GetE2eResult => AUTOMATED,
-            Method::ProposeTasks | Method::GetTaskDetails => SESSION_AND_REVIEWER,
-            Method::ListTasks
-            | Method::UpdateTask
+            Method::GetTask | Method::CompleteTask => AUTOMATED,
+            Method::RunE2e | Method::GetE2eResult => E2E_RUNNERS,
+            Method::ProposeTasks | Method::GetTaskDetails => PROPOSERS,
+            Method::ListTasks | Method::GetWorkspaceSettings => SESSION_AND_PLANNER,
+            Method::UpdateTask
             | Method::DeleteTask
             | Method::SaveSkill
             | Method::ListSkills
             | Method::DeleteSkill
-            | Method::GetWorkspaceSettings
             | Method::ProposeSettings => SESSION_ONLY,
         }
     }
@@ -197,6 +205,7 @@ mod tests {
         assert_eq!(Role::of_worker(None), Role::Session);
         assert_eq!(Role::of_worker(Some(TaskKind::Work)), Role::Worker);
         assert_eq!(Role::of_worker(Some(TaskKind::Review)), Role::Reviewer);
+        assert_eq!(Role::of_worker(Some(TaskKind::Plan)), Role::Planner);
     }
 
     #[test]
@@ -221,22 +230,24 @@ mod tests {
     #[test]
     fn the_table_keeps_the_agreed_permissions() {
         let who = |m: Method| Role::ALL.into_iter().filter(|r| m.allows(*r)).collect::<Vec<_>>();
-        let automated = vec![Role::Worker, Role::Reviewer];
-        let shared = vec![Role::Session, Role::Reviewer];
-        for m in [Method::GetTask, Method::CompleteTask, Method::RunE2e, Method::GetE2eResult] {
-            assert_eq!(who(m), automated, "{}", m.name());
+        for m in [Method::GetTask, Method::CompleteTask] {
+            assert_eq!(who(m), vec![Role::Worker, Role::Reviewer, Role::Planner], "{}", m.name());
+        }
+        for m in [Method::RunE2e, Method::GetE2eResult] {
+            assert_eq!(who(m), vec![Role::Worker, Role::Reviewer], "{}", m.name());
         }
         for m in [Method::ProposeTasks, Method::GetTaskDetails] {
-            assert_eq!(who(m), shared, "{}", m.name());
+            assert_eq!(who(m), vec![Role::Session, Role::Reviewer, Role::Planner], "{}", m.name());
+        }
+        for m in [Method::ListTasks, Method::GetWorkspaceSettings] {
+            assert_eq!(who(m), vec![Role::Session, Role::Planner], "{}", m.name());
         }
         for m in [
-            Method::ListTasks,
             Method::UpdateTask,
             Method::DeleteTask,
             Method::SaveSkill,
             Method::ListSkills,
             Method::DeleteSkill,
-            Method::GetWorkspaceSettings,
             Method::ProposeSettings,
         ] {
             assert_eq!(who(m), vec![Role::Session], "{}", m.name());

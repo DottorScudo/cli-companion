@@ -140,7 +140,7 @@ recupero (backup datati, avvisi, file illeggibili) è in DESIGN.MD, "`store/`".
 ### Aggiungere un metodo RPC / un tool MCP
 
 Il metodo si aggiunge a `Method` in `automation/roles.rs` (nome sul filo, `ALL`, `roles`: il `match` è esaustivo e ti
-obbliga a decidere quali ruoli — `worker`, `reviewer`, `session` — lo possono chiamare), con il gestore in
+obbliga a decidere quali ruoli — `worker`, `reviewer`, `planner`, `session` — lo possono chiamare), con il gestore in
 `automation/rpc.rs` (o nel modulo dell'ambito) e la definizione del tool, con descrizione in inglese, in
 `mcp/tools.rs`. Un test verifica che la tabella dei ruoli e i tool esposti coincidano. Aggiorna BOARD.MD, "Tool MCP".
 

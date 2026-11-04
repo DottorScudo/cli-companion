@@ -106,6 +106,13 @@ fn add_worktrees_exclude<H: Host>(host: &H, ws: &Workspace, dir: &str, warnings:
     }
 }
 
+/// Configurazione del repository se il worktree del task va preparato: un
+/// task `isolated` legge solo il codice e non ha setup.
+fn setup_cfg(job: &StartJob) -> Option<&crate::workspaces::RepoConfig> {
+    let task = &job.task;
+    repo_cfg(&job.ws, task.repo.as_deref()).filter(|c| c.has_setup() && !task.kind.isolated())
+}
+
 /// Setup di un worktree appena creato (file ignorati, comandi), se il
 /// repository ne ha uno. Ogni passo e' pubblicato e fa da battito del guardiano.
 fn setup_worktree<H: Host>(
@@ -116,7 +123,7 @@ fn setup_worktree<H: Host>(
     wt: &WorktreeInfo,
 ) -> Result<Vec<String>, String> {
     let (ws, task) = (&job.ws, &job.task);
-    let Some(cfg) = repo_cfg(ws, task.repo.as_deref()).filter(|c| c.has_setup()) else {
+    let Some(cfg) = setup_cfg(job) else {
         return Ok(Vec::new());
     };
     let key = repo_key(task.repo.as_deref());
@@ -195,7 +202,7 @@ fn prepare_and_setup<H: Host>(
     base: &str,
 ) -> Result<(WorktreeInfo, Vec<String>), String> {
     let (ws, task) = (&job.ws, &job.task);
-    let slow = repo_cfg(ws, task.repo.as_deref()).is_some_and(|c| c.has_setup());
+    let slow = setup_cfg(job).is_some();
     if slow {
         st.run(host, |r| r.touch_preparing(&ws.id, &task.id, job.attempt, Some("worktree"), now_millis(), true));
     }
@@ -267,10 +274,12 @@ fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Res
     let (ws, task) = (&job.ws, &job.task);
     let delivery = ws.delivery;
     let dir = repo_dir(ws, task.repo.as_deref());
-    let branch = delivery.uses_branches().then(|| task_branch(&task.id));
-    let (worktree, warnings, base) = if delivery.worktrees() {
+    // Un task `isolated` ha sempre il suo worktree e non consegna: niente vincoli sul checkout.
+    let isolated = task.kind.isolated();
+    let branch = (delivery.uses_branches() || isolated).then(|| task_branch(&task.id));
+    let (worktree, warnings, base) = if delivery.worktrees() || isolated {
         let base = task_base(host, job, &dir)?;
-        if delivery.mode == DeliveryMode::LocalMerge {
+        if delivery.mode == DeliveryMode::LocalMerge && !isolated {
             require_checkout_on_base(host, ws, &dir, &base)?;
         }
         let (wt, w) = prepare_and_setup(st, host, job, &base)?;

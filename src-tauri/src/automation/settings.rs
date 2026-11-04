@@ -77,7 +77,8 @@ impl Registry {
 // get_workspace_settings
 // ---------------------------------------------------------------------------
 
-fn get_settings<H: Host>(st: &AutomationState, host: &H, ws: &Workspace) -> Value {
+/// `get_workspace_settings` del workspace `ws` (sessione normale o pianificatore).
+pub(super) fn get_settings<H: Host>(st: &AutomationState, host: &H, ws: &Workspace) -> Value {
     // Git e disco fuori dal lock; un errore non impedisce di leggere il resto.
     let (detected, repos_error) = match host.list_repos(ws) {
         Ok(detected) => (detected, None),

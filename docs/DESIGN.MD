@@ -723,14 +723,15 @@ Il contratto con il frontend e con i tool MCP è [BOARD.MD](BOARD.MD). File:
 | `view.rs` | `BoardView` / `TaskView` per il frontend (`waiting_on`, `attention`, `allowed_actions`, `can_edit`, `can_reorder`, `cascade`, `limits`) e righe compatte di `list_tasks` |
 | `worker.rs` | `WorkerStatus`/`WorkerActivity`/`WorkerEnd` e la tabella di transizione pura applicata agli hook |
 | `report.rs`, `review.rs`, `e2e.rs` | `TaskReport`, task di review (verdetto, task rivisti), tipi E2E e `check_gate` (il blocco della consegna) |
+| `plan.rs` | regole dei task di pianificazione (`kind: "plan"`): tipo riservato all'app, niente `e2e`, report senza consegna, `TaskKind::isolated` |
 | `settings.rs` | proposte di impostazioni (`SettingsProposal`) |
-| `texts.rs`, `prompts/*.md` | istruzioni, ambiente e passi di consegna dati al worker; standard di ingegneria e istruzioni del reviewer (inglese, `include_str!`) |
+| `texts.rs`, `prompts/*.md` | istruzioni, ambiente e passi di consegna dati al worker; standard di ingegneria e istruzioni del reviewer e del pianificatore (inglese, `include_str!`) |
 | `persist.rs`, `legacy.rs`, `recovery.rs`, `archive.rs` | formato su disco (busta, migrazioni, riga dell'archivio), migrazione dei file v0.11, recupero dopo un riavvio, selezione dei task da archiviare |
 
 - **Scheduler.** `schedule` non fa nulla con la coda in pausa o con il gate chiuso (workspace archiviato, oppure con
   fasce attive e fuori fascia); sceglie i `queued` con tutte le dipendenze `done`, nell'ordine dell'array. In modalità
   parallela (`pr`/`local_merge` con `parallel`) fino a `max_parallel` running, altrimenti uno per repository, comunque
-  entro `max_parallel`. Salta anche i task il cui agente è nel `AgentGate` del contesto (non pronto nel target del
+  entro `max_parallel` (un task `plan`, nel suo worktree, non occupa il repository). Salta anche i task il cui agente è nel `AgentGate` del contesto (non pronto nel target del
   workspace): restano `queued` e non occupano slot (vedi “Integrazioni: stato, risolutore e prontezza”).
 - **Azioni.** `permits` è la sola tabella di cosa si può fare a un task per stato; la usano le guardie delle operazioni,
   i messaggi di errore e `allowed_actions` della vista (BOARD.MD, "Azioni consentite").
@@ -765,7 +766,7 @@ dati, consegna, scheduler, tool, UI): [BOARD.MD](BOARD.MD). Struttura a strati, 
 - `boards.rs`: parte del `Registry` che tiene le board (proposte, modifiche dei task, scheduler).
   `boards/lifecycle.rs`: avvio dei task, guardiano degli avvii, archiviazione del workspace e pulizia
   nel `Registry`. `boards/commands.rs`: logica dei comandi Tauri della UI. `boards/session.rs`: tool
-  MCP delle sessioni (Intake e revisore).
+  MCP delle sessioni (Intake, revisore e pianificatore).
 - `worktrees.rs`: tipi e helper condivisi di git (percorsi, `git`, verifica dei repository) e file
   della board. `worktrees/start.rs`: avvio di un task (base, `git fetch`, worktree, setup, spawn).
   `worktrees/cleanup.rs`: pulizia a consegna avvenuta. `worktrees/real.rs`: lato reale di git (timeout 120 s, WSL via `wsl.exe -e`,
@@ -792,19 +793,22 @@ dati, consegna, scheduler, tool, UI): [BOARD.MD](BOARD.MD). Struttura a strati, 
   i metodi che la tabella di `roles.rs` gli consente (`Method::roles`, un `match` esaustivo: aggiungere un metodo
   obbliga a decidere chi lo può chiamare):
 
-  | Metodo | Worker | Reviewer | Sessione |
-  |---|:-:|:-:|:-:|
-  | `whoami` (handshake, non è un tool) | sì | sì | sì |
-  | `get_task`, `complete_task`, `run_e2e`, `get_e2e_result` | sì | sì | no |
-  | `propose_tasks`, `get_task_details` | no | sì | sì |
-  | `list_tasks`, `update_task`, `delete_task` | no | no | sì |
-  | `get_workspace_settings`, `propose_settings` | no | no | sì |
-  | `save_skill`, `list_skills`, `delete_skill` | no | no | sì |
+  | Metodo | Worker | Reviewer | Planner | Sessione |
+  |---|:-:|:-:|:-:|:-:|
+  | `whoami` (handshake, non è un tool) | sì | sì | sì | sì |
+  | `get_task`, `complete_task` | sì | sì | sì | no |
+  | `run_e2e`, `get_e2e_result` | sì | sì | no | no |
+  | `propose_tasks`, `get_task_details` | no | sì | sì | sì |
+  | `list_tasks`, `get_workspace_settings` | no | no | sì | sì |
+  | `update_task`, `delete_task`, `propose_settings` | no | no | no | sì |
+  | `save_skill`, `list_skills`, `delete_skill` | no | no | no | sì |
 
-  Il ruolo viene dal tab: il worker di un task `work` è `worker`, quello di un task `review` è `reviewer`, ogni altro
-  tab di cli-companion (Intake compreso, workspace = quello del tab) è `session`. Un tab di un workspace archiviato è
+  Il ruolo viene dal tab: il worker di un task `work` è `worker`, quello di un task `review` è `reviewer`, quello di
+  un task `plan` è `planner`, ogni altro tab di cli-companion (Intake compreso, workspace = quello del tab) è
+  `session`. Un tab di un workspace archiviato è
   congelato. `settings.rs`: patch validata in `workspaces/settings_patch.rs`, proposte in `board/settings.rs`.
-  `review.rs` ha ciò che il revisore legge in `get_task`; `skills.rs` i tool delle skill utente (la logica su file è in
+  `review.rs` ha ciò che il revisore legge in `get_task`; `planner.rs` il task di pianificazione (creazione
+  dall'app con `create_plan_task`, `get_task` e tool del pianificatore, proposta unica); `skills.rs` i tool delle skill utente (la logica su file è in
   `user_skills`).
 - `board_files.rs`: le board su disco (`<app data>/boards/<workspace>.json`) e il loro archivio `.jsonl`; un
   `JsonFile` per workspace che vive per tutta l'esecuzione, così la protezione contro la riscrittura di un file
@@ -899,8 +903,8 @@ finche' c'e' un task `running` in un workspace non archiviato. Comandi: `schedul
 - È uno **shim**: ogni `tools/call` apre una connessione TCP a `127.0.0.1:<porta>` (`CLI_COMPANION_PORT`, default 17421;
   `ipc::rpc_call`), invia la riga RPC con `CLI_COMPANION_TOKEN` e `CLI_COMPANION_SESSION` dall'ambiente e restituisce il
   risultato come testo JSON (errore RPC → `isError: true`). Read timeout 30 s (`RPC_TIMEOUT`).
-- Il ruolo si risolve con la RPC `whoami` e decide i tool esposti (`worker`, `reviewer`, `session`: tabella unica in
-  `automation/roles.rs`, che un test confronta con le definizioni di `mcp/tools.rs`). Senza le variabili d'ambiente la lista
+- Il ruolo si risolve con la RPC `whoami` e decide i tool esposti (`worker`, `reviewer`, `planner`, `session`: tabella unica in
+  `automation/roles.rs`, che un test confronta con le definizioni di `mcp/tools.rs` e `mcp/tools/planner.rs`). Senza le variabili d'ambiente la lista
   è vuota, così il plugin non fa rumore fuori da cli-companion.
 - **Handshake non bloccante.** `initialize` e `tools/list` non aspettano `whoami` oltre `ROLE_TIMEOUT` (3 s): Claude Code dà
   poco tempo all'avvio di un server. Se il ruolo non arriva, il server risponde con la lista vuota e un thread

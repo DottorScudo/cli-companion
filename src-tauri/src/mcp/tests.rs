@@ -1,6 +1,6 @@
 use super::tools::{
-    model_description, proposed_model_description, reviewer_tools, session_tools, settings_properties, tools_for,
-    worker_tools,
+    model_description, planner_tools, proposed_model_description, reviewer_tools, session_tools, settings_properties,
+    tools_for, worker_tools,
 };
 use super::*;
 use crate::agents::{PermissionMode, TierModels};
@@ -229,11 +229,20 @@ fn tools_list_depends_on_role() {
         assert!(!t["description"].as_str().unwrap().is_empty());
         assert_eq!(t["inputSchema"]["type"], "object");
     }
+    let s = Server::default();
+    let r = send(&s, &Fake::new("planner"), json!({"jsonrpc":"2.0","id":4,"method":"tools/list"})).unwrap();
+    assert_eq!(
+        names(&r),
+        ["get_task", "complete_task", "propose_tasks", "list_tasks", "get_task_details", "get_workspace_settings"]
+    );
+    let r = send(&s, &Fake::new("planner"), json!({"jsonrpc":"2.0","id":5,"method":"initialize"})).unwrap();
+    assert!(r["result"]["instructions"].as_str().unwrap().contains("automated planner"));
 }
 
 #[test]
 fn no_orchestrator_tool_survives() {
-    let all: Vec<Value> = session_tools().into_iter().chain(worker_tools()).chain(reviewer_tools()).collect();
+    let all: Vec<Value> =
+        session_tools().into_iter().chain(worker_tools()).chain(reviewer_tools()).chain(planner_tools()).collect();
     for gone in [
         "spawn_session",
         "list_sessions",

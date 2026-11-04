@@ -30,7 +30,7 @@
 //! - `roles`: tabella unica dei metodi RPC e dei ruoli che possono chiamarli.
 //! - `state`, `host`, `rpc`: stato Tauri, effetti verso l'esterno, smistamento RPC.
 //! - `agent_probe`: prontezza degli agenti nel target del workspace, in cache.
-//! - `boards`, `worktrees`, `review`, `settings`, `skills`, `e2e`, `auto`:
+//! - `boards`, `worktrees`, `review`, `planner`, `settings`, `skills`, `e2e`, `auto`:
 //!   operazioni sulle board e funzioni dei singoli ambiti.
 
 use crate::agents::{Readiness, WaitKind};
@@ -59,6 +59,7 @@ mod commands;
 mod e2e;
 mod hooks;
 mod host;
+mod planner;
 mod process;
 mod registry;
 mod review;
@@ -76,9 +77,12 @@ pub use agent_probe::integrations_changed;
 use auth::authenticate;
 pub use auth::SessionCredential;
 use auth::SessionKeys;
-pub use bridge::{board_views, flush_on_exit, handle_rpc, load_boards, on_hook_event, user_input, IpcBridge};
+pub use bridge::{
+    board_views, flush_on_exit, handle_rpc, load_boards, on_hook_event, queue_plan_task, user_input, IpcBridge,
+};
 pub use commands::*;
 pub use host::{Host, TauriHost};
+pub use planner::{create_plan_task, PlanRequest};
 #[cfg(test)]
 use registry::MAX_TRACKED_WORKERS;
 pub(crate) use registry::TASK_UNASSIGNED;

@@ -18,6 +18,7 @@ mod e2e;
 mod e2e_cancel;
 mod e2e_manual;
 mod hub_hook;
+mod plan;
 mod ready;
 mod reconcile;
 mod reconcile_git;

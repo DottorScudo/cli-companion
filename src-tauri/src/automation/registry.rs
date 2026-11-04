@@ -172,6 +172,7 @@ impl Registry {
                 started_sent: false,
                 tab_open: true,
                 cleanup_on_close: false,
+                proposed: false,
             },
         );
         self.prune();
@@ -259,6 +260,7 @@ impl Registry {
         };
         let mut out = match t.kind {
             TaskKind::Review => review::get_task_json(&info, &ws.worker.rules, b),
+            TaskKind::Plan => planner::get_task_json(&info, &ws.worker.rules),
             TaskKind::Work => serde_json::json!({
                 "task": t.task,
                 "title": t.title,
@@ -305,6 +307,7 @@ impl Registry {
         // Il verdetto si valida prima di ogni effetto: un errore lascia il task in corso.
         let kind = self.worker_kind(session).ok_or_else(|| "reserved for automated sessions".to_string())?;
         board::check_verdict(kind, completed, &extra.fields)?;
+        board::check_plan_report(kind, completed, &extra.fields)?;
         let gate_outcome = self.e2e_gate(session, completed, extra.gate.as_ref())?;
         self.reopen_after_session_end(session, now);
         let w = self.live_worker(session)?;

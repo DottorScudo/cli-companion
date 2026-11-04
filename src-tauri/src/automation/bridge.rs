@@ -1,6 +1,7 @@
 //! Punti d'ingresso dall'app reale: RPC dal socket, eventi degli hook, input
 //! dell'utente, uscita dall'app, caricamento delle board all'avvio e viste
-//! correnti delle board (la base degli eventi dell'Agents HUB all'accensione).
+//! correnti delle board (la base degli eventi dell'Agents HUB all'accensione),
+//! creazione dei task di pianificazione per l'HUB.
 
 use super::*;
 
@@ -91,4 +92,11 @@ pub fn load_boards(app: &tauri::App) {
 /// che all'accensione ne fa la base degli eventi della board.
 pub fn board_views(app: &AppHandle) -> Vec<BoardView> {
     app.state::<AutomationState>().views(&TauriHost(app.clone()))
+}
+
+/// Crea un task `plan` in coda nel workspace `ws_id` (vedi `planner`): l'API
+/// con cui l'Agents HUB delega la pianificazione. Ritorna l'id del task. Fa git:
+/// da chiamare fuori dal main thread.
+pub fn queue_plan_task(app: &AppHandle, ws_id: &str, req: &PlanRequest) -> Result<String, String> {
+    planner::create_plan_task(&app.state::<AutomationState>(), &TauriHost(app.clone()), ws_id, req)
 }

@@ -4,8 +4,8 @@
 
 use super::agent::resolve_spec_agent;
 use super::{
-    check_review_deps, parse_spec, permits, valid_id, validate_graph, Board, LifecycleError, Op, Proposal, Task,
-    TaskAction, TaskSpec, TaskStatus, MAX_PENDING_PROPOSALS, MAX_TASKS_PER_BOARD,
+    check_plan_spec, check_review_deps, parse_spec, permits, valid_id, validate_graph, Board, LifecycleError, Op,
+    Proposal, Task, TaskAction, TaskSpec, TaskStatus, MAX_PENDING_PROPOSALS, MAX_TASKS_PER_BOARD,
 };
 use crate::validate::clip_chars;
 use serde_json::Value;
@@ -53,6 +53,7 @@ impl Board {
                 return Err(format!("invalid task id: {}", clip_chars(&s.id, 50)));
             }
             check_review_deps(s)?;
+            check_plan_spec(s)?;
             if reserved.contains(s.id.as_str()) {
                 return Err(format!("duplicate task id: {} (already used by a pending proposal)", s.id));
             }
@@ -169,6 +170,7 @@ impl Board {
         let t = self.require(id, Op::Edit)?;
         let mut spec = parse_spec(patch, Some(&TaskSpec::from_task(t)))?;
         check_review_deps(&spec)?;
+        check_plan_spec(&spec)?;
         if patch.as_object().is_some_and(|o| o.keys().all(|k| k == "id")) {
             return Err("no fields to update".to_string());
         }

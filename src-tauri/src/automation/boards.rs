@@ -19,7 +19,7 @@ pub(super) use agents::ReadinessLookup;
 pub(super) use commands::{board_set, proposal_decide, task_action, task_create, task_move, task_update, workspace_of};
 #[cfg(test)]
 pub(super) use lifecycle::START_TIMEOUT_MS;
-pub(super) use session::{propose_tasks, rpc_session, session_workspace, task_details};
+pub(super) use session::{list_tasks, propose_tasks, rpc_session, session_workspace, task_details};
 
 // ---------------------------------------------------------------------------
 // Registry: board
@@ -79,7 +79,8 @@ impl Registry {
         self.edit(ws, |b| b.create_task(spec, workspace_agent, now))
     }
 
-    /// Nuova proposta (dell'Intake o del revisore di `source_task`): ritorna l'id.
+    /// Nuova proposta (dell'Intake, o del revisore o del pianificatore di
+    /// `source_task`): ritorna l'id. Un pianificatore propone una volta sola.
     pub fn propose(
         &mut self,
         ws: &str,
@@ -89,9 +90,11 @@ impl Registry {
         workspace_agent: Option<&str>,
         now: i64,
     ) -> Result<String, String> {
+        self.check_planner_can_propose(source_tab)?;
         self.next_proposal += 1;
         let id = format!("p-{now}-{}", self.next_proposal);
         self.edit(ws, |b| b.add_proposal(id.clone(), source_tab, source_task, specs, workspace_agent, now))?;
+        self.note_planner_proposal(source_tab);
         Ok(id)
     }
 
