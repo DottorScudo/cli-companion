@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Loader2 } from "lucide-react";
 import { Button } from "./ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { api } from "../lib/tauri";
 import type { Workspace } from "../lib/tauri";
@@ -108,12 +108,12 @@ export default function AddWorkspaceDialog({ isOpen, onClose, onAdded }: Props) 
         if (!o) onClose();
       }}
     >
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Nuovo workspace</DialogTitle>
         </DialogHeader>
 
-        <div className="flex flex-col gap-3">
+        <DialogBody className="gap-3">
           <div className="flex flex-row gap-2">
             <Button
               size="sm"
@@ -220,7 +220,7 @@ export default function AddWorkspaceDialog({ isOpen, onClose, onAdded }: Props) 
           </div>
 
           {error && <p className="text-xs text-destructive">{error}</p>}
-        </div>
+        </DialogBody>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>

@@ -1,7 +1,15 @@
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
 import { Button } from "./ui/button";
 import { api } from "../lib/tauri";
 import type { OutdatedPlugin, PluginUpdateResult } from "../lib/tauri";
@@ -69,21 +77,23 @@ export default function PluginUpdateDialog({ outdated, onClose, onBeforeRestart 
                 Il plugin di {agentNames} va aggiornato per corrispondere a questa versione dell'app.
               </DialogDescription>
             </DialogHeader>
-            <ul className="flex max-h-48 flex-col gap-1 overflow-auto text-xs">
-              {outdated.map((o) => (
-                <li key={`${o.agent_id}:${o.env_key}`} className="rounded border px-2 py-1">
-                  <span className="font-medium">{o.env_label}</span>
-                  <span className="text-muted-foreground">
-                    {" "}
-                    · {o.agent_name}: {o.installed_version ?? "non versionato"} → {o.expected_version}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-sm font-medium">
-              Al termine l'app si riavvia: le sessioni aperte verranno riavviate e riprese automaticamente (i worker
-              automatici in corso vengono interrotti).
-            </p>
+            <DialogBody>
+              <ul className="flex flex-col gap-1 text-xs">
+                {outdated.map((o) => (
+                  <li key={`${o.agent_id}:${o.env_key}`} className="rounded border px-2 py-1">
+                    <span className="font-medium">{o.env_label}</span>
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {o.agent_name}: {o.installed_version ?? "non versionato"} → {o.expected_version}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-sm font-medium">
+                Al termine l'app si riavvia: le sessioni aperte verranno riavviate e riprese automaticamente (i worker
+                automatici in corso vengono interrotti).
+              </p>
+            </DialogBody>
             <DialogFooter className="gap-2 sm:gap-0">
               <Button variant="outline" onClick={onClose}>
                 Non ora
@@ -99,10 +109,12 @@ export default function PluginUpdateDialog({ outdated, onClose, onBeforeRestart 
               <DialogTitle>Aggiornamento plugin</DialogTitle>
               <DialogDescription>Aggiornamento in corso, può richiedere qualche decina di secondi.</DialogDescription>
             </DialogHeader>
-            <div className="flex items-center gap-2 text-sm">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Aggiornamento…
-            </div>
+            <DialogBody>
+              <div className="flex items-center gap-2 text-sm">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Aggiornamento…
+              </div>
+            </DialogBody>
           </>
         )}
 
@@ -116,18 +128,16 @@ export default function PluginUpdateDialog({ outdated, onClose, onBeforeRestart 
                   : `${failures.length} ambienti non sono stati aggiornati.`}
               </DialogDescription>
             </DialogHeader>
-            <div className="flex max-h-64 flex-col gap-2 overflow-auto">
+            <DialogBody className="gap-2">
               {failures.map((f) => (
                 <div key={`${f.agent_id}:${f.env_key}`} className="text-xs">
                   <p className="font-medium">
                     {f.env_label} · {f.agent_name}
                   </p>
-                  <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 font-mono text-[11px]">
-                    {f.log}
-                  </pre>
+                  <pre className="mt-1 whitespace-pre-wrap rounded bg-muted p-2 font-mono text-[11px]">{f.log}</pre>
                 </div>
               ))}
-            </div>
+            </DialogBody>
             <DialogFooter className="gap-2 sm:gap-0">
               <Button variant="outline" onClick={onClose}>
                 Chiudi
@@ -142,9 +152,9 @@ export default function PluginUpdateDialog({ outdated, onClose, onBeforeRestart 
             <DialogHeader>
               <DialogTitle>Aggiornamento non riuscito</DialogTitle>
             </DialogHeader>
-            <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 font-mono text-[11px]">
-              {error}
-            </pre>
+            <DialogBody>
+              <pre className="whitespace-pre-wrap rounded bg-muted p-2 font-mono text-[11px]">{error}</pre>
+            </DialogBody>
             <DialogFooter>
               <Button variant="outline" onClick={onClose}>
                 Chiudi

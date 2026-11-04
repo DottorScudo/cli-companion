@@ -162,7 +162,7 @@ export default function SettingsDialog() {
       }}
     >
       <DialogContent
-        className="flex h-[min(640px,85vh)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[920px]"
+        className="gap-0 p-0"
         onCloseAutoFocus={(e) => {
           // Nessun trigger a cui tornare: il focus va al terminale attivo.
           e.preventDefault();
@@ -210,7 +210,9 @@ export default function SettingsDialog() {
             </div>
           </nav>
 
-          <div className="min-w-0 flex-1 overflow-y-auto p-5">{renderPage()}</div>
+          <div className="min-w-0 flex-1 overflow-y-auto p-5">
+            <div className="max-w-3xl">{renderPage()}</div>
+          </div>
         </div>
 
         <DialogFooter className="border-t px-5 py-3">

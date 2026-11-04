@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import DetailTaskFields from "./DetailTaskFields";
 import { useCommand } from "./useDetailCommand";
 import { Button } from "../ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
 import { repoHasE2e, withRepoE2e } from "../../lib/e2e";
 import { sanitizeModel } from "../../lib/model";
 import { defaultAgentChoice } from "../../lib/taskAgent";
@@ -64,7 +64,7 @@ export default function NewTaskDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       {/* Il contenuto si smonta alla chiusura: il form riparte vuoto a ogni apertura. */}
-      <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
+      <DialogContent>
         <NewTaskForm
           workspace={workspace}
           agents={agents}
@@ -139,46 +139,48 @@ function NewTaskForm({ workspace, agents, board, onBoard, onClose, onOpenIntake,
   };
 
   return (
-    <form onSubmit={submit} noValidate className="flex flex-col gap-4">
+    <form onSubmit={submit} noValidate className="flex min-h-0 flex-1 flex-col gap-4">
       <DialogHeader>
         <DialogTitle>Nuovo task</DialogTitle>
         <DialogDescription>Entra in fondo alla coda di {workspace.name} e parte quando può.</DialogDescription>
       </DialogHeader>
 
-      <div className="flex items-center justify-between gap-3 rounded-md border bg-surface px-3 py-2 text-xs">
-        <span className="text-text-secondary">Per una specifica completa usa Task Intake.</span>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            onClose();
-            onOpenIntake();
-          }}
-          className="h-7 flex-shrink-0 bg-transparent px-2.5 text-xs"
-        >
-          Apri Task Intake
-        </Button>
-      </div>
+      <DialogBody>
+        <div className="flex items-center justify-between gap-3 rounded-md border bg-surface px-3 py-2 text-xs">
+          <span className="text-text-secondary">Per una specifica completa usa Task Intake.</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              onClose();
+              onOpenIntake();
+            }}
+            className="h-7 flex-shrink-0 bg-transparent px-2.5 text-xs"
+          >
+            Apri Task Intake
+          </Button>
+        </div>
 
-      <DetailTaskFields
-        idPrefix="new-task"
-        values={{ ...values, repo, agent }}
-        onChange={change}
-        errors={errors}
-        tasks={tasks}
-        selfId={null}
-        repoChoices={repoChoices}
-        e2eConfigured={e2eConfigured}
-        agents={agents}
-        disabled={busy}
-      />
+        <DetailTaskFields
+          idPrefix="new-task"
+          values={{ ...values, repo, agent }}
+          onChange={change}
+          errors={errors}
+          tasks={tasks}
+          selfId={null}
+          repoChoices={repoChoices}
+          e2eConfigured={e2eConfigured}
+          agents={agents}
+          disabled={busy}
+        />
 
-      {error && (
-        <p role="alert" className="break-words text-xs text-destructive">
-          {error}
-        </p>
-      )}
+        {error && (
+          <p role="alert" className="break-words text-xs text-destructive">
+            {error}
+          </p>
+        )}
+      </DialogBody>
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" size="sm" disabled={busy} onClick={onClose} className="bg-transparent">
