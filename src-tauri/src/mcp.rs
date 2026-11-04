@@ -12,56 +12,49 @@
 //! (variabili d'ambiente assenti o app non raggiungibile) la lista dei tool e' vuota,
 //! cosi' il plugin non fa rumore altrove. Le definizioni dei tool sono in `tools`.
 //!
+//! L'handshake non aspetta l'app oltre `ROLE_TIMEOUT`. Se il ruolo non arriva,
+//! un thread riprova `whoami` (`retry`) e, appena riesce, avvisa il client con
+//! `notifications/tools/list_changed` se aveva ricevuto una lista vuota
+//! (`session`). Lo stato condiviso fra i due e' in `state`.
+//!
 //! Su stdout passano solo messaggi MCP (una riga JSON ciascuno): in release
 //! l'exe non ha console e qualunque altro output sporcherebbe il protocollo.
 
+mod retry;
+mod session;
+mod state;
 mod tools;
 
-use std::io::{BufRead, Write};
+use std::io::BufRead;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::automation::Role;
 use crate::ipc::{app_port, rpc_call, RpcRequest, RpcResponse, SESSION_ENV, TOKEN_ENV};
+use retry::{SystemClock, RETRY_POLICY};
+use session::Session;
+pub use state::Server;
 use tools::{instructions, tools_for};
 
 /// Versioni del protocollo MCP che sappiamo parlare (la prima e' il default).
 const PROTOCOL_VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 /// Attesa massima della risposta di una RPC (nessun tool resta in attesa).
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
+/// Attesa massima della risposta di `whoami` mentre il client aspetta
+/// `initialize` o `tools/list`: Claude Code da' poco tempo all'avvio di un
+/// server, un'app lenta la recuperano i tentativi in background.
+const ROLE_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// Canale verso l'app: una chiamata RPC alla volta.
-pub trait Backend {
-    fn rpc(&self, method: &str, params: &Value) -> Result<Value, String>;
-}
+/// Canale verso l'app: una chiamata RPC alla volta, condiviso fra il ciclo
+/// principale e il thread dei tentativi.
+pub trait Backend: Send + Sync {
+    /// `timeout` e' l'attesa massima della risposta.
+    fn rpc(&self, method: &str, params: &Value, timeout: Duration) -> Result<Value, String>;
 
-/// Stato del server: il ruolo e' risolto una volta sola (finche' `whoami`
-/// fallisce si riprova alla richiesta successiva).
-#[derive(Debug, Default)]
-pub struct Server {
-    role: Option<Role>,
-    /// Workspace della sessione (da `whoami`), a parole: serve alle istruzioni.
-    workspace: Option<String>,
-}
-
-impl Server {
-    fn role(&mut self, backend: &dyn Backend) -> Result<Role, String> {
-        if let Some(r) = self.role {
-            return Ok(r);
-        }
-        let v = backend.rpc("whoami", &json!({}))?;
-        let role = v
-            .get("role")
-            .and_then(Value::as_str)
-            .and_then(Role::parse)
-            .ok_or_else(|| "unknown role in the whoami response".to_string())?;
-        self.workspace = v.get("workspace").and_then(|w| {
-            let field = |k: &str| w.get(k).and_then(Value::as_str);
-            Some(format!("{} ({}, {})", field("name")?, field("kind")?, field("path")?))
-        });
-        self.role = Some(role);
-        Ok(role)
+    /// Se un `whoami` fallito puo' riuscire piu' tardi (l'app e' solo lenta).
+    fn may_recover(&self) -> bool {
+        true
     }
 }
 
@@ -87,7 +80,7 @@ fn tool_result(text: String, is_error: bool) -> Value {
 }
 
 /// Gestisce una riga in ingresso: `None` per le notifiche (nessuna risposta).
-pub fn handle_line(server: &mut Server, line: &str, backend: &dyn Backend) -> Option<Value> {
+pub fn handle_line(server: &Server, line: &str, backend: &dyn Backend) -> Option<Value> {
     match serde_json::from_str::<Value>(line) {
         Ok(msg) => handle_message(server, &msg, backend),
         Err(e) => Some(error_response(&Value::Null, -32700, &format!("invalid JSON: {e}"))),
@@ -96,31 +89,40 @@ pub fn handle_line(server: &mut Server, line: &str, backend: &dyn Backend) -> Op
 
 /// Gestisce un messaggio JSON-RPC. Le notifiche (senza `id`) e le risposte
 /// del client non producono output.
-pub fn handle_message(server: &mut Server, msg: &Value, backend: &dyn Backend) -> Option<Value> {
+pub fn handle_message(server: &Server, msg: &Value, backend: &dyn Backend) -> Option<Value> {
     let Some(obj) = msg.as_object() else {
         return Some(error_response(&Value::Null, -32600, "invalid request"));
     };
     let method = obj.get("method").and_then(Value::as_str)?;
-    let id = obj.get("id").filter(|v| !v.is_null())?;
+    let Some(id) = obj.get("id").filter(|v| !v.is_null()) else {
+        if method == "notifications/initialized" {
+            server.mark_initialized();
+        }
+        return None;
+    };
     let params = obj.get("params").unwrap_or(&Value::Null);
     Some(match method {
         "initialize" => {
             let asked = params.get("protocolVersion").and_then(Value::as_str);
             let version = asked.filter(|v| PROTOCOL_VERSIONS.contains(v)).unwrap_or(PROTOCOL_VERSIONS[0]);
             let role = server.role(backend).ok();
+            if role.is_none() && backend.may_recover() {
+                server.want_retry();
+            }
             ok_response(
                 id,
                 json!({
                     "protocolVersion": version,
-                    "capabilities": { "tools": {} },
+                    "capabilities": { "tools": { "listChanged": true } },
                     "serverInfo": { "name": "cli-companion", "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": instructions(role, server.workspace.as_deref()),
+                    "instructions": instructions(role, server.workspace().as_deref()),
                 }),
             )
         }
         "ping" => ok_response(id, json!({})),
         "tools/list" => {
             let tools = server.role(backend).map(tools_for).unwrap_or_default();
+            server.tools_listed(tools.is_empty());
             ok_response(id, json!({ "tools": tools }))
         }
         "tools/call" => ok_response(id, call_tool(server, params, backend)),
@@ -130,7 +132,7 @@ pub fn handle_message(server: &mut Server, msg: &Value, backend: &dyn Backend) -
 
 /// `tools/call`: gli errori (anche di RPC) tornano come risultato con
 /// `isError`, cosi' l'LLM li legge e puo' reagire.
-fn call_tool(server: &mut Server, params: &Value, backend: &dyn Backend) -> Value {
+fn call_tool(server: &Server, params: &Value, backend: &dyn Backend) -> Value {
     let role = match server.role(backend) {
         Ok(r) => r,
         Err(e) => {
@@ -154,7 +156,7 @@ fn call_tool(server: &mut Server, params: &Value, backend: &dyn Backend) -> Valu
         Some(a) if a.is_object() => a.clone(),
         Some(_) => return tool_result("arguments must be an object".to_string(), true),
     };
-    match backend.rpc(name, &args) {
+    match backend.rpc(name, &args, RPC_TIMEOUT) {
         Ok(result) => tool_result(serde_json::to_string_pretty(&result).unwrap_or_default(), false),
         Err(e) => tool_result(e, true),
     }
@@ -190,56 +192,63 @@ fn parse_response(line: &str) -> Result<Value, String> {
 struct TcpBackend {
     session: String,
     token: String,
+    port: u16,
 }
 
 impl TcpBackend {
     fn from_env() -> Result<Self, String> {
         let get = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
         match (get(SESSION_ENV), get(TOKEN_ENV)) {
-            (Some(session), Some(token)) => Ok(Self { session, token }),
+            (Some(session), Some(token)) => Ok(Self { session, token, port: app_port() }),
             _ => Err(format!("{SESSION_ENV}/{TOKEN_ENV} not set (terminal not managed by cli-companion)")),
         }
     }
 }
 
 impl Backend for TcpBackend {
-    fn rpc(&self, method: &str, params: &Value) -> Result<Value, String> {
+    fn rpc(&self, method: &str, params: &Value, timeout: Duration) -> Result<Value, String> {
         let line = request_line(&self.session, &self.token, method, params);
-        let answer = rpc_call(app_port(), &line, RPC_TIMEOUT)?;
+        let answer = rpc_call(self.port, &line, timeout)?;
         parse_response(&answer)
     }
 }
 
-/// Backend che fallisce sempre con lo stesso motivo (ambiente mancante).
+/// Backend che fallisce sempre con lo stesso motivo (ambiente mancante):
+/// fuori da cli-companion niente tentativi.
 struct UnavailableBackend(String);
 
 impl Backend for UnavailableBackend {
-    fn rpc(&self, _method: &str, _params: &Value) -> Result<Value, String> {
+    fn rpc(&self, _method: &str, _params: &Value, _timeout: Duration) -> Result<Value, String> {
         Err(self.0.clone())
+    }
+
+    fn may_recover(&self) -> bool {
+        false
     }
 }
 
 /// Ciclo del server: una richiesta per riga su stdin, risposta su stdout.
-/// Termina (exit 0 dal chiamante) a fine stdin.
+/// Termina (exit 0 dal chiamante) a fine stdin o se stdout si chiude.
 pub fn run_stdio() {
-    let backend: Box<dyn Backend> = match TcpBackend::from_env() {
-        Ok(b) => Box::new(b),
-        Err(e) => Box::new(UnavailableBackend(e)),
+    let backend: Arc<dyn Backend> = match TcpBackend::from_env() {
+        Ok(b) => Arc::new(b),
+        Err(e) => Arc::new(UnavailableBackend(e)),
     };
-    let mut server = Server::default();
-    let stdin = std::io::stdin();
-    let mut out = std::io::stdout();
-    for line in stdin.lock().lines() {
+    let out = Arc::new(Mutex::new(std::io::stdout()));
+    let session = Session::new(backend, out, Arc::new(SystemClock), RETRY_POLICY);
+    for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
         if line.trim().is_empty() {
             continue;
         }
-        let Some(resp) = handle_line(&mut server, &line, backend.as_ref()) else {
-            continue;
-        };
-        let text = serde_json::to_string(&resp).unwrap_or_default();
-        if writeln!(out, "{text}").and_then(|_| out.flush()).is_err() {
-            break;
+        match session.respond(&line) {
+            Ok(Some(job)) => {
+                // Senza thread si resta come senza tentativi: i tool compaiono
+                // solo se una richiesta successiva risolve il ruolo.
+                let _ = std::thread::Builder::new().name("mcp-whoami-retry".to_string()).spawn(move || job.run());
+            }
+            Ok(None) => {}
+            Err(_) => break,
         }
     }
 }

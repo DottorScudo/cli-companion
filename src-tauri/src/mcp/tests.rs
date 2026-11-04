@@ -2,13 +2,14 @@ use super::tools::{reviewer_tools, session_tools, settings_properties, worker_to
 use super::*;
 use crate::agents::{worker_rule_format, PermissionMode, RuleFormat};
 use crate::automation::settings::REASON_MAX;
-use crate::automation::Method;
+use crate::automation::{Method, Role};
 use crate::workspaces::{
     DeliveryMode, MergeMethod, MAX_COMMAND_LEN, MAX_E2E_TIMEOUT_MIN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_LAUNCHES,
     MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN,
 };
-use std::cell::RefCell;
 use std::collections::HashSet;
+use std::net::TcpListener;
+use std::time::Instant;
 
 /// Tool definitions and server instructions are sent to the model in every
 /// session: the ceilings are intentional. Do not raise one to fit new text,
@@ -29,22 +30,32 @@ const SESSION_INSTRUCTIONS_CEILING: usize = 700;
 /// The reviewer server instructions (measured 345).
 const REVIEWER_INSTRUCTIONS_CEILING: usize = 400;
 
-/// Backend finto: registra le chiamate e risponde con `reply`.
+/// Backend finto: registra le chiamate (con l'attesa concessa) e risponde con `reply`.
 struct Fake {
     role: &'static str,
     reply: Result<Value, String>,
-    calls: RefCell<Vec<(String, Value)>>,
+    calls: Mutex<Vec<(String, Value)>>,
+    timeouts: Mutex<Vec<(String, Duration)>>,
 }
 
 impl Fake {
     fn new(role: &'static str) -> Self {
-        Self { role, reply: Ok(json!({ "ok": 1 })), calls: RefCell::new(Vec::new()) }
+        Self { role, reply: Ok(json!({ "ok": 1 })), calls: Mutex::default(), timeouts: Mutex::default() }
+    }
+
+    fn calls(&self) -> Vec<(String, Value)> {
+        self.calls.lock().unwrap().clone()
+    }
+
+    fn timeouts(&self) -> Vec<(String, Duration)> {
+        self.timeouts.lock().unwrap().clone()
     }
 }
 
 impl Backend for Fake {
-    fn rpc(&self, method: &str, params: &Value) -> Result<Value, String> {
-        self.calls.borrow_mut().push((method.to_string(), params.clone()));
+    fn rpc(&self, method: &str, params: &Value, timeout: Duration) -> Result<Value, String> {
+        self.calls.lock().unwrap().push((method.to_string(), params.clone()));
+        self.timeouts.lock().unwrap().push((method.to_string(), timeout));
         if method == "whoami" {
             let mut v = json!({ "role": self.role, "session": "t1" });
             if self.role == "session" {
@@ -61,7 +72,7 @@ fn rule_limits() -> RuleFormat {
     worker_rule_format().expect("the default worker agent applies permission rules")
 }
 
-fn send(server: &mut Server, b: &dyn Backend, msg: Value) -> Option<Value> {
+fn send(server: &Server, b: &dyn Backend, msg: Value) -> Option<Value> {
     handle_message(server, &msg, b)
 }
 
@@ -108,7 +119,7 @@ fn initialize_negotiates_protocol_version() {
         ("2099-01-01", "2025-06-18"),
     ] {
         let r = send(
-            &mut Server::default(),
+            &Server::default(),
             &b,
             json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":asked}}),
         )
@@ -116,36 +127,36 @@ fn initialize_negotiates_protocol_version() {
         assert_eq!(r["id"], 1);
         assert_eq!(r["result"]["protocolVersion"], expected);
         assert_eq!(r["result"]["serverInfo"]["name"], "cli-companion");
-        assert!(r["result"]["capabilities"]["tools"].is_object());
+        assert_eq!(r["result"]["capabilities"]["tools"], json!({ "listChanged": true }));
         assert!(!r["result"]["instructions"].as_str().unwrap().is_empty());
     }
     // La sessione vede il proprio workspace; il testo dice che i task si propongono e non si attende.
-    let r = send(&mut Server::default(), &b, json!({"jsonrpc":"2.0","id":1,"method":"initialize"})).unwrap();
+    let r = send(&Server::default(), &b, json!({"jsonrpc":"2.0","id":1,"method":"initialize"})).unwrap();
     let text = r["result"]["instructions"].as_str().unwrap();
     assert!(text.contains("Proj (wsl, /home/u/app)"));
     assert!(text.contains("propose_tasks") && text.contains("accepts or discards") && text.contains("Never wait"));
     assert!(text.contains("save_skill") && text.contains("global skills"));
     assert!(text.contains("propose_settings") && text.contains("approves them in the app"));
     let w = Fake::new("worker");
-    let r = send(&mut Server::default(), &w, json!({"jsonrpc":"2.0","id":1,"method":"initialize"})).unwrap();
+    let r = send(&Server::default(), &w, json!({"jsonrpc":"2.0","id":1,"method":"initialize"})).unwrap();
     let text = r["result"]["instructions"].as_str().unwrap();
     assert!(!text.contains("Proj") && text.contains("complete_task"));
     let rv = Fake::new("reviewer");
-    let r = send(&mut Server::default(), &rv, json!({"jsonrpc":"2.0","id":1,"method":"initialize"})).unwrap();
+    let r = send(&Server::default(), &rv, json!({"jsonrpc":"2.0","id":1,"method":"initialize"})).unwrap();
     let text = r["result"]["instructions"].as_str().unwrap();
     assert!(text.contains("automated reviewer") && text.contains("complete_task") && text.contains("verdict"));
     assert!(!text.contains('\n') && !text.contains("  "), "reviewer instructions must be one line with single spaces");
     assert!(!text.contains("Proj") && !text.contains("deliver"));
     // Senza protocolVersion: default.
-    let r = send(&mut Server::default(), &b, json!({"jsonrpc":"2.0","id":"a","method":"initialize"})).unwrap();
+    let r = send(&Server::default(), &b, json!({"jsonrpc":"2.0","id":"a","method":"initialize"})).unwrap();
     assert_eq!(r["id"], "a");
     assert_eq!(r["result"]["protocolVersion"], "2025-06-18");
 }
 
 #[test]
 fn tools_list_depends_on_role() {
-    let mut s = Server::default();
-    let r = send(&mut s, &Fake::new("session"), json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})).unwrap();
+    let s = Server::default();
+    let r = send(&s, &Fake::new("session"), json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})).unwrap();
     assert_eq!(
         names(&r),
         [
@@ -161,11 +172,11 @@ fn tools_list_depends_on_role() {
             "propose_settings"
         ]
     );
-    let mut s = Server::default();
-    let r = send(&mut s, &Fake::new("worker"), json!({"jsonrpc":"2.0","id":2,"method":"tools/list"})).unwrap();
+    let s = Server::default();
+    let r = send(&s, &Fake::new("worker"), json!({"jsonrpc":"2.0","id":2,"method":"tools/list"})).unwrap();
     assert_eq!(names(&r), ["get_task", "complete_task", "run_e2e", "get_e2e_result"]);
-    let mut s = Server::default();
-    let r = send(&mut s, &Fake::new("reviewer"), json!({"jsonrpc":"2.0","id":3,"method":"tools/list"})).unwrap();
+    let s = Server::default();
+    let r = send(&s, &Fake::new("reviewer"), json!({"jsonrpc":"2.0","id":3,"method":"tools/list"})).unwrap();
     assert_eq!(
         names(&r),
         ["get_task", "complete_task", "get_task_details", "propose_tasks", "run_e2e", "get_e2e_result"]
@@ -327,22 +338,23 @@ fn schemas_match_the_rust_validation() {
 #[test]
 fn role_is_cached_and_no_backend_gives_empty_list() {
     let b = Fake::new("worker");
-    let mut s = Server::default();
+    let s = Server::default();
     for id in 1..=3 {
-        send(&mut s, &b, json!({"jsonrpc":"2.0","id":id,"method":"tools/list"}));
+        send(&s, &b, json!({"jsonrpc":"2.0","id":id,"method":"tools/list"}));
     }
-    assert_eq!(b.calls.borrow().iter().filter(|(m, _)| m == "whoami").count(), 1);
+    assert_eq!(b.calls().iter().filter(|(m, _)| m == "whoami").count(), 1);
 
     let none = UnavailableBackend("app non in ascolto".to_string());
-    let mut s = Server::default();
-    let r = send(&mut s, &none, json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})).unwrap();
+    let s = Server::default();
+    let r = send(&s, &none, json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})).unwrap();
     assert_eq!(r["result"]["tools"], json!([]));
-    // initialize funziona comunque.
-    let r = send(&mut s, &none, json!({"jsonrpc":"2.0","id":2,"method":"initialize","params":{}})).unwrap();
+    // initialize funziona comunque, e senza ambiente non chiede tentativi.
+    let r = send(&s, &none, json!({"jsonrpc":"2.0","id":2,"method":"initialize","params":{}})).unwrap();
     assert!(r["result"]["capabilities"]["tools"].is_object());
+    assert!(!s.claim_retry());
     // tools/call: errore leggibile.
     let r = send(
-        &mut s,
+        &s,
         &none,
         json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_task","arguments":{}}}),
     )
@@ -353,13 +365,79 @@ fn role_is_cached_and_no_backend_gives_empty_list() {
 }
 
 #[test]
+fn the_role_waits_briefly_and_tool_calls_keep_the_long_timeout() {
+    assert_eq!(RPC_TIMEOUT, Duration::from_secs(30), "the E2E tools count on 30 s per call");
+    let b = Fake::new("worker");
+    let s = Server::default();
+    send(&s, &b, json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}));
+    let args = json!({"run_id":"r1","wait_seconds":25});
+    send(
+        &s,
+        &b,
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_e2e_result","arguments":args}}),
+    );
+    assert_eq!(b.timeouts(), [("whoami".to_string(), ROLE_TIMEOUT), ("get_e2e_result".to_string(), RPC_TIMEOUT)]);
+    // tools/list e la risoluzione dentro tools/call usano l'attesa breve.
+    let s = Server::default();
+    let b = Fake::new("session");
+    send(&s, &b, json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}));
+    let s = Server::default();
+    send(&s, &b, json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_tasks"}}));
+    assert_eq!(
+        b.timeouts(),
+        [
+            ("whoami".to_string(), ROLE_TIMEOUT),
+            ("whoami".to_string(), ROLE_TIMEOUT),
+            ("list_tasks".to_string(), RPC_TIMEOUT)
+        ]
+    );
+}
+
+#[test]
+fn a_failed_whoami_in_initialize_asks_for_one_series_of_retries() {
+    let mut b = Fake::new("worker");
+    b.role = "nobody";
+    let s = Server::default();
+    // Nessun tentativo prima dell'handshake, anche se tools/list fallisce.
+    send(&s, &b, json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}));
+    assert!(!s.claim_retry());
+    for id in 2..=3 {
+        let r = send(&s, &b, json!({"jsonrpc":"2.0","id":id,"method":"initialize","params":{}})).unwrap();
+        assert_eq!(r["result"]["instructions"], instructions(None, None));
+    }
+    assert!(s.claim_retry());
+    assert!(!s.claim_retry(), "a single series per process");
+    // Ruolo risolto all'handshake: nessun tentativo.
+    let s = Server::default();
+    send(&s, &Fake::new("worker"), json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}));
+    assert!(!s.claim_retry());
+}
+
+#[test]
+fn initialize_answers_quickly_when_the_app_accepts_but_never_answers() {
+    // Il sistema accetta la connessione (backlog) e nessuno risponde mai.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let backend = TcpBackend { session: "t1".to_string(), token: "tok".to_string(), port };
+    let s = Server::default();
+    let started = Instant::now();
+    let r = send(&s, &backend, json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}})).unwrap();
+    let elapsed = started.elapsed();
+    assert!(elapsed < Duration::from_secs(5), "initialize took {elapsed:?}");
+    assert_eq!(r["result"]["capabilities"]["tools"]["listChanged"], true);
+    assert_eq!(r["result"]["instructions"], instructions(None, None));
+    assert!(s.claim_retry(), "a real backend that does not answer is retried in the background");
+    drop(listener);
+}
+
+#[test]
 fn tools_call_success_returns_pretty_json_text() {
     let mut b = Fake::new("worker");
     b.reply = Ok(json!({ "closing": true }));
-    let mut s = Server::default();
+    let s = Server::default();
     let args = json!({"status":"completed","summary":"ok"});
     let r = send(
-        &mut s,
+        &s,
         &b,
         json!({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"complete_task","arguments":args}}),
     )
@@ -370,18 +448,18 @@ fn tools_call_success_returns_pretty_json_text() {
     let text = r["result"]["content"][0]["text"].as_str().unwrap();
     assert_eq!(serde_json::from_str::<Value>(text).unwrap(), json!({"closing": true}));
     assert!(text.contains('\n'), "JSON indentato");
-    assert_eq!(b.calls.borrow().last().unwrap(), &("complete_task".to_string(), args));
+    assert_eq!(b.calls().last().unwrap(), &("complete_task".to_string(), args));
 }
 
 #[test]
 fn tools_call_rpc_error_and_bad_calls_are_is_error() {
     let mut b = Fake::new("session");
     b.reply = Err("task not found: x".to_string());
-    let mut s = Server::default();
-    let call = |s: &mut Server, params: Value| {
+    let s = Server::default();
+    let call = |s: &Server, params: Value| {
         send(s, &b, json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":params})).unwrap()
     };
-    let r = call(&mut s, json!({"name":"get_task_details","arguments":{"id":"x"}}));
+    let r = call(&s, json!({"name":"get_task_details","arguments":{"id":"x"}}));
     assert_eq!(r["result"]["isError"], true);
     assert_eq!(r["result"]["content"][0]["text"], "task not found: x");
     // Tool del ruolo sbagliato / inesistente / argomenti non oggetto / senza nome.
@@ -392,11 +470,11 @@ fn tools_call_rpc_error_and_bad_calls_are_is_error() {
         json!({"name":"list_tasks","arguments":[1]}),
         json!({"arguments":{}}),
     ] {
-        let r = call(&mut s, p);
+        let r = call(&s, p);
         assert_eq!(r["result"]["isError"], true);
     }
     // Nessuna di queste ha raggiunto l'app, a parte la prima.
-    assert_eq!(b.calls.borrow().iter().filter(|(m, _)| m != "whoami").count(), 1);
+    assert_eq!(b.calls().iter().filter(|(m, _)| m != "whoami").count(), 1);
 }
 
 #[test]
@@ -413,11 +491,11 @@ fn request_line_and_response_parsing() {
 #[test]
 fn ping_unknown_method_notifications_and_parse_error() {
     let b = Fake::new("worker");
-    let mut s = Server::default();
-    let r = send(&mut s, &b, json!({"jsonrpc":"2.0","id":9,"method":"ping"})).unwrap();
+    let s = Server::default();
+    let r = send(&s, &b, json!({"jsonrpc":"2.0","id":9,"method":"ping"})).unwrap();
     assert_eq!(r, json!({"jsonrpc":"2.0","id":9,"result":{}}));
 
-    let r = send(&mut s, &b, json!({"jsonrpc":"2.0","id":10,"method":"resources/list"})).unwrap();
+    let r = send(&s, &b, json!({"jsonrpc":"2.0","id":10,"method":"resources/list"})).unwrap();
     assert_eq!(r["error"]["code"], -32601);
     assert_eq!(r["id"], 10);
 
@@ -428,15 +506,15 @@ fn ping_unknown_method_notifications_and_parse_error() {
         json!({"jsonrpc":"2.0","method":"qualcosa/di/ignoto"}),
         json!({"jsonrpc":"2.0","id":3,"result":{}}),
     ] {
-        assert!(send(&mut s, &b, m).is_none());
+        assert!(send(&s, &b, m).is_none());
     }
 
-    let r = handle_line(&mut s, "{non json", &b).unwrap();
+    let r = handle_line(&s, "{non json", &b).unwrap();
     assert_eq!(r["error"]["code"], -32700);
     assert!(r["id"].is_null());
-    assert_eq!(handle_line(&mut s, "[1]", &b).unwrap()["error"]["code"], -32600);
+    assert_eq!(handle_line(&s, "[1]", &b).unwrap()["error"]["code"], -32600);
     // Nulla di tutto cio' ha toccato l'app.
-    assert!(b.calls.borrow().is_empty());
+    assert!(b.calls().is_empty());
 }
 
 #[test]
@@ -493,52 +571,49 @@ fn e2e_tools_belong_to_worker_and_reviewer_only() {
 
 #[test]
 fn e2e_calls_are_gated_by_role_and_forwarded_for_workers() {
-    let call = |s: &mut Server, b: &Fake, name: &str, args: Value| {
+    let call = |s: &Server, b: &Fake, name: &str, args: Value| {
         send(s, b, json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":args}}))
             .unwrap()
     };
     let session = Fake::new("session");
-    let mut s = Server::default();
-    let r = call(&mut s, &session, "run_e2e", json!({}));
+    let s = Server::default();
+    let r = call(&s, &session, "run_e2e", json!({}));
     assert_eq!(r["result"]["isError"], true);
     assert!(r["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("unknown tool, or not available for this session"));
-    assert!(session.calls.borrow().iter().all(|(m, _)| m == "whoami"));
+    assert!(session.calls().iter().all(|(m, _)| m == "whoami"));
 
     for role in ["worker", "reviewer"] {
         let b = Fake::new(role);
-        let mut s = Server::default();
-        let r = call(&mut s, &b, "run_e2e", json!({}));
+        let s = Server::default();
+        let r = call(&s, &b, "run_e2e", json!({}));
         assert!(r["result"].get("isError").is_none(), "{role}");
-        assert_eq!(b.calls.borrow().last().unwrap(), &("run_e2e".to_string(), json!({})));
+        assert_eq!(b.calls().last().unwrap(), &("run_e2e".to_string(), json!({})));
         let args = json!({"run_id":"r1","wait_seconds":10});
-        call(&mut s, &b, "get_e2e_result", args.clone());
-        assert_eq!(b.calls.borrow().last().unwrap(), &("get_e2e_result".to_string(), args));
+        call(&s, &b, "get_e2e_result", args.clone());
+        assert_eq!(b.calls().last().unwrap(), &("get_e2e_result".to_string(), args));
     }
 }
 
 #[test]
 fn a_reviewer_cannot_call_the_queue_or_settings_tools() {
     let b = Fake::new("reviewer");
-    let mut s = Server::default();
+    let s = Server::default();
     for name in ["list_tasks", "update_task", "delete_task", "save_skill", "get_workspace_settings", "propose_settings"]
     {
-        let r = send(
-            &mut s,
-            &b,
-            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":{}}}),
-        )
-        .unwrap();
+        let r =
+            send(&s, &b, json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":{}}}))
+                .unwrap();
         assert_eq!(r["result"]["isError"], true, "{name}");
     }
-    assert!(b.calls.borrow().iter().all(|(m, _)| m == "whoami"));
+    assert!(b.calls().iter().all(|(m, _)| m == "whoami"));
     // Quelli concessi arrivano all'app.
-    let r = send(&mut s, &b, json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_task_details","arguments":{"id":"a"}}}))
+    let r = send(&s, &b, json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_task_details","arguments":{"id":"a"}}}))
         .unwrap();
     assert!(r["result"].get("isError").is_none());
-    assert_eq!(b.calls.borrow().last().unwrap().0, "get_task_details");
+    assert_eq!(b.calls().last().unwrap().0, "get_task_details");
 }
 
 #[test]
@@ -588,7 +663,7 @@ fn the_handshake_has_no_tool_for_any_role() {
 
 #[test]
 fn an_unknown_role_in_the_whoami_answer_is_an_error() {
-    let mut server = Server::default();
+    let server = Server::default();
     let b = Fake::new("admin");
     assert_eq!(server.role(&b), Err("unknown role in the whoami response".to_string()));
     for role in Role::ALL {
