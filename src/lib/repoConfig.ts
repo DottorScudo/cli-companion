@@ -2,7 +2,8 @@
 // conversioni testo <-> elenco e validazione. Specchio di `RepoConfig::normalized`
 // in src-tauri/src/workspaces/repo_config.rs, che resta la fonte di verita'.
 
-import type { E2eConfig, RepoConfig } from "./tauri";
+import type { E2eConfig } from "../bindings/E2eConfig.ts";
+import type { RepoConfig } from "../bindings/RepoConfig.ts";
 
 export const MAX_REPO_COMMANDS = 30;
 export const MAX_REPO_COMMAND_LEN = 2000;
@@ -55,10 +56,10 @@ export function draftFromConfig(cfg: RepoConfig | null | undefined): RepoDraft {
   return {
     base_branch: cfg.base_branch ?? "",
     container_root: cfg.container_root ?? "",
-    copy_ignored: (cfg.copy_ignored ?? []).join("\n"),
-    setup: (cfg.setup ?? []).join("\n"),
-    cleanup: (cfg.cleanup ?? []).join("\n"),
-    remove_force: !!cfg.remove_force,
+    copy_ignored: cfg.copy_ignored.join("\n"),
+    setup: cfg.setup.join("\n"),
+    cleanup: cfg.cleanup.join("\n"),
+    remove_force: cfg.remove_force,
     e2e_command: cfg.e2e?.command ?? "",
     e2e_junit: cfg.e2e?.junit ?? "",
     e2e_timeout: cfg.e2e ? String(cfg.e2e.timeout_min) : "",

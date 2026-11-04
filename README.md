@@ -19,6 +19,7 @@ npm test              # node --test tests/*.test.mjs
 npm run lint          # ESLint (react-hooks, divieto gluestack/react-native)
 npm run format        # Prettier: riformatta src/ e tests/ (format:check per sola verifica)
 npm run typecheck     # tsc --noEmit
+npm run bindings      # rigenera i tipi TS in src/bindings/ dai DTO Rust (ts-rs, lancia cargo test)
 npm run build         # tsc && vite build (solo frontend, in dist/)
 npx tauri build       # build completa + bundle Windows (NSIS, firmato: servono i secret TAURI_SIGNING_*)
 cargo check           # da src-tauri/: solo backend

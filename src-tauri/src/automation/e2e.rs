@@ -17,6 +17,7 @@
 use super::worktrees::git;
 use super::*;
 use crate::board::{check_gate, CodeFingerprint, E2eRun, GateOutcome};
+use ts_rs::TS;
 
 mod job;
 mod junit;
@@ -28,7 +29,8 @@ mod verdict;
 
 /// Payload dell'evento `e2e-update`: l'esecuzione manuale di un repository
 /// cambia stato (partita o conclusa).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
 pub struct E2eEvent {
     pub workspace_id: String,
     /// Chiave del repository ("." = la root).

@@ -1,6 +1,7 @@
 // Visualizzazione dell'esito degli E2E di un task o di un repository.
 import { formatDuration } from "./board.ts";
-import type { E2eRun, E2eStatus, E2eTotals } from "./board.ts";
+import type { E2eRun, E2eStatus, E2eTotals, Task, TaskSpec } from "./board.ts";
+import type { RepoConfig } from "../bindings/RepoConfig.ts";
 
 /** Caratteri mostrati dell'hash del commit. */
 const SHORT_COMMIT = 7;
@@ -77,7 +78,7 @@ export function e2eRunBadge(run: Pick<E2eRun, "status" | "totals">): E2eBadge {
   }
 }
 
-type E2eTask = { e2e?: boolean; e2e_run?: E2eRun | null; report?: { e2e?: E2eRun | null } | null };
+type E2eTask = Pick<Task, "e2e" | "e2e_run" | "report">;
 
 /** Esecuzione da mostrare per un task: l'ultima del tentativo, o quella del report. */
 export function taskE2eRun(task: Pick<E2eTask, "e2e_run" | "report">): E2eRun | null {
@@ -92,7 +93,7 @@ export function e2eBadge(task: E2eTask): E2eBadge | null {
 }
 
 /** Badge di una specifica di una proposta: ha solo il flag, nessuna esecuzione. */
-export function specE2eBadge(spec: { e2e?: boolean }): E2eBadge | null {
+export function specE2eBadge(spec: Pick<TaskSpec, "e2e">): E2eBadge | null {
   return spec.e2e ? REQUIRED_BADGE : null;
 }
 
@@ -100,7 +101,7 @@ const ROOT_KEY = ".";
 
 /** Il repository (null/vuoto/"." = la root) ha gli E2E configurati? `repos` e' `Workspace.repos`. */
 export function repoHasE2e(
-  repos: Record<string, { e2e?: unknown }> | undefined,
+  repos: Record<string, Pick<RepoConfig, "e2e">> | undefined,
   repo: string | null | undefined,
 ): boolean {
   return Boolean(repos?.[repo || ROOT_KEY]?.e2e);
@@ -127,7 +128,7 @@ export function e2eOption(checked: boolean, configured: boolean): E2eOption {
 /** Cambiare repository verso uno senza E2E spegne il flag: il backend rifiuterebbe la combinazione. */
 export function withRepoE2e<T extends { repo?: string; e2e?: boolean }>(
   patch: T,
-  repos: Record<string, { e2e?: unknown }> | undefined,
+  repos: Record<string, Pick<RepoConfig, "e2e">> | undefined,
 ): T {
   if (patch.repo === undefined || repoHasE2e(repos, patch.repo)) return patch;
   return { ...patch, e2e: false };

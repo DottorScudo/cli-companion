@@ -15,7 +15,7 @@ const BANNED_UI_STACK = {
 };
 
 export default tseslint.config(
-  { ignores: ["dist/**", "node_modules/**", "src-tauri/**", "docs/**", "public/**"] },
+  { ignores: ["dist/**", "node_modules/**", "src-tauri/**", "docs/**", "public/**", "src/bindings/**"] },
   js.configs.recommended,
   tseslint.configs.recommended,
   {

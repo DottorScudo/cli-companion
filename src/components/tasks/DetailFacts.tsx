@@ -23,7 +23,7 @@ interface Props {
 
 /** Dipendenze (cliccabili), modello, repo, durata e tentativi. */
 export default function DetailFacts({ task, board, now, showRepo, onSelectTask }: Props) {
-  const deps = task.depends_on ?? [];
+  const deps = task.depends_on;
   const duration = formatTaskDuration(task, now);
   return (
     <div className="grid grid-cols-2 gap-x-3 gap-y-3 border-t pt-4">

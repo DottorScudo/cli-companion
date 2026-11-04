@@ -3,6 +3,10 @@
 // dall'app sia dai test `node --test` (type-stripping). La pool predefinita e'
 // in `bots.rs` (unica fonte): qui arriva con le impostazioni.
 
+import type { BotImage } from "../bindings/BotImage.ts";
+
+export type { BotImage };
+
 /** Lunghezza massima di un nome della pool (stesso limite di `bots.rs`). */
 export const BOT_NAME_MAX = 24;
 /** Margine per il suffisso numerico dei nomi a pool esaurita ("Bolt 12"). */
@@ -206,12 +210,6 @@ export function botPixels(look: BotLook): PixelRect[] {
 // ---------------------------------------------------------------------------
 // Immagini dei nomi della pool
 // ---------------------------------------------------------------------------
-
-/** Immagine di un nome della pool: PNG pixelato (base64) e colore dominante. */
-export interface BotImage {
-  png: string;
-  color: string;
-}
 
 export interface BotImageSource {
   names: readonly string[];

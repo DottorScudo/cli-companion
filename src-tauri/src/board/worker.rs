@@ -2,11 +2,13 @@
 //! transizione pura che gli hook dell'agente applicano agli stati non finali.
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Stato di un worker sul filo (evento `automation-update`): l'unione degli
 /// stati attivi (`WorkerActivity`) e di quelli finali (`WorkerEnd`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum WorkerStatus {
     /// Spawnato, task non ancora letto.
     Starting,

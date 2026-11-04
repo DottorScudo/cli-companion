@@ -35,12 +35,8 @@ function isView(v: unknown): v is ManagerView {
 
 export type KanbanColumnKey = TaskStatus;
 
-export interface KanbanColumns {
-  queued: Task[];
-  running: Task[];
-  /** Fatti degli ultimi 7 giorni, dal più recente. */
-  done: Task[];
-  failed: Task[];
+/** Una colonna per stato (i Fatti sono quelli degli ultimi 7 giorni, dal più recente). */
+export interface KanbanColumns extends Record<KanbanColumnKey, Task[]> {
   /** Fatti che corrispondono alla ricerca ma sono più vecchi di 7 giorni. */
   doneOlder: number;
 }

@@ -35,7 +35,7 @@ export function useInitialData(): void {
       .catch((e) => report("caricamento degli avvii integrati", e, { notify: true }));
     api
       .getLaunchSettings()
-      .then((s) => configStore.patch({ globalLaunch: s.default_launch, showUsage: s.show_usage !== false }))
+      .then((s) => configStore.patch({ globalLaunch: s.default_launch, showUsage: s.show_usage }))
       .catch((e) => report("caricamento delle impostazioni degli avvii", e, { notify: true }));
   }, []);
 

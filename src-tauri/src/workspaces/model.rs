@@ -8,6 +8,7 @@ use crate::agents::PermissionMode;
 use crate::platform::TargetKind;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
 /// Tetto dei permessi dei worker per i workspace nuovi e per i valori
 /// assenti o illeggibili nel file: mai piu' permissivo del solito.
@@ -15,7 +16,8 @@ pub const DEFAULT_WORKER_PERMISSION: PermissionMode = PermissionMode::AcceptEdit
 
 /// Avvio personalizzato di un workspace: comando eseguito all'apertura di un
 /// nuovo terminale.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Launch {
     pub id: String,
     pub name: String,
@@ -24,10 +26,12 @@ pub struct Launch {
 
 /// Impostazioni dei worker automatici del workspace. I nomi nel JSON
 /// conservano il prefisso `worker_`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct WorkerSettings {
     /// Tetto dei permessi: `"plan"` | `"default"` | `"accept-edits"` | `"bypass"` nel JSON.
     #[serde(rename = "worker_permission", default = "default_permission", with = "permission_format")]
+    // `permission_format` scrive il testo storico, che e' la forma di `PermissionMode` per ts-rs.
+    #[ts(as = "PermissionMode")]
     pub permission: PermissionMode,
     /// Modello di default (None = quello dell'agente); vale quando il task non ne indica uno.
     #[serde(rename = "worker_model", default)]
@@ -83,7 +87,8 @@ mod permission_format {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Workspace {
     pub id: String,
     pub name: String,
@@ -93,9 +98,11 @@ pub struct Workspace {
     pub path: String,
     /// Distro WSL, valorizzato solo quando kind è Wsl
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub distro: Option<String>,
     /// Shell opzionale (es. pwsh, cmd, bash, zsh). Default: powershell su Windows, shell di default su WSL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub shell: Option<String>,
     pub created_at: i64,
     /// Avvii personalizzati del workspace (vuoto = solo shell semplice).
@@ -114,6 +121,7 @@ pub struct Workspace {
     /// globale; "shell" = shell semplice; altrimenti l'id di un avvio del
     /// workspace o di uno integrato (`builtin:...`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub default_launch: Option<String>,
     /// Configurazione per repository (chiave = cartella relativa alla root,
     /// "." = la root): branch base, file ignorati da copiare e comandi di

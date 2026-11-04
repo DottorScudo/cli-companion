@@ -3,15 +3,16 @@
 // pure a zero dipendenze, importabili sia dall'app sia dai test `node --test`
 // (type-stripping). Il backend e' src-tauri/src/automation/.
 
-/** Stati di un worker (vedi `WorkerStatus` in automation/state.rs). */
-export type WorkerStatus =
-  "starting" | "running" | "background" | "needs_input" | "idle" | "completed" | "failed" | "closed";
+import type { AutomationTabInfo } from "../bindings/AutomationTabInfo.ts";
+import type { WorkerStatus } from "../bindings/WorkerStatus.ts";
 
-/** Metadati di un tab automatico (worker di un task). `status` e' una stringa: il backend puo' aggiungerne. */
+export type { WorkerStatus };
+
+/** Metadati di un tab automatico (worker di un task). */
 export interface AutomationMeta {
   /** Titolo del task. */
   title: string;
-  status: string;
+  status: WorkerStatus;
   lastReport?: string;
   agentId: string;
   cwd?: string;
@@ -53,7 +54,7 @@ export function isAutomated(tab: { automation?: unknown }): boolean {
   return tab.automation !== undefined && tab.automation !== null;
 }
 
-const STATUS_WORDS: Record<string, string> = {
+const STATUS_WORDS: Record<WorkerStatus, string> = {
   starting: "in avvio",
   running: "in corso",
   background: "in background",
@@ -65,7 +66,7 @@ const STATUS_WORDS: Record<string, string> = {
 };
 
 /** Classe colore (token del tema) per ogni stato. */
-const STATUS_CLASSES: Record<string, string> = {
+const STATUS_CLASSES: Record<WorkerStatus, string> = {
   starting: "text-muted-foreground",
   running: "text-status-running",
   background: "text-status-running",
@@ -79,8 +80,8 @@ const STATUS_CLASSES: Record<string, string> = {
 /** Parola italiana dello stato; uno stato sconosciuto si mostra com'e'. */
 export function statusWord(status: string): { text: string; className: string } {
   return {
-    text: STATUS_WORDS[status] ?? status,
-    className: STATUS_CLASSES[status] ?? "text-muted-foreground",
+    text: STATUS_WORDS[status as WorkerStatus] ?? status,
+    className: STATUS_CLASSES[status as WorkerStatus] ?? "text-muted-foreground",
   };
 }
 
@@ -98,12 +99,8 @@ export function automationTooltip(meta: AutomationMeta): string {
   return lines.join("\n");
 }
 
-/** Campi di `automation-update` / `AutomationTabInfo` (snake_case come da serde). */
-export interface AutomationUpdateLike {
-  status: string;
-  title: string;
-  last_report?: string | null;
-}
+/** Campi di `automation-update` usati per aggiornare i metadati. */
+export type AutomationUpdateLike = Pick<AutomationTabInfo, "status" | "title" | "last_report">;
 
 /**
  * Applica un aggiornamento ai metadati. Il report assente non cancella

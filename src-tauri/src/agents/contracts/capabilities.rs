@@ -5,6 +5,7 @@ use super::{
     UserSkills, WorkerAutomation, WorkerPermissions,
 };
 use serde::Serialize;
+use ts_rs::TS;
 
 /// Contratti implementati da un'integrazione (`None` = non li dichiara).
 /// Niente `Default`: ogni integrazione elenca tutti i campi, quindi un nuovo
@@ -24,8 +25,9 @@ pub struct Capabilities<'a> {
 }
 
 /// Nome di un contratto, come lo vede il frontend (kebab-case).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "kebab-case")]
+#[ts(export)]
 pub enum Capability {
     Package,
     HookEvents,

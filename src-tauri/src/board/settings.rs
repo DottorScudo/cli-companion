@@ -5,12 +5,14 @@
 use super::{Board, MAX_PENDING_PROPOSALS};
 use crate::workspaces::{SettingsPatch, Workspace};
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 #[cfg(test)]
 mod tests;
 
 /// Proposta pendente di impostazioni, con la motivazione dell'agente.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct SettingsProposal {
     pub id: String,
     /// Tab che l'ha proposta.
@@ -21,7 +23,8 @@ pub struct SettingsProposal {
 }
 
 /// Proposta esposta: la patch piu' cio' che serve per decidere.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
 pub struct SettingsProposalView {
     #[serde(flatten)]
     pub proposal: SettingsProposal,

@@ -5,10 +5,12 @@ use super::e2e::E2eConfig;
 use super::validate::{MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_REPO_PATH_LEN};
 use crate::validate::{clip, is_absolute_like, path_segments, valid_branch, ErrorCode, ValidationError};
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Preparazione e pulizia dei worktree di un repository (vedi docs/BOARD.MD).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default)]
+#[ts(export)]
 pub struct RepoConfig {
     /// Branch base dei task del repository (prima del default di `origin`).
     pub base_branch: Option<String>,
@@ -26,6 +28,7 @@ pub struct RepoConfig {
     pub remove_force: bool,
     /// Test E2E facoltativi del repository (vedi `E2eConfig`).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub e2e: Option<E2eConfig>,
 }
 

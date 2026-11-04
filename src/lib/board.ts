@@ -4,304 +4,49 @@
 // importabili sia dall'app sia dai test `node --test`.
 
 import { statusWord, truncateReport } from "./automation.ts";
-import type { E2eConfig } from "./tauri.ts";
-import type { WorkerPermission } from "./workerPermission.ts";
+import type { BoardView } from "../bindings/BoardView.ts";
+import type { Bounds } from "../bindings/Bounds.ts";
+import type { Delivery } from "../bindings/Delivery.ts";
+import type { DeliveryMode } from "../bindings/DeliveryMode.ts";
+import type { MergeMethod } from "../bindings/MergeMethod.ts";
+import type { TaskAction } from "../bindings/TaskAction.ts";
+import type { TaskStatus } from "../bindings/TaskStatus.ts";
+import type { TaskView as Task } from "../bindings/TaskView.ts";
 
 // ---------------------------------------------------------------- tipi
 
-/** Stati di un task: i soli quattro del contratto. */
-export type TaskStatus = "queued" | "running" | "done" | "failed";
-
-/** Tipo di task: `work` (default) o `review` (verifica del lavoro dei task da cui dipende). */
-export type TaskKind = "work" | "review";
-
-/** Verdetto di una review completata. */
-export type ReviewVerdict = "passed" | "issues";
+// I tipi del contratto sono generati dai DTO Rust (`src/bindings`): qui si
+// ri-esportano con i nomi che i consumatori importano da questo modulo.
+export type { BoardView, Delivery, DeliveryMode, MergeMethod, Task, TaskAction, TaskStatus };
+export type { E2eFailure } from "../bindings/E2eFailure.ts";
+export type { E2eRun } from "../bindings/E2eRun.ts";
+export type { E2eStatus } from "../bindings/E2eStatus.ts";
+export type { E2eTotals } from "../bindings/E2eTotals.ts";
+export type { NewTaskSpec } from "../bindings/NewTaskSpec.ts";
+export type { Notice as TaskNotifyEvent } from "../bindings/Notice.ts";
+export type { Proposal } from "../bindings/Proposal.ts";
+export type { RepoPatch } from "../bindings/RepoPatch.ts";
+export type { SettingsPatch } from "../bindings/SettingsPatch.ts";
+export type { SettingsProposalView } from "../bindings/SettingsProposalView.ts";
+export type { TaskKind } from "../bindings/TaskKind.ts";
+export type { TaskPatch } from "../bindings/TaskPatch.ts";
+export type { TaskReport } from "../bindings/TaskReport.ts";
+export type { TaskSpec } from "../bindings/TaskSpec.ts";
+export type { TestRun as TaskTestResult } from "../bindings/TestRun.ts";
+export type { Verdict as ReviewVerdict } from "../bindings/Verdict.ts";
 
 /** Stato mostrato: i quattro stati più "Richiede attenzione" (running con `attention`). */
 export type DisplayStatus = TaskStatus | "attention";
 
-/** Azioni dell'utente sul task (`task_action`): le stesse stringhe di `TaskAction` in Rust. */
-export type TaskAction = "retry" | "mark_done" | "stop" | "delete" | "delete_cascade" | "to_top";
-
-export type DeliveryMode = "pr" | "local_merge" | "push" | "commit";
-export type MergeMethod = "squash" | "merge" | "rebase";
-
-/** Consegna del workspace (campo `delivery`, serde snake_case). */
-export interface Delivery {
-  mode: DeliveryMode;
-  /** Un worktree per task: ha senso solo per `pr` e `local_merge`. */
-  parallel: boolean;
-  /** Solo per `pr`. */
-  merge_method: MergeMethod;
-}
-
-export interface TaskWorktree {
-  path: string;
-  branch: string;
-  base: string;
-  /** Setup del repository completato; false = da rifare al prossimo avvio. */
-  setup_done?: boolean;
-}
-
-export interface TaskTestResult {
-  command: string;
-  result: "passed" | "failed" | "not_run" | string;
-  details?: string | null;
-}
-
-export interface TaskReport {
-  status: "completed" | "failed" | string;
-  summary: string;
-  commit?: string | null;
-  pr_url?: string | null;
-  files_changed?: string[];
-  tests?: TaskTestResult[];
-  follow_ups?: string[];
-  diffstat?: string | null;
-  /** Solo per i task di review completati: esito della verifica. */
-  verdict?: ReviewVerdict | null;
-  /** Solo per le review: problemi (con `issues`) o suggerimenti (con `passed`). */
-  findings?: string[];
-  /** Esito degli E2E al momento della conclusione (solo task E2E verificati dall'app). */
-  e2e?: E2eRun;
-}
-
-export type E2eStatus = "running" | "passed" | "failed" | "error";
-
-/** Codice su cui sono girati gli E2E. */
-export interface E2eCode {
-  commit: string;
-  tree: string;
-  changes: string;
-}
-
-export interface E2eTotals {
-  tests: number;
-  passed: number;
-  failed: number;
-  skipped: number;
-  flaky?: number;
-}
-
-export interface E2eFailure {
-  name: string;
-  file?: string;
-  message: string;
-}
-
-/** Un'esecuzione degli E2E eseguita dall'app (vedi `E2eRun` in board/e2e.rs). */
-export interface E2eRun {
-  run_id: string;
-  status: E2eStatus;
-  started_at: number;
-  finished_at?: number;
-  duration_ms?: number;
-  junit: string;
-  code?: E2eCode;
-  totals?: E2eTotals;
-  failed_tests?: E2eFailure[];
-  error?: string;
-  output_tail?: string;
-}
-
-/** Esito del tentativo precedente, dopo "Riprova". */
-export interface PreviousAttempt {
-  summary?: string | null;
-  note?: string | null;
-}
-
-/** Task come lo espone `BoardView` (campi del task + campi derivati). */
-export interface Task {
-  id: string;
-  title: string;
-  /** Specifica per il worker (markdown). */
-  task: string;
-  depends_on: string[];
-  /** Tipo di task; assente = `work`. Una `review` verifica i task da cui dipende. */
-  kind?: TaskKind;
-  /** Il task deve superare gli E2E del repository; assente = `false`. */
-  e2e?: boolean;
-  /** Repository (cartella relativa alla root del workspace); null/assente = la root. */
-  repo?: string | null;
-  agent: string;
-  /** null/assente = modello dei worker del workspace. */
-  model?: string | null;
-  status: TaskStatus;
-  worker_status?: string | null;
-  /** Tab del worker corrente (chiave del tab nella griglia dei terminali). */
-  session?: string | null;
-  attempts: number;
-  worktree?: TaskWorktree | null;
-  last_report?: string | null;
-  note?: string | null;
-  report?: TaskReport | null;
-  created_at: number;
-  updated_at: number;
-  started_at?: number | null;
-  finished_at?: number | null;
-  /** Passo di preparazione in corso (setup del repository): il worker non c'è ancora. */
-  preparing?: string | null;
-  previous_attempt?: PreviousAttempt | null;
-  /** Ultima esecuzione degli E2E del task, anche in corso. */
-  e2e_run?: E2eRun;
-  /** Dipendenze non ancora `done` (solo per i task `queued`). */
-  waiting_on: string[];
-  /** Il worker aspetta l'utente (`needs_input`/`idle`): badge "Richiede attenzione". */
-  attention: boolean;
-  /** Le azioni di `task_action` che riuscirebbero adesso, calcolate dal backend. */
-  allowed_actions: TaskAction[];
-  /** Il task si può modificare (`task_update`). */
-  can_edit: boolean;
-  /** Il task si può riordinare nella coda (`task_move`). */
-  can_reorder: boolean;
-  /** Cosa toglierebbe "Elimina tutti"; vuoto se il task non si può eliminare. */
-  cascade: CascadeDelete;
-}
-
-/** Task che l'eliminazione a cascata toglie e task in corso che la bloccano. */
-export interface CascadeDelete {
-  /** Id dei dipendenti non Fatti, diretti e indiretti (il task di partenza escluso). */
-  dependents: string[];
-  /** Id dei task dell'insieme (partenza inclusa) in corso: vanno fermati prima. */
-  running: string[];
-}
-
-/** Specifica di un task in una proposta. */
-export interface TaskSpec {
-  id: string;
-  title: string;
-  task: string;
-  depends_on: string[];
-  repo?: string | null;
-  model?: string | null;
-  /** Tipo di task; assente = `work`. Una `review` richiede almeno una dipendenza. */
-  kind?: TaskKind;
-  /** Il task deve superare gli E2E del repository; assente = `false`. */
-  e2e?: boolean;
-}
-
-/** Proposta di Task Intake in attesa di Accetta / Scarta. */
-export interface Proposal {
-  id: string;
-  /** Tab dell'Intake (o del reviewer) che l'ha proposta. */
-  source_tab: string;
-  /** Task di review il cui reviewer l'ha proposta; assente/null = proposta dell'Intake. */
-  source_task?: string | null;
-  created_at: number;
-  tasks: TaskSpec[];
-}
-
-/** Patch di un repository: assente = invariato, `null` dove indicato = azzera. */
-export interface RepoPatch {
-  base_branch?: string | null;
-  container_root?: string | null;
-  copy_ignored?: string[];
-  setup?: string[];
-  cleanup?: string[];
-  remove_force?: boolean;
-  /** Oggetto intero al posto di quello attuale; `null` lo rimuove. */
-  e2e?: E2eConfig | null;
-}
-
-/** Modifiche alle impostazioni del workspace: ogni campo assente = invariato. */
-export interface SettingsPatch {
-  worker_rules?: string;
-  worker_model?: string | null;
-  worker_permission?: WorkerPermission;
-  worker_allow?: string[];
-  worker_deny?: string[];
-  delivery?: Partial<Delivery>;
-  use_schedule?: boolean;
-  default_launch?: string | null;
-  launches?: { id?: string; name: string; command: string }[];
-  /** Per repository (chiave = cartella); `null` = rimuove la configurazione. */
-  repos?: Record<string, RepoPatch | null>;
-}
-
-/** Proposta di modifica alle impostazioni in attesa di Applica / Scarta. */
-export interface SettingsProposalView {
-  id: string;
-  /** Tab che l'ha proposta. */
-  source_tab: string;
-  created_at: number;
-  reason: string;
-  patch: SettingsPatch;
-  /** Valori attuali dei soli campi toccati dal patch. */
-  current: SettingsPatch;
-  /** Campi toccati che eseguono comandi o allargano i permessi (`repos[<key>].setup`, ...). */
-  sensitive: string[];
-}
-
-/** Intervallo ammesso per un valore numerico, estremi inclusi. */
-export interface Bounds {
-  min: number;
-  max: number;
-}
-
-/** Estremi dei valori impostabili, decisi dal backend. */
-export interface BoardLimits {
-  max_parallel: Bounds;
-}
-
-export interface BoardView {
-  workspace_id: string;
-  /** Revisione monotona: cresce a ogni modifica della vista. */
-  rev: number;
-  /** Worker in parallelo (vale solo in modalità parallela). */
-  max_parallel: number;
-  limits: BoardLimits;
-  paused: boolean;
-  updated_at: number;
-  /** L'ordine dell'array È l'ordine della coda. */
-  tasks: Task[];
-  proposals: Proposal[];
-  settings_proposals: SettingsProposalView[];
-  /** Il workspace usa le fasce orarie e adesso la fascia è chiusa. */
-  schedule_blocked: boolean;
-  delivery: Delivery;
-}
-
-/** Argomento di `task_create`: l'id lo genera il backend dal titolo. */
-export interface NewTaskSpec {
-  title: string;
-  task: string;
-  depends_on?: string[];
-  repo?: string | null;
-  model?: string | null;
-  /** Tipo di task; assente = `work`. Una `review` richiede almeno una dipendenza. */
-  kind?: TaskKind;
-  /** Il task deve superare gli E2E del repository (richiede la configurazione E2E del repository). */
-  e2e?: boolean;
-}
-
-/** Argomento di `task_update`: i campi assenti non cambiano, `null` azzera repo/model. */
-export interface TaskPatch {
-  title?: string;
-  task?: string;
-  depends_on?: string[];
-  repo?: string | null;
-  model?: string | null;
-  /** Tipo di task; assente = invariato (e nei file vecchi `work`). */
-  kind?: TaskKind;
-  /** Assente = invariato. */
-  e2e?: boolean;
-}
-
-/** Evento `task-notify`: notifica di sistema per un task. */
-export interface TaskNotifyEvent {
-  workspace_id: string;
-  task_id: string;
-  tab_id: string | null;
-  kind: "attention" | "failed";
-  title: string;
-  body: string;
-}
-
 // ---------------------------------------------------------------- stati
 
+/** Le varianti di `U` nell'ordine delle chiavi: una variante mancante o nuova in Rust non compila. */
+function variantsOf<U extends string>(order: Record<U, true>): U[] {
+  return Object.keys(order) as U[];
+}
+
 /** Ordine dei quattro stati (legenda, filtri, conteggi). */
-export const STATUSES: TaskStatus[] = ["queued", "running", "done", "failed"];
+export const STATUSES = variantsOf<TaskStatus>({ queued: true, running: true, done: true, failed: true });
 
 interface StatusMeta {
   label: string;
@@ -410,12 +155,8 @@ export function doneTasks(board: Tasks, now: number, days: number | null = DONE_
     .sort((a, b) => finishedAt(b) - finishedAt(a));
 }
 
-export interface TaskCounts {
+export interface TaskCounts extends Record<TaskStatus, number> {
   proposals: number;
-  queued: number;
-  running: number;
-  done: number;
-  failed: number;
   /** In corso che richiedono attenzione (sottoinsieme di `running`). */
   attention: number;
   total: number;
@@ -519,7 +260,7 @@ export function waitingOnLabel(
   task: Pick<Task, "waiting_on" | "status">,
   tasks: Pick<Task, "id" | "title">[],
 ): string | null {
-  const w = task.waiting_on ?? [];
+  const w = task.waiting_on;
   if (task.status !== "queued" || w.length === 0) return null;
   if (w.length === 1) {
     const title = tasks.find((t) => t.id === w[0])?.title;
@@ -647,8 +388,8 @@ export function sortByUpdated(tasks: Task[], desc = true): Task[] {
 
 // ---------------------------------------------------------------- consegna
 
-export const DELIVERY_MODES: DeliveryMode[] = ["pr", "local_merge", "push", "commit"];
-export const MERGE_METHODS: MergeMethod[] = ["squash", "merge", "rebase"];
+export const DELIVERY_MODES = variantsOf<DeliveryMode>({ pr: true, local_merge: true, push: true, commit: true });
+export const MERGE_METHODS = variantsOf<MergeMethod>({ squash: true, merge: true, rebase: true });
 
 export const DEFAULT_DELIVERY: Delivery = { mode: "commit", parallel: false, merge_method: "squash" };
 

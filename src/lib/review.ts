@@ -2,7 +2,7 @@
 // dipendenze (solo tipi di board.ts), importabili sia dall'app sia dai test
 // `node --test`.
 
-import type { ReviewVerdict, Task, TaskKind } from "./board.ts";
+import type { Proposal, ReviewVerdict, Task, TaskKind } from "./board.ts";
 
 export const REVIEW_LABEL = "Review";
 export const REVIEW_OPTION_LABEL = "Task di revisione";
@@ -12,10 +12,8 @@ export const REVIEW_NEEDS_DEPENDENCY = "Una review deve dipendere da almeno un t
 export const FINDINGS_TITLE = "Problemi trovati";
 export const SUGGESTIONS_TITLE = "Suggerimenti";
 
-type Kinded = { kind?: TaskKind | null };
-
 /** Il task (o la specifica di una proposta) è una review; `kind` assente = work. */
-export function isReview(item: Kinded): boolean {
+export function isReview(item: Pick<Task, "kind">): boolean {
   return item.kind === "review";
 }
 
@@ -62,7 +60,7 @@ export function reviewDependencyError(kind: TaskKind | undefined, dependsOn: str
 
 /** Intestazione di una proposta: dal reviewer (con il task di origine) o da Task Intake. */
 export function proposalHeading(
-  proposal: { source_task?: string | null },
+  proposal: Pick<Proposal, "source_task">,
   tasks: Pick<Task, "id" | "title">[],
 ): { title: string; origin: string | null } {
   const source = proposal.source_task;

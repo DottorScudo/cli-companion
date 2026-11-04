@@ -105,7 +105,7 @@ describe("form di review", () => {
     assert.deepEqual(validateTaskForm(base), {});
   });
   it("formFromTask e buildPatch gestiscono kind", () => {
-    const t = { id: "x", title: "t", task: "s", depends_on: ["a"], attempts: 0, status: "queued" };
+    const t = { id: "x", title: "t", task: "s", depends_on: ["a"], attempts: 0, status: "queued", kind: "work" };
     const form = formFromTask(t);
     assert.equal(form.kind, "work");
     assert.deepEqual(buildPatch(t, form, false), {});

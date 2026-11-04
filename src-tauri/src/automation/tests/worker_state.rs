@@ -8,6 +8,12 @@ fn status_of(st: &AutomationState, session: &str) -> Option<WorkerStatus> {
     st.run(&FakeHost::default(), |r| r.worker_status_of(session))
 }
 
+/// Gli eventi che nominano solo un tab portano `{ "tab_id": ... }`, come prima del tipo `TabEvent`.
+#[test]
+fn a_tab_event_is_a_json_object_with_the_tab_id() {
+    assert_eq!(serde_json::to_value(TabEvent { tab_id: "t1".into() }).unwrap(), json!({ "tab_id": "t1" }));
+}
+
 #[test]
 fn the_worker_status_follows_the_task_and_ends_with_the_worker() {
     let (st, h, w) = running(DeliveryMode::Commit, false);

@@ -4,6 +4,7 @@
 use super::validate::{MAX_REPO_COMMAND_LEN, MAX_REPO_PATH_LEN};
 use crate::validate::{is_absolute_like, path_segments, ErrorCode, ValidationError};
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Timeout predefinito e limiti, in minuti.
 pub const DEFAULT_E2E_TIMEOUT_MIN: u32 = 20;
@@ -16,8 +17,9 @@ fn default_timeout_min() -> u32 {
 
 /// Come l'app esegue gli E2E di un repository: `command` nella cartella del
 /// task, poi legge il report JUnit in `junit` (relativo alla cartella).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
+#[ts(export)]
 pub struct E2eConfig {
     pub command: String,
     pub junit: String,

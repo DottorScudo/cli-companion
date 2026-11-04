@@ -3,6 +3,7 @@
 use super::paths::windows_to_wsl_path;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use ts_rs::TS;
 
 use super::paths::forward_slashes;
 
@@ -11,8 +12,9 @@ pub const WINDOWS_KEY: &str = "windows";
 
 /// Famiglia di un target. Forma persistita in `workspaces.json` e vista dal
 /// frontend: `"windows"` / `"wsl"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
+#[ts(export)]
 pub enum TargetKind {
     Windows,
     Wsl,

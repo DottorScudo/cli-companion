@@ -57,7 +57,7 @@ function TaskNode({ data }: NodeProps<TaskFlowNode>) {
         )}
         <span className={cn("text-[11px] font-medium", statusTextClass(status))}>{statusLabel(status)}</span>
         {sub && (
-          <span className={cn("text-[11px]", sub.className)} title={task.preparing ?? undefined}>
+          <span className={cn("text-[11px]", sub.className)} title={task.preparing}>
             · {sub.text}
           </span>
         )}

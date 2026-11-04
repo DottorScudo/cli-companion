@@ -27,6 +27,7 @@ pub use sections::{DeliveryPatch, LaunchPatch, RepoPatch};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use tauri::{AppHandle, Manager};
+use ts_rs::TS;
 
 /// Massimo di repository in una proposta di impostazioni.
 pub const MAX_PATCH_REPOS: usize = 20;
@@ -39,36 +40,48 @@ const FIXED_FIELDS: [&str; 8] = ["id", "name", "path", "kind", "distro", "shell"
 /// Modifica proposta alle impostazioni del workspace. Solo i campi presenti
 /// cambiano; le impostazioni globali e i dati fissi del workspace non esistono
 /// nel tipo.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default, deny_unknown_fields)]
+#[ts(export)]
 pub struct SettingsPatch {
     /// Testo intero; "" = nessuna regola.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub worker_rules: Option<String>,
     /// `null` = modello dell'agente.
     #[serde(deserialize_with = "de_double_option", skip_serializing_if = "Option::is_none")]
+    // `Option<Option<T>>` distingue assente da `null`: in TS e' `campo?: T | null`.
+    #[ts(as = "Option<String>", optional = nullable)]
     pub worker_model: Option<Option<String>>,
     /// plan | default | accept-edits | bypass.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub worker_permission: Option<String>,
     /// Sostituisce l'elenco.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub worker_allow: Option<Vec<String>>,
     /// Sostituisce l'elenco.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub worker_deny: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub delivery: Option<DeliveryPatch>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub use_schedule: Option<bool>,
     /// `null` = eredita il predefinito globale.
     #[serde(deserialize_with = "de_double_option", skip_serializing_if = "Option::is_none")]
+    #[ts(as = "Option<String>", optional = nullable)]
     pub default_launch: Option<Option<String>>,
     /// Lista intera, al posto di quella attuale.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub launches: Option<Vec<LaunchPatch>>,
     /// Chiave = cartella del repository; valore `null` = rimuove la configurazione.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub repos: Option<BTreeMap<String, Option<RepoPatch>>>,
 }
 

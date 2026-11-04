@@ -48,7 +48,6 @@ describe("dependencyLabels", () => {
   it("usa il titolo se noto, altrimenti l'id", () => {
     const labels = dependencyLabels(["a", "b", "c"], [task("a", "queued")], [{ id: "b", title: "Bee" }]);
     assert.deepEqual(labels, ["T a", "Bee", "c"]);
-    assert.deepEqual(dependencyLabels(undefined, []), []);
   });
   it("dependsOnText", () => {
     assert.equal(dependsOnText([]), null);

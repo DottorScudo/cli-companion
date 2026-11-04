@@ -4,9 +4,11 @@
 use super::{Board, Task, TaskStatus};
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap};
+use ts_rs::TS;
 
 /// Cio' che toglierebbe "Elimina con i dipendenti" su un task.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
 pub struct CascadeDelete {
     /// Task non `done` che dipendono dal task, direttamente o no (il task escluso).
     pub dependents: Vec<String>,

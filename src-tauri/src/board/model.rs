@@ -5,6 +5,7 @@
 use super::record::TaskRecord;
 use super::{E2eRun, SettingsProposal, TaskKind, TaskSpec, TaskState};
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Lunghezza massima del titolo di un task (in caratteri).
 pub const TITLE_MAX: usize = 80;
@@ -28,8 +29,9 @@ pub const INTERRUPTED_NOTE: &str = "interrupted: the app was restarted";
 pub const ARCHIVED_NOTE: &str = "interrupted: the workspace was archived";
 pub const STOPPED_NOTE: &str = "stopped by the user";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum TaskStatus {
     #[default]
     Queued,
@@ -55,7 +57,8 @@ impl TaskStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct WorktreeInfo {
     pub path: String,
     pub branch: String,
@@ -73,11 +76,14 @@ fn yes() -> bool {
 }
 
 /// Esito del tentativo precedente, mostrato al worker dopo un "Riprova".
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct PreviousAttempt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub summary: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub note: Option<String>,
 }
 
@@ -112,13 +118,15 @@ pub struct Task {
 }
 
 /// Proposta pendente dell'Intake: l'utente la accetta o la scarta.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Proposal {
     pub id: String,
     /// Tab che l'ha proposta (Intake o revisore).
     pub source_tab: String,
     /// Task di revisione il cui revisore l'ha proposta (assente: viene dall'Intake).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub source_task: Option<String>,
     pub created_at: i64,
     pub tasks: Vec<TaskSpec>,

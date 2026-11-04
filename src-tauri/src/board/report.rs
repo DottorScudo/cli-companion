@@ -4,6 +4,7 @@ use super::{E2eRun, Verdict};
 use crate::validate::{clip_chars, req_text};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use ts_rs::TS;
 
 const COMMIT_MAX: usize = 100;
 const PR_URL_MAX: usize = 500;
@@ -15,24 +16,29 @@ const TESTS_MAX: usize = 50;
 const TEST_COMMAND_MAX: usize = 1000;
 pub const DIFFSTAT_MAX: usize = 4000;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct TestRun {
     pub command: String,
     /// passed | failed | not_run
     pub result: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub details: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct TaskReport {
     /// completed | failed
     pub status: String,
     pub summary: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub commit: Option<String>,
     /// Link della PR (modalita' `pr`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub pr_url: Option<String>,
     #[serde(default)]
     pub files_changed: Vec<String>,
@@ -41,15 +47,18 @@ pub struct TaskReport {
     #[serde(default)]
     pub follow_ups: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub diffstat: Option<String>,
     /// Esito di una revisione (solo task `review` completati).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub verdict: Option<Verdict>,
     /// Problemi trovati da una revisione (suggerimenti se il verdetto e' `passed`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub findings: Vec<String>,
     /// Ultima esecuzione degli E2E del task al momento della conclusione.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub e2e: Option<E2eRun>,
 }
 

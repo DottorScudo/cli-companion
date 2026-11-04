@@ -7,6 +7,7 @@ use super::view::clip_with_ellipsis;
 use super::{Board, ReportFields, Task, TaskSpec};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use ts_rs::TS;
 
 #[cfg(test)]
 mod tests;
@@ -21,8 +22,9 @@ const REVIEWED_LIST_MAX: usize = 30;
 const REVIEWED_ITEM_MAX: usize = 300;
 
 /// Tipo di un task: `work` consegna, `review` verifica il risultato integrato.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum TaskKind {
     #[default]
     Work,
@@ -45,8 +47,9 @@ impl TaskKind {
 }
 
 /// Esito di una revisione completata.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum Verdict {
     Passed,
     Issues,

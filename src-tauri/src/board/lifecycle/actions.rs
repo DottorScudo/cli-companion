@@ -4,10 +4,12 @@
 
 use super::super::TaskStatus;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Azione dell'utente su un task (comando `task_action`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum TaskAction {
     /// `failed` -> `queued`, in fondo alla coda.
     Retry,

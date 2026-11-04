@@ -2,9 +2,11 @@
 //! configurazione del workspace.
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum DeliveryMode {
     /// Branch + push + PR + merge (`gh`).
     Pr,
@@ -32,8 +34,9 @@ impl DeliveryMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum MergeMethod {
     #[default]
     Squash,
@@ -54,8 +57,9 @@ impl MergeMethod {
 }
 
 /// Impostazione di consegna del workspace.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(default)]
+#[ts(export)]
 pub struct Delivery {
     pub mode: DeliveryMode,
     /// Un worktree per task (solo `pr` e `local_merge`).

@@ -15,6 +15,7 @@ use crate::workspaces::{
 };
 use serde_json::json;
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
 /// Lunghezza massima della motivazione di una proposta.
 pub(crate) const REASON_MAX: usize = 2000;
@@ -211,7 +212,8 @@ fn ensure_known_repos<H: Host>(host: &H, ws: &Workspace, keys: &[String]) -> Res
 
 /// Esito di una decisione: la board aggiornata e, se approvata, il workspace
 /// con le nuove impostazioni.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
 pub struct SettingsDecision {
     pub board: BoardView,
     pub workspace: Option<Workspace>,

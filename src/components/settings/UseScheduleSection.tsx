@@ -14,7 +14,7 @@ export default function UseScheduleSection({ workspace }: Props) {
       <label className="flex items-center gap-2 text-[13px]">
         <input
           type="checkbox"
-          checked={workspace.use_schedule === true}
+          checked={workspace.use_schedule}
           disabled={saving}
           onChange={(e) => void run(() => api.setUseSchedule(workspace.id, e.target.checked))}
           className="h-3.5 w-3.5 accent-primary"

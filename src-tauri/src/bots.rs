@@ -11,6 +11,7 @@ use crate::store::{adopt_envelope, data_dir, JsonFile, JsonStore};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use tauri::{AppHandle, Manager, State};
+use ts_rs::TS;
 
 const NAME_MAX_CHARS: usize = 24;
 const NAMES_MAX: usize = 200;
@@ -22,7 +23,8 @@ const DEFAULT_NAMES: [&str; 40] = [
     "Zed",
 ];
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct BotSettings {
     /// Mostra le sessioni come bot. I file senza il campo valgono `true`.
     #[serde(default = "default_enabled")]
@@ -38,7 +40,8 @@ pub struct BotSettings {
 }
 
 /// Immagine di un bot, gia' validata dal backend.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct BotImage {
     /// PNG in base64 standard.
     pub png: String,

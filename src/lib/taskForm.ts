@@ -67,7 +67,7 @@ export function dependencyOptions<T extends Pick<Task, "id" | "status" | "depend
     for (let grew = true; grew;) {
       grew = false;
       for (const t of tasks) {
-        if (!blocked.has(t.id) && (t.depends_on ?? []).some((d) => blocked.has(d))) {
+        if (!blocked.has(t.id) && t.depends_on.some((d) => blocked.has(d))) {
           blocked.add(t.id);
           grew = true;
         }
@@ -99,10 +99,10 @@ export function formFromTask(task: Task): TaskFormValues {
   return {
     title: task.title,
     task: task.task,
-    depends_on: [...(task.depends_on ?? [])],
+    depends_on: [...task.depends_on],
     model: task.model ?? "",
     repo: task.repo || ROOT_REPO,
-    kind: task.kind ?? "work",
+    kind: task.kind,
     e2e: task.e2e ?? false,
   };
 }
@@ -121,10 +121,10 @@ export function buildPatch(task: Task, v: TaskFormValues, includeRepo: boolean):
   if (title !== task.title) patch.title = title;
   const spec = v.task.trim();
   if (spec !== task.task.trim()) patch.task = spec;
-  if (!sameSet(v.depends_on, task.depends_on ?? [])) patch.depends_on = v.depends_on;
+  if (!sameSet(v.depends_on, task.depends_on)) patch.depends_on = v.depends_on;
   const model = sanitizeModel(v.model);
   if (model !== (task.model ?? null)) patch.model = model;
-  if (v.kind !== (task.kind ?? "work")) patch.kind = v.kind;
+  if (v.kind !== task.kind) patch.kind = v.kind;
   if (v.e2e !== (task.e2e ?? false)) patch.e2e = v.e2e;
   if (includeRepo) {
     const repo = repoValue(v.repo);

@@ -2,9 +2,11 @@
 
 use crate::platform::Target;
 use serde::Serialize;
+use ts_rs::TS;
 
 /// Token contati in una sessione.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
 pub struct TokenTotals {
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -13,7 +15,8 @@ pub struct TokenTotals {
 }
 
 /// Consumi di una sessione letti dal transcript.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
 pub struct SessionUsage {
     pub main: TokenTotals,
     pub subagents: TokenTotals,

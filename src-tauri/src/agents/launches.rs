@@ -4,9 +4,11 @@ use super::contracts::{AgentIntegration, PresetLauncher};
 use super::presets::{Preset, PRESETS};
 use super::registry::{self, default_worker_integration};
 use serde::Serialize;
+use ts_rs::TS;
 
 /// Avvio integrato derivato dal registro.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, TS)]
+#[ts(export)]
 pub struct BuiltinLaunch {
     /// `builtin:<agent_id>` oppure `builtin:preset:<preset_id>`.
     pub id: String,

@@ -2,9 +2,11 @@
 
 use crate::platform::Target;
 use serde::Serialize;
+use ts_rs::TS;
 
 /// Una finestra di limite dell'abbonamento (5 ore o settimanale).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
 pub struct LimitWindow {
     /// Percentuale consumata (0..=100, puo' superare 100 in sforamento).
     pub used_percentage: f64,
@@ -13,7 +15,8 @@ pub struct LimitWindow {
 }
 
 /// Limiti dell'abbonamento e loro stato.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
 pub struct UsageLimitsReply {
     /// "ok" | "expired" | "unavailable" | "disabled" | "unsupported".
     pub state: String,

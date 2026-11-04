@@ -1,35 +1,15 @@
 // Utilizzo del coding agent: limiti di abbonamento (5 ore / settimana) e token
 // per sessione. Logica pura, a zero dipendenze: importabile dall'app e dai
-// test `node --test`. I tipi sono strutturali (compatibili con quelli di tauri.ts).
+// test `node --test`. I tipi dei dati del backend sono generati (src/bindings).
 
+import type { AgentEnvStatus } from "../bindings/AgentEnvStatus.ts";
+import type { AgentProfile } from "../bindings/AgentProfile.ts";
+import type { Capability } from "../bindings/Capability.ts";
+import type { LimitWindow } from "../bindings/LimitWindow.ts";
+import type { SessionUsage } from "../bindings/SessionUsage.ts";
+import type { TokenTotals } from "../bindings/TokenTotals.ts";
+import type { UsageLimitsReply } from "../bindings/UsageLimitsReply.ts";
 import { agentRowKey } from "./agents.ts";
-
-export interface LimitWindowLike {
-  used_percentage: number;
-  resets_at: string | null;
-}
-
-export interface UsageLimitsLike {
-  state: "ok" | "expired" | "unavailable" | "disabled" | "unsupported";
-  five_hour: LimitWindowLike | null;
-  seven_day: LimitWindowLike | null;
-  message: string | null;
-}
-
-export interface TokenTotalsLike {
-  input_tokens: number;
-  output_tokens: number;
-  cache_read_tokens: number;
-  cache_creation_tokens: number;
-}
-
-export interface SessionUsageLike {
-  main: TokenTotalsLike;
-  subagents: TokenTotalsLike;
-  context_tokens: number;
-  model: string | null;
-  messages: number;
-}
 
 // ---------------------------------------------------------------------------
 // Formattazione
@@ -86,15 +66,10 @@ export function formatResetFull(iso: string | null | undefined): string | null {
 // ---------------------------------------------------------------------------
 
 /** Capability che un'integrazione dichiara se espone i limiti di utilizzo. */
-const USAGE_LIMITS_CAPABILITY = "usage-limits";
+const USAGE_LIMITS_CAPABILITY: Capability = "usage-limits";
 
-/** Campi di `AgentProfile` (tauri.ts) usati per i limiti. */
-export interface UsageProfileLike {
-  agent_id: string;
-  agent_name: string;
-  capabilities: string[];
-  usage_limits_notice: string | null;
-}
+/** Campi di `AgentProfile` usati per i limiti. */
+export type UsageProfileLike = Pick<AgentProfile, "agent_id" | "agent_name" | "capabilities" | "usage_limits_notice">;
 
 /** Una coppia (agente, ambiente) di cui leggere i limiti. */
 export interface UsageTarget<E> {
@@ -105,7 +80,7 @@ export interface UsageTarget<E> {
 }
 
 /** Coppie (agente, ambiente) con l'agente installato il cui profilo dichiara i limiti di utilizzo. */
-export function usageTargets<E extends { agent_id: string; env_key: string; found: boolean; installed: boolean }>(
+export function usageTargets<E extends Pick<AgentEnvStatus, "agent_id" | "env_key" | "found" | "installed">>(
   profiles: UsageProfileLike[],
   envs: E[],
 ): UsageTarget<E>[] {
@@ -137,7 +112,7 @@ export interface LimitItem {
   title: string;
 }
 
-function windowItem(key: "5h" | "7d", short: string, long: string, w: LimitWindowLike, now: Date): LimitItem {
+function windowItem(key: "5h" | "7d", short: string, long: string, w: LimitWindow, now: Date): LimitItem {
   const pct = Math.round(w.used_percentage);
   const reset = formatReset(w.resets_at, now);
   const full = formatResetFull(w.resets_at);
@@ -151,7 +126,7 @@ function windowItem(key: "5h" | "7d", short: string, long: string, w: LimitWindo
 
 /** Voci da mostrare per la risposta di un ambiente (vuoto = nascosto). */
 export function limitItems(
-  reply: UsageLimitsLike | null | undefined,
+  reply: UsageLimitsReply | null | undefined,
   agentName: string,
   now: Date = new Date(),
 ): LimitItem[] {
@@ -187,7 +162,7 @@ export function limitGroups(
     key: string;
     agentName: string;
     label: string;
-    reply: UsageLimitsLike | null | undefined;
+    reply: UsageLimitsReply | null | undefined;
   }>,
   now: Date = new Date(),
 ): LimitGroup[] {
@@ -212,15 +187,15 @@ export function limitGroupText(group: LimitGroup): string {
 // Intestazione del pannello
 // ---------------------------------------------------------------------------
 
-const sumInput = (t: TokenTotalsLike) => t.input_tokens + t.cache_read_tokens + t.cache_creation_tokens;
+const sumInput = (t: TokenTotals) => t.input_tokens + t.cache_read_tokens + t.cache_creation_tokens;
 
 /** `↑ 1,2M ↓ 45k · ctx 82k` (input comprensivo della cache). */
-export function usageText(u: SessionUsageLike): string {
+export function usageText(u: SessionUsage): string {
   return `↑ ${formatTokens(sumInput(u.main))} ↓ ${formatTokens(u.main.output_tokens)} · ctx ${formatTokens(u.context_tokens)}`;
 }
 
 /** Tooltip su più righe con il dettaglio dei token. */
-export function usageTooltip(u: SessionUsageLike): string {
+export function usageTooltip(u: SessionUsage): string {
   const lines = [
     `Input: ${formatTokens(u.main.input_tokens)}`,
     `Output: ${formatTokens(u.main.output_tokens)}`,

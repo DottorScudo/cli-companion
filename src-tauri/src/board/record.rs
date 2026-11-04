@@ -10,6 +10,7 @@ use super::{
     WorkerActivity, WorkerStatus, WorktreeInfo,
 };
 use serde::{Deserialize, Serialize, Serializer};
+use ts_rs::{Config, TypeVisitor, TS};
 
 /// Il task come si legge dal filo (proprietario dei dati).
 #[derive(Debug, Default, Deserialize)]
@@ -96,7 +97,7 @@ impl From<TaskRecord> for Task {
 
 /// Il task come si scrive sul filo (prende in prestito: niente copia dei testi).
 /// L'ordine dei campi e' quello del file e del frontend.
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 struct TaskRecordRef<'a> {
     id: &'a str,
     title: &'a str,
@@ -107,6 +108,7 @@ struct TaskRecordRef<'a> {
     model: &'a Option<String>,
     kind: TaskKind,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
     e2e: bool,
     status: TaskStatus,
     worker_status: Option<WorkerStatus>,
@@ -117,8 +119,10 @@ struct TaskRecordRef<'a> {
     note: &'a Option<String>,
     report: Option<&'a TaskReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(as = "Option<E2eRun>", optional)]
     e2e_run: &'a Option<E2eRun>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     previous_attempt: Option<&'a PreviousAttempt>,
     created_at: i64,
     updated_at: i64,
@@ -126,7 +130,34 @@ struct TaskRecordRef<'a> {
     finished_at: Option<i64>,
     /// Passo di preparazione in corso: solo in uscita, mai riletto.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     preparing: Option<&'a str>,
+}
+
+/// Per ts-rs il task e' il suo record sul filo: lo stato e' privato e `status`,
+/// `session`, `report`... non sono campi della struct. `TaskView` lo appiattisce.
+impl TS for Task {
+    type WithoutGenerics = Self;
+    type OptionInnerType = Self;
+
+    fn name(cfg: &Config) -> String {
+        <TaskRecordRef<'static> as TS>::name(cfg)
+    }
+
+    fn inline(cfg: &Config) -> String {
+        <TaskRecordRef<'static> as TS>::inline(cfg)
+    }
+
+    fn inline_flattened(cfg: &Config) -> String {
+        <TaskRecordRef<'static> as TS>::inline_flattened(cfg)
+    }
+
+    fn visit_dependencies(visitor: &mut impl TypeVisitor)
+    where
+        Self: 'static,
+    {
+        <TaskRecordRef<'static> as TS>::visit_dependencies(visitor);
+    }
 }
 
 impl Serialize for Task {

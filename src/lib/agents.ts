@@ -2,31 +2,26 @@
 // a stati degli eventi degli hook). File volutamente a zero dipendenze:
 // importabile sia dall'app sia dai test `node --test` (type-stripping).
 
+import type { AgentEnvStatus } from "../bindings/AgentEnvStatus.ts";
+import type { AgentInputEvent } from "../bindings/AgentInputEvent.ts";
+import type { AgentProfile } from "../bindings/AgentProfile.ts";
+import type { NotifyPayload } from "../bindings/NotifyPayload.ts";
+import type { ResumeSpec } from "../bindings/ResumeSpec.ts";
+import type { TargetKind } from "../bindings/TargetKind.ts";
+
 // ---------------------------------------------------------------------------
 // Impostazioni -> Coding agent
 // ---------------------------------------------------------------------------
 
-/** Campi di `AgentEnvStatus` (agents/mod.rs) usati dalla UI. */
-export interface AgentEnvLike {
-  agent_id: string;
-  agent_name: string;
-  env_key: string;
-  env_label: string;
-  env_kind: string;
-  found: boolean;
-  version?: string | null;
-  installed: boolean;
-}
-
 export type AgentEnvState = "not-found" | "not-installed" | "installed";
 
-export function agentEnvState(env: Pick<AgentEnvLike, "found" | "installed">): AgentEnvState {
+export function agentEnvState(env: Pick<AgentEnvStatus, "found" | "installed">): AgentEnvState {
   if (!env.found) return "not-found";
   return env.installed ? "installed" : "not-installed";
 }
 
 /** Testo di stato, con la versione se nota (anche per i non installati). */
-export function agentEnvStateText(env: Pick<AgentEnvLike, "found" | "installed" | "version">): string {
+export function agentEnvStateText(env: Pick<AgentEnvStatus, "found" | "installed" | "version">): string {
   const text = {
     installed: "Installato",
     "not-installed": "Non installato",
@@ -37,25 +32,25 @@ export function agentEnvStateText(env: Pick<AgentEnvLike, "found" | "installed" 
 }
 
 /** Etichetta del bottone principale: "Installa" / "Reinstalla" (null = nessuno). */
-export function agentInstallLabel(env: Pick<AgentEnvLike, "found" | "installed">): string | null {
+export function agentInstallLabel(env: Pick<AgentEnvStatus, "found" | "installed">): string | null {
   const state = agentEnvState(env);
   if (state === "not-found") return null;
   return state === "installed" ? "Reinstalla" : "Installa";
 }
 
 /** Testo del badge ambiente: `WIN` per Windows, il nome per le distro WSL. */
-export function agentEnvBadge(env: Pick<AgentEnvLike, "env_kind" | "env_label">): string {
+export function agentEnvBadge(env: Pick<AgentEnvStatus, "env_kind" | "env_label">): string {
   return env.env_kind === "windows" ? "WIN" : env.env_label;
 }
 
-export interface AgentGroup<T extends AgentEnvLike = AgentEnvLike> {
+export interface AgentGroup<T extends AgentEnvStatus = AgentEnvStatus> {
   agentId: string;
   agentName: string;
   envs: T[];
 }
 
 /** Raggruppa per agente mantenendo l'ordine di prima comparsa. */
-export function groupByAgent<T extends AgentEnvLike>(envs: T[]): AgentGroup<T>[] {
+export function groupByAgent<T extends AgentEnvStatus>(envs: T[]): AgentGroup<T>[] {
   const groups: AgentGroup<T>[] = [];
   for (const env of envs) {
     let group = groups.find((g) => g.agentId === env.agent_id);
@@ -69,7 +64,7 @@ export function groupByAgent<T extends AgentEnvLike>(envs: T[]): AgentGroup<T>[]
 }
 
 /** Chiave unica (agente, env) per lo stato "operazione in corso". */
-export function agentRowKey(env: Pick<AgentEnvLike, "agent_id" | "env_key">): string {
+export function agentRowKey(env: Pick<AgentEnvStatus, "agent_id" | "env_key">): string {
   return `${env.agent_id}::${env.env_key}`;
 }
 
@@ -95,12 +90,8 @@ export interface AgentTabState {
 }
 
 /** Campi dell'evento `agent-event` usati dalla macchina a stati. */
-export interface AgentEventLike {
-  event: string;
-  agent?: string | null;
-  agent_session_id?: string | null;
-  transcript_path?: string | null;
-}
+export type AgentEventLike = Pick<NotifyPayload, "event"> &
+  Partial<Pick<NotifyPayload, "agent" | "agent_session_id" | "transcript_path">>;
 
 /**
  * Applica un evento degli hook allo stato del tab. `session-start` marca il
@@ -221,16 +212,8 @@ export function notificationBody(event: string, tabLabel: string, message?: stri
 // Profili di input (vedi `InputProfile` in agents/mod.rs)
 // ---------------------------------------------------------------------------
 
-/** Evento di input con override per agente (kebab-case, come `InputEvent`). */
-export type InputEventName = "image-paste";
-
-/** Campi di `AgentProfile` (agents/mod.rs) usati dal resolver. */
-export interface AgentProfileLike {
-  agent_id: string;
-  input_profile: {
-    rules: { event: string; env_kind: string | null; send: string }[];
-  };
-}
+/** Campi di `AgentProfile` usati dal resolver. */
+export type AgentProfileLike = Pick<AgentProfile, "agent_id" | "input_profile">;
 
 /**
  * Sequenza da inviare al pty al posto del comportamento standard per
@@ -240,8 +223,8 @@ export interface AgentProfileLike {
 export function resolveInputOverride(
   profiles: AgentProfileLike[],
   agentId: string | null | undefined,
-  envKind: string,
-  event: InputEventName,
+  envKind: TargetKind,
+  event: AgentInputEvent,
 ): string | null {
   if (!agentId) return null;
   const rules = profiles.find((p) => p.agent_id === agentId)?.input_profile.rules ?? [];
@@ -249,21 +232,11 @@ export function resolveInputOverride(
   return rule ? rule.send : null;
 }
 
-/** Campi di `SessionResumeSpec` (tauri.ts) usati per riconoscere e riprendere un agente. */
-export interface SessionResumeLike {
-  command_names: string[];
-  strip_flags: { names: string[]; takes_value: boolean }[];
-  resume_template: string;
-}
-
-/** Campi di `AgentProfile` (tauri.ts) usati per riconoscere il comando di un agente. */
-export interface CommandProfileLike {
-  agent_id: string;
-  session_resume: SessionResumeLike | null;
-}
+/** Campi di `AgentProfile` usati per riconoscere il comando di un agente. */
+export type CommandProfileLike = Pick<AgentProfile, "agent_id" | "session_resume">;
 
 /** `true` se il primo token del comando e' uno dei nomi del programma (senza distinguere le maiuscole). */
-export function isResumeCommand(resume: Pick<SessionResumeLike, "command_names">, command: string): boolean {
+export function isResumeCommand(resume: Pick<ResumeSpec, "command_names">, command: string): boolean {
   const program = command.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
   return resume.command_names.some((name) => name.toLowerCase() === program);
 }
@@ -309,7 +282,7 @@ export function tabAgentId(
  * Stringa vuota se non c'è nulla di installato.
  */
 export function installedAgentsSummary(
-  envs: Array<Pick<AgentEnvLike, "agent_id" | "agent_name" | "env_label" | "found" | "installed">>,
+  envs: Array<Pick<AgentEnvStatus, "agent_id" | "agent_name" | "env_label" | "found" | "installed">>,
 ): string {
   const byAgent = new Map<string, { name: string; labels: string[] }>();
   for (const env of envs) {

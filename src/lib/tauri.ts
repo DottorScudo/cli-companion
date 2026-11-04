@@ -1,276 +1,60 @@
 import { invoke, type Channel } from "@tauri-apps/api/core";
-import type { WorkerPermission } from "./workerPermission";
-import type { BotImage } from "./bots";
-import type { BoardView, Delivery, E2eRun, NewTaskSpec, TaskAction, TaskNotifyEvent, TaskPatch } from "./board";
-import type { Schedule, ScheduleState } from "./schedule";
-import type { StoreWarning } from "./storeWarnings";
+import type { NotifyPayload as AgentEvent } from "../bindings/NotifyPayload.ts";
+import type { AgentEnvStatus } from "../bindings/AgentEnvStatus.ts";
+import type { AgentProfile } from "../bindings/AgentProfile.ts";
+import type { TabEvent as AutomationClose } from "../bindings/TabEvent.ts";
+import type { SpawnEvent as AutomationSpawn } from "../bindings/SpawnEvent.ts";
+import type { AutomationTabInfo } from "../bindings/AutomationTabInfo.ts";
+import type { BotSettings } from "../bindings/BotSettings.ts";
+import type { BuiltinLaunch } from "../bindings/BuiltinLaunch.ts";
+import type { Delivery } from "../bindings/Delivery.ts";
+import type { E2eEvent as E2eUpdateEvent } from "../bindings/E2eEvent.ts";
+import type { IpcStatus } from "../bindings/IpcStatus.ts";
+import type { LaunchSettings } from "../bindings/LaunchSettings.ts";
+import type { OutdatedPlugin } from "../bindings/OutdatedPlugin.ts";
+import type { PermissionMode } from "../bindings/PermissionMode.ts";
+import type { PluginUpdateResult } from "../bindings/PluginUpdateResult.ts";
+import type { PtyEvent } from "../bindings/PtyEvent.ts";
+import type { RepoConfig } from "../bindings/RepoConfig.ts";
+import type { Schedule } from "../bindings/Schedule.ts";
+import type { ScheduleState } from "../bindings/ScheduleState.ts";
+import type { SessionUsage } from "../bindings/SessionUsage.ts";
+import type { SettingsDecision } from "../bindings/SettingsDecision.ts";
+import type { StoreWarning } from "../bindings/StoreWarning.ts";
+import type { TargetKind } from "../bindings/TargetKind.ts";
+import type { UsageLimitsReply } from "../bindings/UsageLimitsReply.ts";
+import type { Workspace } from "../bindings/Workspace.ts";
+import type { BoardView, E2eRun, NewTaskSpec, TaskAction, TaskNotifyEvent, TaskPatch } from "./board.ts";
 
-/** Esito di `settings_proposal_decide`: `workspace` solo se la proposta è stata applicata. */
-export interface SettingsDecision {
-  board: BoardView;
-  workspace: Workspace | null;
-}
+// I tipi dei dati scambiati con il backend sono generati dal Rust (src/bindings):
+// qui prendono i nomi usati dall'interfaccia.
+export type {
+  AgentEnvStatus,
+  AgentEvent,
+  AgentProfile,
+  AutomationClose,
+  AutomationSpawn,
+  AutomationTabInfo,
+  BotSettings,
+  BuiltinLaunch,
+  Delivery,
+  OutdatedPlugin,
+  PluginUpdateResult,
+  PtyEvent,
+  RepoConfig,
+  SessionUsage,
+  UsageLimitsReply,
+  Workspace,
+};
+export type { DeliveryMode } from "../bindings/DeliveryMode.ts";
+export type { E2eConfig } from "../bindings/E2eConfig.ts";
+export type { Launch } from "../bindings/Launch.ts";
+export type { MergeMethod } from "../bindings/MergeMethod.ts";
 
-/** Avvio personalizzato di un workspace (vedi `Launch` in workspaces/model.rs). */
-export interface Launch {
-  id: string;
-  name: string;
-  command: string;
-}
-
-/** Avvio integrato (vedi `BuiltinLaunch` in agents/mod.rs). */
-export interface BuiltinLaunch {
-  id: string;
-  name: string;
-  /** Comando eseguito ora. */
-  command: string;
-  /** Comando da salvare nel tab (ripristino/ripresa). */
-  restore_command: string;
-  agent_id: string;
-}
-
-/** Impostazioni globali degli avvii (null = shell vuota). */
-export interface LaunchSettings {
-  default_launch: string | null;
-  /** Mostra limiti e token di utilizzo (default true). */
-  show_usage: boolean;
-}
-
-/** Impostazioni dei bot: pool dei nomi e immagini associate (puramente visivi). */
-export interface BotSettings {
-  enabled: boolean;
-  names: string[];
-  /** Immagine pixelata per nome della pool. */
-  images: Record<string, BotImage>;
-}
-
-export interface Workspace {
-  id: string;
-  name: string;
-  kind: "windows" | "wsl";
-  path: string;
-  distro?: string | null;
-  shell?: string | null;
-  created_at: number;
-  launches: Launch[];
-  /** Avvio predefinito: assente/null = eredita il globale; "shell" = shell vuota; altrimenti id. */
-  default_launch?: string | null;
-  /** Tetto dei permessi dei worker automatici (vedi `WorkerSettings` in workspaces/model.rs). */
-  worker_permission: WorkerPermission;
-  /** Modello dei worker automatici; assente/null = predefinito dell'agente. */
-  worker_model?: string | null;
-  /** Regole di permesso pre-approvate / vietate per i worker Claude Code. */
-  worker_allow?: string[];
-  worker_deny?: string[];
-  /** Regole inviate a ogni worker automatico (assente = nessuna). */
-  worker_rules?: string;
-  /** Consegna dei task (assente = commit sul branch corrente, un worker alla volta). */
-  delivery?: Delivery;
-  /** La coda rispetta le fasce orarie globali (assente = no). */
-  use_schedule?: boolean;
-  /** Configurazione per repository (chiave = cartella relativa alla root, "." = la root). */
-  repos?: Record<string, RepoConfig>;
-  /** Archiviato: nascosto dalla sidebar, coda ferma (assente = attivo). */
-  archived?: boolean;
-}
-
-/** Preparazione e pulizia dei worktree di un repository (vedi `RepoConfig` in workspaces/repo_config.rs). */
-export interface RepoConfig {
-  base_branch: string | null;
-  container_root: string | null;
-  copy_ignored: string[];
-  setup: string[];
-  cleanup: string[];
-  remove_force: boolean;
-  /** Test E2E facoltativi del repository; assente = nessuno. */
-  e2e?: E2eConfig;
-}
-
-/** Come l'app esegue gli E2E di un repository (vedi `E2eConfig` in workspaces/e2e.rs). */
-export interface E2eConfig {
-  command: string;
-  /** Percorso del report JUnit, relativo alla cartella del task. */
-  junit: string;
-  timeout_min: number;
-}
-
-/** Messaggi sul canale dedicato di una sessione pty (vedi PtyEvent in pty/mod.rs). */
-export type PtyEvent = { kind: "output"; data: string } | { kind: "exit" };
-
-/** Evento di un coding agent (vedi `NotifyPayload` in ipc/wire.rs). */
-export interface AgentEvent {
-  event: "test" | "session-start" | "finished" | "needs-input" | string;
-  agent: string;
-  /** Id del tab (`CLI_COMPANION_SESSION`); assente per `test`. */
-  tab_id?: string | null;
-  agent_session_id?: string | null;
-  /** Percorso assoluto del transcript della sessione, come lo vede l'agente. */
-  transcript_path?: string | null;
-  notification_type?: string | null;
-  message?: string | null;
-}
-
-/** Stato del listener locale degli agenti (vedi `IpcStatus` in ipc/server.rs). */
-export interface IpcStatus {
-  /** Porta in ascolto; null se il listener non e' partito. */
-  port: number | null;
-  preferred_port: number;
-  error: string | null;
-}
-
-/** Finestra di un limite di utilizzo. */
-export interface LimitWindow {
-  /** 0-100. */
-  used_percentage: number;
-  /** RFC3339. */
-  resets_at: string | null;
-}
-
-export interface UsageLimitsReply {
-  state: "ok" | "expired" | "unavailable" | "disabled" | "unsupported";
-  five_hour: LimitWindow | null;
-  seven_day: LimitWindow | null;
-  message: string | null;
-}
-
-export interface TokenTotals {
-  input_tokens: number;
-  output_tokens: number;
-  cache_read_tokens: number;
-  cache_creation_tokens: number;
-}
-
-export interface SessionUsage {
-  main: TokenTotals;
-  subagents: TokenTotals;
-  context_tokens: number;
-  model: string | null;
-  messages: number;
-}
-
-/** Stato di un agente in un ambiente (vedi `AgentEnvStatus` in agents/mod.rs). */
-/** Plugin installato con versione diversa da quella attesa dall'app. */
-export interface OutdatedPlugin {
-  agent_id: string;
-  agent_name: string;
-  env_key: string;
-  env_label: string;
-  installed_version: string | null;
-  expected_version: string;
-}
-
-export interface PluginUpdateResult {
-  agent_id: string;
-  agent_name: string;
-  env_key: string;
-  env_label: string;
-  ok: boolean;
-  /** Testo d'errore quando !ok. */
-  log: string;
-}
-
-export interface AgentEnvStatus {
-  agent_id: string;
-  agent_name: string;
-  env_key: string;
-  env_label: string;
-  env_kind: "windows" | "wsl";
-  found: boolean;
-  version?: string | null;
-  installed: boolean;
-}
-
-/** Regola del profilo di input (vedi `InputRule` in agents/mod.rs). */
-export interface InputRule {
-  event: string;
-  env_kind: "windows" | "wsl" | null;
-  send: string;
-}
-
-/** Flag di ripresa da togliere dal comando originale (vedi `agents/contracts/session_resume.rs`). */
-export interface ResumeStripFlag {
-  names: string[];
-  /** Il flag accetta un valore (`--flag x` o `--flag=x`). */
-  takes_value: boolean;
-}
-
-/** Come un agente riprende una sessione (vedi `agents/contracts/session_resume.rs`). */
-export interface SessionResumeSpec {
-  /** Nomi del programma (primo token del comando); il primo e' quello canonico. */
-  command_names: string[];
-  strip_flags: ResumeStripFlag[];
-  /** Modello del comando di ripresa, con i segnaposto `{command}` e `{id}`. */
-  resume_template: string;
-}
-
-/** Funzionalita' che un'integrazione dichiara (kebab-case, come nel backend). */
-export type AgentCapability =
-  | "package"
-  | "hook-events"
-  | "session-resume"
-  | "automation"
-  | "worker-permissions"
-  | "presets"
-  | "user-skills"
-  | "usage-limits"
-  | "session-usage"
-  | "input-profile";
-
-/** Testi dell'integrazione sui permessi dei worker (vedi `PermissionsGuide` in agents/contracts). */
-export interface WorkerPermissionsGuide {
-  rules_help: string;
-  bypass_note: string;
-  /** Esempi (uno per riga) nei campi vuoti dei Consentiti e dei Vietati. */
-  allow_placeholder: string;
-  deny_placeholder: string;
-}
-
-/** Profilo di un agente (vedi `AgentProfile` in agents/mod.rs). */
-export interface AgentProfile {
-  agent_id: string;
-  agent_name: string;
-  capabilities: AgentCapability[];
-  /** Integrazione predefinita dichiarata dal backend. */
-  is_default: boolean;
-  input_profile: { rules: InputRule[] };
-  /** `null` se l'integrazione non dichiara la ripresa delle sessioni. */
-  session_resume: SessionResumeSpec | null;
-  /** Avviso sui limiti di utilizzo; `null` se non dichiara "usage-limits". */
-  usage_limits_notice: string | null;
-  /** Testi sui comandi pre-approvati; `null` se non dichiara "worker-permissions": le regole non si applicano. */
-  worker_permissions: WorkerPermissionsGuide | null;
-}
-
-/** Evento `automation-spawn` (vedi automation/host.rs): apri un tab worker. */
-export interface AutomationSpawn {
-  tab_id: string;
-  workspace_id: string;
-  /** Comando di avvio da digitare nella shell del tab. */
-  command: string;
-  cwd?: string | null;
-  title: string;
-  /** Sempre vuoto (nessun orchestratore): tenuto per compatibilita'. */
-  parent_tab_id: string;
-  agent_id: string;
-}
-
-/** Evento `automation-close`: chiudi il tab worker. */
-export interface AutomationClose {
-  tab_id: string;
-}
-
-/** Evento `automation-update` e risultato di `automation_sessions`. */
-export interface AutomationTabInfo {
-  tab_id: string;
-  status: string;
-  title: string;
-  parent_tab_id: string;
-  last_report?: string | null;
-}
-
+/** Argomenti di `add_workspace` (nessun DTO Rust: il comando prende i campi sciolti). */
 export interface NewWorkspace {
   name: string;
-  kind: "windows" | "wsl";
+  kind: TargetKind;
   path: string;
   distro?: string;
   shell?: string;
@@ -293,7 +77,7 @@ export const api = {
   setWorkerModel: (id: string, model: string | null) => invoke<Workspace>("set_worker_model", { id, model }),
   setWorkerPermissionRules: (id: string, allow: string[], deny: string[]) =>
     invoke<Workspace>("set_worker_permission_rules", { id, allow, deny }),
-  setWorkerPermission: (id: string, mode: WorkerPermission) => invoke<Workspace>("set_worker_permission", { id, mode }),
+  setWorkerPermission: (id: string, mode: PermissionMode) => invoke<Workspace>("set_worker_permission", { id, mode }),
 
   setWorkerRules: (workspaceId: string, rules: string) => invoke<Workspace>("set_worker_rules", { workspaceId, rules }),
 
@@ -470,17 +254,9 @@ export const api = {
   pruneScrollback: (keep: string[]) => invoke<void>("prune_scrollback", { keep }),
 };
 
-/** Un'esecuzione manuale degli E2E è partita o finita. */
-export interface E2eUpdateEvent {
-  workspace_id: string;
-  /** Chiave del repository ("." = root). */
-  repo: string;
-  run: E2eRun;
-}
-
 /** Eventi emessi dal backend con il tipo del loro payload (usati da `useTauriEvent`). */
 export interface TauriEvents {
-  "notification-activated": { tab_id: string };
+  "notification-activated": AutomationClose;
   "automation-spawn": AutomationSpawn;
   "automation-close": AutomationClose;
   "automation-update": AutomationTabInfo;

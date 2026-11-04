@@ -1,7 +1,8 @@
 name: ci
 
 # Controlli di qualita' su ogni push a main e su ogni pull request:
-# formattazione, lint, tipi e test di frontend (npm) e backend (cargo).
+# bindings TypeScript generati dai DTO Rust, formattazione, lint, tipi e test
+# di frontend (npm) e backend (cargo).
 # Non produce eseguibili ne' Release (vedi build-windows.yml).
 on:
   push:
@@ -46,6 +47,15 @@ jobs:
 
       - name: Install frontend deps
         run: npm ci
+
+      - name: Bindings TypeScript aggiornati
+        # Fallisce se i DTO Rust e src/bindings non sono allineati: si corregge con
+        # `npm run bindings` e committando i file rigenerati.
+        # `git diff` e' l'ultimo comando: il wrapper pwsh fallisce sul suo exit code.
+        run: |
+          npm run bindings
+          git add --intent-to-add src/bindings
+          git diff --exit-code src/bindings
 
       - name: Lint (eslint)
         run: npm run lint

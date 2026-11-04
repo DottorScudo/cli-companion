@@ -1,0 +1,2 @@
+# I bindings generati da ts-rs hanno sempre LF: con autocrlf su Windows il diff della CI sarebbe sporco.
+src/bindings/** text eol=lf

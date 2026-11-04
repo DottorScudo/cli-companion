@@ -26,11 +26,11 @@ export function specExcerpt(spec: string, max = 180): string {
 
 /** Titoli delle dipendenze se note (task in coda o della stessa proposta), altrimenti gli id. */
 export function dependencyLabels(
-  ids: string[] | undefined,
+  ids: string[],
   tasks: Pick<Task, "id" | "title">[],
   specs: Pick<TaskSpec, "id" | "title">[] = [],
 ): string[] {
-  return (ids ?? []).map((id) => tasks.find((t) => t.id === id)?.title ?? specs.find((t) => t.id === id)?.title ?? id);
+  return ids.map((id) => tasks.find((t) => t.id === id)?.title ?? specs.find((t) => t.id === id)?.title ?? id);
 }
 
 /** "Dipende da A, B" oppure null se non ha dipendenze. */
@@ -107,7 +107,7 @@ export function activityGroups<W extends { id: string }>(
     const failed = board.tasks.filter((t) => t.status === "failed").length;
     const proposals = pendingProposals(board);
     if (running.length + queued.length + failed + proposals === 0) continue;
-    const next = queued.find((t) => (t.waiting_on ?? []).length === 0) ?? queued[0] ?? null;
+    const next = queued.find((t) => t.waiting_on.length === 0) ?? queued[0] ?? null;
     groups.push({ workspace, running, queued, failed, proposals, next });
   }
   return groups;

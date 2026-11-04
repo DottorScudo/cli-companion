@@ -2,13 +2,16 @@
 
 use crate::platform::TargetKind;
 use serde::Serialize;
+use ts_rs::TS;
 
 /// Evento di input del terminale che un agente puo' voler gestire in modo
 /// diverso dal comportamento standard. PUNTO DI ESTENSIONE: per un nuovo
 /// evento si aggiunge una variante (serializzata in kebab-case) e il
 /// frontend la richiede con lo stesso nome (`resolveInputOverride`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "kebab-case")]
+// `InputEvent` e' un tipo globale del DOM.
+#[ts(export, rename = "AgentInputEvent")]
 pub enum InputEvent {
     /// Incolla con appunti senza testo (es. sola immagine): al posto del
     /// Ctrl+V grezzo si invia la sequenza della regola.
@@ -17,7 +20,8 @@ pub enum InputEvent {
 
 /// Regola: per `event`, nel target `env_kind` (`None` = qualunque), il
 /// terminale scrive `send` nel pty.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
 pub struct InputRule {
     pub event: InputEvent,
     /// "windows" | "wsl" (vedi `Target::kind`); `None` = tutti i target.
@@ -26,7 +30,8 @@ pub struct InputRule {
 }
 
 /// Profilo di input dichiarativo di un agente.
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, TS)]
+#[ts(export)]
 pub struct InputProfile {
     pub rules: Vec<InputRule>,
 }

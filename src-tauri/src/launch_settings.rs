@@ -7,8 +7,10 @@ use crate::store::{data_dir, JsonFile, JsonStore};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct LaunchSettings {
     /// Id di un avvio integrato (`builtin:...`); `None` = shell semplice.
     #[serde(default)]

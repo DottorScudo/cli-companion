@@ -4,26 +4,11 @@
 // La logica "finestra aperta / prossimo cambio" e' del backend (schedule.rs):
 // qui si mostra soltanto ciò che comunica (`window_open`, `next_change_at`).
 
-/** Una fascia oraria locale `[start, end)`, formato `HH:MM`. */
-export interface ScheduleWindow {
-  start: string;
-  end: string;
-}
+import type { Schedule } from "../bindings/Schedule.ts";
+import type { ScheduleState } from "../bindings/ScheduleState.ts";
+import type { ScheduleWindow } from "../bindings/ScheduleWindow.ts";
 
-/** Configurazione globale (`schedule.json`, serde snake_case). */
-export interface Schedule {
-  enabled: boolean;
-  windows: ScheduleWindow[];
-  keep_awake: boolean;
-}
-
-/** Risposta di `schedule_get` / `schedule_set` e payload di `schedule-state`. */
-export interface ScheduleState {
-  schedule: Schedule;
-  window_open: boolean;
-  /** Unix ms del prossimo cambio di stato della finestra, o null. */
-  next_change_at: number | null;
-}
+export type { Schedule, ScheduleState, ScheduleWindow };
 
 /** Numero massimo di fasce. */
 export const MAX_WINDOWS = 12;

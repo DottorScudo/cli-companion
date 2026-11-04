@@ -1,9 +1,12 @@
 //! Contratto di automazione: avviare una sessione senza utente (worker).
 
 use crate::platform::TargetKind;
+use ts_rs::TS;
 
 /// Livello di permessi con cui parte una sessione automatica.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, TS)]
+// Non ha derive serde: il testo sul filo e' `as_str`, che e' il kebab-case dei nomi.
+#[ts(export, rename_all = "kebab-case")]
 pub enum PermissionMode {
     Default,
     AcceptEdits,

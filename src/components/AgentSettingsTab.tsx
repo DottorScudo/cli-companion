@@ -28,7 +28,7 @@ export default function AgentSettingsTab() {
   useEffect(() => {
     api
       .getLaunchSettings()
-      .then((s) => setShowUsage(s.show_usage !== false))
+      .then((s) => setShowUsage(s.show_usage))
       .catch((e) => report("caricamento delle impostazioni di utilizzo", e, { notify: true }));
   }, []);
 
@@ -36,8 +36,8 @@ export default function AgentSettingsTab() {
     setShowUsage(enabled);
     try {
       const s = await api.setShowUsage(enabled);
-      setShowUsage(s.show_usage !== false);
-      publishShowUsage(s.show_usage !== false);
+      setShowUsage(s.show_usage);
+      publishShowUsage(s.show_usage);
     } catch (e) {
       setShowUsage(!enabled);
       report("salvataggio dell'impostazione di utilizzo", e, { notify: true });

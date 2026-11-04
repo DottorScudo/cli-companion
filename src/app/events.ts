@@ -59,7 +59,7 @@ export function onAutomationSpawn(ev: AutomationSpawn): void {
   const ws = workspacesStore.get(ev.workspace_id);
   if (!ws || tabsStore.get(ev.tab_id)) return;
   runtimeStore.seed(ev.tab_id, {
-    automation: { title: ev.title, status: "starting", agentId: ev.agent_id, cwd: ev.cwd ?? undefined },
+    automation: { title: ev.title, status: "starting", agentId: ev.agent_id, cwd: ev.cwd },
   });
   // Apertura sincrona: un secondo evento identico non riapre il tab.
   tabsStore.open(
@@ -69,7 +69,7 @@ export function onAutomationSpawn(ev: AutomationSpawn): void {
       command: "",
       startCommand: ev.command,
       automated: true,
-      cwd: ev.cwd ?? undefined,
+      cwd: ev.cwd,
     },
     configStore.getState().botSettings.names,
   );

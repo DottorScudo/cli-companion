@@ -226,7 +226,7 @@ impl Host for TauriHost {
     }
 
     fn emit_close(&self, tab_id: &str) {
-        let _ = self.0.emit(CLOSE_EVENT, serde_json::json!({ "tab_id": tab_id }));
+        let _ = self.0.emit(CLOSE_EVENT, TabEvent { tab_id: tab_id.to_string() });
     }
 
     fn emit_update(&self, info: &AutomationTabInfo) {

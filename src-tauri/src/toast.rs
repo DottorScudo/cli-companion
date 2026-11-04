@@ -56,6 +56,7 @@ pub async fn show_agent_notification(
     {
         // WinRT fuori dal main thread (async + thread bloccante).
         crate::blocking(move || {
+            use crate::automation::TabEvent;
             use tauri::Emitter;
             use tauri_winrt_notification::Toast;
             let id = app_id(&app.config().identifier);
@@ -67,7 +68,7 @@ pub async fn show_agent_notification(
                 .sound(None)
                 .on_activated(move |_| {
                     bring_to_front(&handle);
-                    let _ = handle.emit(ACTIVATED_EVENT, serde_json::json!({ "tab_id": tab_id }));
+                    let _ = handle.emit(ACTIVATED_EVENT, TabEvent { tab_id: tab_id.clone() });
                     Ok(())
                 })
                 .show()

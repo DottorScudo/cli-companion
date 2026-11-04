@@ -2,19 +2,9 @@
 // terminale. File volutamente a zero dipendenze: importabile sia dall'app sia
 // dai test `node --test` (type-stripping), come src/lib/terminal.ts.
 
-/** Avvio di un workspace (rispecchia `Launch` di workspaces/model.rs). */
-export interface LaunchLike {
-  id: string;
-  name: string;
-  command: string;
-}
-
-/** Avvio integrato (rispecchia `BuiltinLaunch` del backend). */
-export interface BuiltinLaunchLike extends LaunchLike {
-  /** Comando da salvare nel tab (ripristino/ripresa della sessione). */
-  restore_command: string;
-  agent_id: string;
-}
+import type { Launch } from "../bindings/Launch.ts";
+import type { BuiltinLaunch } from "../bindings/BuiltinLaunch.ts";
+import type { Workspace } from "../bindings/Workspace.ts";
 
 /** Lunghezza massima del comando di un avvio. */
 export const LAUNCH_COMMAND_MAX = 1000;
@@ -59,10 +49,7 @@ export function buildLaunchInput(cmd: string): string {
 export const SHELL_LAUNCH_ID = "shell";
 
 /** Tutti gli avvii di un workspace: prima gli integrati, poi i suoi. */
-export function allLaunches<T extends LaunchLike, B extends LaunchLike>(
-  ws: { launches?: T[] },
-  builtins: B[],
-): (T | B)[] {
+export function allLaunches<T extends Launch, B extends Launch>(ws: { launches?: T[] }, builtins: B[]): (T | B)[] {
   return [...builtins, ...(ws.launches ?? [])];
 }
 
@@ -71,8 +58,8 @@ export function allLaunches<T extends LaunchLike, B extends LaunchLike>(
  * avvio noto ("shell" = nessuno), altrimenti (assente o id sparito) quello
  * globale, che deve essere un integrato noto; altrimenti nessuno (shell vuota).
  */
-export function resolveDefaultLaunch<T extends LaunchLike, B extends LaunchLike>(
-  ws: { launches?: T[]; default_launch?: string | null },
+export function resolveDefaultLaunch<T extends Launch, B extends Launch>(
+  ws: { launches?: T[] } & Pick<Workspace, "default_launch">,
   builtins: B[],
   globalDefault: string | null | undefined,
 ): T | B | undefined {
@@ -90,7 +77,7 @@ export function resolveDefaultLaunch<T extends LaunchLike, B extends LaunchLike>
  * Comandi di un avvio: `command` è ciò che si salva nel tab (per gli
  * integrati il `restore_command`), `startCommand` ciò che si esegue ora.
  */
-export function launchCommands(launch: (LaunchLike & { restore_command?: string }) | undefined): {
+export function launchCommands(launch: (Launch & Partial<Pick<BuiltinLaunch, "restore_command">>) | undefined): {
   command: string;
   startCommand: string;
 } {

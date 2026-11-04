@@ -83,7 +83,7 @@ pub use roles::{Method, Role};
 pub use state::AutomationState;
 use worker::Worker;
 pub(crate) use worker::WorkerEnv;
-pub use worker::{AutomationTabInfo, HookEvent, NewWorker, SpawnEvent, BOOTSTRAP_PROMPT, STOP_BLOCK_REASON};
+pub use worker::{AutomationTabInfo, HookEvent, NewWorker, SpawnEvent, TabEvent, BOOTSTRAP_PROMPT, STOP_BLOCK_REASON};
 pub use worktrees::{CleanupTarget, GitOut, StartJob};
 
 /// Dopo `complete_task` il tab resta aperto il tempo di vedere l'esito.

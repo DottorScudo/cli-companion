@@ -3,6 +3,7 @@
 //! sa nulla di come un agente riprende una sessione.
 
 use serde::Serialize;
+use ts_rs::TS;
 
 /// Segnaposto del comando originale (senza i flag di ripresa) nel modello. Il
 /// core non sostituisce nulla (lo fa il frontend): serve alla conformita'.
@@ -13,7 +14,8 @@ pub const COMMAND_PLACEHOLDER: &str = "{command}";
 pub const SESSION_ID_PLACEHOLDER: &str = "{id}";
 
 /// Un flag che l'agente usa per riprendere o continuare una sessione.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
 pub struct ResumeFlag {
     /// Forme equivalenti del flag (es. lunga e corta), ciascuna con il trattino.
     pub names: Vec<&'static str>,
@@ -22,7 +24,8 @@ pub struct ResumeFlag {
 }
 
 /// Dati con cui il frontend riprende una sessione dopo il riavvio.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
 pub struct ResumeSpec {
     /// Nomi del programma (primo token del comando, senza distinzione di
     /// maiuscole). Il primo e' quello canonico: si usa quando il tab non sta

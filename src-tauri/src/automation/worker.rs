@@ -2,6 +2,7 @@
 //! stati guidata dagli hook del coding agent e dalla vita del tab.
 
 use super::*;
+use ts_rs::TS;
 
 /// Prompt passato in riga di comando: ASCII semplice, sicuro in ogni shell
 /// (niente virgolette, `$`, backtick, `%`, `!`, `\`). Lo legge il modello:
@@ -15,7 +16,8 @@ pub const STOP_BLOCK_REASON: &str = "You ended your turn without calling complet
 
 /// Stato di un worker per il frontend (evento `automation-update` e comando
 /// `automation_sessions`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
 pub struct AutomationTabInfo {
     pub tab_id: String,
     pub status: WorkerStatus,
@@ -23,21 +25,32 @@ pub struct AutomationTabInfo {
     /// Sempre vuoto: i worker non hanno piu' un genitore.
     pub parent_tab_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub last_report: Option<String>,
 }
 
 /// Payload di `automation-spawn`: il frontend apre il tab e digita `command`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
 pub struct SpawnEvent {
     pub tab_id: String,
     pub workspace_id: String,
     pub command: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub cwd: Option<String>,
     pub title: String,
     /// Sempre vuoto (compatibilita' col frontend).
     pub parent_tab_id: String,
     pub agent_id: String,
+}
+
+/// Payload degli eventi che nominano solo un tab: `automation-close` (chiudi il
+/// tab worker) e `notification-activated` (click su un toast).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
+pub struct TabEvent {
+    pub tab_id: String,
 }
 
 /// Dati di un worker da registrare (gia' validati e con il comando pronto).

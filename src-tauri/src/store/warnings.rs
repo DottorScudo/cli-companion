@@ -5,14 +5,16 @@
 use serde::Serialize;
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter};
+use ts_rs::TS;
 
 /// Avvisi conservati in memoria: i piu' vecchi vengono scartati.
 const MAX_WARNINGS: usize = 100;
 /// Evento Tauri emesso per ogni nuovo avviso.
 const WARNING_EVENT: &str = "store-warning";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum WarningKind {
     /// File danneggiato o non migrabile: messo da parte, si riparte dal default.
     Corrupt,
@@ -25,7 +27,8 @@ pub enum WarningKind {
     PartiallyRead,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
 pub struct StoreWarning {
     pub file: String,
     pub kind: WarningKind,

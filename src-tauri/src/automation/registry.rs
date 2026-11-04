@@ -2,6 +2,7 @@
 //! eseguire fuori dal lock e le operazioni di base sui worker.
 
 use super::*;
+use ts_rs::TS;
 
 /// Worker (anche chiusi) tenuti in memoria prima di scartare i piu' vecchi.
 pub(super) const MAX_TRACKED_WORKERS: usize = 256;
@@ -11,7 +12,8 @@ pub(crate) const TASK_UNASSIGNED: &str = "this task is no longer assigned to thi
 
 /// Notifica di sistema per l'utente (evento `task-notify`): un task richiede
 /// attenzione o e' fallito. Il testo e' in italiano.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
 pub struct Notice {
     pub workspace_id: String,
     pub task_id: String,

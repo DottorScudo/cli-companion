@@ -66,8 +66,7 @@ export default function WorkerPage({ workspace }: Props) {
   const permission = normalizeWorkerPermission(workspace.worker_permission);
   const allowRules = useMemo(() => parseWorkerRules(allowDraft), [allowDraft]);
   const denyRules = useMemo(() => parseWorkerRules(denyDraft), [denyDraft]);
-  const rulesChanged =
-    !sameList(allowRules, workspace.worker_allow ?? []) || !sameList(denyRules, workspace.worker_deny ?? []);
+  const rulesChanged = !sameList(allowRules, workspace.worker_allow) || !sameList(denyRules, workspace.worker_deny);
 
   return (
     <SettingsPage
@@ -178,7 +177,7 @@ export default function WorkerPage({ workspace }: Props) {
               disabled={
                 saving ||
                 modelError(workerModelDraft) !== null ||
-                sanitizeModel(workerModelDraft) === (workspace.worker_model ?? null)
+                sanitizeModel(workerModelDraft) === workspace.worker_model
               }
               onClick={() => void run(() => api.setWorkerModel(workspace.id, sanitizeModel(workerModelDraft)))}
             >

@@ -8,6 +8,7 @@ use crate::validate::{normalize_repo, valid_model};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use ts_rs::TS;
 
 pub const ID_MAX: usize = 40;
 pub const MAX_TASKS_PER_PROPOSAL: usize = 20;
@@ -15,8 +16,9 @@ const MAX_DEPENDS: usize = 50;
 
 /// Campi di input di un task, normalizzati. `id` vuoto = da generare
 /// (`task_create`).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default)]
+#[ts(export)]
 pub struct TaskSpec {
     pub id: String,
     pub title: String,
@@ -28,7 +30,67 @@ pub struct TaskSpec {
     pub kind: TaskKind,
     /// Il task deve superare gli E2E del repository.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
+    // `default` e' sul contenitore: ts-rs non lo associa al campo, va dichiarato a mano.
+    #[ts(as = "Option<bool>", optional)]
     pub e2e: bool,
+}
+
+/// Argomento di `task_create` come lo invia l'interfaccia. Il comando riceve JSON
+/// e lo legge `parse_spec`: questo tipo ne descrive la forma per il frontend.
+/// L'id lo genera il backend dal titolo.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
+pub struct NewTaskSpec {
+    pub title: String,
+    pub task: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub depends_on: Option<Vec<String>>,
+    /// Repository; `null` o assente = la root.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub repo: Option<String>,
+    /// `null` o assente = modello dei worker del workspace.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub model: Option<String>,
+    /// Assente = `work`. Una `review` richiede almeno una dipendenza.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kind: Option<TaskKind>,
+    /// Assente = `false`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub e2e: Option<bool>,
+}
+
+/// Argomento di `task_update` come lo invia l'interfaccia (letto da `parse_spec`
+/// con la specifica attuale come base): i campi assenti non cambiano e `null`
+/// azzera `repo` e `model`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
+pub struct TaskPatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub task: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub depends_on: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub repo: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kind: Option<TaskKind>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub e2e: Option<bool>,
 }
 
 const SPEC_KEYS: [&str; 8] = ["id", "title", "task", "depends_on", "repo", "model", "kind", "e2e"];
@@ -280,4 +342,39 @@ pub fn id_from_title(title: &str, taken: &dyn Fn(&str) -> bool) -> String {
         }
     }
     (1u32..).map(|n| format!("task-{n}")).find(|id| !taken(id)).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// I tipi dei comandi `task_create` e `task_update` usano solo chiavi che `parse_spec` legge.
+    #[test]
+    fn command_arguments_are_read_by_parse_spec() {
+        let new = NewTaskSpec {
+            title: "T".into(),
+            task: "do it".into(),
+            depends_on: Some(vec!["a".into()]),
+            repo: Some("api".into()),
+            model: Some("opus".into()),
+            kind: Some(TaskKind::Review),
+            e2e: Some(true),
+        };
+        let spec = parse_spec(&serde_json::to_value(&new).unwrap(), None).unwrap();
+        assert_eq!((spec.title.as_str(), spec.kind, spec.e2e), ("T", TaskKind::Review, true));
+
+        let patch = TaskPatch {
+            title: Some("U".into()),
+            task: Some("again".into()),
+            depends_on: Some(vec![]),
+            repo: Some("web".into()),
+            model: Some("sonnet".into()),
+            kind: Some(TaskKind::Work),
+            e2e: Some(false),
+        };
+        let updated = parse_spec(&serde_json::to_value(&patch).unwrap(), Some(&spec)).unwrap();
+        assert_eq!((updated.title.as_str(), updated.repo.as_deref(), updated.kind), ("U", Some("web"), TaskKind::Work));
+        assert_eq!(serde_json::to_value(TaskPatch::default()).unwrap(), json!({}));
+    }
 }

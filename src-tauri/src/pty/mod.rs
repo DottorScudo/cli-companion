@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
+use ts_rs::TS;
 
 use crate::workspaces::WorkspaceStore;
 use io::{spawn_reader, spawn_writer};
@@ -25,8 +26,9 @@ use spawn::{check_start_dir, open_pty, pty_size, session_command, start_dir};
 /// Messaggi sul canale dedicato di una sessione: `{kind:"output",data}` o
 /// `{kind:"exit"}`. Un canale per terminale (invece di un evento globale)
 /// evita che ogni tab riceva e scarti l'output di tutti gli altri.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "lowercase")]
+#[ts(export)]
 pub enum PtyEvent {
     Output { data: String },
     Exit,

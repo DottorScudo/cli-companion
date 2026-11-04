@@ -6,6 +6,7 @@
 use super::{Task, TaskKind, INTERRUPTED_NOTE};
 use crate::validate::clip_chars;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 #[cfg(test)]
 mod tests;
@@ -69,8 +70,9 @@ const GATE_ERROR_MAX: usize = 300;
 /// Caratteri mostrati di un hash di commit.
 const SHORT_COMMIT: usize = 7;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum E2eStatus {
     Running,
     Passed,
@@ -92,7 +94,8 @@ impl E2eStatus {
 
 /// Codice su cui girano gli E2E: commit, albero e hash delle modifiche non
 /// committate dei file tracciati (`git status --porcelain --untracked-files=no`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct CodeFingerprint {
     pub commit: String,
     pub tree: String,
@@ -107,20 +110,24 @@ impl CodeFingerprint {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct E2eTotals {
     pub tests: u32,
     pub passed: u32,
     pub failed: u32,
     pub skipped: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub flaky: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct E2eFailure {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub file: Option<String>,
     pub message: String,
 }
@@ -150,27 +157,34 @@ impl E2eOutcome {
 
 /// Un'esecuzione degli E2E. Quella corrente o l'ultima di un task sta in
 /// `Task::e2e_run`; la copia nel report e' quella al momento della conclusione.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct E2eRun {
     pub run_id: String,
     pub status: E2eStatus,
     pub started_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub finished_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub duration_ms: Option<u64>,
     /// Percorso del report JUnit configurato, relativo alla cartella.
     pub junit: String,
     /// Impronta del codice presa all'inizio dell'esecuzione (assente se git ha fallito).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub code: Option<CodeFingerprint>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub totals: Option<E2eTotals>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub failed_tests: Vec<E2eFailure>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub output_tail: Option<String>,
 }
 

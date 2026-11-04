@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
+use ts_rs::TS;
 
 #[cfg(test)]
 mod tests;
@@ -45,7 +46,8 @@ pub trait IpcHandler: Send + Sync {
 }
 
 /// Stato del listener, per l'interfaccia e per le sessioni.
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Clone, Debug, PartialEq, TS)]
+#[ts(export)]
 pub struct IpcStatus {
     /// Porta in ascolto; `None` se il listener non e' partito.
     pub port: Option<u16>,

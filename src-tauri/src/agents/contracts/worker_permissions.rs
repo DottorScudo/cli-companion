@@ -7,6 +7,7 @@ use crate::platform::TargetKind;
 use crate::validate::ValidationError;
 use serde::Serialize;
 use std::path::Path;
+use ts_rs::TS;
 
 /// Forma delle liste di regole accettate dall'agente.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,7 +22,8 @@ pub struct RuleFormat {
 
 /// Testi per l'interfaccia (italiano), scritti dall'integrazione perche' la
 /// sintassi e le avvertenze sono sue.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
 pub struct PermissionsGuide {
     /// Come si scrivono le regole e cosa implicano.
     pub rules_help: &'static str,

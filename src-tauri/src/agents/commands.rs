@@ -14,6 +14,7 @@ use crate::launch_settings::LaunchSettingsStore;
 use crate::platform::{forward_slashes, is_valid_distro_name, Target, TargetKind};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
+use ts_rs::TS;
 
 /// Comando Tauri `builtin_launches`: economico, nessun processo.
 #[tauri::command]
@@ -21,7 +22,8 @@ pub fn builtin_launches() -> Vec<BuiltinLaunch> {
     builtin_launch_list()
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
 pub struct AgentEnvStatus {
     pub agent_id: String,
     pub agent_name: String,
@@ -67,7 +69,8 @@ pub async fn agent_env_status() -> Result<Vec<AgentEnvStatus>, String> {
     crate::blocking(|| Ok(collect_status(registry::all(), &list_targets()))).await
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
 pub struct AgentProfile {
     pub agent_id: String,
     pub agent_name: String,

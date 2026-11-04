@@ -36,6 +36,24 @@ e aprirci dentro terminali integrati a tab.
 Frontend e backend comunicano solo via comandi Tauri (`invoke`) per le azioni
 ed eventi Tauri (`emit`/`listen`) per lo stream di output dei terminali.
 
+### Tipi TypeScript generati (ts-rs)
+
+I tipi dei DTO che attraversano `invoke`/`emit` sono generati dal Rust con la crate `ts-rs` e
+committati in `src/bindings/` (un file per tipo, cartella piatta). Non si modificano a mano.
+
+- Rigenerare: `npm run bindings` (`scripts/generate-bindings.mjs`): svuota `src/bindings/` e
+  lancia `cargo test export_bindings`; ts-rs scrive un file per ogni tipo esportato. La cartella
+  e il tipo degli interi a 64 bit (`number`) sono in `src-tauri/.cargo/config.toml`.
+- Aggiungere un DTO: `use ts_rs::TS;` e sul tipo `#[derive(TS)]` + `#[ts(export)]` (accanto a
+  `Serialize`/`Deserialize`, con gli stessi attributi `serde`), poi `npm run bindings` e commit
+  dei file generati.
+- La CI (passo "Bindings TypeScript aggiornati") rigenera e fallisce se `git diff src/bindings`
+  non e' vuoto: DTO Rust e bindings devono andare nello stesso commit.
+- I file generati sono esclusi da Prettier (`.prettierignore`) e da ESLint, e hanno `eol=lf`
+  (`.gitattributes`).
+- I moduli di `src/lib` importano i bindings **solo** con `import type`: l'import sparisce alla
+  compilazione e i moduli restano importabili da `node --test` senza passare da un bundler.
+
 ## Backend (`src-tauri/src/`)
 
 ### `workspaces.rs` — store JSON + CRUD

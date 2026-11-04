@@ -10,13 +10,15 @@ use super::{
 use crate::workspaces::{Delivery, Workspace};
 use serde::Serialize;
 use serde_json::{json, Value};
+use ts_rs::TS;
 
 /// Lunghezza di `note` e `summary` nelle righe compatte di `list_tasks`.
 const COMPACT_NOTE_MAX: usize = 200;
 const COMPACT_SUMMARY_MAX: usize = 300;
 
 /// Task esposto: tutti i campi piu' cio' che la UI deriva dalla board.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
 pub struct TaskView {
     #[serde(flatten)]
     pub task: Task,
@@ -36,7 +38,8 @@ pub struct TaskView {
 }
 
 /// Intervallo ammesso per un valore numerico, estremi inclusi.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
 pub struct Bounds {
     pub min: u8,
     pub max: u8,
@@ -44,7 +47,8 @@ pub struct Bounds {
 
 /// Gli estremi dei valori che l'utente imposta sulla board: la UI li legge da
 /// qui invece di duplicarli.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
 pub struct BoardLimits {
     pub max_parallel: Bounds,
 }
@@ -54,7 +58,8 @@ impl BoardLimits {
         BoardLimits { max_parallel: Bounds { min: MIN_PARALLEL_LIMIT, max: MAX_PARALLEL_LIMIT } };
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
 pub struct BoardView {
     pub workspace_id: String,
     /// Revisione monotona (cresce a ogni modifica della vista): il frontend

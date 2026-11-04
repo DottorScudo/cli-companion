@@ -56,7 +56,8 @@ pub use review::{check_review_deps, check_verdict, reviewed_tasks, TaskKind, Ver
 pub use scheduler::{schedule, SchedCtx};
 pub use settings::{SettingsProposal, SettingsProposalView};
 pub use spec::{
-    id_from_title, parse_max_parallel, parse_proposal, parse_spec, repo_key, valid_id, validate_graph, TaskSpec,
+    id_from_title, parse_max_parallel, parse_proposal, parse_spec, repo_key, valid_id, validate_graph, NewTaskSpec,
+    TaskPatch, TaskSpec,
 };
 pub use state::{FailCause, Finished, Run, RunPhase, TaskState};
 pub use view::{BoardLimits, BoardView, Bounds, TaskView};

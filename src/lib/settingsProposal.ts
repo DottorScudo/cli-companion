@@ -6,7 +6,8 @@
 
 import { deliveryLabel, mergeMethodLabel } from "./board.ts";
 import type { RepoPatch, SettingsPatch, SettingsProposalView } from "./board.ts";
-import type { E2eConfig } from "./tauri.ts";
+import type { E2eConfig } from "../bindings/E2eConfig.ts";
+import type { LaunchPatch } from "../bindings/LaunchPatch.ts";
 import { SHELL_LAUNCH_ID } from "./launch.ts";
 import { WORKER_PERMISSIONS, workerPermissionLabel } from "./workerPermission.ts";
 import type { WorkerPermission } from "./workerPermission.ts";
@@ -174,9 +175,7 @@ interface Ctx {
 
 // ---------------------------------------------------------------- avvii
 
-type LaunchEntry = NonNullable<SettingsPatch["launches"]>[number];
-
-const launchLine = (l: LaunchEntry): string => `${l.name}: ${l.command}`;
+const launchLine = (l: LaunchPatch): string => `${l.name}: ${l.command}`;
 
 /**
  * Avvii proposti confrontati con gli attuali: per id se la voce lo ha, per
@@ -184,11 +183,11 @@ const launchLine = (l: LaunchEntry): string => `${l.name}: ${l.command}`;
  * (nuova); gli avvii attuali non più presenti sono tolti.
  */
 export function diffLaunches(
-  current: readonly LaunchEntry[] | undefined,
-  proposed: readonly LaunchEntry[],
+  current: readonly LaunchPatch[] | undefined,
+  proposed: readonly LaunchPatch[],
 ): { removed: string[]; added: string[] } {
   const before = current ?? [];
-  const matched = new Set<LaunchEntry>();
+  const matched = new Set<LaunchPatch>();
   const added: string[] = [];
   const removed: string[] = [];
   for (const next of proposed) {

@@ -42,9 +42,7 @@ function prLabel(url: string): string {
 
 function Body({ report, task }: { report: TaskReport; task: Task }) {
   const pr = prUrl(task);
-  const tests = report.tests ?? [];
-  const files = report.files_changed ?? [];
-  const followUps = report.follow_ups ?? [];
+  const { tests, files_changed: files, follow_ups: followUps } = report;
   const findings = reviewFindings(task);
   return (
     <>

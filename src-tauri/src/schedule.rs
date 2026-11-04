@@ -10,19 +10,22 @@
 use crate::store::{adopt_envelope, JsonFile};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use ts_rs::TS;
 
 pub const MAX_WINDOWS: usize = 12;
 pub const MINUTES_PER_DAY: u16 = 1440;
 
 /// Finestra `[start, end)` in ora locale, `HH:MM`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, rename = "ScheduleWindow")]
 pub struct Window {
     pub start: String,
     pub end: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default)]
+#[ts(export)]
 pub struct Schedule {
     pub enabled: bool,
     pub windows: Vec<Window>,
@@ -37,7 +40,8 @@ impl Default for Schedule {
 }
 
 /// Stato esposto al frontend (comandi e evento `schedule-state`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
 pub struct ScheduleState {
     pub schedule: Schedule,
     pub window_open: bool,

@@ -3,8 +3,9 @@
 // dipendenze, importabili sia dall'app sia dai test `node --test`
 // (type-stripping). Il backend (session.rs) conserva solo un blob opaco.
 
+import type { AgentProfile } from "../bindings/AgentProfile.ts";
+import type { ResumeFlag } from "../bindings/ResumeFlag.ts";
 import { isResumeCommand, profileForCommand } from "./agents.ts";
-import type { CommandProfileLike, SessionResumeLike } from "./agents.ts";
 import { sanitizeBotName } from "./bots.ts";
 
 export const SESSION_VERSION = 1;
@@ -211,10 +212,8 @@ export function parseSession(raw: string | null | undefined, workspaceIds: Itera
 // Comando di ripristino
 // ---------------------------------------------------------------------------
 
-/** Profilo di un agente come serve a `restoreCommand` (campi di `AgentProfile` in tauri.ts). */
-export interface RestoreProfileLike extends CommandProfileLike {
-  is_default: boolean;
-}
+/** Profilo di un agente come serve a `restoreCommand`. */
+export type RestoreProfileLike = Pick<AgentProfile, "agent_id" | "session_resume" | "is_default">;
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -223,7 +222,7 @@ const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&
  * `--flag=x` per quelli con valore), lasciando intatto il resto (spaziatura
  * e virgolette comprese).
  */
-function stripResumeFlags(command: string, flags: SessionResumeLike["strip_flags"]): string {
+function stripResumeFlags(command: string, flags: readonly ResumeFlag[]): string {
   let result = command;
   for (const flag of flags) {
     if (flag.names.length === 0) continue;

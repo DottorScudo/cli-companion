@@ -16,6 +16,7 @@ use crate::platform::Target;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
+use ts_rs::TS;
 
 /// File nella cartella del pacchetto generato con la versione installata.
 pub(super) const INSTALLED_MARKER: &str = ".installed-version";
@@ -96,7 +97,8 @@ pub(super) fn remove(ctx: &InstallCtx, agent_id: &str, target_key: &str) -> Resu
 }
 
 /// Pacchetto installato con una versione diversa da quella che l'app genererebbe ora.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
 pub struct OutdatedPlugin {
     pub agent_id: String,
     pub agent_name: String,
@@ -159,7 +161,8 @@ pub(super) fn find_outdated(
 }
 
 /// Esito dell'aggiornamento di un pacchetto.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
 pub struct PluginUpdateResult {
     pub agent_id: String,
     pub agent_name: String,

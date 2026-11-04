@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::io::{BufRead, BufReader, Read};
 use std::net::TcpStream;
 use std::time::Duration;
+use ts_rs::TS;
 
 /// Porta preferita del listener locale. Solo 127.0.0.1: nessun prompt del
 /// firewall. Se e' occupata il listener ne sceglie una libera e la comunica
@@ -45,7 +46,8 @@ const TAB_ID_MAX: usize = 64;
 /// Payload sul socket e verso il frontend (una riga JSON + `\n`). I nomi dei
 /// campi sono quelli del protocollo, condivisi con il frontend e con i client
 /// gia' installati: non vanno rinominati.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export)]
 pub struct NotifyPayload {
     pub event: String,
     pub agent: String,
@@ -57,27 +59,35 @@ pub struct NotifyPayload {
     /// `tab_id`. Serve solo al backend: prima di emettere verso il frontend va
     /// azzerato.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    // Il frontend riceve il payload gia' senza segreto: il tipo non lo dichiara.
+    #[ts(skip)]
     pub token: Option<String>,
     /// Solo `finished`: l'agente sta gia' proseguendo perche' uno stop e' stato
     /// bloccato.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub stop_hook_active: Option<bool>,
     /// Solo `finished`: lavoro in background ancora attivo. `None` = dato assente.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub background_work: Option<u32>,
     /// Solo `session-start`: come e' iniziata la sessione dell'agente
     /// (es. `startup`, `resume`, `clear`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub source: Option<String>,
     /// Solo `session-end`: perche' e' finita la sessione dell'agente.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub reason: Option<String>,
     /// Path del transcript della sessione, come lo vede l'agente (Windows o
     /// Linux/WSL): serve al frontend per leggere i consumi di token.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub transcript_path: Option<String>,
     /// Solo `permission-request`: tool che aspetta il permesso.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub tool_name: Option<String>,
 }
 

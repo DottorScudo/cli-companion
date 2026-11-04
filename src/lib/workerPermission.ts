@@ -1,8 +1,10 @@
 // Permessi dei worker automatici (per workspace). File a zero dipendenze:
-// importabile sia dall'app sia dai test `node --test`. Rispecchia
-// `PermissionMode` di src-tauri/src/agents/mod.rs.
+// importabile sia dall'app sia dai test `node --test`. Il tipo `PermissionMode`
+// e' generato dal Rust (src/bindings): qui prende il nome usato dall'interfaccia.
 
-export type WorkerPermission = "plan" | "default" | "accept-edits" | "bypass";
+import type { PermissionMode as WorkerPermission } from "../bindings/PermissionMode.ts";
+
+export type { WorkerPermission };
 
 /** Dal piu' restrittivo al piu' permissivo. */
 export const WORKER_PERMISSIONS: readonly WorkerPermission[] = ["plan", "default", "accept-edits", "bypass"];
