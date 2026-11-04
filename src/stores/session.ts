@@ -26,7 +26,7 @@ export function toSessionTab(tab: TabEntry, rt: TabRuntime | undefined, withTitl
     launchId: tab.launchId,
     command: tab.command,
     title: withTitle ? rt?.title : undefined,
-    agentId: rt?.agent?.agentId,
+    agentId: rt?.agent?.agentId ?? tab.agentId,
     agentSessionId: rt?.agent?.agentSessionId,
     botName: tab.bot,
   };
@@ -79,6 +79,21 @@ function restoredRuntime(t: SessionTab): Partial<TabRuntime> {
   return init;
 }
 
+export interface RestoredTabs {
+  tabs: TabEntry[];
+  runtime: Record<string, Partial<TabRuntime>>;
+  /** Agenti dei tab riaperti come shell perché la loro integrazione non è più abilitata. */
+  unavailableAgents: string[];
+}
+
+/**
+ * Il tab era di un agente che le integrazioni abilitate non conoscono più.
+ * Senza profili (non caricati) non si può dire: il tab si ripristina com'era.
+ */
+function hasUnavailableAgent(t: SessionTab, profiles: RestoreProfileLike[]): boolean {
+  return profiles.length > 0 && t.agentId !== undefined && !profiles.some((p) => p.agent_id === t.agentId);
+}
+
 /**
  * Tab (e stato volatile) da ripristinare. Stessi tabId di prima: così
  * combaciano lo scrollback salvato e `CLI_COMPANION_SESSION`. I nomi dei bot
@@ -92,26 +107,41 @@ export function restoredTabs(
   pool: readonly string[],
   profiles: RestoreProfileLike[],
   random?: () => number,
-): { tabs: TabEntry[]; runtime: Record<string, Partial<TabRuntime>> } {
+): RestoredTabs {
   const names = assignRestoredNames(
     [...present.map((t) => ({ tabId: t.key, botName: t.bot })), ...data.tabs],
     pool,
     random,
   );
   const runtime: Record<string, Partial<TabRuntime>> = {};
+  const unavailable = new Set<string>();
   const tabs = data.tabs.map((t): TabEntry => {
+    if (hasUnavailableAgent(t, profiles)) {
+      // Integrazione disabilitata: riparte come shell, senza riprendere la sessione dell'agente.
+      unavailable.add(t.agentId!);
+      runtime[t.tabId] = restoredRuntime({ ...t, agentId: undefined, agentSessionId: undefined });
+      return {
+        key: t.tabId,
+        workspaceId: t.workspaceId,
+        command: "",
+        startCommand: "",
+        bot: names.get(t.tabId)!,
+        restored: true,
+      };
+    }
     runtime[t.tabId] = restoredRuntime(t);
     return {
       key: t.tabId,
       workspaceId: t.workspaceId,
       launchId: t.launchId,
+      agentId: t.agentId,
       command: t.command,
       startCommand: restoreCommand(t, profiles),
       bot: names.get(t.tabId)!,
       restored: true,
     };
   });
-  return { tabs, runtime };
+  return { tabs, runtime, unavailableAgents: [...unavailable] };
 }
 
 /**

@@ -11,6 +11,8 @@ export interface TabEntry {
   workspaceId: string;
   /** Avvio da cui è stato aperto il tab (assente = shell semplice). */
   launchId?: string;
+  /** Agente dell'avvio integrato da cui è nato il tab (assente = shell o avvio personalizzato). */
+  agentId?: string;
   /** Comando dell'avvio ("" = nessuno): è quello che si salva nella sessione. */
   command: string;
   /**

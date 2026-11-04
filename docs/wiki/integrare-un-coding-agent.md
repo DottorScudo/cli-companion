@@ -320,8 +320,10 @@ nome file, frontmatter che l'agente richiede), mai il testo del preset, e deve
 poter invocare la skill dal primo prompt. Richiede quindi `package`.
 
 **Core con il contratto.** `launches.rs` aggiunge un avvio `builtin:preset:<id>`
-per ogni preset, usando l'agente predefinito se li dichiara, altrimenti il primo
-che può. Il comando di ripristino del tab è quello interattivo (riprende la
+per ogni preset, con l'agente che `resolve_agent` sceglie per il workspace
+(il suo, altrimenti il predefinito) se li dichiara, e un avvio
+`builtin:preset:<id>@<agent>` per ogni agente abilitato che li dichiara (sottomenu
+"Avvia con…"). Il comando di ripristino del tab è quello interattivo (riprende la
 conversazione invece di rieseguire la skill).
 
 **Core senza il contratto.** Nessun avvio di preset da quell'agente; se nessun

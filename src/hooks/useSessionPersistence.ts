@@ -3,7 +3,8 @@ import { api } from "../lib/tauri";
 import { appWindow } from "../lib/appWindow";
 import { report } from "../lib/errors";
 import { startSubscription } from "../lib/subscription";
-import { parseSession } from "../lib/session";
+import { noticeStore } from "../lib/notices";
+import { parseSession, unavailableAgentsNotice } from "../lib/session";
 import { flushBeforeExit } from "../app/lifecycle";
 import { sessionSaver, watchSessionChanges } from "../app/sessionSaver";
 import { configStore } from "../stores/config";
@@ -42,6 +43,13 @@ async function restoreSession(): Promise<void> {
   if (data) {
     const restored = restoredTabs(data, tabsStore.getState(), bots.names, configStore.getState().agentProfiles);
     for (const [key, init] of Object.entries(restored.runtime)) runtimeStore.seed(key, init);
+    if (restored.unavailableAgents.length > 0) {
+      noticeStore.push({
+        key: "session:unavailable-agents",
+        level: "warning",
+        text: unavailableAgentsNotice(restored.unavailableAgents),
+      });
+    }
     tabsStore.merge(restored.tabs);
     const restoredLayout = {
       groups: data.groups,

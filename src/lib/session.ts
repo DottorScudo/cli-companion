@@ -208,6 +208,11 @@ export function parseSession(raw: string | null | undefined, workspaceIds: Itera
   return { version: SESSION_VERSION, activeWorkspaceId: active, activeView, groups, global, tabs };
 }
 
+/** Avviso per i tab riaperti come shell perché la loro integrazione non è più abilitata. */
+export function unavailableAgentsNotice(agentIds: readonly string[]): string {
+  return `Integrazione disabilitata (${agentIds.join(", ")}): i suoi terminali sono stati riaperti come shell.`;
+}
+
 // ---------------------------------------------------------------------------
 // Comando di ripristino
 // ---------------------------------------------------------------------------

@@ -53,10 +53,17 @@ export function allLaunches<T extends Launch, B extends Launch>(ws: { launches?:
   return [...builtins, ...(ws.launches ?? [])];
 }
 
+/** Prefisso degli id degli avvii integrati. */
+const BUILTIN_LAUNCH_PREFIX = "builtin:";
+
+const isBuiltinLaunchId = (id: string): boolean => id.startsWith(BUILTIN_LAUNCH_PREFIX);
+
 /**
  * Avvio predefinito effettivo: `default_launch` del workspace se punta a un
  * avvio noto ("shell" = nessuno), altrimenti (assente o id sparito) quello
  * globale, che deve essere un integrato noto; altrimenti nessuno (shell vuota).
+ * Un integrato scelto dal workspace che non c'è più (integrazione disabilitata)
+ * non ripiega sul globale: l'utente l'aveva scelto apposta, parte la shell.
  */
 export function resolveDefaultLaunch<T extends Launch, B extends Launch>(
   ws: { launches?: T[] } & Pick<Workspace, "default_launch">,
@@ -68,9 +75,42 @@ export function resolveDefaultLaunch<T extends Launch, B extends Launch>(
   if (own) {
     const found = allLaunches(ws, builtins).find((l) => l.id === own);
     if (found) return found;
+    if (isBuiltinLaunchId(own)) return undefined;
   }
   if (globalDefault) return builtins.find((b) => b.id === globalDefault);
   return undefined;
+}
+
+/**
+ * Id salvato come predefinito che punta a un avvio integrato non più
+ * disponibile (integrazione disabilitata o sconosciuta); `null` se non c'è. Con
+ * l'elenco degli integrati ancora vuoto non si può dire: `null`.
+ */
+export function unavailableDefaultLaunch<T extends Launch, B extends Launch>(
+  ws: { launches?: T[] } & Pick<Workspace, "default_launch">,
+  builtins: B[],
+  globalDefault: string | null | undefined,
+): string | null {
+  if (builtins.length === 0) return null;
+  const own = ws.default_launch;
+  if (own === SHELL_LAUNCH_ID) return null;
+  if (own) {
+    if (allLaunches(ws, builtins).some((l) => l.id === own)) return null;
+    if (isBuiltinLaunchId(own)) return own;
+  }
+  return globalDefault && !builtins.some((b) => b.id === globalDefault) ? globalDefault : null;
+}
+
+/** Agenti propri dei workspace, senza doppioni e in ordine stabile. */
+export function workspaceAgents(list: readonly Pick<Workspace, "agent">[]): string[] {
+  return [...new Set(list.flatMap((w) => (w.agent ? [w.agent] : [])))].sort();
+}
+
+/** Agente di un avvio integrato; `undefined` per un avvio personalizzato. */
+export function launchAgentId(
+  launch: (Launch & Partial<Pick<BuiltinLaunch, "agent_id">>) | undefined,
+): string | undefined {
+  return launch?.agent_id;
 }
 
 /**

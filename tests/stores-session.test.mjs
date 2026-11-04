@@ -102,6 +102,13 @@ describe("buildSessionJson", () => {
     });
   });
 
+  it("toSessionTab: l'agente degli eventi vince, altrimenti quello con cui e' nato il tab", () => {
+    const born = tab("a", "w1", { agentId: "born" });
+    assert.equal(toSessionTab(born, undefined, true).agentId, "born");
+    assert.equal(toSessionTab(born, { agent: { phase: "idle", agentId: "event" } }, true).agentId, "event");
+    assert.equal(toSessionTab(born, { agent: { phase: "idle" } }, true).agentId, "born");
+  });
+
   it("il risultato si rilegge con parseSession", () => {
     const json = buildSessionJson(tabs, runtime, layout, true);
     const data = parseSession(json, ["w1", "w2"]);
@@ -194,6 +201,48 @@ describe("restoredTabs", () => {
       agent: { phase: "idle", agentSessionId: "s-1", agentId: "claude-code" },
     });
     assert.deepEqual(runtime.t2, {});
+  });
+
+  it("un tab di un'integrazione non piu' abilitata riparte come shell, senza riprendere la sessione", () => {
+    const data = dataOf([
+      savedTab("t1", {
+        command: "other --flag",
+        launchId: "builtin:other",
+        agentId: "other",
+        agentSessionId: "s-9",
+        title: "Lavoro",
+      }),
+      savedTab("t2", { command: "claude", agentId: "claude-code", agentSessionId: "s-1" }),
+      savedTab("t3", { command: "other", agentId: "other" }),
+      savedTab("t4", { command: "ls", launchId: "l1" }),
+    ]);
+    const { tabs, runtime, unavailableAgents } = restoredTabs(data, [], POOL, [CLAUDE], first);
+    assert.deepEqual(unavailableAgents, ["other"]);
+    for (const shell of [tabs[0], tabs[2]]) {
+      assert.equal(shell.command, "");
+      assert.equal(shell.startCommand, "");
+      assert.equal(shell.launchId, undefined);
+      assert.equal(shell.agentId, undefined);
+      assert.equal(shell.restored, true);
+    }
+    assert.deepEqual(runtime.t1, { title: "Lavoro" });
+    // Gli altri tab non cambiano.
+    assert.equal(tabs[1].startCommand, "claude --resume s-1");
+    assert.equal(tabs[1].agentId, "claude-code");
+    assert.deepEqual([tabs[3].command, tabs[3].launchId], ["ls", "l1"]);
+  });
+
+  it("senza profili (non caricati) i tab si ripristinano com'erano", () => {
+    const data = dataOf([savedTab("t1", { command: "other", agentId: "other" })]);
+    const { tabs, unavailableAgents } = restoredTabs(data, [], POOL, [], first);
+    assert.deepEqual(unavailableAgents, []);
+    assert.equal(tabs[0].command, "other");
+    assert.equal(tabs[0].agentId, "other");
+  });
+
+  it("nessun tab di integrazioni non abilitate: nessun avviso", () => {
+    const { unavailableAgents } = restoredTabs(dataOf([savedTab("t1")]), [], POOL, [CLAUDE], first);
+    assert.deepEqual(unavailableAgents, []);
   });
 
   it("nomi dei bot unici: il secondo con lo stesso nome e chi non ne ha ne ricevono uno nuovo", () => {

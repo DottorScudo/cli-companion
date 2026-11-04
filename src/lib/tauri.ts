@@ -117,7 +117,8 @@ export const api = {
   setDefaultLaunch: (workspaceId: string, launchId: string | null) =>
     invoke<Workspace>("set_default_launch", { workspaceId, launchId }),
 
-  builtinLaunches: () => invoke<BuiltinLaunch[]>("builtin_launches"),
+  /** Avvii integrati; `workspaceAgent` è l'agente proprio del workspace (`null` = nessuno). */
+  builtinLaunches: (workspaceAgent: string | null) => invoke<BuiltinLaunch[]>("builtin_launches", { workspaceAgent }),
 
   getLaunchSettings: () => invoke<LaunchSettings>("get_launch_settings"),
 

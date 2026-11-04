@@ -5,16 +5,19 @@ import { Input } from "../ui/input";
 import { api } from "../../lib/tauri";
 import type { Launch, Workspace } from "../../lib/tauri";
 import { useStore } from "../../hooks/useStore";
-import { configStore } from "../../stores/config";
+import { configStore, launchesFor } from "../../stores/config";
 import {
   LAUNCH_COMMAND_MAX,
   LAUNCH_NAME_MAX,
   SHELL_LAUNCH_ID,
   resolveDefaultLaunch,
   sanitizeLaunchCommand,
+  unavailableDefaultLaunch,
 } from "../../lib/launch";
+import { distinctLaunches, launchLabel } from "../../lib/launchMenu";
 import { cn } from "../../lib/utils";
 import { BuiltinBadge, Field, Section, SettingsPage, selectClass, useWorkspaceOp } from "./shared";
+import UnavailableLaunchNotice from "./UnavailableLaunchNotice";
 
 interface Props {
   workspace: Workspace;
@@ -22,7 +25,8 @@ interface Props {
 
 /** Workspace › Avvii: avvio predefinito, avvii integrati e personalizzati. */
 export default function WorkspaceLaunchesPage({ workspace }: Props) {
-  const builtins = useStore(configStore, (s) => s.builtinLaunches);
+  const all = useStore(configStore, (s) => launchesFor(s, workspace));
+  const builtins = distinctLaunches(all);
   const globalLaunch = useStore(configStore, (s) => s.globalLaunch);
   const { run, saving, error, setError } = useWorkspaceOp();
 
@@ -38,10 +42,11 @@ export default function WorkspaceLaunchesPage({ workspace }: Props) {
 
   const own = workspace.default_launch ?? null;
   // Il valore del select: un id stantio equivale a "eredita".
-  const known = [SHELL_LAUNCH_ID, ...builtins.map((b) => b.id), ...workspace.launches.map((l) => l.id)];
+  const known = [SHELL_LAUNCH_ID, ...all.map((b) => b.id), ...workspace.launches.map((l) => l.id)];
   const selectValue = own !== null && known.includes(own) ? own : "";
-  const inherited = builtins.find((b) => b.id === globalLaunch);
-  const effectiveId = resolveDefaultLaunch(workspace, builtins, globalLaunch)?.id;
+  const inherited = all.find((b) => b.id === globalLaunch);
+  const effectiveId = resolveDefaultLaunch(workspace, all, globalLaunch)?.id;
+  const unavailable = unavailableDefaultLaunch(workspace, all, globalLaunch);
 
   const setDefault = (launchId: string | null) => void run(() => api.setDefaultLaunch(workspace.id, launchId));
 
@@ -113,11 +118,13 @@ export default function WorkspaceLaunchesPage({ workspace }: Props) {
             onChange={(e) => setDefault(e.target.value === "" ? null : e.target.value)}
             className={selectClass}
           >
-            <option value="">Eredita dalle impostazioni generali ({inherited?.name ?? "Shell vuota"})</option>
+            <option value="">
+              Eredita dalle impostazioni generali ({inherited ? launchLabel(inherited) : "Shell vuota"})
+            </option>
             <option value={SHELL_LAUNCH_ID}>Shell vuota</option>
             {builtins.map((b) => (
               <option key={b.id} value={b.id}>
-                {b.name}
+                {launchLabel(b)}
               </option>
             ))}
             {workspace.launches.map((l) => (
@@ -127,6 +134,7 @@ export default function WorkspaceLaunchesPage({ workspace }: Props) {
             ))}
           </select>
         </Field>
+        <UnavailableLaunchNotice launchId={unavailable} />
       </Section>
 
       <Section>
@@ -136,7 +144,7 @@ export default function WorkspaceLaunchesPage({ workspace }: Props) {
             <div key={b.id} className="flex items-center gap-2 rounded-md border bg-background/40 p-2.5">
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-2 text-[13px] font-semibold">
-                  <span className="truncate">{b.name}</span>
+                  <span className="truncate">{launchLabel(b)}</span>
                   <BuiltinBadge />
                   {defaultTag(b.id)}
                 </p>

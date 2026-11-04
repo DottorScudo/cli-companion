@@ -112,9 +112,10 @@ pub async fn set_default_launch(
     launch_id: Option<String>,
 ) -> Result<Workspace, String> {
     crate::blocking(move || {
-        let builtin = crate::agents::builtin_launch_list();
         edit(&app, &workspace_id, |ws| {
             if let Some(id) = launch_id.as_deref() {
+                // I preset partono con l'agente del workspace: si valida con la sua lista.
+                let builtin = crate::agents::builtin_launch_list_for(ws.agent.as_deref());
                 check_default_launch(&ws.launches, id, &builtin)?;
             }
             ws.default_launch = launch_id;

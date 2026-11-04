@@ -7,6 +7,7 @@ import {
   parseSession,
   restoreCommand,
   serializeSession,
+  unavailableAgentsNotice,
 } from "../src/lib/session.ts";
 
 const tab = (tabId, workspaceId, extra = {}) => ({ tabId, workspaceId, command: "", ...extra });
@@ -357,5 +358,15 @@ describe("sessione: vista globale", () => {
       p.tabs.map((t) => t.botName),
       ["Bolt", "Pixel", "n".repeat(32), undefined, undefined, undefined],
     );
+  });
+});
+
+describe("unavailableAgentsNotice", () => {
+  it("nomina gli agenti delle integrazioni non piu' abilitate", () => {
+    assert.equal(
+      unavailableAgentsNotice(["alpha"]),
+      "Integrazione disabilitata (alpha): i suoi terminali sono stati riaperti come shell.",
+    );
+    assert.match(unavailableAgentsNotice(["alpha", "beta"]), /(alpha, beta)/);
   });
 });

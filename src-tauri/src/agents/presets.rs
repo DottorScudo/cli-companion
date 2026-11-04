@@ -19,14 +19,22 @@ impl Preset {
         self.skill.replace("\r\n", "\n")
     }
 
-    /// Id della voce rapida integrata.
+    /// Id della voce rapida integrata, che parte con l'agente del workspace.
     pub fn launch_id(&self) -> String {
         format!("{PRESET_LAUNCH_PREFIX}{}", self.id)
+    }
+
+    /// Id della voce rapida con un agente scelto: `<launch_id>@<agent_id>`.
+    pub fn agent_launch_id(&self, agent_id: &str) -> String {
+        format!("{}{PRESET_AGENT_SEPARATOR}{agent_id}", self.launch_id())
     }
 }
 
 /// Prefisso degli id delle voci rapide dei preset.
 pub const PRESET_LAUNCH_PREFIX: &str = "builtin:preset:";
+
+/// Separa il preset dall'agente nell'id di una voce con l'agente scelto.
+pub const PRESET_AGENT_SEPARATOR: char = '@';
 
 /// Vecchia voce rapida dell'orchestratore (v0.11), sostituita dal preset Task Intake.
 pub const LEGACY_ORCHESTRATOR_LAUNCH: &str = "builtin:orchestrator";
@@ -218,6 +226,12 @@ mod tests {
         ] {
             assert!(skill.contains(t), "{t}");
         }
+    }
+
+    #[test]
+    fn the_launch_id_with_a_chosen_agent_extends_the_plain_one() {
+        let p = PRESETS.iter().find(|p| p.id == "task-intake").unwrap();
+        assert_eq!(p.agent_launch_id("some-agent"), "builtin:preset:task-intake@some-agent");
     }
 
     #[test]

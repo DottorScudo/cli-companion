@@ -6,16 +6,20 @@ import { api } from "../../lib/tauri";
 import type { BuiltinLaunch, Launch, Workspace } from "../../lib/tauri";
 import { report } from "../../lib/errors";
 import { INTAKE_LAUNCH_ID } from "../../lib/automation";
-import { launchCommands, resolveDefaultLaunch } from "../../lib/launch";
+import { launchAgentId, launchCommands, resolveDefaultLaunch, unavailableDefaultLaunch } from "../../lib/launch";
+import { launchBlockReason } from "../../lib/launchMenu";
+import { noticeStore } from "../../lib/notices";
+import { workspaceEnvKey } from "../../lib/usage";
 import { closeTabIn, openTab } from "../../lib/layout";
-import { configStore } from "../../stores/config";
+import { configStore, launchesFor } from "../../stores/config";
 import { layoutStore } from "../../stores/layout";
 import { paneDragStore } from "../../stores/paneDrag";
 import { runtimeStore } from "../../stores/tabRuntime";
 import { tabsStore } from "../../stores/tabs";
 import { workspacesStore } from "../../stores/workspaces";
 import { isClosing } from "../lifecycle";
-import { showNotice, showTerminalsOf } from "./view";
+import { openIntegrationSettings } from "./settings";
+import { showTerminalsOf } from "./view";
 
 export function newTabKey(): string {
   try {
@@ -25,21 +29,54 @@ export function newTabKey(): string {
   }
 }
 
+/** Avviso (non un errore) mostrato sopra anche alle Impostazioni. */
+function warn(key: string, text: string): void {
+  noticeStore.push({ key, level: "warning", text });
+}
+
 /**
  * Senza `launch` parte l'avvio predefinito del workspace, se esiste;
- * altrimenti una shell semplice. Il nuovo terminale attiva il suo gruppo.
+ * altrimenti una shell semplice, con un avviso se il predefinito salvato punta a
+ * un'integrazione non più disponibile. Il nuovo terminale attiva il suo gruppo.
  */
 export function spawnTab(ws: Workspace, launch?: Launch | BuiltinLaunch): void {
-  const { builtinLaunches, globalLaunch, botSettings } = configStore.getState();
-  const chosen = launch ?? resolveDefaultLaunch(ws, builtinLaunches, globalLaunch);
+  const config = configStore.getState();
+  const builtins = launchesFor(config, ws);
+  const { globalLaunch, botSettings } = config;
+  const chosen = launch ?? resolveDefaultLaunch(ws, builtins, globalLaunch);
+  if (!launch && unavailableDefaultLaunch(ws, builtins, globalLaunch) !== null) {
+    warn(
+      "launch:default-unavailable",
+      "L'avvio predefinito non è più disponibile (integrazione disabilitata): apro una shell vuota.",
+    );
+  }
   const key = newTabKey();
   // Per gli integrati si salva il comando di ripristino, si esegue quello di avvio.
   const { command, startCommand } = launchCommands(chosen);
   showTerminalsOf(ws.id);
   runtimeStore.seed(key);
   // Apertura sincrona: due tab aperti di seguito non prendono lo stesso nome.
-  tabsStore.open({ key, workspaceId: ws.id, launchId: chosen?.id, command, startCommand }, botSettings.names);
+  tabsStore.open(
+    { key, workspaceId: ws.id, launchId: chosen?.id, agentId: launchAgentId(chosen), command, startCommand },
+    botSettings.names,
+  );
   layoutStore.apply((l) => openTab(l, ws.id, key));
+}
+
+/**
+ * Avvio scelto da un menu: se l'integrazione non è pronta nell'ambiente del
+ * workspace non parte nulla e si va alle Integrazioni, con il motivo.
+ */
+export function spawnFromMenu(ws: Workspace, launch: Launch | BuiltinLaunch): void {
+  const reason =
+    "agent_id" in launch ? launchBlockReason(launch, configStore.getState().integrations, workspaceEnvKey(ws)) : null;
+  if (reason === null) {
+    spawnTab(ws, launch);
+    return;
+  }
+  warn("launch:not-ready", reason);
+  // A menu chiuso, così i due layer Radix non si sovrappongono.
+  setTimeout(openIntegrationSettings, 0);
 }
 
 /**
@@ -50,12 +87,15 @@ export function spawnTab(ws: Workspace, launch?: Launch | BuiltinLaunch): void {
 export function openIntake(workspaceId: string): void {
   const ws = workspacesStore.get(workspaceId);
   if (!ws) return;
-  const launch = configStore.getState().builtinLaunches.find((b) => b.id === INTAKE_LAUNCH_ID);
+  const launch = launchesFor(configStore.getState(), ws).find((b) => b.id === INTAKE_LAUNCH_ID);
   if (!launch) {
-    showNotice("Task Intake non è disponibile: aggiorna il plugin dei coding agent");
+    warn(
+      "launch:intake-unavailable",
+      "Task Intake non è disponibile: l'agente del workspace non lo supporta o è disabilitato.",
+    );
     return;
   }
-  spawnTab(ws, launch);
+  spawnFromMenu(ws, launch);
 }
 
 // Un tab automatico chiuso va comunicato al backend una volta sola, da

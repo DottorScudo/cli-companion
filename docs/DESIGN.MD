@@ -303,8 +303,11 @@ riportato senza far perdere gli altri).
     `shell`: override opzionale. `target()` (in `target.rs`) lo traduce in un `platform::Target`.
   - `launches`: `Launch { id, name, command }` (id `ln-<millis>-<n>`), rimossi insieme al workspace.
   - `default_launch`: assente = eredita il predefinito globale (`launch_settings.json`, solo integrati); `"shell"` =
-    shell vuota; altrimenti l'id di un avvio del workspace o di un integrato (`builtin:<agent_id>`,
-    `builtin:preset:<id>` per ogni preset, da `agents::builtin_launches`).
+    shell vuota; altrimenti l'id di un avvio del workspace o di un integrato (`builtin:<agent_id>` per ogni
+    integrazione abilitata; `builtin:preset:<id>` per ogni preset, che parte con l'agente del workspace
+    (`resolve_agent(None, ws.agent)`); `builtin:preset:<id>@<agent_id>` con l'agente scelto; da
+    `agents::builtin_launches(workspace_agent)`). Un id salvato che punta a un'integrazione disabilitata non si
+    cancella: l'avvio ripiega sulla shell con un avviso.
   - `worker_permission`: tetto dei permessi dei worker, `"plan" | "default" | "accept-edits" | "bypass"`
     (vocabolario di `agents::PermissionMode`); assente o sconosciuto → `"accept-edits"`, così i vecchi file non
     diventano più permissivi.
@@ -495,7 +498,8 @@ le servono.
   in cui si sceglie l'agente di un uso, `readiness.rs` quanto è pronta una coppia agente × target); finché non sceglie
   vale solo la prima voce. `detection.rs` rileva i target (Windows + ogni distro,
   escluse `docker-desktop*`); `package.rs` è il ciclo di vita dei pacchetti (lock per agente × target); `launches.rs`
-  produce gli avvii integrati (`builtin:<agent_id>`, `builtin:preset:<id>`); `presets.rs` + `presets/*.md` i preset;
+  produce gli avvii integrati delle sole integrazioni abilitate (`builtin:<agent_id>`, `builtin:preset:<id>`,
+  `builtin:preset:<id>@<agent_id>`); `presets.rs` + `presets/*.md` i preset;
   `worker_rules.rs` la validazione delle regole di permesso dei worker tramite il contratto.
 - `commands.rs`: comandi Tauri generici, che non nominano nessun agente: `agent_env_status` (sonda in parallelo ogni
   coppia agente × target), `agent_profiles`, `agent_usage_limits`, `agent_session_usage`, `install_agent_plugin(agent_id,

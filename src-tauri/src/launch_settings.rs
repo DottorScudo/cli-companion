@@ -149,6 +149,8 @@ mod tests {
         assert!(validate(&None, &builtin).is_ok());
         assert!(validate(&Some("builtin:claude-code".into()), &builtin).is_ok());
         assert!(validate(&Some("builtin:preset:task-intake".into()), &builtin).is_ok());
+        assert!(validate(&Some("builtin:preset:task-intake@claude-code".into()), &builtin).is_ok());
+        assert!(validate(&Some("builtin:preset:task-intake@gone".into()), &builtin).is_err());
         assert!(validate(&Some("builtin:orchestrator".into()), &builtin).is_err());
         assert!(validate(&Some("shell".into()), &builtin).is_err());
         assert!(validate(&Some("ln-1-1".into()), &builtin).is_err());

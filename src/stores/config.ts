@@ -12,7 +12,10 @@ export interface ConfigState {
   agentProfiles: AgentProfile[];
   /** Profili caricati (o errore già segnalato): il ripristino della sessione li aspetta. */
   profilesReady: boolean;
+  /** Avvii integrati con i preset sull'agente predefinito (workspace senza un agente proprio). */
   builtinLaunches: BuiltinLaunch[];
+  /** Avvii integrati per i workspace con un agente proprio, per id dell'agente. */
+  agentLaunches: Record<string, BuiltinLaunch[]>;
   globalLaunch: string | null;
   /** Interruttore globale dell'utilizzo (limiti e token). */
   showUsage: boolean;
@@ -29,6 +32,7 @@ export const INITIAL_CONFIG: ConfigState = {
   agentProfiles: [],
   profilesReady: false,
   builtinLaunches: [],
+  agentLaunches: {},
   globalLaunch: null,
   showUsage: true,
   botSettings: DEFAULT_BOT_SETTINGS,
@@ -77,6 +81,14 @@ export function botImageResolver(bots: BotSettings): BotImageResolver {
 /** Il bot si mostra solo con la funzione attiva. */
 export function shownBot(bots: BotSettings, name: string): string | undefined {
   return bots.enabled ? name : undefined;
+}
+
+/** Avvii integrati di un workspace: i preset partono con il suo agente, se ne ha uno. */
+export function launchesFor(
+  s: Pick<ConfigState, "builtinLaunches" | "agentLaunches">,
+  ws: { agent?: string | null },
+): BuiltinLaunch[] {
+  return (ws.agent ? s.agentLaunches[ws.agent] : undefined) ?? s.builtinLaunches;
 }
 
 type WithIntegrations = Pick<ConfigState, "integrations">;

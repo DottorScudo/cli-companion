@@ -7,7 +7,7 @@ import { workspacesStore } from "../stores/workspaces";
 
 /**
  * Dati letti una volta all'avvio e scritti negli archivi: workspace, profili
- * degli agenti, avvii integrati, impostazioni degli avvii e versione dell'app.
+ * degli agenti, impostazioni degli avvii e versione dell'app.
  */
 export function useInitialData(): void {
   useEffect(() => {
@@ -26,13 +26,9 @@ export function useInitialData(): void {
       .catch((e) => workspacesStore.failed(String(e)));
   }, []);
 
-  // Avvii integrati e avvio predefinito globale: una volta. Senza di loro l'app
-  // userebbe i valori di default: l'utente va avvisato.
+  // Avvio predefinito globale: una volta (gli avvii integrati li legge `useLaunchesSync`).
+  // Senza di lui l'app userebbe i valori di default: l'utente va avvisato.
   useEffect(() => {
-    api
-      .builtinLaunches()
-      .then((builtinLaunches) => configStore.patch({ builtinLaunches }))
-      .catch((e) => report("caricamento degli avvii integrati", e, { notify: true }));
     api
       .getLaunchSettings()
       .then((s) => configStore.patch({ globalLaunch: s.default_launch, showUsage: s.show_usage }))

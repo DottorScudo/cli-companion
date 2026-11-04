@@ -9,6 +9,7 @@ import { useBoardsSync, useTaskNotify } from "./hooks/useBoards";
 import { useFrontendReady } from "./hooks/useFrontendReady";
 import { useInitialData } from "./hooks/useInitialData";
 import { useIntegrationsSync } from "./hooks/useIntegrations";
+import { useLaunchesSync } from "./hooks/useLaunchesSync";
 import { useSessionPersistence } from "./hooks/useSessionPersistence";
 import { useShortcuts } from "./hooks/useShortcuts";
 import { useStoreWarnings } from "./hooks/useStoreWarnings";
@@ -22,6 +23,7 @@ import { useUsagePolling } from "./hooks/useUsage";
 export default function App() {
   useInitialData();
   useIntegrationsSync();
+  useLaunchesSync();
   useStoreWarnings();
   useBoardsSync();
   useTaskNotify();

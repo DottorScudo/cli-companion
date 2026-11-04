@@ -9,6 +9,7 @@ import {
 } from "../ui/dropdown-menu";
 import type { BuiltinLaunch, Launch, Workspace } from "../../lib/tauri";
 import { spawnTab } from "../../app/actions/tabs";
+import { launchLabel } from "../../lib/launchMenu";
 import LaunchItems from "./LaunchItems";
 import { manageLaunches } from "./actions";
 import { MENU_CONTENT, MENU_ITEM } from "./styles";
@@ -25,14 +26,16 @@ function SpawnSplitButton({ ws, def }: Props) {
     <div className="mx-1.5 mt-1.5 flex gap-1">
       <button
         type="button"
-        title={def ? `Esegue: ${def.name}` : "Apre una shell vuota"}
+        title={def ? `Esegue: ${launchLabel(def)}` : "Apre una shell vuota"}
         onClick={() => spawnTab(ws)}
         className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-dashed border-border-strong px-2.5 py-1.5 text-muted-foreground transition-colors hover:border-muted-foreground hover:text-foreground"
       >
         <Plus className="h-3 w-3 flex-shrink-0" />
         <span className="text-xs">Terminale</span>
         {def && (
-          <span className="ml-auto min-w-0 truncate font-mono text-[11px] text-muted-foreground">{def.name}</span>
+          <span className="ml-auto min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+            {launchLabel(def)}
+          </span>
         )}
       </button>
       <DropdownMenu modal={false}>

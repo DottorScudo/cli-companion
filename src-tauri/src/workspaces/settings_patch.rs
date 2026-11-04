@@ -139,7 +139,10 @@ impl SettingsPatch {
                 .collect(),
             None => ws.launches.clone(),
         };
-        check_default_launch(&after, id, &crate::agents::builtin_launch_list())?;
+        // L'agente del workspace dopo la patch decide con chi partono i preset.
+        let agent = self.agent.as_ref().map_or(ws.agent.as_deref(), |a| a.as_deref());
+        let agent = agent.map(str::trim).filter(|a| !a.is_empty());
+        check_default_launch(&after, id, &crate::agents::builtin_launch_list_for(agent))?;
         Ok(Some(Some(id.to_string())))
     }
 

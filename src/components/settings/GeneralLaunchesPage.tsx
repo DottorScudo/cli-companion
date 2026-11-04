@@ -1,14 +1,19 @@
 import { useState } from "react";
 import { api } from "../../lib/tauri";
 import { setGlobalLaunch } from "../../app/actions/settings";
+import { unavailableDefaultLaunch } from "../../lib/launch";
+import { distinctLaunches, launchLabel } from "../../lib/launchMenu";
 import { useStore } from "../../hooks/useStore";
 import { configStore } from "../../stores/config";
 import { BuiltinBadge, Field, Section, SettingsPage, selectClass } from "./shared";
+import UnavailableLaunchNotice from "./UnavailableLaunchNotice";
 
 /** Generale › Avvii: avvio predefinito globale e avvii integrati. */
 export default function GeneralLaunchesPage() {
-  const builtins = useStore(configStore, (s) => s.builtinLaunches);
+  const all = useStore(configStore, (s) => s.builtinLaunches);
+  const builtins = distinctLaunches(all);
   const globalLaunch = useStore(configStore, (s) => s.globalLaunch);
+  const unavailable = unavailableDefaultLaunch({}, all, globalLaunch);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,7 +38,7 @@ export default function GeneralLaunchesPage() {
           help="Ogni workspace può sostituirlo con un proprio avvio predefinito."
         >
           <select
-            value={builtins.some((b) => b.id === globalLaunch) ? (globalLaunch ?? "") : ""}
+            value={all.some((b) => b.id === globalLaunch) ? (globalLaunch ?? "") : ""}
             disabled={saving}
             onChange={(e) => void change(e.target.value)}
             className={selectClass}
@@ -41,11 +46,12 @@ export default function GeneralLaunchesPage() {
             <option value="">Shell vuota</option>
             {builtins.map((b) => (
               <option key={b.id} value={b.id}>
-                {b.name}
+                {launchLabel(b)}
               </option>
             ))}
           </select>
         </Field>
+        <UnavailableLaunchNotice launchId={unavailable} />
         {error && <p className="text-[11px] text-destructive">{error}</p>}
       </Section>
 
@@ -60,7 +66,7 @@ export default function GeneralLaunchesPage() {
         {builtins.map((b) => (
           <div key={b.id} className="min-w-0 rounded-md border bg-background/40 p-2.5">
             <p className="flex items-center gap-2 text-[13px] font-semibold">
-              <span className="truncate">{b.name}</span>
+              <span className="truncate">{launchLabel(b)}</span>
               <BuiltinBadge />
             </p>
             <code className="block truncate font-mono text-[11px] text-muted-foreground" title={b.command}>

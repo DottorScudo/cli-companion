@@ -3,6 +3,7 @@ import { Plus } from "lucide-react";
 import StatusIcon from "../StatusIcon";
 import { GROUP_STATUS } from "../../lib/agents";
 import { groupIndicator } from "../../lib/layout";
+import { launchLabel } from "../../lib/launchMenu";
 import type { BuiltinLaunch, Launch, Workspace } from "../../lib/tauri";
 import { spawnTab } from "../../app/actions/tabs";
 import type { SidebarTerminal } from "../../stores/selectors";
@@ -47,7 +48,7 @@ function CollapsedInfo({ ws, terminals, counts, def }: Props) {
         <button
           type="button"
           className={ICON_BTN}
-          title={def ? `Nuovo terminale: ${def.name}` : "Nuovo terminale"}
+          title={def ? `Nuovo terminale: ${launchLabel(def)}` : "Nuovo terminale"}
           aria-label="Nuovo terminale"
           onClick={() => spawnTab(ws)}
         >
