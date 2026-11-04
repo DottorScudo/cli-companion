@@ -6,7 +6,6 @@
 //! senza id. Se un `session-end` lo chiude
 //! lo stesso mentre il tab e' aperto, il suo `complete_task` riapre il task.
 
-use super::boards::NOTE_MAX;
 use super::*;
 
 /// Nota del task fallito perche' la sessione dell'agente e' finita.
@@ -81,17 +80,8 @@ impl Registry {
             .boards
             .get_mut(&ws)
             .and_then(|b| b.task_mut(&tid))
-            .filter(|t| t.status == TaskStatus::Running && t.session.as_deref() == Some(session))
-            .filter(|t| !t.note.as_deref().is_some_and(|n| n.contains(&line)))
-            .map(|t| {
-                let note = match t.note.take() {
-                    Some(n) => format!("{n}; {line}"),
-                    None => line,
-                };
-                t.note = Some(clip_chars(&note, NOTE_MAX));
-                t.updated_at = now;
-            })
-            .is_some();
+            .filter(|t| t.is_live_for(session))
+            .is_some_and(|t| t.append_note(&line, now));
         if changed {
             self.mark_dirty(&ws);
         }
@@ -102,19 +92,17 @@ impl Registry {
     /// (stesso tentativo, nessun retry nel frattempo) e il worker torna
     /// `running`. Altrimenti non fa nulla.
     pub(super) fn reopen_after_session_end(&mut self, session: &str, now: i64) {
-        let Some(w) = self.workers.get(session).filter(|w| w.tab_open && w.status == WorkerStatus::Closed) else {
+        let Some(w) = self.workers.get(session).filter(|w| w.tab_open && w.ended == Some(WorkerEnd::Closed)) else {
             return;
         };
         let (ws, tid, attempt) = (w.workspace_id.clone(), w.task_id.clone(), w.attempt);
-        let reopened = self
-            .boards
-            .get_mut(&ws)
-            .is_some_and(|b| b.reopen_failed(&tid, session, attempt, SESSION_END_NOTE, REOPENED_NOTE, now));
+        let reopened =
+            self.boards.get_mut(&ws).is_some_and(|b| b.reopen_failed(&tid, session, attempt, REOPENED_NOTE, now));
         if !reopened {
             return;
         }
         if let Some(w) = self.workers.get_mut(session) {
-            w.status = WorkerStatus::Running;
+            w.ended = None;
         }
         self.mark_dirty(&ws);
     }

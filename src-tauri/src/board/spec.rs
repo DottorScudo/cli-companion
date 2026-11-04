@@ -2,8 +2,8 @@
 //! update_task), id, branch, repository, grafo delle dipendenze, id generati
 //! dal titolo. Funzioni pure, nessun I/O.
 
-use super::{Task, TaskKind};
-use crate::automation::{clip_chars, req_text, TASK_MAX, TITLE_MAX};
+use super::{Task, TaskKind, TASK_MAX, TITLE_MAX};
+use crate::validate::{clip_chars, req_text};
 use crate::validate::{normalize_repo, valid_model};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

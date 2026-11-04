@@ -413,7 +413,7 @@ Notifiche di sistema: evento `task-notify` `{workspace_id, task_id, tab_id?, kin
 "attention"|"failed", title, body}` (testo in italiano); il frontend mostra la notifica.
 
 Tutto cio' che legge il modello e' in inglese (`BOOTSTRAP_PROMPT`, `STOP_BLOCK_REASON`,
-istruzioni, ambiente e passi di consegna in `board/texts.rs`, `automation/worker_guardrails.md`,
+istruzioni, ambiente e passi di consegna in `board/texts.rs`, `board/prompts/worker_guardrails.md`,
 descrizioni dei tool MCP, errori delle RPC). UI e commenti restano in italiano.
 
 ```text

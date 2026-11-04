@@ -1,7 +1,7 @@
 //! Report di `complete_task`: campi strutturati opzionali e loro validazione.
 
 use super::{E2eRun, Verdict};
-use crate::automation::{clip_chars, req_text};
+use crate::validate::{clip_chars, req_text};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 

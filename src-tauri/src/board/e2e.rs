@@ -4,7 +4,7 @@
 //! `docs/BOARD.MD`, "Test E2E".
 
 use super::{Task, TaskKind, INTERRUPTED_NOTE};
-use crate::automation::clip_chars;
+use crate::validate::clip_chars;
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]

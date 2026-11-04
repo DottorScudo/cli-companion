@@ -4,8 +4,10 @@
 //! senza dipendere l'uno dall'altro.
 
 mod error;
+mod text;
 
 pub use error::{ErrorCode, RuleList, ValidationError};
+pub use text::{clip_chars, req_text};
 
 /// Lunghezza massima del percorso di un repository (in caratteri).
 pub const REPO_MAX: usize = 256;

@@ -1,0 +1,204 @@
+{
+  "workspace_id": "ws-1",
+  "max_parallel": 3,
+  "paused": false,
+  "updated_at": 1793784893966,
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Sample task task-1",
+      "task": "Sample specification of task-1.",
+      "depends_on": [],
+      "repo": null,
+      "agent": "claude-code",
+      "model": "opus",
+      "kind": "work",
+      "status": "running",
+      "worker_status": "running",
+      "session": "auto-1793784880661-13",
+      "attempts": 1,
+      "worktree": {
+        "path": "C:p.worktrees\\task-1",
+        "branch": "task/task-1",
+        "base": "main",
+        "setup_done": true
+      },
+      "last_report": null,
+      "note": null,
+      "report": null,
+      "created_at": 1793743267309,
+      "updated_at": 1793784893966,
+      "started_at": 1793784862400,
+      "finished_at": null
+    },
+    {
+      "id": "task-2",
+      "title": "Sample task task-2",
+      "task": "Sample specification of task-2.",
+      "depends_on": [
+        "task-1"
+      ],
+      "repo": null,
+      "agent": "claude-code",
+      "model": "opus",
+      "kind": "work",
+      "status": "queued",
+      "worker_status": null,
+      "session": null,
+      "attempts": 0,
+      "worktree": null,
+      "last_report": null,
+      "note": null,
+      "report": null,
+      "created_at": 1793743267309,
+      "updated_at": 1793743267309,
+      "started_at": null,
+      "finished_at": null
+    },
+    {
+      "id": "task-3",
+      "title": "Sample task task-3",
+      "task": "Sample specification of task-3.",
+      "depends_on": [
+        "task-1"
+      ],
+      "repo": null,
+      "agent": "claude-code",
+      "model": "sonnet",
+      "kind": "work",
+      "status": "queued",
+      "worker_status": null,
+      "session": null,
+      "attempts": 0,
+      "worktree": null,
+      "last_report": null,
+      "note": null,
+      "report": null,
+      "created_at": 1793743267309,
+      "updated_at": 1793743267309,
+      "started_at": null,
+      "finished_at": null
+    },
+    {
+      "id": "task-4",
+      "title": "Sample task task-4",
+      "task": "Sample specification of task-4.",
+      "depends_on": [],
+      "repo": null,
+      "agent": "claude-code",
+      "model": "opus",
+      "kind": "work",
+      "status": "done",
+      "worker_status": null,
+      "session": null,
+      "attempts": 2,
+      "worktree": {
+        "path": "C:p.worktrees\\task-4",
+        "branch": "task/task-4",
+        "base": "master",
+        "setup_done": true
+      },
+      "last_report": "Last report of task-4",
+      "note": "Note of task-4",
+      "report": {
+        "status": "completed",
+        "summary": "Summary of task-4",
+        "commit": "abc1234",
+        "files_changed": [
+          "src/a.rs"
+        ],
+        "tests": [
+          {
+            "command": "cargo test",
+            "result": "passed"
+          }
+        ],
+        "follow_ups": [
+          "follow up"
+        ],
+        "diffstat": " src/a.rs | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)"
+      },
+      "created_at": 1792398777074,
+      "updated_at": 1792404253083,
+      "started_at": 1792402017336,
+      "finished_at": 1792404253083
+    },
+    {
+      "id": "task-5",
+      "title": "Sample task task-5",
+      "task": "Sample specification of task-5.",
+      "depends_on": [],
+      "repo": null,
+      "agent": "claude-code",
+      "model": "opus",
+      "kind": "work",
+      "status": "done",
+      "worker_status": null,
+      "session": null,
+      "attempts": 1,
+      "worktree": null,
+      "last_report": "Last report of task-5",
+      "note": "Note of task-5",
+      "report": {
+        "status": "completed",
+        "summary": "Summary of task-5",
+        "commit": "abc1234",
+        "files_changed": [
+          "src/a.rs"
+        ],
+        "tests": [
+          {
+            "command": "cargo test",
+            "result": "passed"
+          }
+        ],
+        "follow_ups": [
+          "follow up"
+        ]
+      },
+      "created_at": 1792399791961,
+      "updated_at": 1792618718468,
+      "started_at": 1792616656908,
+      "finished_at": 1792618718468
+    },
+    {
+      "id": "task-6",
+      "title": "Sample task task-6",
+      "task": "Sample specification of task-6.",
+      "depends_on": [],
+      "repo": null,
+      "agent": "claude-code",
+      "model": "opus",
+      "kind": "work",
+      "status": "failed",
+      "worker_status": null,
+      "session": null,
+      "attempts": 1,
+      "worktree": null,
+      "last_report": "Last report of task-6",
+      "note": null,
+      "report": {
+        "status": "failed",
+        "summary": "Summary of task-6",
+        "files_changed": [
+          "src/a.rs"
+        ],
+        "tests": [
+          {
+            "command": "cargo test",
+            "result": "passed"
+          }
+        ],
+        "follow_ups": [
+          "follow up"
+        ]
+      },
+      "created_at": 1793554853645,
+      "updated_at": 1793561417659,
+      "started_at": 1793559072335,
+      "finished_at": 1793561417659
+    }
+  ],
+  "proposals": [],
+  "settings_proposals": []
+}

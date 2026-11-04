@@ -10,6 +10,7 @@ use crate::schedule::{Schedule, ScheduleState};
 use crate::workspaces::{DeliveryMode, MergeMethod, RepoConfig, SettingsPatch};
 use serde_json::json;
 
+mod archive;
 mod board_flow;
 mod e2e;
 mod e2e_cancel;
@@ -21,6 +22,7 @@ mod session_end;
 mod settings;
 mod skills;
 mod worker;
+mod worker_state;
 
 /// Tab dell'Intake (una sessione normale del workspace "ws-1").
 const INTAKE: &str = "tab-intake";
@@ -54,6 +56,9 @@ struct FakeHost {
     saved: Arc<Mutex<HashMap<String, Board>>>,
     board_events: Arc<Mutex<Vec<BoardView>>>,
     deleted: Arc<Mutex<Vec<String>>>,
+    /// Task archiviati (workspace, task) e l'errore forzato di `archive_tasks`.
+    archive_log: Arc<Mutex<Vec<(String, Task)>>>,
+    archive_err: Arc<Mutex<Option<String>>>,
     excludes: Arc<Mutex<Vec<String>>>,
     notices: Arc<Mutex<Vec<Notice>>>,
     /// Minuti locali "correnti" dell'host finto.
@@ -304,6 +309,13 @@ impl Host for FakeHost {
     fn delete_board(&self, ws_id: &str) {
         self.deleted.lock().unwrap().push(ws_id.to_string());
         self.saved.lock().unwrap().remove(ws_id);
+    }
+    fn archive_tasks(&self, ws_id: &str, tasks: &[Task]) -> Result<(), String> {
+        if let Some(e) = self.archive_err.lock().unwrap().clone() {
+            return Err(e);
+        }
+        self.archive_log.lock().unwrap().extend(tasks.iter().map(|t| (ws_id.to_string(), t.clone())));
+        Ok(())
     }
     fn emit_board(&self, view: &BoardView) {
         self.board_events.lock().unwrap().push(view.clone());

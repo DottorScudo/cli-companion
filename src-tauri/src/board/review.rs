@@ -3,7 +3,8 @@
 //! revisione e' un task normale con `depends_on` sui task da verificare: lo
 //! scheduler lo avvia quando sono tutti `done`. Funzioni pure, nessun I/O.
 
-use super::{clip_with_ellipsis, Board, ReportFields, Task, TaskSpec};
+use super::view::clip_with_ellipsis;
+use super::{Board, ReportFields, Task, TaskSpec};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -110,8 +111,8 @@ fn clipped(s: &str, max: usize, cut: &mut bool) -> String {
 
 fn reviewed_entry(t: &Task) -> Value {
     let mut cut = false;
-    let mut o = json!({ "id": t.id, "title": t.title, "status": t.status.as_str() });
-    let r = t.report.as_ref();
+    let mut o = json!({ "id": t.id, "title": t.title, "status": t.status().as_str() });
+    let r = t.report();
     o["summary"] = r.map_or(Value::Null, |r| Value::from(clipped(&r.summary, REVIEWED_SUMMARY_MAX, &mut cut)));
     o["commit"] = json!(r.and_then(|r| r.commit.as_deref()));
     o["pr_url"] = json!(r.and_then(|r| r.pr_url.as_deref()));

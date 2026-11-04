@@ -80,10 +80,6 @@ pub(super) fn gate_input<H: Host>(st: &AutomationState, host: &H, session: &str,
     Some(E2eGateInput { repo_has_e2e, current: fingerprint(host, &ws, &target.workdir) })
 }
 
-fn replace_if_same_run(slot: Option<&mut E2eRun>, run: &E2eRun) -> bool {
-    slot.filter(|r| r.run_id == run.run_id).map(|r| *r = run.clone()).is_some()
-}
-
 impl Registry {
     /// Il task del worker `session` per gli E2E (a prescindere dallo stato del task).
     fn e2e_target(&self, session: &str) -> Option<E2eTarget> {
@@ -109,7 +105,7 @@ impl Registry {
             .boards
             .get_mut(&ws)
             .and_then(|b| b.task_mut(&tid))
-            .filter(|t| t.status == TaskStatus::Running && t.session.as_deref() == Some(session))
+            .filter(|t| t.is_live_for(session))
             .ok_or_else(|| TASK_UNASSIGNED.to_string())?;
         task.updated_at = run.started_at;
         task.e2e_run = Some(run);
@@ -124,9 +120,12 @@ impl Registry {
         let Some(task) = self.boards.get_mut(ws).and_then(|b| b.task_mut(tid)) else {
             return;
         };
-        let in_task = replace_if_same_run(task.e2e_run.as_mut(), &run);
-        let in_report = replace_if_same_run(task.report.as_mut().and_then(|r| r.e2e.as_mut()), &run);
-        if in_task || in_report {
+        let mut replaced = false;
+        for slot in task.e2e_runs_mut().filter(|r| r.run_id == run.run_id) {
+            *slot = run.clone();
+            replaced = true;
+        }
+        if replaced {
             self.mark_dirty(ws);
         }
     }
@@ -160,7 +159,7 @@ impl Registry {
 
 impl AutomationState {
     pub(super) fn e2e_target(&self, session: &str) -> Option<E2eTarget> {
-        self.inner.lock().unwrap().e2e_target(session)
+        self.registry().e2e_target(session)
     }
 
     /// Applica `Effect::CancelE2e`.

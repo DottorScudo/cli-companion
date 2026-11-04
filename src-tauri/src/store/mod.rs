@@ -26,7 +26,11 @@
 //! - **Avvisi**: ogni anomalia produce uno `StoreWarning`, registrato nel log,
 //!   visibile con il comando `store_warnings` e notificato al frontend con
 //!   l'evento `store-warning`.
-//! - **Scrittura**: `write_atomic` (file temporaneo sincronizzato + rename).
+//! - **Nome a runtime e lettura da testo**: `JsonFile::named` crea un file il
+//!   cui nome si conosce solo a runtime (una istanza per file, con il proprio
+//!   blocco delle scritture); `JsonFile::parse` applica busta, migrazioni e
+//!   validazione a un testo in memoria, senza I/O.
+//! - **Scrittura**:`write_atomic` (file temporaneo sincronizzato + rename).
 
 mod atomic;
 mod backup;

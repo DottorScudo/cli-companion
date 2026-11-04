@@ -1,5 +1,5 @@
 use super::*;
-use crate::board::{Board, TaskReport, TaskStatus};
+use crate::board::{Board, FailCause, Finished, TaskReport, TaskState};
 use serde_json::json;
 
 fn fp(commit: &str, tree: &str, changes: &str) -> CodeFingerprint {
@@ -101,7 +101,7 @@ fn old_json_without_the_e2e_fields_loads() {
         "report":{"status":"completed","summary":"s"}}]}"#;
     let b = Board::from_json(raw, 1).unwrap();
     let t = b.task("a").unwrap();
-    assert!(t.e2e_run.is_none() && t.report.as_ref().unwrap().e2e.is_none());
+    assert!(t.e2e_run.is_none() && t.report().unwrap().e2e.is_none());
     let out = serde_json::to_value(t).unwrap();
     assert!(out.get("e2e_run").is_none() && out["report"].get("e2e").is_none());
 }
@@ -110,19 +110,20 @@ fn old_json_without_the_e2e_fields_loads() {
 fn loading_turns_a_running_run_into_an_interrupted_error() {
     let mut b = Board::new("w");
     let mut t = flagged(Some(run(E2eStatus::Running)));
-    t.report = Some(TaskReport {
+    let report = TaskReport {
         status: "failed".into(),
         summary: "s".into(),
         e2e: Some(run(E2eStatus::Running)),
         ..serde_json::from_value(json!({"status": "failed", "summary": "s"})).unwrap()
-    });
-    t.status = TaskStatus::Failed;
+    };
+    let finished = Finished { started_at: None, finished_at: 0, report: Some(report) };
+    t.set_state(TaskState::Failed { finished, cause: FailCause::Other });
     b.tasks.push(t);
     b.tasks.push(flagged(Some(passed_run(None))));
     b.tasks[1].id = "b".into();
     let loaded = Board::from_json(&serde_json::to_string(&b).unwrap(), 1).unwrap();
     let a = loaded.task("a").unwrap();
-    for r in [a.e2e_run.as_ref().unwrap(), a.report.as_ref().unwrap().e2e.as_ref().unwrap()] {
+    for r in [a.e2e_run.as_ref().unwrap(), a.report().unwrap().e2e.as_ref().unwrap()] {
         assert_eq!((r.status, r.error.as_deref()), (E2eStatus::Error, Some(INTERRUPTED_NOTE)));
     }
     assert_eq!(loaded.task("b").unwrap().e2e_run.as_ref().unwrap().status, E2eStatus::Passed);
@@ -132,7 +133,7 @@ fn loading_turns_a_running_run_into_an_interrupted_error() {
 fn a_new_attempt_forgets_the_previous_run() {
     let mut b = Board::new("w");
     b.tasks.push(flagged(Some(passed_run(None))));
-    b.start_task("a", 5);
+    b.start_task("a", 5).unwrap();
     assert!(b.task("a").unwrap().e2e_run.is_none());
 }
 

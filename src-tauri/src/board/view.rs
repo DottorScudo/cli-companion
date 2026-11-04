@@ -1,0 +1,185 @@
+//! Vista della board per il frontend e per i tool MCP: `TaskView`/`BoardView`
+//! (campi dei task piu' cio' che la UI deriva dalla board) e righe compatte di
+//! `list_tasks`.
+
+use super::cascade::{CascadeDelete, Waiters};
+use super::{permits, Board, Op, Proposal, SettingsProposalView, Task, TaskAction, TaskKind, TaskStatus};
+use crate::workspaces::{Delivery, Workspace};
+use serde::Serialize;
+use serde_json::{json, Value};
+
+/// Lunghezza di `note` e `summary` nelle righe compatte di `list_tasks`.
+const COMPACT_NOTE_MAX: usize = 200;
+const COMPACT_SUMMARY_MAX: usize = 300;
+
+/// Task esposto: tutti i campi piu' cio' che la UI deriva dalla board.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TaskView {
+    #[serde(flatten)]
+    pub task: Task,
+    /// Dipendenze non `done` (solo per `queued`).
+    pub waiting_on: Vec<String>,
+    /// Il worker aspetta l'utente (`needs_input` o `idle`).
+    pub attention: bool,
+    /// Le azioni di `task_action` che riuscirebbero adesso: la tabella degli stati
+    /// (`permits`) piu' il contesto della board (dipendenti e task in corso).
+    pub allowed_actions: Vec<TaskAction>,
+    /// Il task si puo' modificare (`update_task`).
+    pub can_edit: bool,
+    /// Cosa toglierebbe "Elimina con i dipendenti"; vuoto se il task non si puo' eliminare.
+    pub cascade: CascadeDelete,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BoardView {
+    pub workspace_id: String,
+    /// Revisione monotona (cresce a ogni modifica della vista): il frontend
+    /// scarta le risposte piu' vecchie di quella gia' vista.
+    pub rev: u64,
+    pub max_parallel: u8,
+    pub paused: bool,
+    pub updated_at: i64,
+    pub tasks: Vec<TaskView>,
+    pub proposals: Vec<Proposal>,
+    pub settings_proposals: Vec<SettingsProposalView>,
+    /// Il workspace usa le fasce orarie e adesso e' fuori fascia.
+    pub schedule_blocked: bool,
+    /// Consegna del workspace (comodita' per la UI).
+    pub delivery: Delivery,
+}
+
+impl BoardView {
+    /// Righe compatte per `list_tasks`: conteggi per stato e una riga corta
+    /// per task (solo gli stati richiesti, o tutti).
+    pub fn to_list_json(&self, statuses: Option<&[TaskStatus]>) -> Value {
+        let mut counts = serde_json::Map::new();
+        for s in TaskStatus::ALL {
+            counts.insert(
+                s.as_str().to_string(),
+                Value::from(self.tasks.iter().filter(|t| t.task.status() == s).count()),
+            );
+        }
+        let rows: Vec<Value> = self
+            .tasks
+            .iter()
+            .filter(|t| statuses.is_none_or(|l| l.contains(&t.task.status())))
+            .map(compact_row)
+            .collect();
+        let mut out = json!({ "counts": counts, "tasks": rows, "proposals_pending": self.proposals.len() });
+        if self.paused {
+            out["paused"] = Value::Bool(true);
+        }
+        out
+    }
+}
+
+fn compact_row(v: &TaskView) -> Value {
+    let t = &v.task;
+    let mut o = json!({ "id": t.id, "title": t.title, "status": t.status().as_str() });
+    if v.attention {
+        o["attention"] = Value::Bool(true);
+    }
+    if !v.waiting_on.is_empty() {
+        o["waiting_on"] = json!(v.waiting_on);
+    }
+    if t.kind == TaskKind::Review {
+        o["kind"] = Value::from(t.kind.as_str());
+    }
+    if t.e2e {
+        o["e2e"] = Value::Bool(true);
+    }
+    if let Some(r) = t.report() {
+        o["summary"] = Value::from(clip_with_ellipsis(&r.summary, COMPACT_SUMMARY_MAX));
+        if let Some(v) = r.verdict {
+            o["verdict"] = Value::from(v.as_str());
+        }
+    }
+    if let Some(n) = t.note() {
+        o["note"] = Value::from(clip_with_ellipsis(n, COMPACT_NOTE_MAX));
+    }
+    o
+}
+
+/// Tronca a `max` caratteri (mai in mezzo a un carattere), con "…" se tagliato.
+pub(super) fn clip_with_ellipsis(s: &str, max: usize) -> String {
+    match s.char_indices().nth(max) {
+        Some((i, _)) => format!("{}…", &s[..i]),
+        None => s.to_string(),
+    }
+}
+
+impl TaskView {
+    /// JSON del task; senza `include_task` manca il testo della specifica.
+    pub fn to_json(&self, include_task: bool) -> Value {
+        let mut v = serde_json::to_value(self).unwrap_or(Value::Null);
+        if !include_task {
+            if let Some(o) = v.as_object_mut() {
+                o.remove("task");
+            }
+        }
+        v
+    }
+}
+
+impl Board {
+    fn view_of(&self, t: &Task, waiters: &Waiters) -> TaskView {
+        let status = t.status();
+        let waiting_on = if status == TaskStatus::Queued {
+            t.depends_on
+                .iter()
+                .filter(|d| !self.task(d).is_some_and(|x| x.status() == TaskStatus::Done))
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let cascade = if permits(status, Op::Action(TaskAction::DeleteCascade)) {
+            waiters.cascade_of(t)
+        } else {
+            CascadeDelete::default()
+        };
+        let allowed_actions = TaskAction::ALL
+            .into_iter()
+            .filter(|a| permits(status, Op::Action(*a)))
+            .filter(|a| match a {
+                TaskAction::Delete => cascade.dependents.is_empty(),
+                TaskAction::DeleteCascade => !cascade.dependents.is_empty() && cascade.running.is_empty(),
+                _ => true,
+            })
+            .collect();
+        TaskView {
+            task: t.clone(),
+            waiting_on,
+            attention: t.needs_attention(),
+            allowed_actions,
+            can_edit: permits(status, Op::Edit),
+            cascade,
+        }
+    }
+
+    pub fn task_view(&self, id: &str) -> Option<TaskView> {
+        self.task(id).map(|t| self.view_of(t, &self.waiters()))
+    }
+
+    /// Vista per il frontend; consegna e valori attuali delle impostazioni
+    /// proposte vengono dal workspace `ws` (la board non lo conosce; `None` =
+    /// consegna di default e nessun valore attuale), `schedule_blocked` dal gate.
+    pub fn view_with(&self, ws: Option<&Workspace>, schedule_blocked: bool) -> BoardView {
+        let waiters = self.waiters();
+        BoardView {
+            workspace_id: self.workspace_id.clone(),
+            rev: self.rev,
+            max_parallel: self.max_parallel,
+            paused: self.paused,
+            updated_at: self.updated_at,
+            tasks: self.tasks.iter().map(|t| self.view_of(t, &waiters)).collect(),
+            proposals: self.proposals.clone(),
+            settings_proposals: self.settings_proposals.iter().map(|p| p.view(ws)).collect(),
+            schedule_blocked,
+            delivery: ws.map(|w| w.delivery).unwrap_or_default(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

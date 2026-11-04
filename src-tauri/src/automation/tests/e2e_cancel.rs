@@ -3,7 +3,7 @@
 
 use super::e2e::{archive, complete_failed, flagged, run_e2e, COMMAND};
 use super::*;
-use crate::board::E2eStatus;
+use crate::board::{E2eStatus, TaskAction};
 
 type Leave = fn(&AutomationState, &FakeHost, &str);
 
@@ -11,7 +11,7 @@ type Leave = fn(&AutomationState, &FakeHost, &str);
 fn leaving_running_cancels_a_queued_run() {
     let cases: [(&str, Leave); 3] = [
         ("stop", |st, h, _| {
-            boards::task_action(st, h, "ws-1", "a", "stop").unwrap();
+            boards::task_action(st, h, "ws-1", "a", TaskAction::Stop).unwrap();
         }),
         ("tab closed", tab_closed),
         ("complete failed", |st, h, w| {
@@ -54,8 +54,8 @@ fn a_new_attempt_ignores_the_result_of_a_stale_run() {
     let (st, h, w) = flagged(DeliveryMode::Commit, false);
     h.hold_defers();
     run_e2e(&st, &h, &w);
-    boards::task_action(&st, &h, "ws-1", "a", "stop").unwrap();
-    boards::task_action(&st, &h, "ws-1", "a", "retry").unwrap();
+    boards::task_action(&st, &h, "ws-1", "a", TaskAction::Stop).unwrap();
+    boards::task_action(&st, &h, "ws-1", "a", TaskAction::Retry).unwrap();
     h.run_held();
     assert!(task(&st, &h, "a").get("e2e_run").is_none());
 }

@@ -17,10 +17,14 @@
 //! Il token dell'app (`token()`) autentica le chiamate RPC e gli eventi degli
 //! hook: solo i processi figli di un terminale di cli-companion lo conoscono.
 
-use crate::board::{self, build_report, Board, BoardView, ReportFields, TaskKind, TaskStatus, WorktreeInfo};
+use crate::board::{
+    self, build_report, Board, BoardView, FailCause, Outcome, ReportFields, Task, TaskKind, TaskStatus, WorkerActivity,
+    WorkerEnd, WorkerSignal, WorktreeInfo, SUMMARY_MAX,
+};
 use crate::ipc::{is_valid_tab_id, NotifyPayload, RpcRequest, RpcResponse};
+pub(crate) use crate::validate::{clip_chars, req_text};
 use crate::workspaces::{Delivery, Workspace};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 use std::collections::hash_map::RandomState;
 use std::collections::HashMap;
@@ -30,6 +34,7 @@ use tauri::{AppHandle, Manager};
 
 mod agent_session;
 pub mod auto;
+mod board_files;
 mod boards;
 mod e2e;
 mod hooks;
@@ -42,6 +47,7 @@ pub mod skills;
 mod state;
 mod worktrees;
 
+pub use crate::board::WorkerStatus;
 pub use crate::user_skills::targets::SkillTarget;
 pub use host::{Host, TauriHost};
 pub use state::AutomationState;
@@ -57,10 +63,6 @@ const MAX_TRACKED_WORKERS: usize = 256;
 
 /// Il task non e' piu' assegnato alla sessione (lo legge il modello).
 pub(crate) const TASK_UNASSIGNED: &str = "this task is no longer assigned to this session";
-
-pub(crate) const TITLE_MAX: usize = 80;
-pub(crate) const TASK_MAX: usize = 100_000;
-pub(crate) const SUMMARY_MAX: usize = 50_000;
 
 /// Prompt passato in riga di comando: ASCII semplice, sicuro in ogni shell
 /// (niente virgolette, `$`, backtick, `%`, `!`, `\`). Lo legge il modello:
@@ -120,22 +122,6 @@ pub(crate) fn now_millis() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
-/// Testo obbligatorio: trim, 1..=`max` caratteri.
-pub(crate) fn req_text(label: &str, s: &str, max: usize) -> Result<String, String> {
-    let t = s.trim();
-    if t.is_empty() {
-        return Err(format!("{label} is missing"));
-    }
-    if t.chars().count() > max {
-        return Err(format!("{label} is too long (max {max} characters)"));
-    }
-    Ok(t.to_string())
-}
-
-pub(crate) fn clip_chars(s: &str, max: usize) -> String {
-    s.chars().take(max).collect()
-}
-
 /// Campo stringa obbligatorio di un oggetto JSON.
 pub(crate) fn req_str<'a>(p: &'a Value, key: &str) -> Result<&'a str, String> {
     match p.get(key) {
@@ -148,36 +134,6 @@ pub(crate) fn req_str<'a>(p: &'a Value, key: &str) -> Result<&'a str, String> {
 // ---------------------------------------------------------------------------
 // Tipi
 // ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WorkerStatus {
-    /// Spawnato, task non ancora letto.
-    Starting,
-    Running,
-    /// Turno chiuso in attesa di lavoro in background (Claude Code riprende
-    /// da solo): non e' un abbandono.
-    Background,
-    /// Permesso in attesa nel terminale.
-    NeedsInput,
-    /// L'agente ha finito il turno senza `complete_task`.
-    Idle,
-    Completed,
-    Failed,
-    Closed,
-}
-
-impl WorkerStatus {
-    /// Stati finali: dopo non ci sono piu' transizioni dagli hook.
-    fn is_terminal(self) -> bool {
-        matches!(self, WorkerStatus::Completed | WorkerStatus::Failed | WorkerStatus::Closed)
-    }
-
-    /// Il worker aspetta l'utente.
-    fn needs_attention(self) -> bool {
-        matches!(self, WorkerStatus::NeedsInput | WorkerStatus::Idle)
-    }
-}
 
 /// Stato di un worker per il frontend (evento `automation-update` e comando
 /// `automation_sessions`).
@@ -244,6 +200,13 @@ pub enum Effect {
     },
     /// Avviare un task di board (git + spawn) su un thread separato.
     StartTask(Box<StartJob>),
+    /// Task conclusi usciti dalla board (`Board::take_archivable`): da
+    /// aggiungere all'archivio. Sempre prima del `Publish` che salva la board
+    /// senza di loro.
+    Archive {
+        ws_id: String,
+        tasks: Vec<Task>,
+    },
     /// Salvare su disco e notificare al frontend la board (`board-update`).
     Publish(Box<Board>, Box<BoardView>),
     /// La board del workspace e' stata rimossa: cancellare il file. `rev` e'
@@ -300,7 +263,9 @@ struct Worker {
     attempt: u32,
     title: String,
     env: WorkerEnv,
-    status: WorkerStatus,
+    /// Come e' finito, se e' finito. Finche' e' `None` lo stato e' quello del suo
+    /// task (vedi `Registry::worker_status`).
+    ended: Option<WorkerEnd>,
     /// Sessione dell'agente legata al worker (vedi `agent_session`).
     agent: agent_session::AgentSession,
     created_at: i64,
@@ -315,10 +280,10 @@ struct Worker {
 }
 
 impl Worker {
-    fn info(&self) -> AutomationTabInfo {
+    fn info(&self, status: WorkerStatus) -> AutomationTabInfo {
         AutomationTabInfo {
             tab_id: self.session.clone(),
-            status: self.status,
+            status,
             title: self.title.clone(),
             parent_tab_id: String::new(),
             last_report: self.last_report.clone(),
@@ -369,18 +334,44 @@ impl Registry {
         std::mem::take(&mut self.effects)
     }
 
-    /// Registra un nuovo worker per un task di board.
+    /// Stato del worker: se e' finito quello, altrimenti l'attivita' che il suo
+    /// task gli attribuisce; se il task non e' piu' in corso con questo worker
+    /// (ripreso, archiviato) il worker e' staccato: `closed`.
+    fn worker_status(&self, w: &Worker) -> WorkerStatus {
+        if let Some(end) = w.ended {
+            return end.into();
+        }
+        let task = self.boards.get(&w.workspace_id).and_then(|b| b.task(&w.task_id));
+        task.and_then(|t| t.live_activity(&w.session)).map_or(WorkerStatus::Closed, WorkerStatus::from)
+    }
+
+    fn worker_status_of(&self, session: &str) -> Option<WorkerStatus> {
+        self.workers.get(session).map(|w| self.worker_status(w))
+    }
+
+    /// L'attivita' del worker, se non e' finito.
+    fn worker_activity(&self, session: &str) -> Option<WorkerActivity> {
+        self.worker_status_of(session).and_then(WorkerStatus::activity)
+    }
+
+    /// Id per il prossimo worker.
+    fn next_worker_id(&mut self, now: i64) -> String {
+        self.next_worker += 1;
+        format!("auto-{now}-{}", self.next_worker)
+    }
+
+    /// Registra il worker `id` del task `tid` (tentativo `attempt`) del workspace
+    /// di `new`; il task lo ha gia' spawnato.
     fn spawn_worker(
         &mut self,
-        ws: &str,
+        id: String,
         tid: &str,
         attempt: u32,
         new: NewWorker,
         env: WorkerEnv,
         now: i64,
     ) -> SpawnEvent {
-        self.next_worker += 1;
-        let id = format!("auto-{now}-{}", self.next_worker);
+        let ws = new.workspace_id.clone();
         let ev = SpawnEvent {
             tab_id: id.clone(),
             workspace_id: new.workspace_id,
@@ -394,13 +385,13 @@ impl Registry {
             id.clone(),
             Worker {
                 session: id,
-                workspace_id: ws.to_string(),
+                workspace_id: ws,
                 task_id: tid.to_string(),
                 kind: new.kind,
                 attempt,
                 title: new.title,
                 env,
-                status: WorkerStatus::Starting,
+                ended: None,
                 agent: agent_session::AgentSession::default(),
                 created_at: now,
                 updated_at: now,
@@ -434,37 +425,22 @@ impl Registry {
 
     /// Worker vivo (tab aperto, non chiuso) del chiamante.
     fn live_worker(&mut self, session: &str) -> Result<&mut Worker, String> {
+        let closed = self.worker_status_of(session) == Some(WorkerStatus::Closed);
         let w = self.worker_mut(session)?;
-        if w.status == WorkerStatus::Closed || !w.tab_open {
+        if closed || !w.tab_open {
             return Err("the session is closed".to_string());
         }
         Ok(w)
     }
 
-    /// Pubblica lo stato del worker al frontend e lo riflette sul suo task.
+    /// Pubblica lo stato del worker al frontend.
     fn touch(&mut self, session: &str, now: i64) {
-        let Some(w) = self.workers.get_mut(session) else {
+        let Some(status) = self.worker_status_of(session) else {
             return;
         };
-        w.updated_at = now;
-        let (info, status, last, ws, tid) =
-            (w.info(), w.status, w.last_report.clone(), w.workspace_id.clone(), w.task_id.clone());
-        self.effects.push(Effect::Update(info));
-        let changed = self
-            .boards
-            .get_mut(&ws)
-            .and_then(|b| b.task_mut(&tid))
-            .filter(|t| t.status == TaskStatus::Running && t.session.as_deref() == Some(session))
-            .map(|t| {
-                t.worker_status = Some(status);
-                if last.is_some() {
-                    t.last_report = last;
-                }
-                t.updated_at = now;
-            })
-            .is_some();
-        if changed {
-            self.mark_dirty(&ws);
+        if let Some(w) = self.workers.get_mut(session) {
+            w.updated_at = now;
+            self.effects.push(Effect::Update(w.info(status)));
         }
     }
 
@@ -488,18 +464,34 @@ impl Registry {
         self.effects.push(Effect::Notify(Box::new(notice)));
     }
 
-    /// Imposta lo stato di un worker; l'ingresso in attenzione notifica l'utente.
-    fn set_status(&mut self, session: &str, status: WorkerStatus, now: i64) {
-        let Some(w) = self.workers.get_mut(session) else {
+    /// Cambia l'attivita' di un worker (sul suo task) e la pubblica; l'ingresso
+    /// in attenzione notifica l'utente.
+    fn set_activity(&mut self, session: &str, activity: WorkerActivity, now: i64) {
+        let Some(w) = self.workers.get(session) else {
             return;
         };
-        let was_attention = w.status.needs_attention();
-        w.status = status;
         let (ws, tid) = (w.workspace_id.clone(), w.task_id.clone());
+        let was_attention = self.worker_activity(session).is_some_and(WorkerActivity::needs_attention);
+        if self.boards.get_mut(&ws).is_some_and(|b| b.worker_changed(&tid, session, activity, now)) {
+            self.mark_dirty(&ws);
+        }
         self.touch(session, now);
-        if status.needs_attention() && !was_attention {
+        if activity.needs_attention() && !was_attention {
             self.notify(&ws, &tid, Some(session), "attention");
         }
+    }
+
+    /// Applica `signal` al worker `session` se e' attivo (i finiti ignorano
+    /// tutto). Ritorna se lo Stop hook va bloccato.
+    fn signal_worker(&mut self, session: &str, signal: WorkerSignal, now: i64) -> bool {
+        let Some(activity) = self.worker_activity(session) else {
+            return false;
+        };
+        let step = activity.on(signal);
+        if let Some(to) = step.to {
+            self.set_activity(session, to, now);
+        }
+        step.block_stop
     }
 
     // --- worker ---
@@ -511,10 +503,7 @@ impl Registry {
         let (ws_id, tid, env) = (w.workspace_id.clone(), w.task_id.clone(), w.env.clone());
         let unassigned = || TASK_UNASSIGNED.to_string();
         let b = self.boards.get(&ws_id).ok_or_else(unassigned)?;
-        let t = b
-            .task(&tid)
-            .filter(|t| t.status == TaskStatus::Running && t.session.as_deref() == Some(session))
-            .ok_or_else(unassigned)?;
+        let t = b.task(&tid).filter(|t| t.is_live_for(session)).ok_or_else(unassigned)?;
         let info = board::texts::EnvInfo {
             delivery: &env.delivery,
             root: &ws.path,
@@ -535,17 +524,17 @@ impl Registry {
                 "delivery": board::texts::delivery_steps(&info),
             }),
         };
-        if let Some(p) = &t.previous_attempt {
+        if let Some(p) = t.previous_attempt() {
             out["previous_attempt"] = serde_json::to_value(p).unwrap_or(Value::Null);
         }
         let w = self.worker_mut(session)?;
         let first = !w.started_sent;
         w.started_sent = true;
-        if w.status == WorkerStatus::Starting {
-            w.status = WorkerStatus::Running;
-        }
-        if first {
-            self.touch(session, now);
+        let read = self.worker_activity(session).and_then(|a| a.on(WorkerSignal::TaskRead).to);
+        match read {
+            Some(to) => self.set_activity(session, to, now),
+            None if first => self.touch(session, now),
+            None => {}
         }
         Ok(out)
     }
@@ -577,9 +566,9 @@ impl Registry {
         self.reopen_after_session_end(session, now);
         let w = self.live_worker(session)?;
         let (ws, tid) = (w.workspace_id.clone(), w.task_id.clone());
-        w.status = if completed { WorkerStatus::Completed } else { WorkerStatus::Failed };
+        w.ended = Some(if completed { WorkerEnd::Completed } else { WorkerEnd::Failed });
         w.last_report = Some(clip_chars(&summary, 200));
-        let to = if completed { TaskStatus::Done } else { TaskStatus::Failed };
+        let outcome = if completed { Outcome::Done } else { Outcome::Failed(FailCause::Other) };
         let mut report =
             build_report(if completed { "completed" } else { "failed" }, &summary, extra.fields, extra.diffstat);
         report.e2e = self.last_e2e_run(&ws, &tid);
@@ -588,7 +577,7 @@ impl Registry {
         let finished = self
             .boards
             .get_mut(&ws)
-            .is_some_and(|b| b.finish_running(&tid, Some(session), to, Some(report), note, now));
+            .is_some_and(|b| b.finish_running(&tid, Some(session), outcome, Some(report), note, now));
         if finished {
             self.cancel_e2e(&ws, Some(&tid));
             let has_worktree = self.boards.get(&ws).and_then(|b| b.task(&tid)).is_some_and(|t| t.worktree.is_some());
@@ -620,52 +609,29 @@ impl Registry {
             }
             return None;
         }
-        let status = w.status;
         match hook.event {
             // `idle_prompt` (~60 s dopo la fine del turno) non e' una
             // richiesta di permesso: il worker non e' fermo su un dialogo.
             "needs-input" if hook.notification_type == Some("idle_prompt") => {}
-            "needs-input"
-                if matches!(
-                    status,
-                    WorkerStatus::Starting | WorkerStatus::Running | WorkerStatus::Background | WorkerStatus::Idle
-                ) =>
-            {
-                self.set_status(tab, WorkerStatus::NeedsInput, now);
+            "needs-input" => {
+                self.signal_worker(tab, WorkerSignal::PermissionPrompt, now);
             }
-            "finished"
-                if matches!(
-                    status,
-                    WorkerStatus::Starting
-                        | WorkerStatus::Running
-                        | WorkerStatus::Background
-                        | WorkerStatus::NeedsInput
-                        | WorkerStatus::Idle
-                ) =>
-            {
-                if hook.background_work.is_some_and(|n| n > 0) {
-                    // Lavoro in background attivo: Claude Code riprende da solo.
-                    if status != WorkerStatus::Background {
-                        self.set_status(tab, WorkerStatus::Background, now);
-                    }
-                } else if hook.stop_hook_active != Some(true) {
-                    // Prima volta senza report: si fa proseguire il turno. Un
-                    // nuovo turno dopo la risposta dell'utente non e' piu' attesa.
-                    if status.needs_attention() {
-                        self.set_status(tab, WorkerStatus::Running, now);
-                    }
+            "finished" => {
+                let signal = WorkerSignal::TurnEnded {
+                    background_work: hook.background_work.is_some_and(|n| n > 0),
+                    stop_hook_active: hook.stop_hook_active == Some(true),
+                };
+                if self.signal_worker(tab, signal, now) {
                     return Some(STOP_BLOCK_REASON.to_string());
-                } else if status != WorkerStatus::Idle {
-                    // Gia' sollecitato e ancora nessun report: aspetta l'utente.
-                    self.set_status(tab, WorkerStatus::Idle, now);
                 }
             }
-            "session-end" if !status.is_terminal() => {
+            "session-end" if self.worker_activity(tab).is_some() => {
                 if agent_session::switches_session(hook) {
                     let why = format!("the agent continues in a new session ({})", hook.reason.unwrap_or_default());
                     self.note_ignored_session_end(tab, &why, now);
                 } else {
-                    self.close_worker(tab, agent_session::SESSION_END_NOTE, now);
+                    let cause = FailCause::SessionEnded { session: tab.to_string() };
+                    self.close_worker(tab, agent_session::SESSION_END_NOTE, cause, now);
                 }
             }
             _ => {}
@@ -676,30 +642,40 @@ impl Registry {
     /// L'utente ha premuto Invio nel terminale del worker: se aspettava lui,
     /// riprende a lavorare (nessun hook segnala la risposta).
     pub fn user_input(&mut self, tab: &str, now: i64) {
-        if self.workers.get(tab).is_some_and(|w| w.tab_open && w.status.needs_attention()) {
-            self.set_status(tab, WorkerStatus::Running, now);
+        if self.workers.get(tab).is_some_and(|w| w.tab_open) {
+            self.signal_worker(tab, WorkerSignal::UserInput, now);
         }
     }
 
-    /// Il worker e' finito senza report: stato `closed`, task `failed` con la nota.
-    fn close_worker(&mut self, session: &str, note: &str, now: i64) {
+    /// Il worker e' finito senza report: stato `closed`, task `failed` con la
+    /// nota e la causa.
+    fn close_worker(&mut self, session: &str, note: &str, cause: FailCause, now: i64) {
         let Some(w) = self.workers.get_mut(session) else {
             return;
         };
-        w.status = WorkerStatus::Closed;
+        w.ended.get_or_insert(WorkerEnd::Closed);
         let (ws, tid) = (w.workspace_id.clone(), w.task_id.clone());
         self.touch(session, now);
-        if self.fail_task(&ws, &tid, Some(session), note, now) {
+        if self.fail_task(&ws, &tid, Some(session), note, cause, now) {
             self.notify(&ws, &tid, Some(session), "failed");
         }
     }
 
     /// Task `running` -> `failed` con una nota; `true` se era ancora in corso.
-    fn fail_task(&mut self, ws: &str, tid: &str, session: Option<&str>, note: &str, now: i64) -> bool {
+    fn fail_task(
+        &mut self,
+        ws: &str,
+        tid: &str,
+        session: Option<&str>,
+        note: &str,
+        cause: FailCause,
+        now: i64,
+    ) -> bool {
+        let outcome = Outcome::Failed(cause);
         let done = self
             .boards
             .get_mut(ws)
-            .is_some_and(|b| b.finish_running(tid, session, TaskStatus::Failed, None, Some(note.to_string()), now));
+            .is_some_and(|b| b.finish_running(tid, session, outcome, None, Some(note.to_string()), now));
         if done {
             self.mark_dirty(ws);
             self.cancel_e2e(ws, Some(tid));
@@ -719,8 +695,8 @@ impl Registry {
         }
         w.tab_open = false;
         let (ws, tid, cleanup) = (w.workspace_id.clone(), w.task_id.clone(), std::mem::take(&mut w.cleanup_on_close));
-        if !w.status.is_terminal() {
-            self.close_worker(tab, "the tab was closed before complete_task", now);
+        if self.worker_activity(tab).is_some() {
+            self.close_worker(tab, "the tab was closed before complete_task", FailCause::Other, now);
         } else {
             self.touch(tab, now);
         }
@@ -733,7 +709,7 @@ impl Registry {
     pub fn open_tabs(&self) -> Vec<AutomationTabInfo> {
         let mut v: Vec<&Worker> = self.workers.values().filter(|w| w.tab_open).collect();
         v.sort_by_key(|w| w.created_at);
-        v.into_iter().map(Worker::info).collect()
+        v.into_iter().map(|w| w.info(self.worker_status(w))).collect()
     }
 }
 
@@ -804,30 +780,21 @@ pub fn flush_on_exit(app: &AppHandle) {
     st.flush_pending_saves(&TauriHost(app.clone()));
 }
 
-/// Carica le board salvate (all'avvio dell'app), normalizzando quelle della
-/// v0.11: i task `running` diventano `failed`; un file corrotto va in `.json.bak`.
+/// Carica le board salvate (all'avvio dell'app): migra i file di uno schema
+/// vecchio e fa fallire come interrotti i task `running`. Un file corrotto o
+/// di una versione piu' recente viene messo da parte come backup datato (avviso
+/// `store-warning`); uno illeggibile resta dov'e' e non viene riscritto.
 pub fn load_boards(app: &tauri::App) {
-    let Ok(dir) = worktrees::boards_dir(app.handle()) else {
-        return;
-    };
-    let Ok(entries) = std::fs::read_dir(&dir) else {
-        return;
+    let dir = match worktrees::boards_dir(app.handle()) {
+        Ok(dir) => dir,
+        Err(e) => {
+            log::error!("board: cartella dati non disponibile: {e}");
+            return;
+        }
     };
     let st = app.state::<AutomationState>();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
-            continue;
-        }
-        let loaded = std::fs::read_to_string(&path)
-            .map_err(|e| e.to_string())
-            .and_then(|raw| Board::from_json(&raw, now_millis()));
-        match loaded {
-            Ok(board) => st.load_board(board),
-            Err(_) => {
-                let _ = std::fs::rename(&path, path.with_extension("json.bak"));
-            }
-        }
+    for board in board_files::load_all(&dir, now_millis()) {
+        st.load_board(board);
     }
 }
 
@@ -899,16 +866,17 @@ pub async fn task_update(
     .await
 }
 
-/// Azione dell'utente su un task: `retry`, `mark_done`, `stop`, `delete` o `to_top`.
+/// Azione dell'utente su un task (vedi `board::TaskAction`: `retry`, `mark_done`,
+/// `stop`, `delete`, `delete_cascade`, `to_top`).
 #[tauri::command]
 pub async fn task_action(
     app: AppHandle,
     workspace_id: String,
     task_id: String,
-    action: String,
+    action: board::TaskAction,
 ) -> Result<BoardView, String> {
     crate::blocking(move || {
-        boards::task_action(&app.state::<AutomationState>(), &TauriHost(app.clone()), &workspace_id, &task_id, &action)
+        boards::task_action(&app.state::<AutomationState>(), &TauriHost(app.clone()), &workspace_id, &task_id, action)
     })
     .await
 }

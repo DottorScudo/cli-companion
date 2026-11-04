@@ -48,8 +48,8 @@ impedisci standby, notifiche di fine lavoro dei terminali normali.
 
 ## Modello dati
 
-File invariato: `<app_data>/boards/<workspace_id>.json`, scrittura atomica, salvataggio
-coalescente (max 1/s per board) come oggi. Serde `snake_case`; i campi sconosciuti dei file
+File: `<app_data>/boards/<workspace_id>.json` nella busta `{ "schema_version", "data" }` (vedi "File su disco: schema, migrazione e recupero"), scrittura atomica, salvataggio
+coalescente (max 1/s per board) come oggi. Il blocco sotto è il contenuto di `data`. Serde `snake_case`; i campi sconosciuti dei file
 vecchi si ignorano (niente `deny_unknown_fields`).
 
 ```jsonc
@@ -148,22 +148,98 @@ Limiti: 200 task per board, 20 task per proposta, 20 proposte pendenti per board
 | `failed` | **Fallito** | `note`/`report.summary` dicono perché. "Riprova" lo rimette in coda. |
 
 `BoardView` = board + per task: `waiting_on: string[]` (dipendenze non `done`, solo per
-`queued`), `attention: bool`; + `rev` monotona (come oggi), `schedule_blocked: bool` (fascia
+`queued`), `attention: bool`, `allowed_actions`, `can_edit` e `cascade` (vedi "Azioni consentite"); + `rev` monotona (come oggi), `schedule_blocked: bool` (fascia
 chiusa per un workspace che usa le fasce), `delivery` del workspace (comodità per la UI).
 
-### Normalizzazione al caricamento (board v0.11)
+### Azioni consentite (`allowed_actions`, `can_edit`, `cascade`)
 
-Stesso file, letto così com'è. Al caricamento:
+Cosa si può fare a un task dipende solo dal suo stato; la tabella è una sola (`permits` in
+`board/lifecycle/actions.rs`) e la leggono le guardie delle operazioni, i messaggi di errore e la
+vista. `TaskAction` è l'azione di `task_action`, `snake_case` sul filo: `retry`, `mark_done`,
+`stop`, `delete`, `delete_cascade`, `to_top`.
 
-- `queued` (anche `held`) → `queued`;
-- `running` → `failed` con nota `interrupted: the app was restarted` (come oggi);
+| status | azioni | modifica (`can_edit`) | riordino |
+|---|---|---|---|
+| `queued` | `to_top`, `delete`, `delete_cascade` | sì | sì |
+| `running` | `stop` | no | no |
+| `done` | nessuna | no | no |
+| `failed` | `retry`, `mark_done`, `delete`, `delete_cascade` | sì | no |
+
+Ogni task della vista porta, dopo i campi del task, `waiting_on` e `attention` più:
+
+- `allowed_actions: TaskAction[]`: la tabella, ristretta dal contesto della board a ciò che
+  riuscirebbe adesso (`delete` solo se nessun task non `done` ne dipende; `delete_cascade` solo se ci
+  sono dipendenti e nessun task da togliere è `running`). La UI può mostrare i pulsanti da questa
+  lista invece di riderivarla dallo stato;
+- `can_edit: bool`: il task si può modificare (`task_update`);
+- `cascade: { dependents: string[], running: string[] }`: cosa toglierebbe "Elimina tutti".
+  `dependents` sono i task non `done` che dipendono dal task, direttamente o no (il task escluso);
+  `running` i `running` fra il task e i suoi dipendenti. Vuoto per gli stati che non si possono
+  eliminare. Lo stesso calcolo (`board/cascade.rs`, un indice delle dipendenze inverse costruito
+  una volta per vista) serve a `delete_cascade`, quindi vista e azione non possono divergere.
+
+### File su disco: schema, migrazione e recupero
+
+Il file `<app_data>/boards/<workspace_id>.json` usa la busta comune a tutti i file dell'app
+(modulo `store`):
+
+```jsonc
+{ "schema_version": 1, "data": { /* la board, come in "Modello dati" */ } }
+```
+
+La versione corrente è il numero dei passi di migrazione (`BOARD_MIGRATIONS` in
+`board/persist.rs`); oggi è **1**. Un file senza busta è la versione 0: il formato scritto
+dall'app fino alla v0.12 e quello della v0.11 (stessi campi, più stati e campi eliminati).
+
+**Migrazione (`v0_to_v1`, `board/legacy.rs`).** Funzione pura sul JSON del file, senza orologio e
+senza stato dell'app; sul formato della v0.12 non cambia nulla. Per i file della v0.11:
+
+- `queued` (anche `held`) → `queued`; `done` (anche `external`) → `done`; `running` resta `running`;
 - `review` → `failed` con nota `completed but not integrated (board v0.11): retry to let the worker deliver it`;
 - `blocked`, `failed` → `failed`;
 - `cancelled` → rimosso (e tolto dai `depends_on` degli altri);
-- `done` (anche `external`) → `done`;
 - `report.status` `blocked` → `failed`;
+- `session` e `worker_status` dei task non `running` → assenti (i tab dei worker non si ripristinano);
 - `kind` assente (task e `TaskSpec` delle proposte) → `work`; `source_task`, `verdict` e `findings` assenti → nessuno;
 - i campi rimossi si ignorano; `requests`, `owner`, `integrations` & co. spariscono al prossimo salvataggio.
+
+Un task `failed` per migrazione senza `finished_at` lo prende da `updated_at`. Dopo la migrazione
+si applicano le invarianti sui valori (`Board::sanitize`): `max_parallel` fra 1 e 16, un `agent`
+per ogni task (il predefinito se manca); `workspace_id` vuoto rende il file inutilizzabile.
+
+**Recupero dopo il riavvio (`Board::recover_after_restart`, `board/recovery.rs`).** Distinto dalle
+migrazioni e applicato a ogni caricamento, anche di un file già alla versione corrente: nessun
+worker sopravvive all'app, quindi ogni task `running` (in preparazione o con il worker) diventa
+`failed` con nota `interrupted: the app was restarted` e `finished_at` = adesso, e ogni
+esecuzione E2E ancora `running` (quella del task e la copia nel report) diventa `error`
+con lo stesso testo. Ritorna quanti task ha recuperato; rieseguirlo non cambia nulla.
+
+**Errori di lettura.** Li gestisce lo `store`, per workspace: un file corrotto, non migrabile o
+scritto da una versione dell'app più recente non viene mai cancellato ne' sovrascritto, ma
+rinominato `<workspace_id>.json.bak-<AAAAMMGG-OOMMSSmmm>` (si tengono gli ultimi 5); la board
+riparte vuota e il frontend riceve un `store-warning` (comando `store_warnings`). Un file che non
+si riesce nemmeno a leggere resta dov'è e i salvataggi di quella board sono rifiutati (con un
+errore nel log) finché non si riavvia l'app. Il vecchio `<id>.json.bak` non esiste più.
+
+### Archivio dei task conclusi
+
+La board tiene al massimo `MAX_FINISHED_KEPT` = 200 task conclusi (`done` e `failed`): a ogni
+pubblicazione (`flush_one`) i più vecchi per `finished_at` oltre i 200 più recenti escono dalla
+board (`Board::take_archivable`, `board/archive.rs`). Restano, anche oltre il tetto, i task con
+un `worktree` (ancora da ripulire o da riusare con "Riprova") e quelli da cui dipende un task non `done` o una
+proposta pendente; i riferimenti ai task usciti spariscono dai `depends_on` di quelli rimasti.
+
+I task usciti finiscono in `<app_data>/boards/archive/<workspace_id>.jsonl`, una riga JSON per
+task in coda al file (la cartella e il file si creano alla prima volta):
+
+```jsonc
+{"schema_version":1,"data":{ /* il task, come in "Modello dati" */ }}
+```
+
+L'archivio viene scritto prima del salvataggio della board senza quei task (`Effect::Archive`
+prima di `Effect::Publish`, applicato da `Host::archive_tasks`). Se la scrittura fallisce l'errore
+va nel log con gli id dei task e la board si salva comunque. L'archivio non si legge più dall'app;
+si cancella insieme alla board (`delete_board`, rimozione del workspace).
 
 ## Consegna (impostazione del workspace)
 
@@ -260,7 +336,7 @@ modalità) + `delivery` (i passi della modalità). Contenuto minimo per modalit�
 
 **Istruzioni del reviewer.** Per i task `review` `get_task` non restituisce né le istruzioni del
 worker né `delivery` (nessun passo di consegna: il reviewer non committa, non pusha, non
-fa merge): restituisce le istruzioni di `src-tauri/src/automation/reviewer_instructions.md`
+fa merge): restituisce le istruzioni di `src-tauri/src/board/prompts/reviewer_instructions.md`
 (incluso con `include_str!`, in inglese), più `environment` normale e le regole del workspace
 accodate come al solito. Vedi "Task di review".
 
@@ -287,7 +363,7 @@ Al retry di un task fallito `get_task` aggiunge `previous_attempt` (summary del 
 nota), così il worker riparte da dove si era fermato (stesso branch/worktree).
 
 **Standard di ingegneria.** Ogni worker riceve, dopo le istruzioni comuni e prima delle regole
-del workspace, lo standard di `src-tauri/src/automation/worker_guardrails.md` (incluso con
+del workspace, lo standard di `src-tauri/src/board/prompts/worker_guardrails.md` (incluso con
 `include_str!`, in inglese): rispetto del progetto e dei pattern del framework, SOLID e codice
 pulito, niente file "god", sicurezza come bloccante (non un follow-up), prestazioni per
 progettazione, errori e casi limite, test come parte della modifica, **scenari E2E** (se la specifica ha una sezione E2E scenarios ogni scenario diventa un test della suite E2E del progetto, con locator rivolti all'utente, esiti osservabili, niente attese fisse e test indipendenti; la suite si esegue prima della consegna), rigore sul perimetro e
@@ -334,7 +410,7 @@ Quando il task lascia `running` (completato, fallito, fermato, tab chiuso) l'app
 l'effetto `CancelE2e { ws_id, task_id }`, applicato fuori dal lock, che annulla le sue
 esecuzioni in corso; archiviare o rimuovere il workspace annulla quelle di tutto il workspace.
 
-- Al riavvio dell'app i `running` diventano `failed` (`interrupted: the app was restarted`).
+- Al riavvio dell'app i `running` diventano `failed` (`interrupted: the app was restarted`): vedi "File su disco: schema, migrazione e recupero".
 - `session-end` conta solo se viene dalla sessione dell'agente legata al worker (eventi di
   processi secondari, o senza id dopo il legame, ignorati con una traccia nella nota; senza
   legame un evento senza id vale come prima). Se fallisce comunque il task mentre
@@ -690,7 +766,7 @@ Argomenti camelCase lato JS.
   (id generato dal titolo: slug ASCII, max 40, suffisso `-2`, `-3`… se occupato; vuoto →
   `task-<n>`). Manuale, senza proposta.
 - `task_update(workspace_id, task_id, patch) -> BoardView` (stesse regole di `update_task`).
-- `task_action(workspace_id, task_id, action) -> BoardView`, `action` ∈ `retry` (failed →
+- `task_action(workspace_id, task_id, action) -> BoardView`, `action` è un `TaskAction` (vedi "Azioni consentite"; una stringa sconosciuta è rifiutata in deserializzazione) ∈ `retry` (failed →
   queued in fondo) | `mark_done` (failed → done a mano: tiene report e worktree, sblocca i
   dipendenti, non verifica né integra il lavoro) | `stop` (running → failed, chiude il tab) | `delete` | `delete_cascade` | `to_top`
   (queued → primo della coda). `delete_cascade` toglie un queued/failed insieme ai task non

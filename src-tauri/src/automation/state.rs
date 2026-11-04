@@ -3,6 +3,7 @@
 //! degli effetti fuori dal lock.
 
 use super::*;
+use std::sync::{MutexGuard, PoisonError};
 
 /// Salvataggi coalescenti: al massimo uno per board ogni `SAVE_EVERY_MS`,
 /// sempre con l'ultimo stato (le modifiche ravvicinate non riscrivono il JSON
@@ -91,12 +92,24 @@ pub struct AutomationState {
     pub(super) e2e: Arc<e2e::runs::E2eRuns>,
 }
 
+/// Prende il lock anche se un altro thread e' andato in panico tenendolo: lo
+/// stato resta consistente (il registro cambia solo con chiamate ai suoi metodi)
+/// e un panico isolato non deve fermare l'app.
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 impl AutomationState {
+    /// Il registro. Mai in mano insieme a `published` o `saves`.
+    pub(super) fn registry(&self) -> MutexGuard<'_, Registry> {
+        lock(&self.inner)
+    }
+
     /// Esegue `f` sul registro, poi schedula le board modificate e applica
     /// gli effetti fuori dal lock.
     pub fn run<H: Host, T>(&self, host: &H, f: impl FnOnce(&mut Registry) -> T) -> T {
         let (out, effects) = {
-            let mut reg = self.inner.lock().unwrap();
+            let mut reg = self.registry();
             let out = f(&mut reg);
             let now = now_millis();
             reg.flush_boards(now, host.local_minute(now), &|id| host.workspace(id));
@@ -107,23 +120,23 @@ impl AutomationState {
     }
 
     pub fn load_board(&self, board: Board) {
-        self.inner.lock().unwrap().load_board(board);
+        self.registry().load_board(board);
     }
 
     pub fn open_tabs(&self) -> Vec<AutomationTabInfo> {
-        self.inner.lock().unwrap().open_tabs()
+        self.registry().open_tabs()
     }
 
     /// Vista della board del workspace (vuota se non esiste).
     pub fn view<H: Host>(&self, host: &H, ws_id: &str) -> Result<BoardView, String> {
         let ws = host.workspace(ws_id).ok_or_else(|| "workspace non trovato".to_string())?;
         let minute = host.local_minute(now_millis());
-        Ok(self.inner.lock().unwrap().board_view(&ws, minute))
+        Ok(self.registry().board_view(&ws, minute))
     }
 
     fn save<H: Host>(host: &H, board: &Board) {
         if let Err(e) = host.save_board(board) {
-            eprintln!("board {}: {e}", board.workspace_id);
+            log::error!("board {}: {e}", board.workspace_id);
         }
     }
 
@@ -131,13 +144,13 @@ impl AutomationState {
     /// salva (coalescendo i salvataggi ravvicinati).
     fn publish<H: Host>(&self, host: &H, board: &Board, view: &BoardView) {
         let decision = {
-            let mut map = self.published.lock().unwrap();
+            let mut map = lock(&self.published);
             if board.rev <= map.get(&board.workspace_id).copied().unwrap_or(0) {
                 return;
             }
             map.insert(board.workspace_id.clone(), board.rev);
             host.emit_board(view);
-            let d = self.saves.lock().unwrap().offer(board, now_millis());
+            let d = lock(&self.saves).offer(board, now_millis());
             if d == SaveDecision::Now {
                 Self::save(host, board);
             }
@@ -152,8 +165,8 @@ impl AutomationState {
 
     /// Timer di salvataggio scattato.
     fn flush_save<H: Host>(&self, host: &H, ws: &str) {
-        let map = self.published.lock().unwrap();
-        let Some(b) = self.saves.lock().unwrap().take(ws, now_millis()) else {
+        let map = lock(&self.published);
+        let Some(b) = lock(&self.saves).take(ws, now_millis()) else {
             return;
         };
         // Board rimossa nel frattempo (lapide): niente file resuscitato.
@@ -164,8 +177,8 @@ impl AutomationState {
 
     /// Chiusura dell'app: salva i salvataggi ancora in coda.
     pub fn flush_pending_saves<H: Host>(&self, host: &H) {
-        let map = self.published.lock().unwrap();
-        for b in self.saves.lock().unwrap().take_all() {
+        let map = lock(&self.published);
+        for b in lock(&self.saves).take_all() {
             if map.get(&b.workspace_id) == Some(&b.rev) {
                 Self::save(host, &b);
             }
@@ -177,7 +190,11 @@ impl AutomationState {
         self.run(host, |r| r.remove_board(ws_id));
     }
 
+    /// Applica gli effetti nell'ordine. I task che l'archivio ha rifiutato non
+    /// vanno persi: tornano nel registro e vengono rimessi nella board che il
+    /// `Publish` successivo dello stesso workspace salva (la vista resta com'e').
     fn apply_effects<H: Host>(&self, host: &H, effects: Vec<Effect>) {
+        let mut unarchived: HashMap<String, Vec<Task>> = HashMap::new();
         for e in effects {
             match e {
                 Effect::StartTask(job) => {
@@ -189,11 +206,27 @@ impl AutomationState {
                     let (st, h) = (self.clone(), host.clone());
                     host.defer(CLEANUP_DELAY, Box::new(move || worktrees::run_cleanup(&st, &h, *target)));
                 }
-                Effect::Publish(board, view) => self.publish(host, &board, &view),
+                Effect::Archive { ws_id, tasks } => {
+                    if let Err(e) = host.archive_tasks(&ws_id, &tasks) {
+                        let ids: Vec<&str> = tasks.iter().map(|t| t.id.as_str()).collect();
+                        log::error!("board {ws_id}: archivio dei task {ids:?} non scritto: {e}");
+                        // Registro (senza segnarlo modificato) e board da salvare.
+                        self.registry().restore_unarchived(&ws_id, tasks.clone());
+                        unarchived.entry(ws_id).or_default().extend(tasks);
+                    }
+                }
+                Effect::Publish(mut board, view) => {
+                    for t in unarchived.get(&board.workspace_id).into_iter().flatten() {
+                        if board.task(&t.id).is_none() {
+                            board.tasks.push(t.clone());
+                        }
+                    }
+                    self.publish(host, &board, &view);
+                }
                 Effect::DeleteBoard(ws_id, rev) => {
                     {
-                        let mut map = self.published.lock().unwrap();
-                        self.saves.lock().unwrap().forget(&ws_id);
+                        let mut map = lock(&self.published);
+                        lock(&self.saves).forget(&ws_id);
                         map.insert(ws_id.clone(), rev);
                         host.delete_board(&ws_id);
                     }
@@ -210,7 +243,7 @@ impl AutomationState {
                 Effect::Notify(notice) => host.emit_notice(&notice),
                 Effect::KeepAwake { on, seq } => {
                     // Un effetto vecchio, arrivato dopo uno piu' nuovo, si scarta.
-                    let mut last = self.awake_applied.lock().unwrap();
+                    let mut last = lock(&self.awake_applied);
                     if seq > *last {
                         *last = seq;
                         host.set_keep_awake(on);

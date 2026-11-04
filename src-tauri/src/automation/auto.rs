@@ -193,7 +193,7 @@ impl AutomationState {
 
     pub fn schedule_state<H: Host>(&self, host: &H, now: i64) -> ScheduleState {
         let minute = host.local_minute(now);
-        self.inner.lock().unwrap().schedule_state(minute, now)
+        self.registry().schedule_state(minute, now)
     }
 
     /// `schedule_set`: valida, salva, applica e ritorna lo stato.

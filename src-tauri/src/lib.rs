@@ -23,8 +23,6 @@ mod wsl;
 
 use automation::AutomationState;
 use pty::PtyState;
-// Resta finche' automation/host.rs non passa a `store`.
-pub(crate) use store::write_atomic;
 use workspaces::WorkspaceStore;
 
 /// Esegue lavoro bloccante (processi esterni, rete, filesystem) fuori dal

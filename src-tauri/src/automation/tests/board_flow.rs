@@ -2,7 +2,7 @@
 //! consegna, retry, stop, eliminazione, comandi della UI.
 
 use super::*;
-use crate::board::{Task, TaskSpec};
+use crate::board::{Run, RunPhase, Task, TaskAction, TaskSpec, TaskState};
 use crate::platform::TargetKind;
 
 fn pr_parallel() -> (AutomationState, FakeHost) {
@@ -213,7 +213,7 @@ fn local_merge_parallel_needs_the_checkout_on_the_base() {
     assert_eq!(h.notices().len(), 1);
     // Sul branch giusto parte, dal base locale (nessun fetch).
     *h.branch.lock().unwrap() = Some("main".into());
-    boards::task_action(&st, &h, "ws-1", "a", "retry").unwrap();
+    boards::task_action(&st, &h, "ws-1", "a", TaskAction::Retry).unwrap();
     assert_eq!(status_of(&st, &h, "a"), "running");
     assert!(has_git(&h, "C:\\p|worktree add C:\\p\\.worktrees\\a -b task/a main"), "{:?}", h.git_log());
     assert!(!h.git_log().iter().any(|l| l.contains("fetch") || l.contains("symbolic-ref")));
@@ -380,7 +380,7 @@ fn start_failure_fails_the_task_notifies_and_retry_reuses_the_worktree() {
     assert_eq!((n[0].kind, n[0].body.as_str(), n[0].tab_id.clone()), ("failed", "Task a è fallito", None));
     // Dopo aver sistemato git, "Riprova" lo rimette in coda in fondo e riparte.
     h.git_rules.lock().unwrap().clear();
-    let v = boards::task_action(&st, &h, "ws-1", "a", "retry").unwrap();
+    let v = boards::task_action(&st, &h, "ws-1", "a", TaskAction::Retry).unwrap();
     assert_eq!(v.tasks.iter().map(|t| t.task.id.as_str()).collect::<Vec<_>>(), ["b", "a"]);
     let a = task(&st, &h, "a");
     assert_eq!((a["status"].as_str(), a["attempts"].as_u64()), (Some("running"), Some(2)));
@@ -391,7 +391,7 @@ fn start_failure_fails_the_task_notifies_and_retry_reuses_the_worktree() {
     let adds = || h.git_log().iter().filter(|l| l.contains("worktree add")).count();
     let before = adds();
     h.dirs.lock().unwrap().push("C:\\p\\.worktrees\\a".to_string());
-    boards::task_action(&st, &h, "ws-1", "a", "retry").unwrap();
+    boards::task_action(&st, &h, "ws-1", "a", TaskAction::Retry).unwrap();
     assert_eq!(adds(), before);
     assert_eq!(h.spawns().last().unwrap().cwd.as_deref(), Some("C:\\p\\.worktrees\\a"));
     assert_eq!(task(&st, &h, "a")["worktree"]["branch"], "task/a");
@@ -400,7 +400,7 @@ fn start_failure_fails_the_task_notifies_and_retry_reuses_the_worktree() {
     h.dirs.lock().unwrap().clear();
     h.git_rule("rev-parse --verify --quiet refs/heads/task/a", true, "abc\n", "");
     st.inner.lock().unwrap().boards.get_mut("ws-1").unwrap().task_mut("a").unwrap().worktree = None;
-    boards::task_action(&st, &h, "ws-1", "a", "retry").unwrap();
+    boards::task_action(&st, &h, "ws-1", "a", TaskAction::Retry).unwrap();
     assert!(has_git(&h, "C:\\p|worktree add C:\\p\\.worktrees\\a task/a"), "{:?}", h.git_log());
 }
 
@@ -448,7 +448,7 @@ fn repo_setup_runs_after_the_worktree_and_a_failed_setup_is_redone_on_retry() {
     // Sistemato il setup, il retry lo rifa nel worktree esistente e il worker parte.
     h.hook_rules.lock().unwrap().clear();
     h.dirs.lock().unwrap().push("C:\\p\\.worktrees\\a".to_string());
-    boards::task_action(&st, &h, "ws-1", "a", "retry").unwrap();
+    boards::task_action(&st, &h, "ws-1", "a", TaskAction::Retry).unwrap();
     let a = task(&st, &h, "a");
     assert_eq!((a["status"].as_str(), a["worktree"]["setup_done"].as_bool()), (Some("running"), Some(true)));
     assert_eq!(h.git_log().iter().filter(|l| l.contains("worktree add")).count(), 1);
@@ -466,9 +466,9 @@ fn stop_fails_the_task_closes_the_tab_and_is_quiet() {
     queue(&st, &h, vec![spec("a", &[]), spec("b", &["a"])]);
     let w = session_of(&st, &h, "a");
     call(&st, &h, &w, "get_task", json!({})).unwrap();
-    let v = boards::task_action(&st, &h, "ws-1", "a", "stop").unwrap();
+    let v = boards::task_action(&st, &h, "ws-1", "a", TaskAction::Stop).unwrap();
     let a = v.tasks.iter().find(|t| t.task.id == "a").unwrap();
-    assert_eq!((a.task.status, a.task.note.as_deref()), (TaskStatus::Failed, Some("stopped by the user")));
+    assert_eq!((a.task.status(), a.task.note()), (TaskStatus::Failed, Some("stopped by the user")));
     assert!(h.log().contains(&format!("close:{w}")));
     assert!(h.notices().is_empty(), "l'utente lo ha chiesto lui");
     // Il tab si chiude: nessun secondo fallimento. Il dipendente non parte.
@@ -477,17 +477,17 @@ fn stop_fails_the_task_closes_the_tab_and_is_quiet() {
     assert_eq!(status_of(&st, &h, "b"), "queued");
     assert!(call(&st, &h, &w, "complete_task", json!({"status": "completed", "summary": "x"})).is_err());
     // Si ferma solo cio' che e' in corso.
-    assert!(boards::task_action(&st, &h, "ws-1", "a", "stop").unwrap_err().contains("only running"));
-    assert!(boards::task_action(&st, &h, "ws-1", "b", "stop").is_err());
+    assert!(boards::task_action(&st, &h, "ws-1", "a", TaskAction::Stop).unwrap_err().contains("only running"));
+    assert!(boards::task_action(&st, &h, "ws-1", "b", TaskAction::Stop).is_err());
     // Stop mentre l'avvio e' ancora in corso (nessuna sessione): niente spawn dopo.
     let (st, h) = pr_parallel();
     queue(&st, &h, vec![spec("a", &[])]);
     {
         let mut reg = st.inner.lock().unwrap();
         let t = reg.boards.get_mut("ws-1").unwrap().task_mut("a").unwrap();
-        t.session = None;
+        t.set_state(preparing_state(0, None, 0));
     }
-    boards::task_action(&st, &h, "ws-1", "a", "stop").unwrap();
+    boards::task_action(&st, &h, "ws-1", "a", TaskAction::Stop).unwrap();
     assert_eq!(task(&st, &h, "a")["note"], "stopped by the user");
 }
 
@@ -498,7 +498,7 @@ fn a_dependency_must_be_done_not_failed() {
     finish(&st, &h, &session_of(&st, &h, "a"), "failed");
     assert_eq!(status_of(&st, &h, "b"), "queued");
     assert_eq!(task(&st, &h, "b")["waiting_on"], json!(["a"]));
-    boards::task_action(&st, &h, "ws-1", "a", "retry").unwrap();
+    boards::task_action(&st, &h, "ws-1", "a", TaskAction::Retry).unwrap();
     finish(&st, &h, &session_of(&st, &h, "a"), "completed");
     assert_eq!(status_of(&st, &h, "b"), "running");
 }
@@ -509,15 +509,15 @@ fn mark_done_unblocks_dependents_and_the_worker_picks_them_up() {
     queue(&st, &h, vec![spec("a", &[]), spec("b", &["a"])]);
     finish(&st, &h, &session_of(&st, &h, "a"), "failed");
     assert_eq!(status_of(&st, &h, "b"), "queued");
-    assert!(boards::task_action(&st, &h, "ws-1", "b", "mark_done")
+    assert!(boards::task_action(&st, &h, "ws-1", "b", TaskAction::MarkDone)
         .unwrap_err()
         .contains("only failed tasks can be marked done"));
-    let v = boards::task_action(&st, &h, "ws-1", "a", "mark_done").unwrap();
+    let v = boards::task_action(&st, &h, "ws-1", "a", TaskAction::MarkDone).unwrap();
     let a = v.tasks.iter().find(|t| t.task.id == "a").unwrap();
-    assert_eq!((a.task.status, a.task.note.as_deref()), (TaskStatus::Done, None));
+    assert_eq!((a.task.status(), a.task.note()), (TaskStatus::Done, None));
     // Lo scheduler vede subito il dipendente sbloccato, come dopo le altre azioni.
     assert_eq!(status_of(&st, &h, "b"), "running");
-    assert!(boards::task_action(&st, &h, "ws-1", "a", "mark_done").unwrap_err().contains("is done"));
+    assert!(boards::task_action(&st, &h, "ws-1", "a", TaskAction::MarkDone).unwrap_err().contains("is done"));
 }
 
 #[test]
@@ -529,12 +529,14 @@ fn delete_cascade_removes_dependents_and_cleans_the_worktree() {
     h.dirs.lock().unwrap().push("C:\\p\\.worktrees\\a".to_string());
     // d e' running ma non dipende da a: non e' coinvolto.
     assert_eq!(status_of(&st, &h, "d"), "running");
-    let v = boards::task_action(&st, &h, "ws-1", "a", "delete_cascade").unwrap();
+    let v = boards::task_action(&st, &h, "ws-1", "a", TaskAction::DeleteCascade).unwrap();
     assert_eq!(v.tasks.iter().map(|t| t.task.id.as_str()).collect::<Vec<_>>(), ["d"]);
     let git = h.git_log();
     assert!(git.contains(&"C:\\p|worktree remove C:\\p\\.worktrees\\a".to_string()), "{git:?}");
     assert!(git.contains(&"C:\\p|branch -D task/a".to_string()), "{git:?}");
-    assert!(boards::task_action(&st, &h, "ws-1", "d", "delete_cascade").unwrap_err().contains("only queued or failed"));
+    assert!(boards::task_action(&st, &h, "ws-1", "d", TaskAction::DeleteCascade)
+        .unwrap_err()
+        .contains("only queued or failed"));
 }
 
 #[test]
@@ -545,20 +547,23 @@ fn delete_removes_failed_tasks_and_cleans_their_worktree() {
     finish(&st, &h, &w, "failed");
     h.dirs.lock().unwrap().push("C:\\p\\.worktrees\\a".to_string());
     // b dipende da a (non done): non si elimina a.
-    let e = boards::task_action(&st, &h, "ws-1", "a", "delete").unwrap_err();
+    let e = boards::task_action(&st, &h, "ws-1", "a", TaskAction::Delete).unwrap_err();
     assert!(e.contains("b depend on it"), "{e}");
     // Running non si elimina.
-    assert!(boards::task_action(&st, &h, "ws-1", "c", "delete").unwrap_err().contains("only queued or failed"));
+    assert!(boards::task_action(&st, &h, "ws-1", "c", TaskAction::Delete)
+        .unwrap_err()
+        .contains("only queued or failed"));
     // Eliminato b (queued), poi a (failed con worktree): pulizia senza forzare.
-    boards::task_action(&st, &h, "ws-1", "b", "delete").unwrap();
-    let v = boards::task_action(&st, &h, "ws-1", "a", "delete").unwrap();
+    boards::task_action(&st, &h, "ws-1", "b", TaskAction::Delete).unwrap();
+    let v = boards::task_action(&st, &h, "ws-1", "a", TaskAction::Delete).unwrap();
     assert_eq!(v.tasks.iter().map(|t| t.task.id.as_str()).collect::<Vec<_>>(), ["c"]);
     let git = h.git_log();
     assert!(git.contains(&"C:\\p|worktree remove C:\\p\\.worktrees\\a".to_string()), "{git:?}");
     assert!(git.contains(&"C:\\p|branch -D task/a".to_string()), "{git:?}");
     assert!(!git.iter().any(|l| l.contains("--force")));
-    assert!(boards::task_action(&st, &h, "ws-1", "a", "delete").is_err());
-    assert!(boards::task_action(&st, &h, "ws-1", "c", "boh").unwrap_err().contains("azione non valida"));
+    assert!(boards::task_action(&st, &h, "ws-1", "a", TaskAction::Delete).is_err());
+    // Una stringa che non e' un'azione non arriva nemmeno al registro: la rifiuta serde.
+    assert!(serde_json::from_value::<TaskAction>(json!("boh")).unwrap_err().to_string().contains("unknown variant"));
 }
 
 // --- comandi della UI ---
@@ -577,7 +582,7 @@ fn task_create_generates_ids_and_validates() {
     call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [spec("riservato", &[])]})).unwrap();
     assert_eq!(ids(&mk("Riservato").unwrap()).last().unwrap(), "riservato-2");
     let v = view(&st, &h);
-    assert!(v.tasks.iter().all(|t| t.task.status == TaskStatus::Queued && t.task.attempts == 0));
+    assert!(v.tasks.iter().all(|t| t.task.status() == TaskStatus::Queued && t.task.attempts() == 0));
     // Con dipendenze e modello; errori di validazione.
     let v = boards::task_create(
         &st,
@@ -615,7 +620,7 @@ fn update_move_and_to_top_through_the_ui_commands() {
     let order = |v: &BoardView| v.tasks.iter().map(|t| t.task.id.clone()).collect::<Vec<_>>().join(",");
     assert_eq!(order(&boards::task_move(&st, &h, "ws-1", "c", Some("a")).unwrap()), "c,a,b");
     assert_eq!(order(&boards::task_move(&st, &h, "ws-1", "c", None).unwrap()), "a,b,c");
-    assert_eq!(order(&boards::task_action(&st, &h, "ws-1", "c", "to_top").unwrap()), "c,a,b");
+    assert_eq!(order(&boards::task_action(&st, &h, "ws-1", "c", TaskAction::ToTop).unwrap()), "c,a,b");
     assert!(boards::task_move(&st, &h, "ws-1", "zz", None).is_err());
     let v = boards::task_update(&st, &h, "ws-1", "b", &json!({"title": "Nuovo", "task": "altro", "depends_on": ["a"]}))
         .unwrap();
@@ -631,13 +636,13 @@ fn update_move_and_to_top_through_the_ui_commands() {
     assert!(boards::task_update(&st, &h, "ws-1", "a", &json!({"unknown": 1})).is_err());
     // Un task in corso non si modifica ne' si riordina.
     boards::board_set(&st, &h, "ws-1", None, Some(false)).unwrap();
-    let running = view(&st, &h).tasks.iter().find(|t| t.task.status == TaskStatus::Running).unwrap().task.id.clone();
+    let running = view(&st, &h).tasks.iter().find(|t| t.task.status() == TaskStatus::Running).unwrap().task.id.clone();
     assert!(boards::task_update(&st, &h, "ws-1", &running, &json!({"title": "x"}))
         .unwrap_err()
         .contains("only queued or failed"));
     assert!(boards::task_move(&st, &h, "ws-1", &running, None).is_err());
-    assert!(boards::task_action(&st, &h, "ws-1", &running, "to_top").is_err());
-    assert!(boards::task_action(&st, &h, "ws-1", &running, "retry").unwrap_err().contains("only failed"));
+    assert!(boards::task_action(&st, &h, "ws-1", &running, TaskAction::ToTop).is_err());
+    assert!(boards::task_action(&st, &h, "ws-1", &running, TaskAction::Retry).unwrap_err().contains("only failed"));
 }
 
 #[test]
@@ -679,11 +684,11 @@ fn board_is_published_in_order_and_saved_with_the_latest_state() {
     queue(&st, &h, vec![spec("a", &[])]);
     finish(&st, &h, &session_of(&st, &h, "a"), "completed");
     let saved = h.saved.lock().unwrap().get("ws-1").cloned().unwrap();
-    assert_eq!(saved.task("a").unwrap().status, TaskStatus::Done);
+    assert_eq!(saved.task("a").unwrap().status(), TaskStatus::Done);
     let ev = h.board_events.lock().unwrap().clone();
     assert!(ev.len() >= 3);
     assert!(ev.windows(2).all(|p| p[0].rev < p[1].rev), "rev crescente");
-    assert_eq!(ev.last().unwrap().tasks[0].task.status, TaskStatus::Done);
+    assert_eq!(ev.last().unwrap().tasks[0].task.status(), TaskStatus::Done);
     assert_eq!(ev.last().unwrap().workspace_id, "ws-1");
     assert_eq!(saved.rev, st.inner.lock().unwrap().boards["ws-1"].rev);
     // Ogni vista porta la consegna del workspace.
@@ -726,6 +731,12 @@ fn saves_are_coalesced_to_one_per_second() {
 
 // --- guardiano, archiviazione, riavvio ---
 
+/// Lo stato di un avvio in corso: `running`, nessun worker ancora.
+fn preparing_state(started_at: i64, step: Option<&str>, heartbeat: i64) -> TaskState {
+    let phase = RunPhase::Preparing { step: step.map(str::to_string), heartbeat };
+    TaskState::Running(Run { started_at, previous_attempt: None, phase })
+}
+
 #[test]
 fn watchdog_fails_a_start_that_never_finished() {
     let (st, h) = pr_parallel();
@@ -734,8 +745,7 @@ fn watchdog_fails_a_start_that_never_finished() {
         // Simula il thread di avvio bloccato: running, nessuna sessione.
         let mut reg = st.inner.lock().unwrap();
         let t = reg.boards.get_mut("ws-1").unwrap().task_mut("a").unwrap();
-        t.session = None;
-        t.started_at = Some(1_000);
+        t.set_state(preparing_state(1_000, None, 1_000));
     }
     st.run(&h, |r| r.watchdog(1_000 + 4 * 60_000));
     assert_eq!(status_of(&st, &h, "a"), "running", "entro i 5 minuti");
@@ -750,10 +760,7 @@ fn watchdog_fails_a_start_that_never_finished() {
     {
         let mut reg = st.inner.lock().unwrap();
         let t = reg.boards.get_mut("ws-1").unwrap().task_mut("a").unwrap();
-        t.session = None;
-        t.started_at = Some(1_000);
-        t.preparing = Some("setup 1/1: npm ci".into());
-        t.preparing_since = Some(1_000);
+        t.set_state(preparing_state(1_000, Some("setup 1/1: npm ci"), 1_000));
     }
     st.run(&h, |r| r.watchdog(1_000 + 6 * 60_000));
     assert_eq!(status_of(&st, &h, "a"), "running");

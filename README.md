@@ -199,7 +199,7 @@ Con `pr` e `local_merge` puoi attivare i **worker in parallelo**: un git worktre
 `max_parallel`. Altrimenti i worker lavorano nel checkout del repository, uno per repository.
 `pr` richiede `gh` autenticato; `local_merge` in parallelo richiede il checkout sul branch base.
 Ogni worker riceve inoltre le regole del workspace e uno standard di ingegneria rigoroso
-(`src-tauri/src/automation/worker_guardrails.md`).
+(`src-tauri/src/board/prompts/worker_guardrails.md`).
 
 ### Tool MCP
 

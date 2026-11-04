@@ -6,10 +6,10 @@ use super::{Task, TaskKind};
 use crate::workspaces::{Delivery, DeliveryMode, RepoConfig};
 
 /// Standard di ingegneria che ogni worker riceve, prima delle regole del workspace.
-pub const WORKER_GUARDRAILS: &str = include_str!("../automation/worker_guardrails.md");
+pub const WORKER_GUARDRAILS: &str = include_str!("prompts/worker_guardrails.md");
 
 /// Istruzioni del revisore di un task `review` (al posto di quelle e dei passi di consegna del worker).
-pub const REVIEWER_INSTRUCTIONS: &str = include_str!("../automation/reviewer_instructions.md");
+pub const REVIEWER_INSTRUCTIONS: &str = include_str!("prompts/reviewer_instructions.md");
 
 /// Passo di consegna dei task con `e2e`: gli E2E li esegue l'app, non il worker.
 pub const E2E_STEP: &str = "Run the E2E tests through the app: call run_e2e, then call get_e2e_result with wait_seconds 25 until the status is no longer \"running\". \

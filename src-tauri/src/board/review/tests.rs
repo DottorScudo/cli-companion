@@ -1,5 +1,5 @@
 use super::*;
-use crate::board::{build_report, parse_spec, validate_graph, TaskStatus, TestRun};
+use crate::board::{build_report, parse_spec, validate_graph, Finished, TaskState, TaskStatus, TestRun};
 use serde_json::json;
 
 fn spec(id: &str, kind: TaskKind, deps: &[&str]) -> TaskSpec {
@@ -19,8 +19,8 @@ fn fields(verdict: Option<Verdict>, findings: &[&str]) -> ReportFields {
 
 fn done(id: &str, f: ReportFields) -> Task {
     let mut t = Task::from_spec(spec(id, TaskKind::Work, &[]), 0);
-    t.status = TaskStatus::Done;
-    t.report = Some(build_report("completed", &format!("summary of {id}"), f, Some(" 1 file changed".to_string())));
+    let report = build_report("completed", &format!("summary of {id}"), f, Some(" 1 file changed".to_string()));
+    t.set_state(TaskState::Done(Finished { started_at: None, finished_at: 0, report: Some(report) }));
     t
 }
 
@@ -168,17 +168,17 @@ fn oversized_lists_and_items_are_cut_and_flagged() {
 #[test]
 fn long_summary_and_diffstat_are_cut_and_flagged() {
     let mut t = done("a", ReportFields::default());
-    t.report.as_mut().unwrap().summary = "s".repeat(REVIEWED_SUMMARY_MAX + 1);
+    t.report_mut().unwrap().summary = "s".repeat(REVIEWED_SUMMARY_MAX + 1);
     let e = entry_of(t);
     assert_eq!(e["truncated"], true);
     assert_eq!(e["summary"].as_str().unwrap().chars().count(), REVIEWED_SUMMARY_MAX + 1);
 
     let mut t = done("a", ReportFields::default());
-    t.report.as_mut().unwrap().diffstat = Some("d".repeat(REVIEWED_DIFFSTAT_MAX + 1));
+    t.report_mut().unwrap().diffstat = Some("d".repeat(REVIEWED_DIFFSTAT_MAX + 1));
     assert_eq!(entry_of(t)["truncated"], true);
 
     let mut t = done("a", ReportFields::default());
-    let r = t.report.as_mut().unwrap();
+    let r = t.report_mut().unwrap();
     r.summary = "s".repeat(REVIEWED_SUMMARY_MAX);
     r.diffstat = Some("d".repeat(REVIEWED_DIFFSTAT_MAX));
     assert!(entry_of(t).get("truncated").is_none());
@@ -206,7 +206,7 @@ fn old_boards_load_as_work_and_new_fields_roundtrip() {
         "proposals":[{"id":"p-1","source_tab":"t","created_at":1,"tasks":[{"id":"b","title":"B","task":"y"}]}]}"#;
     let b = Board::from_json(old, 1).unwrap();
     assert_eq!(b.tasks[0].kind, TaskKind::Work);
-    let r = b.tasks[0].report.as_ref().unwrap();
+    let r = b.tasks[0].report().unwrap();
     assert!(r.verdict.is_none() && r.findings.is_empty());
     assert_eq!(b.proposals[0].source_task, None);
     assert_eq!(b.proposals[0].tasks[0].kind, TaskKind::Work);
@@ -220,12 +220,16 @@ fn old_boards_load_as_work_and_new_fields_roundtrip() {
     b.create_task(spec("a", TaskKind::Work, &[]), 1).unwrap();
     b.create_task(spec("rev", TaskKind::Review, &["a"]), 2).unwrap();
     b.add_proposal("p-1".into(), "tab-1", Some("rev".into()), vec![spec("fix", TaskKind::Review, &["a"])], 3).unwrap();
-    b.task_mut("rev").unwrap().report =
-        Some(build_report("completed", "s", fields(Some(Verdict::Issues), &["bug"]), None));
+    let report = build_report("completed", "s", fields(Some(Verdict::Issues), &["bug"]), None);
+    b.task_mut("rev").unwrap().set_state(TaskState::Done(Finished {
+        started_at: None,
+        finished_at: 0,
+        report: Some(report),
+    }));
     let back = Board::from_json(&serde_json::to_string(&b).unwrap(), 9).unwrap();
     assert_eq!(back.tasks, b.tasks);
     assert_eq!(back.tasks[1].kind, TaskKind::Review);
-    let r = back.tasks[1].report.as_ref().unwrap();
+    let r = back.tasks[1].report().unwrap();
     assert_eq!((r.verdict, r.findings.as_slice()), (Some(Verdict::Issues), ["bug".to_string()].as_slice()));
     assert_eq!(back.proposals, b.proposals);
     assert_eq!(back.proposals[0].source_task.as_deref(), Some("rev"));
@@ -250,10 +254,10 @@ fn review_dependencies_are_validated_on_every_entry_point() {
     b.update_task("b", &json!({"kind": "review"}), 4).unwrap();
     assert_eq!(b.task("b").unwrap().kind, TaskKind::Review);
     // Un task `done` che resta senza dipendenze (delete_task) non invalida la board.
-    b.task_mut("b").unwrap().status = TaskStatus::Failed;
+    b.task_mut("b").unwrap().set_status(TaskStatus::Failed);
     b.delete_task("b", 5).unwrap();
-    b.task_mut("rev").unwrap().status = TaskStatus::Done;
-    b.task_mut("a").unwrap().status = TaskStatus::Failed;
+    b.task_mut("rev").unwrap().set_status(TaskStatus::Done);
+    b.task_mut("a").unwrap().set_status(TaskStatus::Failed);
     b.delete_task("a", 6).unwrap();
     assert!(b.task("rev").unwrap().depends_on.is_empty());
     validate_graph(&b.tasks).unwrap();

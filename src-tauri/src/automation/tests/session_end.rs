@@ -3,6 +3,7 @@
 //! riapertura del task se il worker riferisce dopo un `session-end`.
 
 use super::*;
+use crate::board::TaskAction;
 use agent_session::SESSION_END_NOTE;
 
 fn on(st: &AutomationState, h: &FakeHost, tab: &str, ev: HookEvent) -> Option<String> {
@@ -156,7 +157,7 @@ fn complete_task_stays_closed_after_the_tab_closes_or_a_retry() {
     // Ripreso da un retry: il nuovo worker e' in corso.
     let (st, h, w) = bound(DeliveryMode::Commit, false);
     on(&st, &h, &w, ended("own", "other"));
-    boards::task_action(&st, &h, "ws-1", "a", "retry").unwrap();
+    boards::task_action(&st, &h, "ws-1", "a", TaskAction::Retry).unwrap();
     let w2 = session_of(&st, &h, "a");
     closed(&st, &h, &w);
     assert_eq!(task(&st, &h, "a")["status"], "running");

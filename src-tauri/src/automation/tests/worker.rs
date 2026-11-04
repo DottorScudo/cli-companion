@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::board::texts::WORKER_GUARDRAILS;
+use crate::board::TaskAction;
 use crate::validate::valid_model;
 
 #[test]
@@ -296,7 +297,7 @@ fn retry_hands_the_previous_outcome_to_the_new_worker() {
     assert!(call(&st, &h, &w, "get_task", json!({})).unwrap().get("previous_attempt").is_none());
     call(&st, &h, &w, "complete_task", json!({"status": "failed", "summary": "two tests are red"})).unwrap();
     tab_closed(&st, &h, &w);
-    boards::task_action(&st, &h, "ws-1", "a", "retry").unwrap();
+    boards::task_action(&st, &h, "ws-1", "a", TaskAction::Retry).unwrap();
     // Subito riparte (nessun altro in corso): nuovo worker, tentativo 2.
     let a = task(&st, &h, "a");
     assert_eq!((a["status"].as_str(), a["attempts"].as_u64()), (Some("running"), Some(2)));
@@ -380,7 +381,7 @@ fn closed_workers_are_pruned_beyond_the_cap() {
             command: String::new(),
             kind: crate::board::TaskKind::Work,
         };
-        let id = r.spawn_worker("w", &format!("t{i}"), 1, new, env, i as i64).tab_id;
+        let id = r.spawn_worker(format!("w{i}"), &format!("t{i}"), 1, new, env, i as i64).tab_id;
         r.tab_closed(&id, 1);
     }
     assert!(r.workers.len() <= MAX_TRACKED_WORKERS + 1);

@@ -9,6 +9,7 @@ use chrono::Utc;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
+use std::borrow::Cow;
 use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::path::Path;
@@ -36,7 +37,7 @@ fn decode_whole<T: DeserializeOwned>(data: Value) -> Result<Decoded<T>, String> 
 /// Descrizione di un file di dati (nome + catena di migrazioni). Pensato per
 /// vivere in una `static`: il flag di blocco scritture e' per istanza.
 pub struct JsonFile<T> {
-    name: &'static str,
+    name: Cow<'static, str>,
     steps: &'static [Migration],
     decoder: Decoder<T>,
     check: fn(&T) -> Result<(), String>,
@@ -63,18 +64,28 @@ fn accept_all<T>(_: &T) -> Result<(), String> {
     Ok(())
 }
 
+fn newer_reason(found: u32) -> String {
+    format!("scritto da una versione più recente dell'app (schema {found})")
+}
+
 impl<T: Serialize + DeserializeOwned + Default> JsonFile<T> {
     /// `steps` non puo' essere vuoto: il primo passo e' 0 -> 1 (la busta).
     pub const fn new(name: &'static str, steps: &'static [Migration]) -> Self {
         assert!(!steps.is_empty(), "almeno un passo di migrazione (0 -> 1)");
         Self {
-            name,
+            name: Cow::Borrowed(name),
             steps,
             decoder: decode_whole::<T>,
             check: accept_all::<T>,
             write_blocked: AtomicBool::new(false),
             _t: PhantomData,
         }
+    }
+
+    /// Come `new` per un file il cui nome si conosce solo a runtime (una board
+    /// per workspace): stessa catena di migrazioni, flag di blocco propria.
+    pub fn named(name: String, steps: &'static [Migration]) -> Self {
+        Self { name: Cow::Owned(name), ..Self::new("", steps) }
     }
 
     /// Validazione semantica dopo la deserializzazione: se fallisce il file e'
@@ -91,8 +102,8 @@ impl<T: Serialize + DeserializeOwned + Default> JsonFile<T> {
         self
     }
 
-    pub fn name(&self) -> &'static str {
-        self.name
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// Versione corrente dello schema = numero dei passi di migrazione.
@@ -103,7 +114,7 @@ impl<T: Serialize + DeserializeOwned + Default> JsonFile<T> {
     /// Legge `dir/<name>`. File assente = default senza avvisi; file inutilizzabile =
     /// default con avviso, e il file originale non viene mai distrutto.
     pub fn load(&self, dir: &Path) -> Loaded<T> {
-        let bytes = match std::fs::read(dir.join(self.name)) {
+        let bytes = match std::fs::read(dir.join(&*self.name)) {
             Ok(b) => b,
             Err(e) if e.kind() == ErrorKind::NotFound => return Loaded { value: T::default(), warning: None },
             Err(e) => return self.unreadable(&e),
@@ -112,10 +123,7 @@ impl<T: Serialize + DeserializeOwned + Default> JsonFile<T> {
             Ok(decoded) if decoded.dropped.is_empty() => Loaded { value: decoded.value, warning: None },
             Ok(decoded) => self.partially_read(dir, decoded),
             Err(Rejection::Corrupt(reason)) => self.set_aside(dir, WarningKind::Corrupt, &reason),
-            Err(Rejection::Newer(found)) => {
-                let reason = format!("scritto da una versione più recente dell'app (schema {found})");
-                self.set_aside(dir, WarningKind::NewerVersion, &reason)
-            }
+            Err(Rejection::Newer(found)) => self.set_aside(dir, WarningKind::NewerVersion, &newer_reason(found)),
         }
     }
 
@@ -131,12 +139,29 @@ impl<T: Serialize + DeserializeOwned + Default> JsonFile<T> {
         let fail = |e: &dyn std::fmt::Display| format!("impossibile salvare {}: {e}", self.name);
         std::fs::create_dir_all(dir).map_err(|e| fail(&e))?;
         let raw = envelope::to_pretty(self.schema_version(), value).map_err(|e| fail(&e))?;
-        write_atomic(&dir.join(self.name), &raw).map_err(|e| fail(&e))
+        write_atomic(&dir.join(&*self.name), &raw).map_err(|e| fail(&e))
+    }
+
+    /// Legge un testo gia' in memoria: busta, migrazioni, decodifica e
+    /// validazione come `load`, ma senza I/O, quarantena ne' avvisi. L'errore
+    /// dice perche' il testo non e' utilizzabile. Le voci che il decoder scarta
+    /// non sono un errore e non vengono riportate: serve a chi vuole il solo
+    /// valore (test, importazioni).
+    pub fn parse(&self, text: &str) -> Result<T, String> {
+        match self.decode_text(text) {
+            Ok(decoded) => Ok(decoded.value),
+            Err(Rejection::Corrupt(reason)) => Err(reason),
+            Err(Rejection::Newer(found)) => Err(newer_reason(found)),
+        }
     }
 
     fn decode(&self, bytes: &[u8]) -> Result<Decoded<T>, Rejection> {
+        let text = std::str::from_utf8(bytes).map_err(|e| Rejection::Corrupt(format!("UTF-8 non valido: {e}")))?;
+        self.decode_text(text)
+    }
+
+    fn decode_text(&self, text: &str) -> Result<Decoded<T>, Rejection> {
         let corrupt = |reason: String| Rejection::Corrupt(reason);
-        let text = std::str::from_utf8(bytes).map_err(|e| corrupt(format!("UTF-8 non valido: {e}")))?;
         let raw: Value = serde_json::from_str(text).map_err(|e| corrupt(format!("JSON non valido: {e}")))?;
         let (version, data) = envelope::split(raw);
         if version > self.schema_version() {
@@ -161,7 +186,7 @@ impl<T: Serialize + DeserializeOwned + Default> JsonFile<T> {
             more => format!("{shown}; altre {more}"),
         };
         let what = format!("Nel file {} {count} voci non sono leggibili e sono state escluse ({reason})", self.name);
-        let (message, backup) = match backup::preserve(dir, self.name, Utc::now()) {
+        let (message, backup) = match backup::preserve(dir, &self.name, Utc::now()) {
             Ok(saved) => (
                 format!("{what}; le altre sono state caricate. Il file originale è stato salvato come {saved}."),
                 Some(saved),
@@ -183,7 +208,7 @@ impl<T: Serialize + DeserializeOwned + Default> JsonFile<T> {
     /// Mette da parte il file inutilizzabile come backup datato. Se nemmeno
     /// il rename riesce, il file resta dov'e' e i salvataggi vengono bloccati.
     fn set_aside(&self, dir: &Path, kind: WarningKind, reason: &str) -> Loaded<T> {
-        match backup::quarantine(dir, self.name, Utc::now()) {
+        match backup::quarantine(dir, &self.name, Utc::now()) {
             Ok(saved) => {
                 let message = format!(
                     "Il file {} non è utilizzabile ({reason}): è stato salvato come {saved} e riparte dai valori \
@@ -610,5 +635,60 @@ mod tests {
         let reloaded = f.load(&d);
         assert_eq!((reloaded.value, reloaded.warning.is_none()), (vec![1], true));
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn named_files_share_the_chain_but_not_the_write_block() {
+        let d = temp_dir("named");
+        let (a, b): (JsonFile<Doc>, JsonFile<Doc>) = (
+            JsonFile::named("a.json".to_string(), &[rename_old, add_level]),
+            JsonFile::named(format!("{}.json", "b"), &[rename_old, add_level]),
+        );
+        assert_eq!((a.name(), b.name(), a.schema_version()), ("a.json", "b.json", 2));
+        std::fs::write(d.join("a.json"), r#"{"old":"vecchio"}"#).unwrap();
+        assert_eq!(a.load(&d).value, Doc { renamed: "vecchio".into(), level: 10 });
+        // Un file illeggibile blocca i salvataggi di quella istanza e non dell'altra.
+        std::fs::create_dir_all(d.join("b.json")).unwrap();
+        assert_eq!(b.load(&d).warning.unwrap().kind, WarningKind::Unreadable);
+        assert!(b.save(&d, &Doc::default()).is_err());
+        a.save(&d, &Doc { renamed: "x".into(), level: 1 }).unwrap();
+        assert_eq!(a.load(&d).value.renamed, "x");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn parse_runs_envelope_chain_and_validation_without_io() {
+        fn level_below_five(d: &Doc) -> Result<(), String> {
+            if d.level < 5 {
+                Ok(())
+            } else {
+                Err("livello troppo alto".to_string())
+            }
+        }
+        let f = file().validated(level_below_five);
+        // Formato storico: l'intera catena, nell'ordine.
+        assert_eq!(f.parse(r#"{"old":"v","level":2}"#).unwrap(), Doc { renamed: "v".into(), level: 2 });
+        // Busta corrente: nessun passo.
+        assert_eq!(f.parse(r#"{"schema_version":2,"data":{"renamed":"r","level":4}}"#).unwrap().level, 4);
+        assert!(f.parse(r#"{"schema_version":2,"data":{"level":8}}"#).unwrap_err().contains("livello troppo alto"));
+        assert!(f.parse("{ non json").unwrap_err().contains("JSON non valido"));
+        assert!(f.parse(r#"{"schema_version":2,"data":{"level":"alto"}}"#).unwrap_err().contains("dati non validi"));
+        let newer = f.parse(r#"{"schema_version":9,"data":{}}"#).unwrap_err();
+        assert!(newer.contains("schema 9"), "{newer}");
+    }
+
+    #[test]
+    fn parse_leaves_the_disk_and_the_write_block_alone() {
+        let d = temp_dir("parse-pure");
+        let f = file();
+        assert!(f.parse("rotto").is_err());
+        assert!(names(&d).is_empty());
+        f.save(&d, &Doc::default()).unwrap();
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn parse_ignores_dropped_entries() {
+        assert_eq!(list_file().parse(r#"[1,"due",3]"#).unwrap(), vec![1, 3]);
     }
 }

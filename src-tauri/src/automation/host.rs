@@ -75,6 +75,8 @@ pub trait Host: Clone + Send + 'static {
     fn remove_file(&self, ws: &Workspace, path: &str) -> Result<(), String>;
     fn save_board(&self, board: &Board) -> Result<(), String>;
     fn delete_board(&self, ws_id: &str);
+    /// Aggiunge all'archivio del workspace i task conclusi usciti dalla board.
+    fn archive_tasks(&self, ws_id: &str, tasks: &[Task]) -> Result<(), String>;
     fn emit_board(&self, view: &BoardView);
     /// Esecuzione E2E manuale di un repository partita o conclusa (evento `e2e-update`).
     fn emit_e2e(&self, ev: &e2e::E2eEvent);
@@ -277,19 +279,18 @@ impl Host for TauriHost {
     }
 
     fn save_board(&self, board: &Board) -> Result<(), String> {
-        let dir = worktrees::boards_dir(&self.0)?;
-        std::fs::create_dir_all(&dir).map_err(|e| format!("impossibile creare cartella board: {e}"))?;
-        let raw = serde_json::to_string_pretty(board).map_err(|e| e.to_string())?;
-        let file = worktrees::board_file(&dir, &board.workspace_id)?;
-        crate::write_atomic(&file, &raw).map_err(|e| format!("impossibile salvare la board: {e}"))
+        board_files::save(&worktrees::boards_dir(&self.0)?, board)
     }
 
     fn delete_board(&self, ws_id: &str) {
-        if let Ok(dir) = worktrees::boards_dir(&self.0) {
-            if let Ok(file) = worktrees::board_file(&dir, ws_id) {
-                let _ = std::fs::remove_file(file);
-            }
+        match worktrees::boards_dir(&self.0) {
+            Ok(dir) => board_files::delete(&dir, ws_id),
+            Err(e) => log::error!("board {ws_id}: cartella dati non disponibile: {e}"),
         }
+    }
+
+    fn archive_tasks(&self, ws_id: &str, tasks: &[Task]) -> Result<(), String> {
+        board_files::append_archive(&worktrees::boards_dir(&self.0)?, ws_id, tasks)
     }
 
     fn emit_board(&self, view: &BoardView) {

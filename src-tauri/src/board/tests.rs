@@ -1,7 +1,8 @@
 use super::texts::{self, EnvInfo};
 use super::*;
-use crate::workspaces::{DeliveryMode, MergeMethod, RepoConfig};
-use serde_json::json;
+use crate::workspaces::{Delivery, DeliveryMode, MergeMethod, RepoConfig, Workspace};
+use serde_json::{json, Value};
+use std::collections::HashSet;
 
 fn spec(id: &str, deps: &[&str]) -> TaskSpec {
     TaskSpec {
@@ -25,7 +26,13 @@ fn ids(b: &Board) -> Vec<&str> {
 }
 
 fn set_status(b: &mut Board, id: &str, s: TaskStatus) {
-    b.task_mut(id).unwrap().status = s;
+    b.task_mut(id).unwrap().set_status(s);
+}
+
+/// Il task e' in corso col worker "w1" nell'attivita' `activity`.
+fn set_live(b: &mut Board, id: &str, activity: WorkerActivity) {
+    let phase = RunPhase::Live { session: "w1".into(), worker: activity };
+    b.task_mut(id).unwrap().set_state(TaskState::Running(Run { started_at: 1, previous_attempt: None, phase }));
 }
 
 fn delivery(mode: DeliveryMode, parallel: bool) -> Delivery {
@@ -69,7 +76,7 @@ fn v011_board_is_normalized_on_load() {
     let b = Board::from_json(&raw, 99).unwrap();
     assert_eq!(b.max_parallel, MAX_PARALLEL_LIMIT);
     assert_eq!(ids(&b), ["queued", "running", "review", "blocked", "failed", "done"], "cancelled is removed");
-    let st = |id: &str| b.task(id).unwrap().status;
+    let st = |id: &str| b.task(id).unwrap().status();
     assert_eq!(st("queued"), TaskStatus::Queued);
     assert_eq!(st("running"), TaskStatus::Failed);
     assert_eq!(st("review"), TaskStatus::Failed);
@@ -77,15 +84,15 @@ fn v011_board_is_normalized_on_load() {
     assert_eq!(st("failed"), TaskStatus::Failed);
     assert_eq!(st("done"), TaskStatus::Done);
     let running = b.task("running").unwrap();
-    assert_eq!(running.note.as_deref(), Some(INTERRUPTED_NOTE));
-    assert_eq!((running.session.as_deref(), running.worker_status, running.finished_at), (None, None, Some(99)));
+    assert_eq!(running.note(), Some(INTERRUPTED_NOTE));
+    assert_eq!((running.session(), running.worker_status(), running.finished_at()), (None, None, Some(99)));
     assert_eq!(
-        b.task("review").unwrap().note.as_deref(),
+        b.task("review").unwrap().note(),
         Some("completed but not integrated (board v0.11): retry to let the worker deliver it")
     );
-    assert_eq!(b.task("review").unwrap().report.as_ref().unwrap().summary, "done work");
-    assert_eq!(b.task("blocked").unwrap().note.as_deref(), Some("stuck"));
-    assert_eq!(b.task("blocked").unwrap().report.as_ref().unwrap().status, "failed");
+    assert_eq!(b.task("review").unwrap().report().unwrap().summary, "done work");
+    assert_eq!(b.task("blocked").unwrap().note(), Some("stuck"));
+    assert_eq!(b.task("blocked").unwrap().report().unwrap().status, "failed");
     // Il cancelled sparisce dai depends_on degli altri.
     assert_eq!(b.task("done").unwrap().depends_on, ["queued"]);
     // I campi rimossi non tornano al salvataggio.
@@ -254,7 +261,7 @@ fn board_limit_counts_only_queued_and_running_tasks() {
         let mut b = Board::new("w");
         for i in 0..MAX_TASKS_PER_BOARD {
             let mut t = Task::from_spec(spec(&format!("t{i}"), &[]), 0);
-            t.status = statuses(i);
+            t.set_status(statuses(i));
             b.tasks.push(t);
         }
         b
@@ -288,7 +295,7 @@ fn proposals_accept_discard_and_revalidate() {
     assert_eq!(b.accept_proposal("p-1", 7).unwrap(), ["b", "c"]);
     assert_eq!(ids(&b), ["a", "b", "c"]);
     assert_eq!(b.proposals.len(), 1);
-    assert!(b.tasks.iter().all(|t| t.status == TaskStatus::Queued && t.agent == "claude-code"));
+    assert!(b.tasks.iter().all(|t| t.status() == TaskStatus::Queued && t.agent == "claude-code"));
     // Scarta.
     b.discard_proposal("p-2", 8).unwrap();
     assert!(b.proposals.is_empty());
@@ -347,27 +354,31 @@ fn retry_requeues_at_the_bottom_and_keeps_the_previous_outcome() {
     assert!(b.retry_task("a", 2).unwrap_err().contains("only failed"));
     {
         let t = b.task_mut("a").unwrap();
-        t.status = TaskStatus::Failed;
-        t.attempts = 1;
-        t.note = Some("tests failed".into());
-        t.report = Some(build_report("failed", "two tests red", ReportFields::default(), None));
-        t.last_report = Some("two tests red".into());
+        let report = build_report("failed", "two tests red", ReportFields::default(), None);
+        let finished = Finished { started_at: None, finished_at: 0, report: Some(report) };
+        t.set_state(TaskState::Failed { finished, cause: FailCause::Other });
+        t.set_attempts(1);
+        t.set_note(Some("tests failed"));
+        t.set_last_report(Some("two tests red"));
         t.worktree =
             Some(WorktreeInfo { path: "p".into(), branch: "task/a".into(), base: "main".into(), setup_done: true });
     }
     b.retry_task("a", 3).unwrap();
     assert_eq!(ids(&b), ["b", "a"]);
     let t = b.task("a").unwrap();
-    assert_eq!((t.status, t.attempts, t.report.is_none(), t.note.is_none()), (TaskStatus::Queued, 1, true, true));
+    assert_eq!(
+        (t.status(), t.attempts(), t.report().is_none(), t.note().is_none()),
+        (TaskStatus::Queued, 1, true, true)
+    );
     assert!(t.worktree.is_some(), "worktree e branch si riusano");
-    let p = t.previous_attempt.as_ref().unwrap();
+    let p = t.previous_attempt().unwrap();
     assert_eq!((p.summary.as_deref(), p.note.as_deref()), (Some("two tests red"), Some("tests failed")));
     // Al nuovo avvio il tentativo precedente resta per get_task; alla fine sparisce.
-    b.start_task("a", 4);
-    assert_eq!(b.task("a").unwrap().attempts, 2);
-    assert!(b.task("a").unwrap().previous_attempt.is_some());
-    assert!(b.finish_running("a", None, TaskStatus::Done, None, None, 5));
-    assert!(b.task("a").unwrap().previous_attempt.is_none());
+    b.start_task("a", 4).unwrap();
+    assert_eq!(b.task("a").unwrap().attempts(), 2);
+    assert!(b.task("a").unwrap().previous_attempt().is_some());
+    assert!(b.finish_running("a", None, Outcome::Done, None, None, 5));
+    assert!(b.task("a").unwrap().previous_attempt().is_none());
 }
 
 #[test]
@@ -381,22 +392,21 @@ fn mark_done_closes_a_failed_task_keeping_the_report_and_unblocking_dependents()
     assert!(b.mark_done("zz", 2).unwrap_err().contains("task not found"));
     {
         let t = b.task_mut("a").unwrap();
-        t.status = TaskStatus::Failed;
-        t.note = Some("the session ended without a complete_task report".into());
-        t.previous_attempt = Some(PreviousAttempt { summary: Some("old".into()), note: None });
-        t.report = Some(build_report("completed", "all delivered", ReportFields::default(), None));
-        t.last_report = Some("all delivered".into());
+        let report = build_report("completed", "all delivered", ReportFields::default(), None);
+        let finished = Finished { started_at: None, finished_at: 1, report: Some(report) };
+        t.set_state(TaskState::Failed { finished, cause: FailCause::SessionEnded { session: "w1".into() } });
+        t.set_note(Some("the session ended without a complete_task report"));
+        t.set_last_report(Some("all delivered"));
         t.worktree =
             Some(WorktreeInfo { path: "p".into(), branch: "task/a".into(), base: "main".into(), setup_done: true });
-        t.finished_at = Some(1);
     }
     assert!(!b.deps_done(b.task("b").unwrap()), "failed non sblocca");
     b.mark_done("a", 5).unwrap();
     let t = b.task("a").unwrap();
-    assert_eq!((t.status, t.finished_at, t.updated_at, b.updated_at), (TaskStatus::Done, Some(5), 5, 5));
-    assert!(t.note.is_none() && t.previous_attempt.is_none());
+    assert_eq!((t.status(), t.finished_at(), t.updated_at, b.updated_at), (TaskStatus::Done, Some(5), 5, 5));
+    assert!(t.note().is_none() && t.previous_attempt().is_none());
     assert_eq!(
-        (t.last_report.as_deref(), t.report.as_ref().map(|r| r.summary.as_str())),
+        (t.last_report(), t.report().map(|r| r.summary.as_str())),
         (Some("all delivered"), Some("all delivered"))
     );
     assert!(t.worktree.is_some(), "worktree e branch restano");
@@ -409,31 +419,36 @@ fn mark_done_closes_a_failed_task_keeping_the_report_and_unblocking_dependents()
 
 #[test]
 fn reopen_failed_only_resumes_the_same_failure() {
+    let ended = |session: &str| Outcome::Failed(FailCause::SessionEnded { session: session.into() });
     let mut b = board_with(vec![spec("a", &[])]);
-    b.start_task("a", 1);
-    b.task_mut("a").unwrap().session = Some("w1".into());
-    assert!(!b.reopen_failed("a", "w1", 1, "ended", "reopened", 2), "running: nothing to reopen");
-    assert!(b.finish_running("a", Some("w1"), TaskStatus::Failed, None, Some("ended".into()), 3));
-    // Tentativo, nota o task diversi: rifiutato.
-    assert!(!b.reopen_failed("a", "w1", 2, "ended", "reopened", 4));
-    assert!(!b.reopen_failed("a", "w1", 1, "tab closed", "reopened", 4));
-    assert!(!b.reopen_failed("zz", "w1", 1, "ended", "reopened", 4));
-    assert!(b.reopen_failed("a", "w1", 1, "ended", "reopened", 5));
+    b.start_task("a", 1).unwrap();
+    assert!(b.worker_spawned("a", 1, "w1".into(), None, None, 1));
+    assert!(!b.reopen_failed("a", "w1", 1, "reopened", 2), "running: nothing to reopen");
+    assert!(b.finish_running("a", Some("w1"), ended("w1"), None, Some("ended".into()), 3));
+    // Tentativo, sessione o task diversi: rifiutato.
+    assert!(!b.reopen_failed("a", "w1", 2, "reopened", 4));
+    assert!(!b.reopen_failed("a", "w2", 1, "reopened", 4));
+    assert!(!b.reopen_failed("zz", "w1", 1, "reopened", 4));
+    assert!(b.reopen_failed("a", "w1", 1, "reopened", 5));
     let t = b.task("a").unwrap();
-    assert_eq!(
-        (t.status, t.session.as_deref(), t.note.as_deref()),
-        (TaskStatus::Running, Some("w1"), Some("reopened"))
-    );
-    assert_eq!((t.worker_status, t.finished_at, t.attempts), (Some(WorkerStatus::Running), None, 1));
+    assert_eq!((t.status(), t.session(), t.note()), (TaskStatus::Running, Some("w1"), Some("reopened")));
+    assert_eq!((t.worker_status(), t.finished_at(), t.attempts()), (Some(WorkerStatus::Running), None, 1));
     // La conclusione e' quella normale e la traccia resta.
-    assert!(b.finish_running("a", Some("w1"), TaskStatus::Done, None, None, 6));
-    assert_eq!(b.task("a").unwrap().note.as_deref(), Some("reopened"));
+    assert!(b.finish_running("a", Some("w1"), Outcome::Done, None, None, 6));
+    assert_eq!(b.task("a").unwrap().note(), Some("reopened"));
+    // Fallito per un'altra causa (tab chiuso): non si riapre.
+    let mut b = board_with(vec![spec("a", &[])]);
+    b.start_task("a", 1).unwrap();
+    assert!(b.worker_spawned("a", 1, "w1".into(), None, None, 1));
+    let other = Outcome::Failed(FailCause::Other);
+    assert!(b.finish_running("a", Some("w1"), other, None, Some("tab closed".into()), 2));
+    assert!(!b.reopen_failed("a", "w1", 1, "reopened", 3));
     // Ripreso da un retry: non si riapre piu'.
     let mut b = board_with(vec![spec("a", &[])]);
-    b.start_task("a", 1);
-    assert!(b.finish_running("a", None, TaskStatus::Failed, None, Some("ended".into()), 2));
+    b.start_task("a", 1).unwrap();
+    assert!(b.finish_running("a", None, ended("w1"), None, Some("ended".into()), 2));
     b.retry_task("a", 3).unwrap();
-    assert!(!b.reopen_failed("a", "w1", 1, "ended", "reopened", 4));
+    assert!(!b.reopen_failed("a", "w1", 1, "reopened", 4));
 }
 
 #[test]
@@ -591,7 +606,7 @@ fn scheduler_serial_runs_one_task_per_repository() {
         assert_eq!(ids_of(schedule(&b, &open(mode, parallel))), ["a", "c"], "{mode:?}");
     }
     // Con a in corso la root e' occupata: parte solo c.
-    b.start_task("a", 1);
+    b.start_task("a", 1).unwrap();
     assert_eq!(schedule(&b, &open(DeliveryMode::Commit, false)), ["c"]);
     // Entro max_parallel comunque.
     b.max_parallel = 1;
@@ -605,7 +620,7 @@ fn scheduler_parallel_worktrees_fill_max_parallel_in_queue_order() {
     for mode in [DeliveryMode::Pr, DeliveryMode::LocalMerge] {
         assert_eq!(schedule(&b, &open(mode, true)), ["t0", "t1", "t2"]);
     }
-    b.start_task("t0", 1);
+    b.start_task("t0", 1).unwrap();
     assert_eq!(schedule(&b, &open(DeliveryMode::Pr, true)), ["t1", "t2"]);
     // L'ordine della coda decide.
     b.task_to_top("t5", 2).unwrap();
@@ -618,7 +633,7 @@ fn scheduler_respects_dependencies_pause_and_the_gate() {
     let ctx = open(DeliveryMode::Pr, true);
     assert_eq!(schedule(&b, &ctx), ["a"]);
     // Le dipendenze devono essere done: running o failed non bastano.
-    b.start_task("a", 1);
+    b.start_task("a", 1).unwrap();
     assert!(schedule(&b, &ctx).is_empty());
     set_status(&mut b, "a", TaskStatus::Failed);
     assert!(schedule(&b, &ctx).is_empty());
@@ -643,29 +658,28 @@ fn scheduler_respects_dependencies_pause_and_the_gate() {
 #[test]
 fn attention_follows_the_worker_status() {
     let mut b = board_with(vec![spec("a", &[])]);
-    b.start_task("a", 1);
+    b.start_task("a", 1).unwrap();
     let attention = |b: &Board| b.view_with(None, false).tasks[0].attention;
     assert!(!attention(&b));
-    for (ws, expected) in [
-        (WorkerStatus::NeedsInput, true),
-        (WorkerStatus::Idle, true),
-        (WorkerStatus::Running, false),
-        (WorkerStatus::Background, false),
+    for (activity, expected) in [
+        (WorkerActivity::NeedsInput, true),
+        (WorkerActivity::Idle, true),
+        (WorkerActivity::Running, false),
+        (WorkerActivity::Background, false),
     ] {
-        b.task_mut("a").unwrap().worker_status = Some(ws);
-        assert_eq!(attention(&b), expected, "{ws:?}");
+        set_live(&mut b, "a", activity);
+        assert_eq!(attention(&b), expected, "{activity:?}");
     }
     // Un task non in corso non richiede attenzione.
     set_status(&mut b, "a", TaskStatus::Failed);
-    b.task_mut("a").unwrap().worker_status = Some(WorkerStatus::Idle);
     assert!(!attention(&b));
 }
 
 #[test]
 fn view_json_shape_and_list_rows() {
     let mut b = board_with(vec![spec("a", &[]), spec("b", &["a"])]);
-    b.start_task("a", 1);
-    b.task_mut("a").unwrap().worker_status = Some(WorkerStatus::Idle);
+    b.start_task("a", 1).unwrap();
+    set_live(&mut b, "a", WorkerActivity::Idle);
     let view = b.view_with(Some(&workspace(delivery(DeliveryMode::Pr, true))), true);
     let v = serde_json::to_value(&view).unwrap();
     for k in [

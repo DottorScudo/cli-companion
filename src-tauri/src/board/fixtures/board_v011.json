@@ -1,0 +1,20 @@
+{
+  "workspace_id": "ws-1",
+  "max_parallel": 40,
+  "base_branch": "main",
+  "base_branches": {"api": "dev"},
+  "integration_branch": "integration/{date}",
+  "integrations": {".": {"branch": "integration/x", "path": "p", "base": "main"}},
+  "owner": "orch-1",
+  "requests": [{"id": "r-1", "kind": "question", "status": "pending", "created_at": 1}],
+  "request_seq": 1,
+  "tasks": [
+    {"id": "queued", "title": "q", "task": "t", "status": "queued", "held": true, "touches": ["src"], "priority": 5, "isolation": "none"},
+    {"id": "running", "title": "r", "task": "t", "status": "running", "session": "auto-1", "worker_status": "running", "depends_on": ["queued"]},
+    {"id": "review", "title": "v", "task": "t", "status": "review", "report": {"status": "completed", "summary": "done work"}},
+    {"id": "blocked", "title": "b", "task": "t", "status": "blocked", "note": "stuck", "report": {"status": "blocked", "summary": "cannot"}},
+    {"id": "failed", "title": "f", "task": "t", "status": "failed"},
+    {"id": "cancelled", "title": "c", "task": "t", "status": "cancelled"},
+    {"id": "done", "title": "d", "task": "t", "status": "done", "external": true, "orchestrator_note": "n", "depends_on": ["cancelled", "queued"]}
+  ]
+}

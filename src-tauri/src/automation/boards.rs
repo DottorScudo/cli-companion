@@ -7,7 +7,7 @@
 use super::hooks::HOOK_TIMEOUT;
 use super::worktrees::{check_e2e_configured, ensure_repos, CleanupTarget, StartJob};
 use super::*;
-use crate::board::{self, parse_proposal, parse_spec, SchedCtx, Task, TaskSpec, TaskView};
+use crate::board::{self, parse_proposal, parse_spec, SchedCtx, Task, TaskAction, TaskSpec, TaskView, NOTE_MAX};
 use serde_json::json;
 
 /// Tempo concesso a un avvio (thread git, poi `get_task` del worker).
@@ -16,13 +16,10 @@ pub(super) const START_TIMEOUT_MS: i64 = 5 * 60_000;
 /// Un passo di preparazione (setup del repository) ha un tetto suo
 /// (`HOOK_TIMEOUT`): finche' il thread di avvio ne ha uno in corso il
 /// guardiano aspetta quel tempo piu' un margine, contato dall'ultimo battito
-/// (`Task::preparing_since`, aggiornato a ogni passo). Il tempo dei setup non
+/// (`RunPhase::Preparing::heartbeat`, aggiornato a ogni passo). Il tempo dei setup non
 /// consuma quindi i 5 minuti dell'avvio; un thread morto a meta' passo viene
 /// comunque scoperto.
 pub(super) const PREPARING_TIMEOUT_MS: i64 = HOOK_TIMEOUT.as_millis() as i64 + 2 * 60_000;
-
-/// Lunghezza massima delle note di avviso scritte dall'app sul task.
-pub(super) const NOTE_MAX: usize = 2000;
 
 /// Task `running` senza sessione da oltre `START_TIMEOUT_MS` (o, con un passo
 /// di preparazione in corso, `PREPARING_TIMEOUT_MS`) dall'ultimo segno di
@@ -31,11 +28,12 @@ pub(super) fn stuck_starts<'a>(boards: impl Iterator<Item = &'a Board>, now: i64
     boards
         .flat_map(|b| b.tasks.iter().map(move |t| (b, t)))
         .filter(|(_, t)| {
-            let limit = if t.preparing.is_some() { PREPARING_TIMEOUT_MS } else { START_TIMEOUT_MS };
-            let last = t.started_at.map(|s| s.max(t.preparing_since.unwrap_or(0)));
-            t.status == TaskStatus::Running && t.session.is_none() && last.is_some_and(|l| now - l > limit)
+            t.preparing().is_some_and(|(step, heartbeat)| {
+                let limit = if step.is_some() { PREPARING_TIMEOUT_MS } else { START_TIMEOUT_MS };
+                now - heartbeat > limit
+            })
         })
-        .map(|(b, t)| (b.workspace_id.clone(), t.id.clone(), t.attempts))
+        .map(|(b, t)| (b.workspace_id.clone(), t.id.clone(), t.attempts()))
         .collect()
 }
 
@@ -165,16 +163,14 @@ impl Registry {
     pub fn stop_task(&mut self, ws: &str, id: &str, now: i64) -> Result<(), String> {
         let b = self.boards.get(ws).ok_or_else(|| "task not found: the board is empty".to_string())?;
         b.check_stop(id)?;
-        let session = b.task(id).and_then(|t| t.session.clone());
+        let session = b.task(id).and_then(|t| t.session().map(str::to_string));
         if let Some(w) = session.as_deref().and_then(|s| self.workers.get_mut(s)).filter(|w| w.tab_open) {
-            if !w.status.is_terminal() {
-                w.status = WorkerStatus::Closed;
-            }
+            w.ended.get_or_insert(WorkerEnd::Closed);
             let tab = w.session.clone();
             self.touch(&tab, now);
             self.effects.push(Effect::Close { tab_id: tab, delay: Duration::ZERO });
         }
-        self.fail_task(ws, id, None, board::STOPPED_NOTE, now);
+        self.fail_task(ws, id, None, board::STOPPED_NOTE, FailCause::Other, now);
         Ok(())
     }
 
@@ -235,9 +231,11 @@ impl Registry {
         };
         for id in board::schedule(b, &ctx) {
             // Subito `running`: un'altra esecuzione non lo sceglie due volte.
-            b.start_task(&id, now);
+            if b.start_task(&id, now).is_err() {
+                continue;
+            }
             if let Some(task) = b.task(&id).cloned() {
-                let job = StartJob { ws: ws.clone(), attempt: task.attempts, task };
+                let job = StartJob { ws: ws.clone(), attempt: task.attempts(), task };
                 self.effects.push(Effect::StartTask(Box::new(job)));
             }
         }
@@ -253,8 +251,30 @@ impl Registry {
         };
         b.rev = self.next_rev;
         b.updated_at = now;
+        // L'archivio prima della board salvata senza quei task: se l'app cade
+        // in mezzo restano nel file della board (e nell'archivio, due volte).
+        let archived = b.take_archivable();
         let view = b.view_with(ws, blocked);
-        self.effects.push(Effect::Publish(Box::new(b.clone()), Box::new(view)));
+        let published = Effect::Publish(Box::new(b.clone()), Box::new(view));
+        if !archived.is_empty() {
+            self.effects.push(Effect::Archive { ws_id: ws_id.to_string(), tasks: archived });
+        }
+        self.effects.push(published);
+    }
+
+    /// L'archivio ha rifiutato questi task, gia' tolti dalla board: li rimette
+    /// in fondo, se la board esiste ancora e non li ha gia'. Non segna la board
+    /// modificata (niente giro di ripubblicazione): ci riprova la prossima
+    /// modifica vera, che li archivia di nuovo.
+    pub(super) fn restore_unarchived(&mut self, ws: &str, tasks: Vec<Task>) {
+        let Some(b) = self.boards.get_mut(ws) else {
+            return;
+        };
+        for t in tasks {
+            if b.task(&t.id).is_none() {
+                b.tasks.push(t);
+            }
+        }
     }
 
     // --- avvio dei task ---
@@ -291,7 +311,7 @@ impl Registry {
         self.boards
             .get(ws)
             .and_then(|b| b.task(tid))
-            .is_some_and(|t| t.status == TaskStatus::Running && t.attempts == attempt && t.session.is_none())
+            .is_some_and(|t| t.attempts() == attempt && t.preparing().is_some())
     }
 
     /// Registra il worker di un task appena preparato (git fatto). `None` se
@@ -309,30 +329,30 @@ impl Registry {
         if !self.start_is_current(ws, tid, job.attempt) {
             return None;
         }
-        let ev = self.spawn_worker(ws, tid, job.attempt, new, env, now);
-        if let Some(t) = self.boards.get_mut(ws).and_then(|b| b.task_mut(tid)) {
-            t.session = Some(ev.tab_id.clone());
-            t.worker_status = Some(WorkerStatus::Starting);
-            t.preparing = None;
-            t.preparing_since = None;
-            if worktree.is_some() {
-                t.worktree = worktree;
-            }
-            // Avvisi di preparazione (es. exclude non aggiornato).
-            if !warnings.is_empty() {
-                t.note = Some(clip_chars(&format!("start warnings: {}", warnings.join("; ")), NOTE_MAX));
-            }
-            t.updated_at = now;
+        let id = self.next_worker_id(now);
+        // Avvisi di preparazione (es. exclude non aggiornato).
+        let note =
+            (!warnings.is_empty()).then(|| clip_chars(&format!("start warnings: {}", warnings.join("; ")), NOTE_MAX));
+        let spawned = self
+            .boards
+            .get_mut(ws)
+            .is_some_and(|b| b.worker_spawned(tid, job.attempt, id.clone(), worktree, note, now));
+        if !spawned {
+            return None;
         }
+        let ev = self.spawn_worker(id, tid, job.attempt, new, env, now);
         self.mark_dirty(ws);
         Some(ev)
     }
 
     /// L'avvio del task e' fallito: `failed` con la nota.
     pub fn start_failed(&mut self, ws: &str, tid: &str, attempt: u32, msg: &str, now: i64) {
-        let current =
-            self.boards.get(ws).and_then(|b| b.task(tid)).is_some_and(|t| t.attempts == attempt && t.session.is_none());
-        if current && self.fail_task(ws, tid, None, &clip_chars(msg, NOTE_MAX), now) {
+        let current = self
+            .boards
+            .get(ws)
+            .and_then(|b| b.task(tid))
+            .is_some_and(|t| t.attempts() == attempt && t.session().is_none());
+        if current && self.fail_task(ws, tid, None, &clip_chars(msg, NOTE_MAX), FailCause::Other, now) {
             self.notify(ws, tid, None, "failed");
         }
     }
@@ -347,9 +367,7 @@ impl Registry {
         b.requeue_running(board::ARCHIVED_NOTE, now);
         for w in self.workers.values_mut().filter(|w| w.workspace_id == ws) {
             w.tab_open = false;
-            if !w.status.is_terminal() {
-                w.status = WorkerStatus::Closed;
-            }
+            w.ended.get_or_insert(WorkerEnd::Closed);
         }
         self.mark_dirty(ws);
     }
@@ -367,7 +385,7 @@ impl Registry {
             .values()
             .filter(|w| {
                 w.tab_open
-                    && w.status == WorkerStatus::Starting
+                    && self.worker_status(w) == WorkerStatus::Starting
                     && !w.started_sent
                     && now - w.created_at > START_TIMEOUT_MS
             })
@@ -377,7 +395,7 @@ impl Registry {
             if let Some(w) = self.workers.get_mut(&s) {
                 w.tab_open = false;
             }
-            self.close_worker(&s, "the worker never called get_task: the agent did not start", now);
+            self.close_worker(&s, "the worker never called get_task: the agent did not start", FailCause::Other, now);
             self.effects.push(Effect::Close { tab_id: s, delay: Duration::ZERO });
         }
     }
@@ -387,7 +405,7 @@ impl Registry {
     /// Task `done` con worktree: lo ripulisce l'applicazione degli effetti.
     pub(super) fn queue_cleanup(&mut self, ws: &str, tid: &str) {
         let target =
-            self.boards.get(ws).and_then(|b| b.task(tid)).filter(|t| t.status == TaskStatus::Done).and_then(|t| {
+            self.boards.get(ws).and_then(|b| b.task(tid)).filter(|t| t.status() == TaskStatus::Done).and_then(|t| {
                 t.worktree.clone().map(|wt| CleanupTarget {
                     ws_id: ws.to_string(),
                     task_id: tid.to_string(),
@@ -410,7 +428,7 @@ impl Registry {
             t.worktree = None;
         }
         if !warnings.is_empty() {
-            t.note = Some(clip_chars(&format!("cleanup warnings: {}", warnings.join("; ")), NOTE_MAX));
+            t.replace_note(&format!("cleanup warnings: {}", warnings.join("; ")), now);
         }
         t.updated_at = now;
         self.mark_dirty(ws);
@@ -420,14 +438,14 @@ impl Registry {
 impl AutomationState {
     /// Workspace e task del worker (per `get_task` e il diffstat).
     pub(super) fn worker_task_of(&self, session: &str) -> Option<(String, String)> {
-        let reg = self.inner.lock().unwrap();
+        let reg = self.registry();
         reg.workers.get(session).map(|w| (w.workspace_id.clone(), w.task_id.clone()))
     }
 
     /// Worktree del task del worker (per il diffstat), se ne ha uno.
     pub(super) fn worktree_of(&self, session: &str) -> Option<(String, WorktreeInfo)> {
         let (ws, tid) = self.worker_task_of(session)?;
-        let reg = self.inner.lock().unwrap();
+        let reg = self.registry();
         let wt = reg.boards.get(&ws)?.task(&tid)?.worktree.clone()?;
         Some((ws, wt))
     }
@@ -524,18 +542,17 @@ pub(super) fn task_action<H: Host>(
     host: &H,
     ws_id: &str,
     task_id: &str,
-    action: &str,
+    action: TaskAction,
 ) -> Result<BoardView, String> {
     workspace_of(host, ws_id)?;
     let now = now_millis();
     st.run(host, |r| match action {
-        "retry" => r.retry_task(ws_id, task_id, now),
-        "mark_done" => r.mark_task_done(ws_id, task_id, now),
-        "stop" => r.stop_task(ws_id, task_id, now),
-        "delete" => r.delete_task(ws_id, task_id, now),
-        "delete_cascade" => r.delete_task_cascade(ws_id, task_id, now),
-        "to_top" => r.task_to_top(ws_id, task_id, now),
-        _ => Err("azione non valida (usa retry, mark_done, stop, delete, delete_cascade o to_top)".to_string()),
+        TaskAction::Retry => r.retry_task(ws_id, task_id, now),
+        TaskAction::MarkDone => r.mark_task_done(ws_id, task_id, now),
+        TaskAction::Stop => r.stop_task(ws_id, task_id, now),
+        TaskAction::Delete => r.delete_task(ws_id, task_id, now),
+        TaskAction::DeleteCascade => r.delete_task_cascade(ws_id, task_id, now),
+        TaskAction::ToTop => r.task_to_top(ws_id, task_id, now),
     })?;
     st.view(host, ws_id)
 }
