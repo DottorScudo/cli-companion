@@ -1,6 +1,6 @@
 ---
 name: skill-wizard
-description: Interview the user and create a global Claude Code skill, available in every workspace, saving it with the cli-companion MCP tools save_skill, list_skills and delete_skill. Use when the user wants to create, review, update or remove a personal skill. Only works inside a cli-companion terminal.
+description: Interview the user and create a global skill, available in every workspace, saving it with the cli-companion MCP tools save_skill, list_skills and delete_skill. Use when the user wants to create, review, update or remove a personal skill. Only works inside a cli-companion terminal.
 ---
 
 # Skill Wizard

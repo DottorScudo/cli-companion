@@ -48,6 +48,34 @@ pub fn migrate_launch_id(id: &mut Option<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::registry;
+
+    /// Agent and model names no skill may mention, registered or not: skills read agents and
+    /// models from `get_workspace_settings`.
+    const FOREIGN_NAMES: &[&str] = &["sonnet", "opus", "haiku", "fable", "claude", "codex", "gemini", "copilot"];
+
+    fn registered_names() -> Vec<String> {
+        let mut names = Vec::new();
+        for agent in registry::all() {
+            names.extend([agent.id(), agent.display_name()].map(str::to_lowercase));
+            let models = agent.capabilities().models.map_or(&[][..], |catalog| catalog.suggested());
+            names.extend(models.iter().flat_map(|m| [m.id, m.label]).map(str::to_lowercase));
+        }
+        names
+    }
+
+    #[test]
+    fn skills_name_no_agent_and_no_model() {
+        let mut banned = registered_names();
+        banned.extend(FOREIGN_NAMES.iter().map(|name| name.to_string()));
+        assert!(banned.len() > FOREIGN_NAMES.len(), "the registry names must be covered");
+        for p in PRESETS {
+            let skill = p.skill_text().to_lowercase();
+            for name in &banned {
+                assert!(!skill.contains(name.as_str()), "skill {} names `{name}`", p.id);
+            }
+        }
+    }
 
     #[test]
     fn registry_is_well_formed() {
@@ -103,6 +131,14 @@ mod tests {
             "Suite present but not registered",
             "at most one line",
             "Never set `e2e: true`",
+            "## Agent and model",
+            "`tier: \"standard\"`",
+            "`tier: \"strong\"`",
+            "Never write a model name from memory",
+            "`readiness` is `ready`",
+            "the agent of the workspace",
+            "a capability that only another agent",
+            "different agent",
         ] {
             assert!(skill.contains(t), "{t}");
         }
@@ -152,6 +188,12 @@ mod tests {
             "single line",
             "one question at a time",
             "before -> after",
+            "## Worker agent and per-agent settings",
+            "worker_agents",
+            "rule_format",
+            "max_rule_chars",
+            "`readiness` is not `ready`",
+            "Never write a\n  model name from memory",
         ] {
             assert!(skill.contains(t), "{t}");
         }

@@ -52,7 +52,7 @@ propose it. This only works in a cli-companion terminal, with the app running.
 - `worker_rules`: full text of the workspace rules every worker receives (replaces the current
   text; empty clears it). Keep the existing rules unless the user asks to drop them.
 - `agent`: worker agent of the workspace (an id from `get_workspace_settings.agents`); `null` = the
-  global default.
+  global default. See "Worker agent and per-agent settings".
 - `worker_agents`: per agent (key = agent id), `model` (`null` = the agent default), `allow` and
   `deny` permission rules, only the fields you pass change. Models and rule syntax are those of
   each agent: read them in `get_workspace_settings.agents`.
@@ -63,6 +63,27 @@ propose it. This only works in a cli-companion terminal, with the app running.
   `remove_force`, `e2e` (`command`, `junit`, `timeout_min`; see "E2E suite").
 - Sensitive fields, see the next section: `worker_permission`, `worker_agents[...].allow`,
   `worker_agents[...].deny`, `launches`, `default_launch`, `repos[...].setup`, `repos[...].cleanup`, `repos[...].e2e`.
+
+## Worker agent and per-agent settings
+
+The workers run on an agent: the one of the workspace (`settings.agent`), or the global default
+when it is `null`. A task may name another agent. `get_workspace_settings.agents` lists the
+enabled agents, each with its `id`, `name`, `is_default`, `readiness`, `default_model`, suggested
+`models` (`id`, `label`, `tier`) and `rule_format` (`max_rules`, `max_rule_chars`, `example`).
+
+- **Agent of the workspace**: propose `agent` only when the user wants a different one, or when
+  the current one is not `ready` and another is. Choose among the enabled agents and say which
+  you chose and why. Never propose an agent whose `readiness` is not `ready`: tell the user what
+  is missing instead (the `readiness` value).
+- **Model**: `worker_agents[<id>].model` must be the `id` of a model of that agent. Never write a
+  model name from memory. Pick by `tier`: `standard` for the usual well-defined work, `strong`
+  only when the user wants every task of the workspace on the most capable model (tasks can
+  already choose their own). `null` leaves the choice to the agent.
+- **Permission rules**: `allow` and `deny` are written in the syntax declared by that agent's
+  `rule_format`: copy the shape of its `example`, and stay within `max_rules` and
+  `max_rule_chars`. Rules of one agent mean nothing to another: set them per agent.
+- Settings of an agent the workspace does not use are harmless but pointless: propose them only
+  for the agent of the workspace, or when the user asks for another one.
 
 ## E2E suite
 
