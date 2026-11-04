@@ -85,3 +85,6 @@ export function useWorkspaceOp() {
   }, []);
   return { run, saving, error, setError };
 }
+
+/** La funzione `run` di `useWorkspaceOp`: esegue una modifica e dice se è riuscita. */
+export type WorkspaceRun = (op: () => Promise<Workspace>) => Promise<boolean>;

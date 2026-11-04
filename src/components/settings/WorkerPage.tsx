@@ -1,41 +1,32 @@
-import { useEffect, useMemo, useState } from "react";
-import { Button } from "../ui/button";
-import { Input } from "../ui/input";
+import { useEffect, useState } from "react";
 import { api } from "../../lib/tauri";
 import type { Workspace } from "../../lib/tauri";
+import { useStore } from "../../hooks/useStore";
 import { useWorkerAgent } from "../../hooks/useWorkerAgent";
-import {
-  WORKER_PERMISSIONS,
-  normalizeWorkerPermission,
-  parseWorkerRules,
-  rulesToText,
-  workerPermissionLabel,
-} from "../../lib/workerPermission";
+import { configStore } from "../../stores/config";
+import { WORKER_PERMISSIONS, normalizeWorkerPermission, workerPermissionLabel } from "../../lib/workerPermission";
 import type { WorkerPermission } from "../../lib/workerPermission";
-import { modelError, sanitizeModel } from "../../lib/model";
 import { WORKER_RULES_MAX, sanitizeWorkerRules } from "../../lib/board";
 import UseScheduleSection from "./UseScheduleSection";
+import WorkerAgentField from "./WorkerAgentField";
+import WorkerAgentSettings from "./WorkerAgentSettings";
 import { Field, Section, SettingsPage, selectClass, useWorkspaceOp } from "./shared";
-
-const rulesAreaClass =
-  "w-full resize-y rounded-md border border-input bg-transparent px-2 py-1.5 font-mono text-[12px] outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50";
-
-const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 interface Props {
   workspace: Workspace;
 }
 
-/** Workspace › Worker: permessi, modello, regole e fasce orarie dei worker automatici. */
+/** Workspace › Worker: agente, permessi, modello, regole e fasce orarie dei worker automatici. */
 export default function WorkerPage({ workspace }: Props) {
   const { run, saving, error } = useWorkspaceOp();
-  // Modello e regole sono dell'agente dei worker: quello del workspace o il predefinito globale.
-  const { agentId, profile: agent, settings } = useWorkerAgent(workspace);
+  const integrations = useStore(configStore, (s) => s.integrations);
+  const profiles = useStore(configStore, (s) => s.agentProfiles);
+  // L'avviso sul bypass è dell'agente che esegue i worker; modello e regole si mostrano
+  // per l'agente scelto in "Configurati anche per" (all'inizio, quello dei worker).
+  const { agentId, profile: workerAgent } = useWorkerAgent(workspace);
+  const [viewedAgentId, setViewedAgentId] = useState<string | null>(null);
+  useEffect(() => setViewedAgentId(null), [workspace.id, agentId]);
 
-  // Bozze: seguono il workspace selezionato e il valore salvato.
-  const [workerModelDraft, setWorkerModelDraft] = useState("");
-  const [allowDraft, setAllowDraft] = useState("");
-  const [denyDraft, setDenyDraft] = useState("");
   const [rulesDraft, setRulesDraft] = useState("");
   const [rulesSaved, setRulesSaved] = useState(false);
 
@@ -51,27 +42,15 @@ export default function WorkerPage({ workspace }: Props) {
     void run(() => api.setWorkerRules(workspace.id, rules)).then((ok) => setRulesSaved(ok));
   };
 
-  useEffect(() => {
-    setWorkerModelDraft(settings.model ?? "");
-  }, [workspace.id, agentId, settings.model]);
-
-  useEffect(() => {
-    setAllowDraft(rulesToText(settings.allow));
-    setDenyDraft(rulesToText(settings.deny));
-  }, [workspace.id, agentId, settings.allow, settings.deny]);
-
-  // I testi sui permessi sono dell'agente dei worker.
-  const guide = agent?.worker_permissions ?? null;
   const permission = normalizeWorkerPermission(workspace.worker_permission);
-  const allowRules = useMemo(() => parseWorkerRules(allowDraft), [allowDraft]);
-  const denyRules = useMemo(() => parseWorkerRules(denyDraft), [denyDraft]);
-  const rulesChanged = !sameList(allowRules, settings.allow) || !sameList(denyRules, settings.deny);
 
   return (
     <SettingsPage
       title="Worker"
       description="Come lavorano i worker automatici che eseguono i task della coda di questo workspace."
     >
+      <WorkerAgentField workspace={workspace} integrations={integrations} run={run} saving={saving} />
+
       <Section>
         <Field
           label="Permessi dei worker automatici"
@@ -91,108 +70,22 @@ export default function WorkerPage({ workspace }: Props) {
           </select>
           {permission === "bypass" && (
             <p className="mt-1 text-[11px] text-destructive">
-              I worker eseguiranno qualsiasi comando senza conferma. {guide?.bypass_note}
+              I worker eseguiranno qualsiasi comando senza conferma. {workerAgent?.worker_permissions?.bypass_note}
             </p>
           )}
         </Field>
       </Section>
 
-      {guide ? (
-        <Section>
-          <Field label="Comandi pre-approvati" help={guide.rules_help}>
-            {permission === "bypass" && (
-              <p className="mb-2 text-[11px] text-muted-foreground">
-                Con i permessi a bypass i worker non chiedono mai conferma: i Consentiti non servono, i Vietati restano
-                in vigore.
-              </p>
-            )}
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <div className="mb-1 text-[11px] font-medium">Consentiti</div>
-                <textarea
-                  value={allowDraft}
-                  onChange={(e) => setAllowDraft(e.target.value)}
-                  disabled={permission === "bypass"}
-                  rows={5}
-                  spellCheck={false}
-                  placeholder={guide.allow_placeholder}
-                  className={rulesAreaClass}
-                />
-              </div>
-              <div>
-                <div className="mb-1 text-[11px] font-medium">Vietati</div>
-                <textarea
-                  value={denyDraft}
-                  onChange={(e) => setDenyDraft(e.target.value)}
-                  rows={5}
-                  spellCheck={false}
-                  placeholder={guide.deny_placeholder}
-                  className={rulesAreaClass}
-                />
-              </div>
-            </div>
-            <div className="mt-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={saving || !agentId || !rulesChanged}
-                onClick={() =>
-                  agentId && void run(() => api.setWorkerPermissionRules(workspace.id, agentId, allowRules, denyRules))
-                }
-              >
-                Salva
-              </Button>
-            </div>
-          </Field>
-        </Section>
-      ) : (
-        agent && (
-          <Section>
-            <Field label="Comandi pre-approvati">
-              <p className="text-[11px] text-muted-foreground">
-                {agent.agent_name} non supporta i comandi pre-approvati: le regole non si applicano ai worker.
-              </p>
-            </Field>
-          </Section>
-        )
-      )}
-
-      <Section>
-        <Field
-          label="Modello dei worker"
-          help="Modello dei worker automatici di questo workspace. Vuoto = predefinito dell’agente. Un singolo task può indicare un modello diverso."
-        >
-          <div className="flex gap-2">
-            <Input
-              value={workerModelDraft}
-              onChange={(e) => setWorkerModelDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") e.currentTarget.blur();
-              }}
-              placeholder="predefinito dell’agente"
-              className="h-8 font-mono text-[12px]"
-            />
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={
-                saving ||
-                !agentId ||
-                modelError(workerModelDraft) !== null ||
-                sanitizeModel(workerModelDraft) === settings.model
-              }
-              onClick={() =>
-                agentId && void run(() => api.setWorkerModel(workspace.id, agentId, sanitizeModel(workerModelDraft)))
-              }
-            >
-              Salva
-            </Button>
-          </div>
-          {modelError(workerModelDraft) && (
-            <p className="mt-1 text-[11px] text-destructive">{modelError(workerModelDraft)}</p>
-          )}
-        </Field>
-      </Section>
+      <WorkerAgentSettings
+        workspace={workspace}
+        agentId={viewedAgentId ?? agentId}
+        profiles={profiles}
+        integrations={integrations}
+        permission={permission}
+        onSelectAgent={setViewedAgentId}
+        run={run}
+        saving={saving}
+      />
 
       <UseScheduleSection workspace={workspace} />
 
