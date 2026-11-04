@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { loadHubSettings } from "../app/actions/hub";
 import { api } from "../lib/tauri";
 import { ignoreError, report } from "../lib/errors";
 import { configStore } from "../stores/config";
@@ -34,6 +35,9 @@ export function useInitialData(): void {
       .then((s) => configStore.patch({ globalLaunch: s.default_launch, showUsage: s.show_usage }))
       .catch((e) => report("caricamento delle impostazioni degli avvii", e, { notify: true }));
   }, []);
+
+  // Interruttore dell'Agents HUB (spento di default).
+  useEffect(loadHubSettings, []);
 
   // Versione dell'app (footer della sidebar).
   useEffect(() => {

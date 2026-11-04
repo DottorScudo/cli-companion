@@ -9,6 +9,7 @@ import type { BotSettings } from "../bindings/BotSettings.ts";
 import type { BuiltinLaunch } from "../bindings/BuiltinLaunch.ts";
 import type { Delivery } from "../bindings/Delivery.ts";
 import type { E2eEvent as E2eUpdateEvent } from "../bindings/E2eEvent.ts";
+import type { HubEvent } from "../bindings/HubEvent.ts";
 import type { HubMessage } from "../bindings/HubMessage.ts";
 import type { HubSettings } from "../bindings/HubSettings.ts";
 import type { HubThread } from "../bindings/HubThread.ts";
@@ -45,6 +46,7 @@ export type {
   BotSettings,
   BuiltinLaunch,
   Delivery,
+  HubEvent,
   HubMessage,
   HubSettings,
   HubThread,

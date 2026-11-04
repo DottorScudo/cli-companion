@@ -7,6 +7,7 @@ import { useAppEvents } from "./hooks/useAppEvents";
 import { useBackgroundChecks } from "./hooks/useBackgroundChecks";
 import { useBoardsSync, useTaskNotify } from "./hooks/useBoards";
 import { useFrontendReady } from "./hooks/useFrontendReady";
+import { useHubSync } from "./hooks/useHubSync";
 import { useInitialData } from "./hooks/useInitialData";
 import { useIntegrationsSync } from "./hooks/useIntegrations";
 import { useLaunchesSync } from "./hooks/useLaunchesSync";
@@ -27,6 +28,7 @@ export default function App() {
   useStoreWarnings();
   useBoardsSync();
   useTaskNotify();
+  useHubSync();
   useUsagePolling();
   useSessionPersistence();
   useShortcuts();

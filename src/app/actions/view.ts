@@ -14,7 +14,8 @@ import { hasGroup, layoutStore, viewWorkspaceId } from "../../stores/layout";
 import { tabsStore } from "../../stores/tabs";
 import { uiStore } from "../../stores/ui";
 import type { TasksManagerIntent } from "../../components/tasks/TasksManager";
-import { officeShown } from "../../stores/view";
+import { hubShown, officeShown } from "../../stores/view";
+import { hubStore } from "../../stores/hub";
 import { loadBoard } from "../boards";
 
 /** Durata dell'avviso temporaneo nella sidebar. */
@@ -47,6 +48,7 @@ export function focusTerminal(key: string): void {
   const tab = tabsStore.get(key);
   if (!tab) return;
   uiStore.setOffice(false);
+  uiStore.setHub(false);
   showTerminalsOf(tab.workspaceId);
   layoutStore.apply((l) => focusTab(l, key));
 }
@@ -86,12 +88,13 @@ export function openManager(id: string, intent?: Omit<TasksManagerIntent, "nonce
 
 /**
  * Sidebar e Ctrl+Maiusc+B: apre il manager, o lo chiude se è già aperto.
- * Con l'Ufficio aperto apre il manager (e chiude l'Ufficio): non lo chiude
- * "sotto" l'Ufficio dove non si vedrebbe.
+ * Con Ufficio o Agents HUB aperti apre il manager (e li chiude): non lo chiude
+ * "sotto" una vista che lo copre, dove non si vedrebbe.
  */
 export function toggleManager(id: string): void {
-  const shown = officeShown(uiStore.getState(), configStore.getState().botSettings);
-  if (!shown && viewWorkspaceId(layoutStore.getState()) === id && uiStore.getState().managerOpen[id] === true) {
+  const ui = uiStore.getState();
+  const covered = officeShown(ui, configStore.getState().botSettings) || hubShown(ui, hubStore.getState());
+  if (!covered && viewWorkspaceId(layoutStore.getState()) === id && uiStore.getState().managerOpen[id] === true) {
     uiStore.closeManager(id);
     return;
   }
@@ -105,6 +108,15 @@ export function toggleOffice(): void {
 
 export function closeOffice(): void {
   uiStore.setOffice(false);
+}
+
+/** Pulsante della sidebar: apre/chiude l'Agents HUB (chiude l'Ufficio). */
+export function toggleHub(): void {
+  uiStore.toggleHub();
+}
+
+export function closeHub(): void {
+  uiStore.setHub(false);
 }
 
 /** Ctrl+Maiusc+M: massimizza/ripristina il pannello attivo della vista mostrata. */

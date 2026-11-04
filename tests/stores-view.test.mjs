@@ -1,11 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { managerShown, officeShown, overlayShown } from "../src/stores/view.ts";
+import { hubShown, managerShown, officeShown, overlayShown } from "../src/stores/view.ts";
 import { INITIAL_LAYOUT_STATE } from "../src/stores/layout.ts";
 import { INITIAL_UI } from "../src/stores/ui.ts";
 
 const BOTS_ON = { enabled: true };
 const BOTS_OFF = { enabled: false };
+const HUB_ON = { enabled: true };
+const HUB_OFF = { enabled: false };
 
 const layoutOf = (activeWorkspaceId, activeView = "workspace", focusedWorkspaceId = null) => ({
   layout: { ...INITIAL_LAYOUT_STATE.layout, activeWorkspaceId, activeView },
@@ -42,12 +44,22 @@ describe("view: managerShown", () => {
   });
 });
 
+describe("view: hubShown", () => {
+  it("serve l'HUB aperto e acceso", () => {
+    assert.equal(hubShown({ hubOpen: true }, HUB_ON), true);
+    assert.equal(hubShown({ hubOpen: true }, HUB_OFF), false);
+    assert.equal(hubShown({ hubOpen: false }, HUB_ON), false);
+  });
+});
+
 describe("view: overlayShown", () => {
-  it("manager o Ufficio", () => {
+  it("manager, Ufficio o Agents HUB", () => {
     const ui = { ...INITIAL_UI, managerOpen: { a: true }, officeOpen: false };
-    assert.equal(overlayShown(layoutOf("a"), ui, BOTS_ON), true);
-    assert.equal(overlayShown(layoutOf("b"), ui, BOTS_ON), false);
-    assert.equal(overlayShown(layoutOf("b"), { ...ui, officeOpen: true }, BOTS_ON), true);
-    assert.equal(overlayShown(layoutOf("b"), { ...ui, officeOpen: true }, BOTS_OFF), false);
+    assert.equal(overlayShown(layoutOf("a"), ui, BOTS_ON, HUB_OFF), true);
+    assert.equal(overlayShown(layoutOf("b"), ui, BOTS_ON, HUB_OFF), false);
+    assert.equal(overlayShown(layoutOf("b"), { ...ui, officeOpen: true }, BOTS_ON, HUB_OFF), true);
+    assert.equal(overlayShown(layoutOf("b"), { ...ui, officeOpen: true }, BOTS_OFF, HUB_OFF), false);
+    assert.equal(overlayShown(layoutOf("b"), { ...ui, hubOpen: true }, BOTS_OFF, HUB_ON), true);
+    assert.equal(overlayShown(layoutOf("b"), { ...ui, hubOpen: true }, BOTS_OFF, HUB_OFF), false);
   });
 });

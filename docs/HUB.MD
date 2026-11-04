@@ -151,3 +151,25 @@ risponde «canale non trovato: il workspace non esiste più».
 `hub-update`, emesso a ogni modifica di un thread, con payload `HubThreadSummary` del thread toccato (riga in
 `TauriEvents`). Basta per aggiornare l'elenco dei thread e il badge del canale senza rileggere nulla; la
 conversazione aperta rilegge il thread con `hub_get_thread` quando `message_count` o `updated_at` cambiano.
+
+## Interfaccia
+
+Interruttore in Impostazioni › Generale › Agents HUB (spento di default). Acceso, la sidebar mostra un pulsante accanto
+a quello dell'Ufficio che apre la vista (`components/hub/`, overlay `workbench/HubOverlay.tsx` allo stesso livello
+dell'Ufficio): aprire l'una chiude l'altra, e spegnere l'HUB chiude la vista. Spento, non c'è pulsante, vista né
+chiamate: all'avvio si legge solo `hub_get_settings`.
+
+| Parte | Dove |
+|---|---|
+| Stato (interruttore, canale, filtro, riassunti per canale, thread aperto, risposta in corso) | `stores/hub.ts` |
+| Apertura della vista (`hubOpen`, esclusiva con `officeOpen`) | `stores/ui.ts`, `stores/view.ts` (`hubShown`) |
+| Canali, filtro, controlli sui testi, decisioni di rilettura | `lib/hub.ts` |
+| Resa degli eventi per tipo (etichetta, icona, tono; i tipi sconosciuti hanno la resa generica) | `lib/hubEvents.ts` |
+| Chiamate al backend e `hub-update` | `app/actions/hub.ts`, `hooks/useHubSync.ts` |
+
+Tre colonne: canali (Generale, poi i workspace visibili nell'ordine della sidebar, con il segnalino se un thread ha
+`waiting_user`), thread del canale (filtro Aperti/Tutti, «Nuovo thread») e conversazione. All'apertura si legge
+l'elenco di ogni canale; poi si segue `hub-update`, senza interrogazioni periodiche. Gli eventi sono righe compatte con
+«Rispondi»: il compositore mostra il messaggio citato (annullabile) e invia con `reply_to`; la risposta riporta il
+riferimento all'originale, che sparisce se il messaggio è stato potato. Invio invia, Maiusc+Invio va a capo, al massimo
+8000 caratteri.

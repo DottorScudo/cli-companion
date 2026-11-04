@@ -1,4 +1,4 @@
-// Stato dell'interfaccia: dialoghi, Tasks Manager, Ufficio, avviso della
+// Stato dell'interfaccia: dialoghi, Tasks Manager, Ufficio, Agents HUB, avviso della
 // sidebar e flag di avvio. Ogni transizione ritorna lo stesso stato se non
 // cambia nulla.
 
@@ -25,6 +25,8 @@ export interface UiState {
   intentNonce: number;
   /** L'Ufficio è globale (non per workspace). */
   officeOpen: boolean;
+  /** Anche l'Agents HUB è globale; si esclude con l'Ufficio (sono due viste a tutta area). */
+  hubOpen: boolean;
   /** Avviso temporaneo (es. preset Task Intake non disponibile), mostrato nella sidebar. */
   notice: string | null;
   updateAvailable: boolean;
@@ -42,6 +44,7 @@ export const INITIAL_UI: UiState = {
   managerIntent: null,
   intentNonce: 0,
   officeOpen: false,
+  hubOpen: false,
   notice: null,
   updateAvailable: false,
   outdatedPlugins: [],
@@ -71,15 +74,16 @@ export function closeSettings(s: UiState): UiState {
 
 /**
  * Apre il Tasks Manager di un workspace, con un'eventuale richiesta (nuovo
- * `nonce`: serve a riarmare l'effetto del manager). Chiude l'Ufficio, che
- * altrimenti lo coprirebbe. Senza richiesta azzera quella pendente.
+ * `nonce`: serve a riarmare l'effetto del manager). Chiude Ufficio e
+ * Agents HUB, che altrimenti lo coprirebbero. Senza richiesta azzera quella pendente.
  */
 export function openManager(s: UiState, id: string, intent?: Omit<TasksManagerIntent, "nonce">): UiState {
-  if (s.managerOpen[id] === true && !s.officeOpen && !intent && s.managerIntent === null) return s;
+  if (s.managerOpen[id] === true && !s.officeOpen && !s.hubOpen && !intent && s.managerIntent === null) return s;
   const nonce = intent ? s.intentNonce + 1 : s.intentNonce;
   return {
     ...s,
     officeOpen: false,
+    hubOpen: false,
     managerOpen: { ...s.managerOpen, [id]: true },
     managerIntent: intent ? { ...intent, nonce } : null,
     intentNonce: nonce,
@@ -96,12 +100,24 @@ export function consumeIntent(s: UiState): UiState {
   return s.managerIntent === null ? s : { ...s, managerIntent: null };
 }
 
+/** Aprire l'Ufficio chiude l'Agents HUB. */
 export function setOffice(s: UiState, open: boolean): UiState {
-  return s.officeOpen === open ? s : { ...s, officeOpen: open };
+  if (s.officeOpen === open && !(open && s.hubOpen)) return s;
+  return { ...s, officeOpen: open, hubOpen: open ? false : s.hubOpen };
 }
 
 export function toggleOffice(s: UiState): UiState {
-  return { ...s, officeOpen: !s.officeOpen };
+  return setOffice(s, !s.officeOpen);
+}
+
+/** Aprire l'Agents HUB chiude l'Ufficio. */
+export function setHub(s: UiState, open: boolean): UiState {
+  if (s.hubOpen === open && !(open && s.officeOpen)) return s;
+  return { ...s, hubOpen: open, officeOpen: open ? false : s.officeOpen };
+}
+
+export function toggleHub(s: UiState): UiState {
+  return setHub(s, !s.hubOpen);
 }
 
 export function setNotice(s: UiState, text: string | null): UiState {
@@ -133,6 +149,8 @@ export function createUiStore() {
     consumeIntent: () => store.update(consumeIntent),
     setOffice: (open: boolean) => store.update((s) => setOffice(s, open)),
     toggleOffice: () => store.update(toggleOffice),
+    setHub: (open: boolean) => store.update((s) => setHub(s, open)),
+    toggleHub: () => store.update(toggleHub),
     setNotice: (text: string | null) => store.update((s) => setNotice(s, text)),
     setUpdateAvailable: (available: boolean) => store.update((s) => setUpdateAvailable(s, available)),
     setOutdatedPlugins: (list: OutdatedPlugin[]) => store.update((s) => setOutdatedPlugins(s, list)),

@@ -1,7 +1,8 @@
 import { configStore } from "../stores/config";
+import { hubStore } from "../stores/hub";
 import { layoutStore, viewWorkspaceId } from "../stores/layout";
 import { uiStore } from "../stores/ui";
-import { managerShown, officeShown, overlayShown } from "../stores/view";
+import { hubShown, managerShown, officeShown, overlayShown } from "../stores/view";
 import { useStore, useStores } from "./useStore";
 
 // Cosa è mostrato, derivato dagli archivi (le funzioni pure stanno in
@@ -10,12 +11,14 @@ import { useStore, useStores } from "./useStore";
 
 const LAYOUT_UI = [layoutStore, uiStore] as const;
 const UI_CONFIG = [uiStore, configStore] as const;
-const VIEW_STORES = [layoutStore, uiStore, configStore] as const;
+const UI_HUB = [uiStore, hubStore] as const;
+const VIEW_STORES = [layoutStore, uiStore, configStore, hubStore] as const;
 
 const computeManagerShown = () => managerShown(layoutStore.getState(), uiStore.getState());
 const computeOfficeShown = () => officeShown(uiStore.getState(), configStore.getState().botSettings);
+const computeHubShown = () => hubShown(uiStore.getState(), hubStore.getState());
 const computeOverlayShown = () =>
-  overlayShown(layoutStore.getState(), uiStore.getState(), configStore.getState().botSettings);
+  overlayShown(layoutStore.getState(), uiStore.getState(), configStore.getState().botSettings, hubStore.getState());
 
 /** Workspace mostrato (quello a fuoco senza gruppo, altrimenti il gruppo attivo; null con la vista globale). */
 export function useViewWorkspaceId(): string | null {
@@ -32,7 +35,12 @@ export function useOfficeShown(): boolean {
   return useStores(UI_CONFIG, computeOfficeShown);
 }
 
-/** Manager o Ufficio coprono pannello Task e terminali. */
+/** L'Agents HUB è aperto e acceso. */
+export function useHubShown(): boolean {
+  return useStores(UI_HUB, computeHubShown);
+}
+
+/** Manager, Ufficio o Agents HUB coprono pannello Task e terminali. */
 export function useOverlayShown(): boolean {
   return useStores(VIEW_STORES, computeOverlayShown);
 }

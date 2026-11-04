@@ -22,10 +22,12 @@ import {
   openSettings,
   setAddWorkspaceOpen,
   setNotice,
+  setHub,
   setOffice,
   setOutdatedPlugins,
   setSessionReady,
   setUpdateAvailable,
+  toggleHub,
   toggleOffice,
 } from "../src/stores/ui.ts";
 
@@ -184,6 +186,39 @@ describe("ui: Tasks Manager e Ufficio", () => {
     const open = toggleOffice(INITIAL_UI);
     assert.equal(open.officeOpen, true);
     assert.equal(toggleOffice(open).officeOpen, false);
+  });
+
+  it("setHub e toggleHub: spento di default, a vuoto non cambiano nulla", () => {
+    assert.equal(INITIAL_UI.hubOpen, false);
+    assert.equal(setHub(INITIAL_UI, false), INITIAL_UI);
+    const open = toggleHub(INITIAL_UI);
+    assert.equal(open.hubOpen, true);
+    assert.equal(setHub(open, true), open);
+    assert.equal(toggleHub(open).hubOpen, false);
+  });
+
+  it("Ufficio e Agents HUB si escludono a vicenda", () => {
+    const hub = setHub(INITIAL_UI, true);
+    const office = setOffice(hub, true);
+    assert.equal(office.officeOpen, true);
+    assert.equal(office.hubOpen, false);
+    const back = setHub(office, true);
+    assert.equal(back.hubOpen, true);
+    assert.equal(back.officeOpen, false);
+    assert.equal(toggleOffice(back).hubOpen, false);
+  });
+
+  it("chiudere una vista non tocca l'altra", () => {
+    const hub = setHub(INITIAL_UI, true);
+    assert.equal(setOffice(hub, false), hub);
+    const office = setOffice(INITIAL_UI, true);
+    assert.equal(setHub(office, false), office);
+  });
+
+  it("openManager chiude anche l'Agents HUB", () => {
+    const s = openManager(setHub(INITIAL_UI, true), "w1");
+    assert.equal(s.managerOpen.w1, true);
+    assert.equal(s.hubOpen, false);
   });
 });
 
