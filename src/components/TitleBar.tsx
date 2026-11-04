@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { appWindow } from "../lib/appWindow";
+import type { AppWindow } from "../lib/appWindow";
+import { report } from "../lib/errors";
+import { startSubscription } from "../lib/subscription";
 import { Star } from "lucide-react";
 import Logo from "./Logo";
 import StatusIcon from "./StatusIcon";
@@ -26,12 +29,9 @@ interface Props {
 }
 
 /** Esegue un'azione sulla finestra; fuori da Tauri (anteprima nel browser) non fa nulla. */
-function withWindow(fn: (w: ReturnType<typeof getCurrentWindow>) => Promise<unknown>) {
-  try {
-    void fn(getCurrentWindow()).catch(() => undefined);
-  } catch {
-    /* fuori da Tauri */
-  }
+function withWindow(fn: (w: AppWindow) => Promise<unknown>) {
+  const win = appWindow();
+  if (win) void fn(win).catch((e) => report("azione sulla finestra", e));
 }
 
 const CTRL =
@@ -94,32 +94,25 @@ export default function TitleBar({
 
   // Segue lo stato di massimizzazione per scambiare l'icona.
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
+    const win = appWindow();
+    if (!win) return;
     let cancelled = false;
-    try {
-      const win = getCurrentWindow();
-      const sync = () => {
-        void win
-          .isMaximized()
-          .then((m) => {
-            if (!cancelled) setMaximized(m);
-          })
-          .catch(() => undefined);
-      };
-      sync();
+    const sync = () => {
       void win
-        .onResized(sync)
-        .then((u) => {
-          if (cancelled) u();
-          else unlisten = u;
+        .isMaximized()
+        .then((m) => {
+          if (!cancelled) setMaximized(m);
         })
-        .catch(() => undefined);
-    } catch {
-      /* fuori da Tauri */
-    }
+        .catch((e) => report("lettura dello stato della finestra", e));
+    };
+    sync();
+    const stop = startSubscription(
+      () => win.onResized(sync),
+      (e) => report("ascolto del ridimensionamento della finestra", e),
+    );
     return () => {
       cancelled = true;
-      unlisten?.();
+      stop();
     };
   }, []);
 

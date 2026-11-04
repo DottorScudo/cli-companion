@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, onBoardUpdate, onTaskNotify } from "./tauri";
+import { api } from "./tauri";
 import type { Workspace } from "./tauri";
 import { mergeBoard } from "./board";
 import type { BoardView } from "./board";
 import { notifyIfUnfocused, notifyPlainIfUnfocused } from "./systemNotify";
+import { useTauriEvent } from "./useTauriEvent";
 
 /**
  * Code dei task di tutti i workspace: caricamento all'avvio (e per i workspace
@@ -50,20 +51,7 @@ export function useBoards(workspaces: Workspace[]) {
   }, [workspaces, loadBoard]);
 
   // Aggiornamenti della board dal backend.
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    onBoardUpdate((b) => storeBoard(b))
-      .then((u) => {
-        if (cancelled) u();
-        else unlisten = u;
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [storeBoard]);
+  useTauriEvent("board-update", storeBoard);
 
   return { boards, boardErrors, storeBoard, loadBoard };
 }
@@ -77,22 +65,9 @@ export function useBoards(workspaces: Workspace[]) {
 export function useTaskNotify(workspaces: Workspace[]) {
   const workspacesRef = useRef(workspaces);
   workspacesRef.current = workspaces;
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    onTaskNotify((e) => {
-      const name = workspacesRef.current.find((w) => w.id === e.workspace_id)?.name ?? "Workspace";
-      if (e.tab_id) void notifyIfUnfocused(e.tab_id, name, e.body);
-      else void notifyPlainIfUnfocused(name, e.body);
-    })
-      .then((u) => {
-        if (cancelled) u();
-        else unlisten = u;
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, []);
+  useTauriEvent("task-notify", (e) => {
+    const name = workspacesRef.current.find((w) => w.id === e.workspace_id)?.name ?? "Workspace";
+    if (e.tab_id) void notifyIfUnfocused(e.tab_id, name, e.body);
+    else void notifyPlainIfUnfocused(name, e.body);
+  });
 }

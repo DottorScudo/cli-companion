@@ -1,9 +1,9 @@
 import { invoke, type Channel } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import type { WorkerPermission } from "./workerPermission";
 import type { BotImage } from "./bots";
 import type { BoardView, Delivery, E2eRun, NewTaskSpec, TaskAction, TaskNotifyEvent, TaskPatch } from "./board";
 import type { Schedule, ScheduleState } from "./schedule";
+import type { StoreWarning } from "./storeWarnings";
 
 /** Esito di `settings_proposal_decide`: `workspace` solo se la proposta è stata applicata. */
 export interface SettingsDecision {
@@ -34,17 +34,6 @@ export interface LaunchSettings {
   default_launch: string | null;
   /** Mostra limiti e token di utilizzo (default true). */
   show_usage: boolean;
-}
-
-/** Avviso di persistenza: un file di dati inutilizzabile (corrotto, più recente o illeggibile). */
-export interface StoreWarning {
-  file: string;
-  kind: "corrupt" | "newer_version" | "unreadable";
-  message: string;
-  /** Nome del backup datato, se il file è stato messo da parte. */
-  backup: string | null;
-  /** Unix ms. */
-  at: number;
 }
 
 /** Impostazioni dei bot: pool dei nomi e immagini associate (puramente visivi). */
@@ -421,30 +410,6 @@ export const api = {
   pruneScrollback: (keep: string[]) => invoke<void>("prune_scrollback", { keep }),
 };
 
-export function onNotificationActivated(cb: (tabId: string) => void) {
-  return listen<{ tab_id: string }>("notification-activated", (event) => cb(event.payload.tab_id));
-}
-
-export function onAutomationSpawn(cb: (e: AutomationSpawn) => void) {
-  return listen<AutomationSpawn>("automation-spawn", (event) => cb(event.payload));
-}
-
-export function onAutomationClose(cb: (e: AutomationClose) => void) {
-  return listen<AutomationClose>("automation-close", (event) => cb(event.payload));
-}
-
-export function onAutomationUpdate(cb: (e: AutomationTabInfo) => void) {
-  return listen<AutomationTabInfo>("automation-update", (event) => cb(event.payload));
-}
-
-export function onScheduleState(cb: (s: ScheduleState) => void) {
-  return listen<ScheduleState>("schedule-state", (event) => cb(event.payload));
-}
-
-export function onBoardUpdate(cb: (b: BoardView) => void) {
-  return listen<BoardView>("board-update", (event) => cb(event.payload));
-}
-
 /** Un'esecuzione manuale degli E2E è partita o finita. */
 export interface E2eUpdateEvent {
   workspace_id: string;
@@ -453,15 +418,16 @@ export interface E2eUpdateEvent {
   run: E2eRun;
 }
 
-export function onE2eUpdate(cb: (e: E2eUpdateEvent) => void) {
-  return listen<E2eUpdateEvent>("e2e-update", (event) => cb(event.payload));
-}
-
-/** Un task richiede attenzione o e' fallito: notifica di sistema. */
-export function onTaskNotify(cb: (e: TaskNotifyEvent) => void) {
-  return listen<TaskNotifyEvent>("task-notify", (event) => cb(event.payload));
-}
-
-export function onAgentEvent(cb: (e: AgentEvent) => void) {
-  return listen<AgentEvent>("agent-event", (event) => cb(event.payload));
+/** Eventi emessi dal backend con il tipo del loro payload (usati da `useTauriEvent`). */
+export interface TauriEvents {
+  "notification-activated": { tab_id: string };
+  "automation-spawn": AutomationSpawn;
+  "automation-close": AutomationClose;
+  "automation-update": AutomationTabInfo;
+  "schedule-state": ScheduleState;
+  "board-update": BoardView;
+  "e2e-update": E2eUpdateEvent;
+  "task-notify": TaskNotifyEvent;
+  "agent-event": AgentEvent;
+  "store-warning": StoreWarning;
 }

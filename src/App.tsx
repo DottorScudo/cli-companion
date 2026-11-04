@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
 import { Loader2, SlidersHorizontal } from "lucide-react";
@@ -14,15 +13,14 @@ import type { TitleTab } from "./components/TitleBar";
 import StatusBar from "./components/StatusBar";
 import Logo from "./components/Logo";
 import TerminalView from "./components/TerminalView";
+import NoticeCenter from "./components/NoticeCenter";
 import { Button } from "./components/ui/button";
-import {
-  api,
-  onAgentEvent,
-  onAutomationClose,
-  onAutomationSpawn,
-  onAutomationUpdate,
-  onNotificationActivated,
-} from "./lib/tauri";
+import { api } from "./lib/tauri";
+import { appWindow } from "./lib/appWindow";
+import { ignoreError, report } from "./lib/errors";
+import { startSubscription } from "./lib/subscription";
+import { useStoreWarnings } from "./lib/useStoreWarnings";
+import { useTauriEvent } from "./lib/useTauriEvent";
 import { taskCounts } from "./lib/board";
 import { useBoards, useTaskNotify } from "./lib/useBoards";
 import { useTaskPanelCollapsed } from "./lib/useTaskPanelCollapsed";
@@ -154,6 +152,9 @@ function toSessionTab(t: Tab): SessionTab {
   };
 }
 
+/** Attesa prima dei controlli in background (stato dei plugin) dopo il ripristino della sessione. */
+const BACKGROUND_CHECK_DELAY_MS = 1500;
+
 function newTabKey(): string {
   try {
     return crypto.randomUUID();
@@ -198,7 +199,6 @@ export default function App() {
   // volta, in background, dopo l'avvio; aggiornati dalle Impostazioni.
   const [agentEnvs, setAgentEnvs] = useState<AgentEnvStatus[]>([]);
   const [outdatedPlugins, setOutdatedPlugins] = useState<OutdatedPlugin[]>([]);
-  const pluginCheckStarted = useRef(false);
   // Utilizzo (limiti e token): interruttore globale delle Impostazioni.
   const [showUsage, setShowUsage] = useState(true);
   // Bot: nome e avatar di ogni sessione. Caricati col ripristino della sessione
@@ -220,6 +220,7 @@ export default function App() {
   // Code dei task per workspace (pannello Task, sidebar, Tasks Manager).
   const { boards, boardErrors, storeBoard, loadBoard } = useBoards(workspaces);
   useTaskNotify(workspaces);
+  useStoreWarnings();
   // Pannello Task compresso/espanso, per workspace e per la vista Globale (localStorage).
   const taskPanel = useTaskPanelCollapsed();
   // Modalità per workspace: true = si mostra il Tasks Manager al posto dei terminali.
@@ -235,7 +236,7 @@ export default function App() {
     api
       .agentProfiles()
       .then(setAgentProfiles)
-      .catch(() => undefined);
+      .catch((e) => report("caricamento dei profili degli agenti", e, { notify: true }));
   }, []);
 
   useEffect(() => {
@@ -285,7 +286,10 @@ export default function App() {
         raw,
         workspaces.filter((w) => !w.archived).map((w) => w.id),
       );
-      const bots = await api.getBotSettings().catch(() => botSettingsRef.current);
+      const bots = await api.getBotSettings().catch((e) => {
+        report("caricamento delle impostazioni dei bot", e, { notify: true });
+        return botSettingsRef.current;
+      });
       setBotSettings(bots);
       if (data) {
         const byId = new Map(workspaces.map((w) => [w.id, w]));
@@ -314,7 +318,9 @@ export default function App() {
       }
       // Via lo scrollback dei tab che non esistono più (solo se la lettura è riuscita).
       if (loaded) {
-        void api.pruneScrollback(data ? data.tabs.map((t) => t.tabId) : []).catch(() => undefined);
+        void api
+          .pruneScrollback(data ? data.tabs.map((t) => t.tabId) : [])
+          .catch((e) => report("pulizia della cronologia salvata", e));
       }
       setSaveEnabled(loaded);
       setSessionReady(true);
@@ -355,8 +361,9 @@ export default function App() {
     const id = setTimeout(() => {
       pendingSinceRef.current = null;
       savedJsonRef.current = sessionJson;
-      void api.saveSession(buildSessionRef.current(true)).catch(() => {
+      void api.saveSession(buildSessionRef.current(true)).catch((e) => {
         savedJsonRef.current = null;
+        report("salvataggio della sessione", e, { notify: true });
       });
     }, delay);
     return () => clearTimeout(id);
@@ -381,28 +388,18 @@ export default function App() {
     const work = Promise.all([
       saveEnabledRef.current ? api.saveSession(buildSessionRef.current(true)) : Promise.resolve(),
       ...[...flushersRef.current.values()].map((f) => f()),
-    ]).catch(() => undefined);
+    ]).catch((e) => report("salvataggio alla chiusura", e));
     await Promise.race([work, new Promise((resolve) => setTimeout(resolve, CLOSE_FLUSH_TIMEOUT_MS))]);
   }, []);
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    try {
-      void getCurrentWindow()
-        .onCloseRequested(flushBeforeExit)
-        .then((u) => {
-          if (cancelled) u();
-          else unlisten = u;
-        })
-        .catch(() => undefined);
-    } catch {
-      // fuori da Tauri (anteprima nel browser): nessun hook di chiusura
-    }
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, []);
+    const win = appWindow();
+    // Fuori da Tauri (anteprima nel browser) non c'è nessun hook di chiusura.
+    if (!win) return;
+    return startSubscription(
+      () => win.onCloseRequested(flushBeforeExit),
+      (e) => report("registrazione del salvataggio alla chiusura", e),
+    );
+  }, [flushBeforeExit]);
 
   // Workspace mostrato e modalità: il Tasks Manager copre l'area del pannello
   // Task e dei terminali di quel workspace (mai nella vista Globale).
@@ -552,59 +549,32 @@ export default function App() {
   // Eventi dei coding agent: stato del tab, suono e notifica di sistema.
   // `test` e' il self-test delle Impostazioni: solo il suono. Gli eventi il
   // cui tab non esiste (piu') sono ignorati.
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    onAgentEvent((ev) => {
-      if (ev.event === "test") {
-        playDing();
-        return;
-      }
-      const tab = tabsRef.current.find((t) => t.key === ev.tab_id);
-      if (!tab) return;
-      setTabs((prev) => prev.map((t) => (t.key === tab.key ? { ...t, agent: applyAgentEvent(t.agent, ev) } : t)));
-      usageEventRef.current(tab.key, ev.event, ev.transcript_path, ev.agent);
-      const sound = soundForEvent(ev.event);
-      if (sound === "attention") playAttention();
-      else if (sound === "ding") playDing();
-      // I worker dei task notificano solo via `task-notify` (attenzione, fallito).
-      if (shouldSystemNotify(ev.event) && !tab.automation) {
-        void notifyIfUnfocused(
-          tab.key,
-          tab.workspace.name,
-          notificationBody(ev.event, tabLabel(tab, builtinsRef.current), ev.message),
-        );
-      }
-    })
-      .then((u) => {
-        // Cleanup gia' eseguito (StrictMode): niente listener orfano.
-        if (cancelled) u();
-        else unlisten = u;
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, []);
+  useTauriEvent("agent-event", (ev) => {
+    if (ev.event === "test") {
+      playDing();
+      return;
+    }
+    const tab = tabsRef.current.find((t) => t.key === ev.tab_id);
+    if (!tab) return;
+    setTabs((prev) => prev.map((t) => (t.key === tab.key ? { ...t, agent: applyAgentEvent(t.agent, ev) } : t)));
+    usageEventRef.current(tab.key, ev.event, ev.transcript_path, ev.agent);
+    const sound = soundForEvent(ev.event);
+    if (sound === "attention") playAttention();
+    else if (sound === "ding") playDing();
+    // I worker dei task notificano solo via `task-notify` (attenzione, fallito).
+    if (shouldSystemNotify(ev.event) && !tab.automation) {
+      void notifyIfUnfocused(
+        tab.key,
+        tab.workspace.name,
+        notificationBody(ev.event, tabLabel(tab, builtinsRef.current), ev.message),
+      );
+    }
+  });
 
   // Click su una notifica di sistema: la finestra e' gia' in primo piano
   // (backend); qui si seleziona workspace e pannello. Solo stato del layout:
   // i TerminalView non si smontano ne' cambiano genitore. Tab chiuso: niente.
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    onNotificationActivated((tabId) => focusTerminal(tabId))
-      .then((u) => {
-        if (cancelled) u();
-        else unlisten = u;
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [focusTerminal]);
+  useTauriEvent("notification-activated", (e) => focusTerminal(e.tab_id));
 
   // Senza `launch` parte l'avvio predefinito del workspace, se esiste;
   // altrimenti una shell semplice. Il nuovo terminale attiva il suo gruppo.
@@ -667,35 +637,32 @@ export default function App() {
   // Controllo silenzioso all'avvio (plugin updater): se c'e' un update compare
   // il pallino su "Impostazioni". Gli errori (rete, release assente) non fanno rumore.
   useEffect(() => {
-    void (async () => {
-      try {
-        setUpdateAvailable((await check()) !== null);
-      } catch {
-        /* silenzioso */
-      }
-    })();
+    check()
+      .then((update) => setUpdateAvailable(update !== null))
+      .catch(ignoreError("controllo silenzioso degli aggiornamenti: senza rete o release non c'è nulla da dire"));
   }, []);
 
-  // Avvii integrati e avvio predefinito globale: una volta, errori silenziosi.
+  // Avvii integrati e avvio predefinito globale: una volta. Senza di loro l'app
+  // userebbe i valori di default: l'utente va avvisato.
   useEffect(() => {
     api
       .builtinLaunches()
       .then(setBuiltinLaunches)
-      .catch(() => undefined);
+      .catch((e) => report("caricamento degli avvii integrati", e, { notify: true }));
     api
       .getLaunchSettings()
       .then((s) => {
         setGlobalLaunch(s.default_launch);
         setShowUsage(s.show_usage !== false);
       })
-      .catch(() => undefined);
+      .catch((e) => report("caricamento delle impostazioni degli avvii", e, { notify: true }));
   }, []);
 
   // Versione dell'app (footer della sidebar).
   useEffect(() => {
     getVersion()
       .then(setAppVersion)
-      .catch(() => undefined);
+      .catch(ignoreError("la versione è solo un'etichetta nel footer; fuori da Tauri non esiste"));
   }, []);
 
   // `agent_env_status` lancia processi (wsl.exe, claude): una sola volta, in
@@ -710,8 +677,8 @@ export default function App() {
         .then((envs) => {
           if (!cancelled) setAgentEnvs(envs);
         })
-        .catch(() => undefined);
-    }, 1500);
+        .catch((e) => report("rilevamento dei plugin installati", e));
+    }, BACKGROUND_CHECK_DELAY_MS);
     return () => {
       cancelled = true;
       clearTimeout(id);
@@ -719,19 +686,23 @@ export default function App() {
   }, [sessionReady]);
 
   // Plugin installati con versione diversa dall'app: controllo una sola volta
-  // per avvio (il ref evita il doppio effect di StrictMode); errori ignorati.
+  // per avvio, in background. Il cleanup annulla il timer e scarta la risposta
+  // (anche nel doppio effect di StrictMode).
   useEffect(() => {
-    if (!sessionReady || pluginCheckStarted.current) return;
-    pluginCheckStarted.current = true;
-    // Niente cleanup del timer: col ref, il rerun StrictMode non lo riarmerebbe.
-    setTimeout(() => {
+    if (!sessionReady) return;
+    let cancelled = false;
+    const id = setTimeout(() => {
       api
         .agentPluginsOutdated()
         .then((list) => {
-          if (list.length > 0) setOutdatedPlugins(list);
+          if (!cancelled && list.length > 0) setOutdatedPlugins(list);
         })
-        .catch((e) => console.error("agent_plugins_outdated", e));
-    }, 1500);
+        .catch((e) => report("controllo dei plugin installati", e));
+    }, BACKGROUND_CHECK_DELAY_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(id);
+    };
   }, [sessionReady]);
 
   const closePluginUpdate = useCallback(() => {
@@ -740,7 +711,7 @@ export default function App() {
     api
       .agentEnvStatus()
       .then(setAgentEnvs)
-      .catch(() => undefined);
+      .catch((e) => report("rilevamento dei plugin installati", e));
   }, []);
 
   const openLaunchSettings = useCallback((ws: Workspace) => {
@@ -759,7 +730,7 @@ export default function App() {
     const automated = closing !== undefined && isAutomated(closing);
     if (automated && !reportedClosedRef.current.has(key)) {
       reportedClosedRef.current.add(key);
-      void api.automationTabClosed(key).catch(() => undefined);
+      void api.automationTabClosed(key).catch((e) => report("chiusura del tab automatico", e));
     }
     setTabs((prev) => prev.filter((t) => t.key !== key));
     setLayout((l) => closeTabIn(l, key));
@@ -770,7 +741,7 @@ export default function App() {
       return next;
     });
     // Gli automatici non salvano lo scrollback: niente da cancellare.
-    if (!automated) void api.deleteScrollback(key).catch(() => undefined);
+    if (!automated) void api.deleteScrollback(key).catch((e) => report("eliminazione della cronologia salvata", e));
   }, []);
 
   // La shell è uscita da sola. Durante la chiusura dell'app i pty vengono
@@ -788,56 +759,43 @@ export default function App() {
 
   // Sessioni automatiche: il backend chiede di aprire/chiudere i tab dei worker
   // e ne comunica gli stati. Registrato una volta sola (stato letto dai ref).
-  useEffect(() => {
-    const unlistens: Array<() => void> = [];
-    let cancelled = false;
-    const keep = (p: Promise<() => void>) =>
-      p
-        .then((u) => {
-          if (cancelled) u();
-          else unlistens.push(u);
-        })
-        .catch(() => undefined);
+  useTauriEvent("automation-spawn", (ev) => {
+    // Workspace sconosciuto (rimosso nel frattempo) o tab gia' aperto: ignora.
+    const ws = workspacesRef.current.find((w) => w.id === ev.workspace_id);
+    if (!ws || tabsRef.current.some((t) => t.key === ev.tab_id)) return;
+    const tab: Tab = {
+      key: ev.tab_id,
+      workspace: ws,
+      command: "",
+      startCommand: ev.command,
+      bot: newBotName(),
+      automation: {
+        title: ev.title,
+        status: "starting",
+        agentId: ev.agent_id,
+        cwd: ev.cwd ?? undefined,
+      },
+    };
+    // Aggiornamento sincrono del ref: un secondo evento identico non riapre il tab.
+    tabsRef.current = [...tabsRef.current, tab];
+    setTabs((prev) => (prev.some((t) => t.key === tab.key) ? prev : [...prev, tab]));
+    // In secondo piano: non toglie all'utente la vista in cui sta lavorando.
+    setLayout((l) => openTabBackground(l, ws.id, tab.key));
+  });
 
-    keep(
-      onAutomationSpawn((ev) => {
-        // Workspace sconosciuto (rimosso nel frattempo) o tab gia' aperto: ignora.
-        const ws = workspacesRef.current.find((w) => w.id === ev.workspace_id);
-        if (!ws || tabsRef.current.some((t) => t.key === ev.tab_id)) return;
-        const tab: Tab = {
-          key: ev.tab_id,
-          workspace: ws,
-          command: "",
-          startCommand: ev.command,
-          bot: newBotName(),
-          automation: {
-            title: ev.title,
-            status: "starting",
-            agentId: ev.agent_id,
-            cwd: ev.cwd ?? undefined,
-          },
-        };
-        // Aggiornamento sincrono del ref: un secondo evento identico non riapre il tab.
-        tabsRef.current = [...tabsRef.current, tab];
-        setTabs((prev) => (prev.some((t) => t.key === tab.key) ? prev : [...prev, tab]));
-        // In secondo piano: non toglie all'utente la vista in cui sta lavorando.
-        setLayout((l) => openTabBackground(l, ws.id, tab.key));
-      }),
-    );
+  useTauriEvent("automation-close", (ev) => closeTabRef.current(ev.tab_id));
 
-    keep(onAutomationClose((ev) => closeTabRef.current(ev.tab_id)));
-
-    keep(
-      onAutomationUpdate((ev) =>
-        setTabs((prev) =>
-          prev.map((t) =>
-            t.key === ev.tab_id && t.automation ? { ...t, automation: applyAutomationUpdate(t.automation, ev) } : t,
-          ),
-        ),
+  useTauriEvent("automation-update", (ev) =>
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.key === ev.tab_id && t.automation ? { ...t, automation: applyAutomationUpdate(t.automation, ev) } : t,
       ),
-    );
+    ),
+  );
 
-    // Riallinea i metadati dei tab gia' aperti (es. dopo un ricaricamento).
+  // Riallinea i metadati dei tab automatici gia' aperti (es. dopo un ricaricamento).
+  useEffect(() => {
+    let cancelled = false;
     api
       .automationSessions()
       .then((infos) => {
@@ -850,11 +808,9 @@ export default function App() {
           }),
         );
       })
-      .catch(() => undefined);
-
+      .catch((e) => report("allineamento dei tab automatici", e));
     return () => {
       cancelled = true;
-      unlistens.forEach((u) => u());
     };
   }, []);
 
@@ -1331,6 +1287,7 @@ export default function App() {
         limits={limitEntries}
       />
 
+      <NoticeCenter />
       <AddWorkspaceDialog isOpen={dialogOpen} onClose={() => setDialogOpen(false)} onAdded={handleAdded} />
       <PluginUpdateDialog outdated={outdatedPlugins} onClose={closePluginUpdate} onBeforeRestart={flushBeforeExit} />
       <SettingsDialog

@@ -5,6 +5,7 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { ignoreError } from "../lib/errors";
 import { cn } from "../lib/utils";
 
 type Phase = "idle" | "checking" | "available" | "uptodate" | "downloading" | "installing" | "error";
@@ -35,9 +36,7 @@ export default function UpdateCheck({ onAvailable }: Props) {
   const [percent, setPercent] = useState<number | null>(null);
 
   useEffect(() => {
-    getVersion()
-      .then(setVersion)
-      .catch(() => undefined);
+    getVersion().then(setVersion).catch(ignoreError("la versione è solo un'etichetta; fuori da Tauri non esiste"));
   }, []);
 
   const checkNow = useCallback(

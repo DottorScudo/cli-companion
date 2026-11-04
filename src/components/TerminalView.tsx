@@ -6,6 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Channel } from "@tauri-apps/api/core";
 import { api } from "../lib/tauri";
+import { ignoreError, report } from "../lib/errors";
 import { isTerminalReply } from "../lib/agents";
 import type { TabStatus } from "../lib/agents";
 import type { Rect } from "../lib/layout";
@@ -160,7 +161,7 @@ function TerminalView({
       const last = lastSizeRef.current;
       if (last.session === s && last.cols === term.cols && last.rows === term.rows) return;
       lastSizeRef.current = { session: s, cols: term.cols, rows: term.rows };
-      void api.ptyResize(s, term.cols, term.rows).catch(() => undefined);
+      void api.ptyResize(s, term.cols, term.rows).catch((e) => report("ridimensionamento del terminale", e));
     };
     syncSizeRef.current = syncSize;
 
@@ -194,7 +195,7 @@ function TerminalView({
         term.options.fontFamily = term.options.fontFamily;
         fit.fit();
       })
-      .catch(() => {});
+      .catch(ignoreError("caricamento del font: il terminale resta con il font di ripiego"));
 
     // Scrollback: salvato ~5 s dopo l'output (e alla chiusura dell'app, via
     // registerFlush) cosi' un riavvio ripristina la cronologia.
@@ -244,7 +245,7 @@ function TerminalView({
       const s = sessionRef.current;
       if (s === 0 || !shouldInjectLaunch(wantedCommand)) return;
       injected = true;
-      void api.ptyWrite(s, buildLaunchInput(wantedCommand)).catch(() => undefined);
+      void api.ptyWrite(s, buildLaunchInput(wantedCommand)).catch((e) => report("avvio del comando nel terminale", e));
       status.markEnter();
     };
 
@@ -255,7 +256,7 @@ function TerminalView({
 
     term.onData((data) => {
       const s = sessionRef.current;
-      if (s !== 0) void api.ptyWrite(s, data).catch(() => undefined);
+      if (s !== 0) void api.ptyWrite(s, data).catch((e) => report("scrittura sul terminale", e));
       else pendingInput += data;
       const enter = data.includes("\r") || data.includes("\n");
       if (enter) status.markEnter();
@@ -272,7 +273,7 @@ function TerminalView({
       const action = clipboardKeyAction(e, term.hasSelection());
       if (action === "copy") {
         const sel = term.getSelection();
-        if (sel !== "") void writeText(sel).catch(() => undefined);
+        if (sel !== "") void writeText(sel).catch((e) => report("copia negli appunti", e));
         return false;
       }
       if (action === "paste") {
@@ -301,7 +302,11 @@ function TerminalView({
           // l'agente del tab ha un tasto proprio (profilo di input, es.
           // Alt+V di Claude Code su Windows) si invia quello.
           const s = sessionRef.current;
-          if (s !== 0) void api.ptyWrite(s, imagePasteSeqRef.current ?? resolved.key).catch(() => undefined);
+          if (s !== 0) {
+            void api
+              .ptyWrite(s, imagePasteSeqRef.current ?? resolved.key)
+              .catch((e) => report("incolla nel terminale", e));
+          }
         })();
         return false;
       }
@@ -325,7 +330,7 @@ function TerminalView({
           // ignora: succede durante lo smontaggio
         }
       })
-      .catch(() => undefined);
+      .catch((e) => report("riallineamento del terminale al font", e));
 
     void (async () => {
       try {
@@ -368,12 +373,12 @@ function TerminalView({
         };
         const id = await api.ptySpawn(workspace.id, tabId, initialCols, initialRows, channel, cwdRef.current);
         if (disposed) {
-          void api.ptyClose(id).catch(() => undefined);
+          void api.ptyClose(id).catch((e) => report("chiusura del terminale", e));
           return;
         }
         sessionRef.current = id;
         if (pendingInput !== "") {
-          void api.ptyWrite(id, pendingInput).catch(() => undefined);
+          void api.ptyWrite(id, pendingInput).catch((e) => report("scrittura sul terminale", e));
           pendingInput = "";
         }
         // Lo spawn e' avvenuto con la dimensione iniziale: e' gia' quella nota al pty.
@@ -425,7 +430,7 @@ function TerminalView({
       status.dispose();
       const s = sessionRef.current;
       sessionRef.current = 0;
-      if (s !== 0) void api.ptyClose(s).catch(() => undefined);
+      if (s !== 0) void api.ptyClose(s).catch((e) => report("chiusura del terminale", e));
       term.dispose();
       termRef.current = null;
       fitRef.current = null;

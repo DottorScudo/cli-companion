@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./tauri";
+import { report } from "./errors";
 import type { AgentEnvStatus, SessionUsage, UsageLimitsReply, Workspace } from "./tauri";
 import { CLAUDE_AGENT_ID } from "./session";
 import type { AgentTabState } from "./agents";
@@ -54,7 +55,7 @@ export function useUsage(enabled: boolean, agentEnvs: AgentEnvStatus[], tabs: Us
             if (cancelled) return;
             setLimits((p) => (env in p && sameJson(p[env], reply) ? p : { ...p, [env]: reply }));
           })
-          .catch(() => undefined);
+          .catch((e) => report("lettura dei limiti di utilizzo", e));
       }
     };
     load();
@@ -90,7 +91,7 @@ export function useUsage(enabled: boolean, agentEnvs: AgentEnvStatus[], tabs: Us
             return { ...p, [key]: u };
           });
         })
-        .catch(() => undefined);
+        .catch((e) => report("lettura dei token di sessione", e));
     },
     [],
   );

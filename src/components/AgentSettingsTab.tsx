@@ -12,6 +12,7 @@ import {
   agentRowKey,
   groupByAgent,
 } from "../lib/agents";
+import { report } from "../lib/errors";
 import { cn } from "../lib/utils";
 
 /** Tab "Coding agent": installa il plugin di notifica negli env (Windows + WSL). */
@@ -29,7 +30,7 @@ export default function AgentSettingsTab({ onEnvs, onShowUsage }: Props) {
     api
       .getLaunchSettings()
       .then((s) => setShowUsage(s.show_usage !== false))
-      .catch(() => undefined);
+      .catch((e) => report("caricamento delle impostazioni di utilizzo", e, { notify: true }));
   }, []);
 
   const toggleUsage = async (enabled: boolean) => {
@@ -38,8 +39,9 @@ export default function AgentSettingsTab({ onEnvs, onShowUsage }: Props) {
       const s = await api.setShowUsage(enabled);
       setShowUsage(s.show_usage !== false);
       onShowUsage?.(s.show_usage !== false);
-    } catch {
+    } catch (e) {
       setShowUsage(!enabled);
+      report("salvataggio dell'impostazione di utilizzo", e, { notify: true });
     }
   };
 

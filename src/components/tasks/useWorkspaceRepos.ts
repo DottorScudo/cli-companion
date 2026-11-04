@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/tauri";
+import { report } from "../../lib/errors";
 
 /** Repository rilevati del workspace (`workspace_detect_repos`); vuoto finché non risponde o se fallisce. */
 export function useWorkspaceRepos(workspaceId: string): string[] {
@@ -11,7 +12,7 @@ export function useWorkspaceRepos(workspaceId: string): string[] {
       .then((r) => {
         if (!cancelled) setRepos(r);
       })
-      .catch(() => undefined);
+      .catch((e) => report("rilevamento dei repository del workspace", e));
     return () => {
       cancelled = true;
     };

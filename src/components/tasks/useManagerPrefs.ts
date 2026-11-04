@@ -1,14 +1,7 @@
 import { useCallback, useState } from "react";
+import { browserStorage } from "../../lib/browserStorage";
 import { readPrefs, writePrefs } from "../../lib/taskViews";
 import type { ListPrefs, ManagerView, WorkspacePrefs } from "../../lib/taskViews";
-
-function browserStorage(): Storage | null {
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
 
 /** Vista e filtri della Lista del workspace, ricordati in localStorage. */
 export function useManagerPrefs(workspaceId: string) {

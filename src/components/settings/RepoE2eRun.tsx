@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "../ui/button";
-import { api, onE2eUpdate } from "../../lib/tauri";
+import { api } from "../../lib/tauri";
+import { useTauriEvent } from "../../lib/useTauriEvent";
 import type { E2eRun } from "../../lib/board";
 import { afterRunResponse } from "../../lib/e2e";
 import E2eResult from "../tasks/E2eResult";
@@ -17,6 +18,10 @@ export default function RepoE2eRun({ workspaceId, repo }: Props) {
   const [last, setLast] = useState<E2eRun | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  useTauriEvent("e2e-update", (e) => {
+    if (e.workspace_id === workspaceId && e.repo === repo) setLast(e.run);
+  });
+
   useEffect(() => {
     let cancelled = false;
     setLast(null);
@@ -25,12 +30,8 @@ export default function RepoE2eRun({ workspaceId, repo }: Props) {
       .e2eLastResult(workspaceId, repo)
       .then((r) => !cancelled && setLast(r))
       .catch((e) => !cancelled && setError(String(e)));
-    const unlisten = onE2eUpdate((e) => {
-      if (e.workspace_id === workspaceId && e.repo === repo) setLast(e.run);
-    });
     return () => {
       cancelled = true;
-      void unlisten.then((f) => f());
     };
   }, [workspaceId, repo]);
 

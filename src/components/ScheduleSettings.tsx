@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { api, onScheduleState } from "../lib/tauri";
+import { api } from "../lib/tauri";
+import { useTauriEvent } from "../lib/useTauriEvent";
 import {
   MAX_WINDOWS,
   addWindow,
@@ -31,9 +32,17 @@ export default function ScheduleSettings() {
   draftRef.current = draft;
   stateRef.current = state;
 
+  useTauriEvent("schedule-state", (s) => {
+    const dirty =
+      draftRef.current !== null &&
+      stateRef.current !== null &&
+      !sameSchedule(draftRef.current, stateRef.current.schedule);
+    setState(s);
+    if (!dirty) setDraft(s.schedule);
+  });
+
   useEffect(() => {
     let cancelled = false;
-    let unlisten: (() => void) | undefined;
     api
       .scheduleGet()
       .then((s) => {
@@ -42,22 +51,8 @@ export default function ScheduleSettings() {
         setDraft(s.schedule);
       })
       .catch((e) => !cancelled && setLoadError(String(e)));
-    onScheduleState((s) => {
-      const dirty =
-        draftRef.current !== null &&
-        stateRef.current !== null &&
-        !sameSchedule(draftRef.current, stateRef.current.schedule);
-      setState(s);
-      if (!dirty) setDraft(s.schedule);
-    })
-      .then((u) => {
-        if (cancelled) u();
-        else unlisten = u;
-      })
-      .catch(() => undefined);
     return () => {
       cancelled = true;
-      unlisten?.();
     };
   }, []);
 
