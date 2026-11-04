@@ -23,6 +23,7 @@ mod reconcile_git;
 mod review;
 mod roles;
 mod schedule;
+mod second_agent;
 mod session_end;
 mod settings;
 mod skills;
@@ -220,12 +221,12 @@ impl Host for FakeHost {
         }
         path.contains("esiste") || self.dirs.lock().unwrap().iter().any(|d| d == path)
     }
+    /// Le verifiche del comando vero (agente del registro, abilitato e capace,
+    /// modello suo), poi una riga leggibile con l'agente che parte.
     fn launch_command(&self, agent: &str, env_kind: TargetKind, req: &AutomationRequest) -> Result<String, String> {
-        if agent != "claude-code" {
-            return Err(format!("unknown agent: {agent}"));
-        }
+        crate::agents::automation_command(agent, env_kind, req)?;
         Ok(format!(
-            "fake {} {:?} {} model={}",
+            "fake {agent} {} {:?} {} model={}",
             env_kind.as_str(),
             req.permission_mode,
             req.bootstrap_prompt,
@@ -404,11 +405,21 @@ impl Host for FakeHost {
         Ok(w)
     }
     fn agent_readiness(&self, _ws: &Workspace, agent: &str) -> Option<Readiness> {
-        self.readiness.lock().unwrap().get(agent).copied().unwrap_or(Some(Readiness::Ready))
+        self.readiness.lock().unwrap().get(agent).copied().unwrap_or(Some(unforced_readiness(agent)))
     }
     fn probe_agent(&self, _ws: &Workspace, agent: &str) -> Readiness {
         self.probed.lock().unwrap().push(agent.to_string());
-        self.readiness.lock().unwrap().get(agent).copied().flatten().unwrap_or(Readiness::Ready)
+        self.readiness.lock().unwrap().get(agent).copied().flatten().unwrap_or_else(|| unforced_readiness(agent))
+    }
+}
+
+/// Prontezza di un agente senza uno stato forzato: come in produzione un agente
+/// disabilitato (o fuori dal registro) e' `Disabled`, gli altri sono pronti.
+fn unforced_readiness(agent: &str) -> Readiness {
+    if crate::agents::registry::is_enabled(agent) {
+        Readiness::Ready
+    } else {
+        Readiness::Disabled
     }
 }
 

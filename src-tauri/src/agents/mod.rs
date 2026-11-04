@@ -41,6 +41,8 @@ mod readiness;
 pub mod registry;
 mod resolve;
 #[cfg(test)]
+pub(crate) mod test_registry;
+#[cfg(test)]
 pub(crate) mod testing;
 mod worker_rules;
 

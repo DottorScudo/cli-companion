@@ -16,8 +16,13 @@ static INTEGRATIONS: &[&dyn AgentIntegration] = &[&claude_code::ClaudeCode];
 
 /// Tutte le integrazioni registrate, abilitate o no: serve alla pagina delle
 /// integrazioni, alla conformita' e al client IPC. Chi mostra o avvia qualcosa
-/// all'utente usa `enabled`.
+/// all'utente usa `enabled`. Nei test un thread puo' sostituirle con
+/// `test_registry`.
 pub fn all() -> &'static [&'static dyn AgentIntegration] {
+    #[cfg(test)]
+    if let Some(registered) = super::test_registry::registered() {
+        return registered;
+    }
     INTEGRATIONS
 }
 
@@ -42,7 +47,7 @@ pub fn default_agent() -> &'static dyn AgentIntegration {
 /// poter essere gestiti senza errori. Per scegliere l'agente di un uso si
 /// passa da `resolve_agent`.
 pub fn find(id: &str) -> Result<&'static dyn AgentIntegration, String> {
-    INTEGRATIONS.iter().find(|i| i.id() == id).copied().ok_or_else(|| format!("agente sconosciuto: {id}"))
+    all().iter().find(|i| i.id() == id).copied().ok_or_else(|| format!("agente sconosciuto: {id}"))
 }
 
 /// L'unico punto in cui si sceglie l'agente di un uso: `explicit` (la scelta

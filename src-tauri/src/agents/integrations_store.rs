@@ -4,7 +4,8 @@
 //! Lo stato e' di processo (non un `State` di Tauri): il registro viene letto
 //! da punti senza un `AppHandle` (sanificazione delle board, regole dei
 //! worker, avvii). Prima del caricamento, e in ogni test, contiene `Default`:
-//! `view` lo legge come "la prima integrazione abilitata e predefinita".
+//! `view` lo legge come "la prima integrazione abilitata e predefinita". Un
+//! test puo' sostituirlo, solo per il proprio thread, con `test_registry`.
 
 use super::contracts::AgentIntegration;
 use super::enablement::{normalize_loaded, view, IntegrationsState};
@@ -28,6 +29,10 @@ fn global() -> &'static JsonStore<IntegrationsState> {
 /// Lo stato corrente, riportato alle invarianti (almeno un'integrazione
 /// abilitata, predefinito fra le abilitate).
 pub(super) fn current() -> IntegrationsState {
+    #[cfg(test)]
+    if let Some(state) = super::test_registry::state() {
+        return view(&state, registry::all());
+    }
     view(&global().get(), registry::all())
 }
 

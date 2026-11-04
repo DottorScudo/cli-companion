@@ -4,6 +4,8 @@
 
 use super::*;
 use crate::agents::registry;
+use crate::agents::test_registry::SecondIntegration;
+use crate::agents::testing::{FakeIntegration, FAKE_MODEL_SMALL};
 
 const OTHER: &str = "other-agent";
 
@@ -26,14 +28,12 @@ fn list_row(st: &AutomationState, h: &FakeHost, id: &str) -> Value {
     list["tasks"].as_array().unwrap().iter().find(|t| t["id"] == id).cloned().unwrap()
 }
 
-/// Cambia l'agente di un task in coda (le scelte fra piu' agenti non passano
-/// dal registro di produzione, che ne ha uno solo).
-fn reassign(st: &AutomationState, h: &FakeHost, id: &str, agent: &str) {
-    st.run(h, |r| {
-        let b = r.boards.get_mut("ws-1").unwrap();
-        b.tasks.iter_mut().find(|t| t.id == id).unwrap().agent = agent.to_string();
-        r.mark_dirty("ws-1");
-    });
+/// Specifica eseguita dal secondo agente del registro di test.
+fn other_spec(id: &str) -> Value {
+    let mut s = spec(id, &[]);
+    s["agent"] = json!(OTHER);
+    s["model"] = json!(FAKE_MODEL_SMALL);
+    s
 }
 
 #[test]
@@ -102,11 +102,11 @@ fn a_task_whose_agent_is_still_being_checked_waits_without_a_reason() {
 
 #[test]
 fn a_blocked_task_does_not_hold_back_a_queued_task_of_a_ready_agent() {
+    let _other = SecondIntegration::enabled(FakeIntegration::full(OTHER));
     let (st, h) = host();
     h.set_readiness(default_id(), Some(Readiness::NotFound));
     h.set_readiness(OTHER, Some(Readiness::NotFound));
-    queue(&st, &h, vec![spec("a", &[]), spec("b", &[])]);
-    reassign(&st, &h, "a", OTHER);
+    queue(&st, &h, vec![other_spec("a"), spec("b", &[])]);
     assert_eq!((status(&st, &h, "a"), status(&st, &h, "b")), ("queued".into(), "queued".into()));
     // Stesso repository, consegna in place: se "a" (prima in coda) tenesse il
     // posto, "b" non partirebbe.

@@ -1,6 +1,6 @@
 //! L'agente di un task: scelto alla creazione (task del tool MCP, della UI o
-//! di una proposta) e verificato quando cambia. Il registro dei test ha un
-//! solo agente: le scelte fra piu' agenti sono provate in `board::agent`.
+//! di una proposta) e verificato quando cambia, con il solo agente di
+//! produzione: le scelte fra due agenti sono in `second_agent`.
 
 use super::*;
 use crate::agents::registry;
