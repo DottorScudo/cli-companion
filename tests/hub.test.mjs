@@ -217,7 +217,7 @@ describe("hub: conversazione", () => {
       title: "T",
       state: "open",
       task_count: 2,
-      waiting_user: false,
+      message_count: 1,
       owner: null,
       waiting_user: false,
       created_at: 1,
