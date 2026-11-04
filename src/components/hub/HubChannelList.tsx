@@ -1,11 +1,13 @@
 import { memo } from "react";
-import { Hash } from "lucide-react";
+import { Hash, X } from "lucide-react";
 import { selectChannel } from "../../app/actions/hub";
+import { closeHub } from "../../app/actions/view";
 import { useStore } from "../../hooks/useStore";
 import { channelWaiting } from "../../lib/hub";
 import type { HubChannel } from "../../lib/hub";
 import { cn } from "../../lib/utils";
 import { hubStore } from "../../stores/hub";
+import { Button } from "../ui/button";
 
 const ChannelItem = memo(function ChannelItem({ channel, selected }: { channel: HubChannel; selected: boolean }) {
   const waiting = useStore(hubStore, (s) => channelWaiting(s.threads[channel.id]));
@@ -40,16 +42,32 @@ interface Props {
   selected: string;
 }
 
-/** Colonna dei canali: Generale in cima, poi un canale per workspace. */
+/** Colonna dei canali: intestazione con la X per tornare ai workspace, Generale in cima, poi un canale per workspace. */
 export default function HubChannelList({ channels, selected }: Props) {
   return (
-    <nav aria-label="Canali" className="w-[200px] flex-shrink-0 overflow-y-auto border-r bg-base p-2">
-      <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint">Canali</p>
-      <ul className="flex flex-col gap-0.5">
-        {channels.map((c) => (
-          <ChannelItem key={c.id} channel={c} selected={c.id === selected} />
-        ))}
-      </ul>
-    </nav>
+    <div className="flex w-[200px] flex-shrink-0 flex-col border-r bg-base">
+      <div className="flex items-center gap-2 border-b px-3 py-2">
+        <h1 className="min-w-0 flex-1 truncate text-[13px] font-semibold">Agents HUB</h1>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          onClick={closeHub}
+          aria-label="Chiudi Agents HUB e torna ai workspace"
+          title="Chiudi Agents HUB e torna ai workspace"
+        >
+          <X className="!size-3.5" />
+        </Button>
+      </div>
+      <nav aria-label="Canali" className="min-h-0 flex-1 overflow-y-auto p-2">
+        <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint">Canali</p>
+        <ul className="flex flex-col gap-0.5">
+          {channels.map((c) => (
+            <ChannelItem key={c.id} channel={c} selected={c.id === selected} />
+          ))}
+        </ul>
+      </nav>
+    </div>
   );
 }

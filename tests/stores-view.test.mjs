@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { hubShown, managerShown, officeShown, overlayShown } from "../src/stores/view.ts";
+import { hubShown, managerShown, officeShown, overlayShown, sidebarShown } from "../src/stores/view.ts";
 import { INITIAL_LAYOUT_STATE } from "../src/stores/layout.ts";
 import { INITIAL_UI } from "../src/stores/ui.ts";
 
@@ -61,5 +61,17 @@ describe("view: overlayShown", () => {
     assert.equal(overlayShown(layoutOf("b"), { ...ui, officeOpen: true }, BOTS_OFF, HUB_OFF), false);
     assert.equal(overlayShown(layoutOf("b"), { ...ui, hubOpen: true }, BOTS_OFF, HUB_ON), true);
     assert.equal(overlayShown(layoutOf("b"), { ...ui, hubOpen: true }, BOTS_OFF, HUB_OFF), false);
+  });
+});
+
+describe("view: sidebarShown", () => {
+  it("nascosta solo con l'HUB aperto e acceso", () => {
+    assert.equal(sidebarShown({ hubOpen: true }, HUB_ON), false);
+    assert.equal(sidebarShown({ hubOpen: true }, HUB_OFF), true);
+    assert.equal(sidebarShown({ hubOpen: false }, HUB_ON), true);
+  });
+
+  it("resta visibile con Manager e Ufficio", () => {
+    assert.equal(sidebarShown({ ...INITIAL_UI, officeOpen: true, managerOpen: { a: true } }, HUB_ON), true);
   });
 });

@@ -36,3 +36,8 @@ export function overlayShown(
 ): boolean {
   return managerShown(layout, ui) || officeShown(ui, bots) || hubShown(ui, hub);
 }
+
+/** La sidebar dei workspace cede la larghezza all'Agents HUB; con Manager e Ufficio resta. */
+export function sidebarShown(ui: Pick<UiState, "hubOpen">, hub: Pick<HubState, "enabled">): boolean {
+  return !hubShown(ui, hub);
+}

@@ -13,6 +13,7 @@ import { useIntegrationsSync } from "./hooks/useIntegrations";
 import { useLaunchesSync } from "./hooks/useLaunchesSync";
 import { useSessionPersistence } from "./hooks/useSessionPersistence";
 import { useShortcuts } from "./hooks/useShortcuts";
+import { useSidebarShown } from "./hooks/useView";
 import { useStoreWarnings } from "./hooks/useStoreWarnings";
 import { useUsagePolling } from "./hooks/useUsage";
 
@@ -36,11 +37,13 @@ export default function App() {
   // Il backend parte solo a sessione ripristinata e ascoltatori registrati.
   useFrontendReady(useAppEvents());
 
+  const sidebarShown = useSidebarShown();
+
   return (
     <div className="flex h-screen flex-col">
       <AppTitleBar />
       <div className="flex min-h-0 flex-1">
-        <AppSidebar />
+        {sidebarShown && <AppSidebar />}
         <Workbench />
       </div>
       <AppStatusBar />

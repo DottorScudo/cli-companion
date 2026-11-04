@@ -1,6 +1,4 @@
 import { useEffect, useMemo } from "react";
-import { ArrowLeft, MessagesSquare } from "lucide-react";
-import { closeHub } from "../../app/actions/view";
 import { loadAllChannels, loadThread, selectChannel } from "../../app/actions/hub";
 import { useStore } from "../../hooks/useStore";
 import { GENERAL_CHANNEL, hubChannels, resolveChannel } from "../../lib/hub";
@@ -8,7 +6,6 @@ import { shallowEqual } from "../../lib/store";
 import { hubStore } from "../../stores/hub";
 import { visibleWorkspaces, workspacesStore } from "../../stores/workspaces";
 import type { WorkspacesState } from "../../stores/workspaces";
-import { Button } from "../ui/button";
 import HubChannelList from "./HubChannelList";
 import HubConversation from "./HubConversation";
 import HubThreadList from "./HubThreadList";
@@ -24,7 +21,7 @@ const sameWorkspaces = (a: WorkspaceName[], b: WorkspaceName[]) =>
   a.length === b.length && a.every((w, i) => shallowEqual(w, b[i]));
 
 /**
- * Vista a tre colonne: canali, thread del canale e conversazione. All'apertura
+ * Vista a tutta larghezza a tre colonne: canali, thread del canale e conversazione. All'apertura
  * legge l'elenco di ogni canale (per i segnalini) e rilegge il thread rimasto
  * aperto; poi segue `hub-update`, senza interrogazioni periodiche.
  */
@@ -50,25 +47,10 @@ export default function HubView() {
   }, [current, channel]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="flex flex-shrink-0 items-center gap-3 border-b bg-base px-4 py-2.5">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={closeHub}
-          className="h-8 gap-1.5 bg-transparent text-[13px] text-text-secondary"
-        >
-          <ArrowLeft className="!size-3.5" /> Torna ai terminali
-        </Button>
-        <MessagesSquare className="size-4 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
-        <h1 className="text-[15px] font-semibold leading-tight">Agents HUB</h1>
-      </header>
-      <div className="flex min-h-0 flex-1">
-        <HubChannelList channels={channels} selected={current} />
-        <HubThreadList channel={current} channelName={channels.find((c) => c.id === current)?.name ?? ""} />
-        <HubConversation channel={current} />
-      </div>
+    <div className="flex h-full min-h-0">
+      <HubChannelList channels={channels} selected={current} />
+      <HubThreadList channel={current} channelName={channels.find((c) => c.id === current)?.name ?? ""} />
+      <HubConversation channel={current} />
     </div>
   );
 }
