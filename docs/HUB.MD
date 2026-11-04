@@ -5,8 +5,8 @@ workspace** più un canale **Generale**, e dentro ogni canale dei **thread** di 
 l'interruttore globale, il modello dati, la persistenza, i comandi Tauri, l'evento verso il frontend e gli
 **eventi della board** nei thread (vedi "Eventi della board") e la **configurazione dei segretari** (provider del
 modello, lingua, sessioni, elenco dei segretari, API key: vedi "Segretari e provider"); nel frontend la vista (vedi
-"Interfaccia") e il **motore dei segretari**, che li fa rispondere nei thread (vedi "Motore dei segretari").
-L'interfaccia dei segretari (chi è sveglio, "sta scrivendo") arriva dopo: il backend espone già evento e comando.
+"Interfaccia"), le **impostazioni dei segretari** e la loro presenza nella conversazione (menzioni, "sta scrivendo",
+chi è sveglio) e il **motore dei segretari**, che li fa rispondere nei thread (vedi "Motore dei segretari").
 
 Il codice sta in `src-tauri/src/hub.rs` e `src-tauri/src/hub/`. Le dipendenze e il posto del modulo nella mappa
 sono in [DESIGN.MD](DESIGN.MD), "`hub/`".
@@ -58,8 +58,9 @@ si possono salvare anche uno alla volta.
 | `channels` | `{ "mode": "all" }` (Generale e ogni workspace, anche quelli futuri) oppure `{ "mode": "only", "channels": [...] }` con `general` o id di workspace esistenti (`hub/channel.rs`), da 1 a 200, senza ripetizioni |
 
 **Nomi riservati.** I nomi dei segretari non devono mai diventare nomi delle sessioni dei terminali (`@mario` non
-può essere un terminale): il frontend li legge da `hub_get_settings` e li esclude dalla pool di `bots.rs` quando
-sceglie il nome di una sessione. `bots.json` non cambia.
+può essere un terminale): il frontend li legge da `hub_get_settings` e li esclude quando sceglie il nome di una
+sessione (`pickBotName` in `src/lib/bots.ts`; la pool di `bots.rs` e `bots.json` non cambiano). Dettagli in
+"Interfaccia", "Nomi riservati".
 
 **Compatibilità in lettura.** `hub_settings.json` non deve finire in un backup per un valore che questa versione
 non conosce (`hub/settings/tolerant.rs`): una lingua sconosciuta vale `it`, un tool sconosciuto (l'enum crescerà
@@ -284,12 +285,99 @@ dei workspace visibili (`totalWaiting`).
 | Resa degli eventi per tipo (etichetta, icona, tono; i tipi sconosciuti hanno la resa generica) e tab del worker | `lib/hubEvents.ts` |
 | Chiamate al backend, `hub-update` e caricamento dei canali | `app/actions/hub.ts`, `hooks/useHubSync.ts` |
 | Passaggi tra i mondi | `app/actions/view.ts`, `hooks/useShortcuts.ts` |
+| Impostazioni `settings` e segretari svegli `secretaryStatus` (evento `hub-secretary-status`, lettura all'accensione) | `stores/hub.ts`, `app/actions/hub.ts`, `hooks/useHubSync.ts` |
+| Logica pura dei segretari: menzionabili, `@` in corso, evidenziazione, stato, titolare, "sta scrivendo" | `lib/hubSecretaries.ts` |
+| Pagina Impostazioni › Agents HUB: interruttore e tre accordion | `components/settings/HubPage.tsx`, `components/settings/hub/*` |
+| Controlli, riepiloghi e bozza del segretario delle impostazioni; salvataggio (ogni comando ritorna le impostazioni, che finiscono nello store) | `lib/hubSettings.ts`, `app/actions/hubSettings.ts` |
+| Messaggi dei segretari (avatar, badge «SEGRETARIO»), menzioni evidenziate | `components/hub/HubMessageItem.tsx`, `components/hub/SecretaryBadge.tsx`, `components/tasks/Markdown.tsx` |
+| Compositore con autocompletamento di `@` | `components/hub/HubComposer.tsx`, `MentionMenu.tsx`, `useMentionAutocomplete.ts` |
+| «sta scrivendo…» e titolare del thread | `components/hub/TypingIndicator.tsx`, `components/hub/ThreadOwner.tsx` |
+| Sezione SEGRETARI della colonna di sinistra | `components/hub/HubSecretaryList.tsx`, `components/hub/HubSidebar.tsx` |
+| Nomi riservati ai terminali | `lib/bots.ts`, `reservedBotNames` in `stores/hub.ts`, `app/actions/tabs.ts`, `app/events.ts`, `hooks/useSessionPersistence.ts` |
 
 Il mondo Agents HUB ha tre colonne: canali (a sinistra, nella colonna dello schermo), thread del canale (filtro
 Aperti/Tutti, «+» nuovo thread) e conversazione. Gli eventi sono righe compatte con
 «Rispondi»: il compositore mostra il messaggio citato (annullabile) e invia con `reply_to`; la risposta riporta il
 riferimento all'originale, che sparisce se il messaggio è stato potato. Invio invia, Maiusc+Invio va a capo, al massimo
 8000 caratteri.
+
+### Impostazioni dei segretari
+
+Impostazioni › Agents HUB (`HubPage`): l'interruttore e, sotto, tre **accordion** (`HubAccordion`: l'intestazione è un
+pulsante con `aria-expanded` collegato al suo pannello `role="region"`). Ognuno mostra a destra un **riepilogo** anche
+da chiuso. Le impostazioni si vedono e si salvano anche a HUB spento (`hub_get_settings` le legge all'avvio e finiscono
+in `settings` di `stores/hub.ts`; ogni comando di salvataggio ritorna le impostazioni aggiornate). Finché non sono
+arrivate la pagina scrive «Impostazioni non disponibili.» e gli accordion non compaiono.
+
+| Accordion | Contenuto | Riepilogo |
+|---|---|---|
+| **Modello** (aperto di default) | endpoint e nome del modello (un solo modulo, «Salva» attivo solo se qualcosa è cambiato, controllo prima dell'invio); sotto, la API key | «Non configurato», «Endpoint locale» / «Endpoint remoto» / «Endpoint non valido» più «API key impostata» o «nessuna API key» |
+| **Sessioni dei segretari** | minuti di inattività (1-240) e passi massimi per risveglio (1-20) | «20 min · 8 passi» |
+| **Segretari** (aperto di default) | lingua delle risposte, elenco, editor, «Nuovo segretario» (disattivato oltre 20) | «3 segretari · 2 configurati · italiano» |
+
+- **API key** (`ApiKeyField`): mostra solo se c'è (`api_key_set`), con Imposta/Cambia e Rimuovi. La chiave non si
+  mostra mai e non sta in nessuno stato React né nello store: vive solo nel campo (non controllato, `type="password"`)
+  finché non si invia, poi il campo si svuota, anche se il backend rifiuta. Resta nel portachiavi (vedi "API key").
+  **Non c'è un pulsante «Prova la connessione»**: il backend non ha un comando per farlo; un endpoint sbagliato si
+  scopre alla prima menzione, dal messaggio di sistema del segretario (vedi "Ciclo di tool calling").
+- **Elenco dei segretari** (`SecretaryRow`): avatar, `@nome`, prima riga del system prompt, tool e canali ("tutti i
+  canali", "Generale, sito-web" o "nessun canale"). Un segretario **non configurato** (system prompt vuoto) ha il
+  bordo tratteggiato, l'avatar attenuato e la scritta «Non configurato: non risponde alle menzioni»; il pulsante è
+  «Configura» invece di «Modifica». «Elimina» chiede una conferma nella riga.
+- **Editor** (`SecretaryEditor`, uno solo aperto alla volta): nome (`@` fisso davanti; minuscole, cifre e `-`, fino a
+  24 caratteri), immagine, system prompt (con l'avviso che lo legge il modello, quindi in inglese), tool consentiti
+  (una casella per tool) e canali ("Tutti i canali, anche quelli futuri" oppure "Solo questi" con Generale e i
+  workspace visibili). «Salva» invia tutto insieme; i controlli del frontend (`checkDraft`) riprendono quelli del
+  backend, che resta l'ultima parola.
+- **Immagine** (`SecretaryImageField`): la stessa pipeline pixel-art delle immagini dei bot (`useBotImagePicker`),
+  con anteprima prima di usarla. L'immagine viaggia con comandi separati dopo il salvataggio dei campi: se non viene
+  accettata il segretario è comunque salvato e l'editor lo dice («Segretario salvato, ma l'immagine no: …»).
+
+### Conversazione
+
+- **Messaggi** (`HubMessageItem`): un messaggio di un segretario ha l'avatar (la sua immagine, o quella
+  deterministica), `@nome`, il badge **SEGRETARIO** (`SecretaryBadge`) e uno sfondo con il colore primario; quelli
+  dell'utente restano com'erano. Gli eventi sono righe compatte (`HubEventRow`).
+- **Menzioni evidenziate**: nel testo, `@nome` di un segretario che esiste si evidenzia (`splitMentions` in
+  `lib/hubSecretaries.ts`, usato da `Markdown` tramite la prop `mentions`). La grammatica è quella del backend
+  (`engine/mentions.rs`): `posta@mario.it` o `@màrio` non sono menzioni; un nome che non è di un segretario resta
+  testo normale. Si evidenziano anche i segretari non configurati.
+- **Autocompletamento di `@`** (`HubComposer`, `MentionMenu`, `useMentionAutocomplete`): scrivendo una menzione
+  compare un menu con i segretari **configurati e ammessi nel canale** (`mentionable`), il cui nome inizia con quanto
+  scritto. Frecce scorrono, Invio e Tab completano (con `@nome ` e il cursore dopo), Esc chiude solo il menu. Non
+  compaiono i segretari senza system prompt né quelli esclusi dal canale: come nel backend, non si sveglierebbero.
+- **«<nome> sta scrivendo…»** (`TypingIndicator`): sotto i messaggi, mentre almeno un segretario ha `working` sul
+  thread («mario e luisa stanno scrivendo…» se sono due). L'area `role="status"` resta nella pagina per l'annuncio
+  agli screen reader.
+- **Titolare del thread** (`ThreadOwner`): nell'intestazione, il segretario con la sessione che scade per ultima
+  (cioè il titolare, vedi "Menzioni e risveglio"), con avatar e «sta lavorando» oppure «scade tra N min» (arrotondato
+  per eccesso, «scade a momenti» a fine corsa). Niente se nessuno è sveglio.
+
+### Colonna SEGRETARI
+
+Sotto i canali, `HubSidebar` mostra la sezione **Segretari** (`HubSecretaryList`): per ciascuno avatar, `@nome` e lo
+stato, ricavato da `secretaryStatus` (`secretaryActivity`):
+
+| Stato | Quando | Resa |
+|---|---|---|
+| **non configurato** | system prompt vuoto | avatar e nome attenuati |
+| **dorme** | configurato, nessuna sessione aperta | avatar attenuato |
+| **sveglio · scade tra N min** | almeno una sessione aperta; scade l'ultima | pallino verde |
+| **al lavoro** | lavora su almeno un thread | pallino verde che pulsa |
+
+Senza segretari la colonna invita a crearne uno e il collegamento «Creane uno nelle impostazioni» apre la pagina.
+`secretaryStatus` si legge all'accensione (`hub_secretary_status`) e poi si sostituisce per intero a ogni
+`hub-secretary-status`; con l'HUB spento l'evento si ignora e lo stato si butta. Il tempo che resta si aggiorna con
+l'orologio condiviso del Tasks Manager (`useManagerNow`).
+
+### Nomi riservati
+
+I nomi dei segretari non diventano mai il nome di una sessione di terminale. `reservedBotNames` (`stores/hub.ts`) li
+ricava dalle impostazioni e lo passano a `pickBotName` (`lib/bots.ts`) quando si apre un tab (`tabsStore.open`, da
+`app/actions/tabs.ts` e `app/events.ts`) e a `assignRestoredNames` quando si ripristina la sessione
+(`hooks/useSessionPersistence.ts`, che prima aspetta `loadHubSettings`): un tab ripristinato con un nome diventato
+riservato ne riceve uno nuovo. Il confronto non distingue le maiuscole. **Limite**: un tab già aperto non viene
+rinominato se poi nasce un segretario con quel nome; il nome cambia al prossimo avvio dell'app.
 
 ## Eventi della board
 

@@ -1223,7 +1223,11 @@ src/
   acceso il footer non c'e': Impostazioni, Ufficio e versione stanno nella barra dei mondi (`components/rail/WorldRail.tsx`,
   64px a sinistra, con Terminali e HUB). Ctrl+Maiusc+H (`useShortcuts`) passa dal mondo Terminali al mondo Agents HUB
   (`UiState.world`, `stores/view.ts` `activeWorld`; non persistito): la colonna di 260px mostra `AppSidebar` o `HubSidebar`
-  e l'overlay `HubOverlay` copre i terminali (che restano montati). Dettagli in [HUB.MD](HUB.MD), "Interfaccia".
+  e l'overlay `HubOverlay` copre i terminali (che restano montati). I segretari: sezione SEGRETARI nella colonna
+  (`components/hub/HubSecretaryList.tsx`), messaggi, menzioni e compositore in `components/hub/`, logica pura in
+  `lib/hubSecretaries.ts`, impostazioni in `components/settings/HubPage.tsx` e `components/settings/hub/` (con
+  `lib/hubSettings.ts` e `app/actions/hubSettings.ts`), nomi riservati ai terminali in `lib/bots.ts`. Dettagli in
+  [HUB.MD](HUB.MD), "Interfaccia".
 - `components/PaneHeader.tsx` (30px): stato, etichetta mono (prefisso "workspace /" nella vista
   globale), parola di stato dell'agente, pin / massimizza / chiudi. Area dei pannelli su
   `--pane-area` con 6px di margine; pannello attivo col bordo accent; bersaglio di
