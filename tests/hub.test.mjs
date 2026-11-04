@@ -14,6 +14,7 @@ import {
   hubChannels,
   hubTitlePath,
   latestWaitingChannel,
+  listedOwner,
   replyTarget,
   resolveChannel,
   sortThreads,
@@ -313,5 +314,15 @@ describe("hubEvents: workerTabOf", () => {
       workerTabOf(boards, event(), () => false),
       null,
     );
+  });
+});
+
+describe("listedOwner", () => {
+  it("il titolare si conosce solo per il thread aperto", () => {
+    const open = { id: "t1", owner: "giorgio" };
+    assert.equal(listedOwner(open, "t1"), "giorgio");
+    assert.equal(listedOwner(open, "t2"), null);
+    assert.equal(listedOwner(null, "t1"), null);
+    assert.equal(listedOwner({ id: "t1", owner: null }, "t1"), null);
   });
 });

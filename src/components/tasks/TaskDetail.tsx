@@ -22,6 +22,8 @@ import {
 } from "../../lib/board";
 import type { BoardView, Task, TaskAction } from "../../lib/board";
 import { isReview } from "../../lib/review";
+import { isPlan } from "../../lib/plan";
+import { PlanBadge } from "./PlanBadge";
 import { agentBadge } from "../../lib/taskAgent";
 import type { TaskAgents } from "../../lib/taskAgent";
 import { isMultiRepo, repoOptions } from "../../lib/taskForm";
@@ -115,6 +117,7 @@ export default function TaskDetail({
             {statusLabel(status)}
           </span>
           {isReview(task) && <ReviewBadge className="text-xs" />}
+          {isPlan(task) && <PlanBadge className="text-xs" />}
           <VerdictBadge task={task} className="text-xs" />
           <TaskE2eBadge task={task} className="text-xs" />
           <AgentBadge name={agentBadge(agents, task.agent)} className="text-xs" />

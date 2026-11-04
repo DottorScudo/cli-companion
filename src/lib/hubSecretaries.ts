@@ -180,8 +180,8 @@ export function threadStatuses(
   return statuses.filter((s) => s.channel === channel && s.thread_id === threadId);
 }
 
-/** Il titolare del thread: la sessione che scade per ultima, cioè quella con l'attività più recente. */
-export function threadOwner(
+/** La sessione attiva sul thread: quella che scade per ultima, cioè con l'attività più recente. Non è il titolare (`HubThread.owner`). */
+export function threadSession(
   statuses: readonly HubSecretaryStatus[],
   channel: string,
   threadId: string,

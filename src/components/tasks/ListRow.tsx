@@ -5,6 +5,8 @@ import AgentBadge from "./AgentBadge";
 import { ReviewBadge, VerdictBadge } from "./ReviewBadges";
 import { TaskE2eBadge } from "./E2eBadges";
 import { isReview } from "../../lib/review";
+import { isPlan } from "../../lib/plan";
+import { PlanBadge } from "./PlanBadge";
 import {
   displayStatus,
   formatRelative,
@@ -64,6 +66,7 @@ function ListRow({ task, subtitle, agents, now, selected, showRepo, onSelect }: 
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="truncate">{task.title}</span>
           {isReview(task) && <ReviewBadge className="text-[11px]" />}
+          {isPlan(task) && <PlanBadge className="text-[11px]" />}
           <VerdictBadge task={task} className="text-[11px]" />
           <TaskE2eBadge task={task} className="text-[11px]" />
           <AgentBadge name={agentBadge(agents, task.agent)} className="text-[11px]" />

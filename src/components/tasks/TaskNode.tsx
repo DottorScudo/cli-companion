@@ -5,6 +5,8 @@ import { GitBranch, RotateCw, TriangleAlert } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { ReviewBadge, VerdictBadge } from "./ReviewBadges";
 import { isReview } from "../../lib/review";
+import { isPlan } from "../../lib/plan";
+import { PlanBadge } from "./PlanBadge";
 import {
   displayStatus,
   shortReport,
@@ -62,6 +64,7 @@ function TaskNode({ data }: NodeProps<TaskFlowNode>) {
           </span>
         )}
         {isReview(task) && <ReviewBadge className="ml-1 text-[10px]" />}
+        {isPlan(task) && <PlanBadge className="ml-1 text-[10px]" />}
         <VerdictBadge task={task} className="text-[10px]" />
         {task.attempts > 1 && (
           <span

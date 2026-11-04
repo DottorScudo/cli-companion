@@ -297,7 +297,9 @@ dei workspace visibili (`totalWaiting`).
 | Controlli, riepiloghi e bozza del segretario delle impostazioni; salvataggio (ogni comando ritorna le impostazioni, che finiscono nello store) | `lib/hubSettings.ts`, `app/actions/hubSettings.ts` |
 | Messaggi dei segretari (avatar, badge «SEGRETARIO»), menzioni evidenziate | `components/hub/HubMessageItem.tsx`, `components/hub/SecretaryBadge.tsx`, `components/tasks/Markdown.tsx` |
 | Compositore con autocompletamento di `@` | `components/hub/HubComposer.tsx`, `MentionMenu.tsx`, `useMentionAutocomplete.ts` |
-| «sta scrivendo…» e titolare del thread | `components/hub/TypingIndicator.tsx`, `components/hub/ThreadOwner.tsx` |
+| «sta scrivendo…», titolare del thread e sessione attiva | `components/hub/TypingIndicator.tsx`, `components/hub/ThreadOwner.tsx`, `components/hub/ThreadSession.tsx`, `components/hub/ListOwner.tsx` |
+| Scheda della proposta (task espandibili, stato, «Rispondi») e link al task `plan` | `components/hub/HubProposalCard.tsx`, `HubProposalTask.tsx`, `HubEventRow.tsx`, `lib/hubProposals.ts` |
+| Task di pianificazione: badge «Pianificazione» e domande del pianificatore | `lib/plan.ts`, `components/tasks/PlanBadge.tsx`, `components/tasks/DetailResult.tsx` |
 | Sezione SEGRETARI della colonna di sinistra | `components/hub/HubSecretaryList.tsx`, `components/hub/HubSidebar.tsx` |
 | Nomi riservati ai terminali | `lib/bots.ts`, `reservedBotNames` in `stores/hub.ts`, `app/actions/tabs.ts`, `app/events.ts`, `hooks/useSessionPersistence.ts` |
 
@@ -355,9 +357,22 @@ arrivate la pagina scrive «Impostazioni non disponibili.» e gli accordion non 
 - **«<nome> sta scrivendo…»** (`TypingIndicator`): sotto i messaggi, mentre almeno un segretario ha `working` sul
   thread («mario e luisa stanno scrivendo…» se sono due). L'area `role="status"` resta nella pagina per l'annuncio
   agli screen reader.
-- **Titolare del thread** (`ThreadOwner`): nell'intestazione, il segretario con la sessione che scade per ultima
-  (cioè il titolare, vedi "Menzioni e risveglio"), con avatar e «sta lavorando» oppure «scade tra N min» (arrotondato
-  per eccesso, «scade a momenti» a fine corsa). Niente se nessuno è sveglio.
+- **Titolare del thread** (`ThreadOwner`): nell'intestazione, il segretario `owner` del thread (quello che vi ha aperto
+  l'ultima pianificazione) con avatar e «· titolare». Nell'elenco dei thread la riga ne mostra l'avatar, ma il riassunto
+  (`HubThreadSummary`) non porta `owner`: si conosce solo per il thread aperto (`listedOwner`).
+- **Sessione attiva** (`ThreadSession`): accanto al titolare, il segretario con la sessione che scade per ultima
+  (vedi "Menzioni e risveglio"), con «sta lavorando» oppure «scade tra N min» (arrotondato per eccesso, «scade a momenti»
+  a fine corsa). Niente se nessuno è sveglio; può essere un segretario diverso dal titolare.
+- **Scheda della proposta** (`HubProposalCard`): l'evento `proposal_created` non è una riga ma una scheda «Proposta
+  pronta · N task» con lo stato (In attesa / Accettata / Scartata, ricavato dall'ultimo evento della proposta nel thread:
+  `proposalStatuses`), i task con id, modello e dipendenze, ciascuno espandibile per leggere la specifica in markdown
+  (`HubProposalTask`). I task si leggono dalla board del workspace già nello store finché la proposta è pendente: l'evento
+  porta solo `proposal_id`. Decisa, la proposta lascia la board e la scheda ripiega sul testo del messaggio (che elenca
+  i titoli). La scheda **non decide**: «Rispondi» (in evidenza finché è pendente, con il suggerimento «Rispondi per
+  accettare o scartare») cita il messaggio e la decisione passa dal segretario (`decide_proposal`).
+- **Eventi di un `plan`**: la riga dell'evento di un task di pianificazione (anche «proposta pronta» e «senza proposta»)
+  ha il link «apri il task di pianificazione nel Tasks Manager» (`planTaskOf`). Decisioni (`proposal_accepted` /
+  `proposal_rejected`) e risvegli del titolare sono righe e messaggi del segretario come gli altri.
 
 ### Colonna SEGRETARI
 

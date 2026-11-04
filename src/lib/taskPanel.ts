@@ -28,7 +28,7 @@ export function specExcerpt(spec: string, max = 180): string {
 export function dependencyLabels(
   ids: string[],
   tasks: Pick<Task, "id" | "title">[],
-  specs: Pick<TaskSpec, "id" | "title">[] = [],
+  specs: readonly Pick<TaskSpec, "id" | "title">[] = [],
 ): string[] {
   return ids.map((id) => tasks.find((t) => t.id === id)?.title ?? specs.find((t) => t.id === id)?.title ?? id);
 }

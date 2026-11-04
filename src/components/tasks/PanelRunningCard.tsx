@@ -7,6 +7,8 @@ import AgentBadge from "./AgentBadge";
 import { ReviewBadge } from "./ReviewBadges";
 import { TaskE2eBadge } from "./E2eBadges";
 import { isReview } from "../../lib/review";
+import { isPlan } from "../../lib/plan";
+import { PlanBadge } from "./PlanBadge";
 import BotAvatar from "../BotAvatar";
 import type { BotImage } from "../../lib/bots";
 
@@ -58,6 +60,7 @@ export default function PanelRunningCard({ task, now, agent = null, bot, botImag
         <span className="line-clamp-2 break-words text-[13px] font-medium">
           {task.title}
           {isReview(task) && <ReviewBadge className="ml-1.5 align-middle text-[10px]" />}
+          {isPlan(task) && <PlanBadge className="ml-1.5 align-middle text-[10px]" />}
           <TaskE2eBadge task={task} className="ml-1.5 align-middle text-[10px]" />
           <AgentBadge name={agent} className="ml-1.5 align-middle text-[10px]" />
         </span>

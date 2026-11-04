@@ -6,6 +6,8 @@ import AgentBadge from "./AgentBadge";
 import { ReviewBadge, VerdictBadge } from "./ReviewBadges";
 import { TaskE2eBadge } from "./E2eBadges";
 import { isReview } from "../../lib/review";
+import { isPlan } from "../../lib/plan";
+import { PlanBadge } from "./PlanBadge";
 import { displayStatus, waitingOnLabel, workerSubStatus } from "../../lib/board";
 import type { Task } from "../../lib/board";
 import { agentBadge, unavailableText } from "../../lib/taskAgent";
@@ -86,6 +88,7 @@ function KanbanCard({
           </span>
         )}
         {isReview(task) && <ReviewBadge />}
+        {isPlan(task) && <PlanBadge />}
         <VerdictBadge task={task} />
         <TaskE2eBadge task={task} />
         <AgentBadge name={agentBadge(agents, task.agent)} />

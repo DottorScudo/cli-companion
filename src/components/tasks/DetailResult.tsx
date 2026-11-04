@@ -5,7 +5,9 @@ import type { Task, TaskReport, TaskTestResult } from "../../lib/board";
 import { openExternal } from "../../lib/openExternal";
 import { reviewFindings } from "../../lib/review";
 import type { FindingsList } from "../../lib/review";
+import { PLAN_QUESTIONS_TITLE, planQuestions } from "../../lib/plan";
 import Collapsible from "./Collapsible";
+import Markdown from "./Markdown";
 
 const FINDINGS_TONE: Record<FindingsList["tone"], { box: string; title: string }> = {
   attention: { box: "border-status-attention/50", title: "text-status-attention" },
@@ -44,6 +46,7 @@ function Body({ report, task }: { report: TaskReport; task: Task }) {
   const pr = prUrl(task);
   const { tests, files_changed: files, follow_ups: followUps } = report;
   const findings = reviewFindings(task);
+  const questions = planQuestions(task);
   return (
     <>
       {findings && (
@@ -60,7 +63,13 @@ function Body({ report, task }: { report: TaskReport; task: Task }) {
           </ul>
         </div>
       )}
-      {report.summary && (
+      {questions !== null && (
+        <div className="flex flex-col gap-1 rounded-md border border-status-attention/50 px-2.5 py-2 text-xs">
+          <span className="font-medium text-status-attention">{PLAN_QUESTIONS_TITLE}</span>
+          <Markdown source={questions} />
+        </div>
+      )}
+      {report.summary && questions === null && (
         <p className="whitespace-pre-line break-words leading-relaxed text-text-secondary">{report.summary}</p>
       )}
       {(report.commit || pr) && (

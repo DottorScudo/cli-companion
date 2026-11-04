@@ -16,7 +16,7 @@ import {
   secretaryActivity,
   secretaryNames,
   splitMentions,
-  threadOwner,
+  threadSession,
   threadStatuses,
   typingLabel,
   typingNames,
@@ -268,10 +268,10 @@ describe("segretari sul thread", () => {
     assert.deepEqual(threadStatuses(list, "general", "nessuno"), []);
   });
 
-  it("il titolare è la sessione che scade per ultima", () => {
-    assert.equal(threadOwner(list, "general", "t1")?.secretary, "luisa");
-    assert.equal(threadOwner(list, "general", "nessuno"), null);
-    assert.equal(threadOwner([], "general", "t1"), null);
+  it("la sessione attiva è quella che scade per ultima", () => {
+    assert.equal(threadSession(list, "general", "t1")?.secretary, "luisa");
+    assert.equal(threadSession(list, "general", "nessuno"), null);
+    assert.equal(threadSession([], "general", "t1"), null);
   });
 
   it("chi sta scrivendo: solo chi lavora su quel thread", () => {

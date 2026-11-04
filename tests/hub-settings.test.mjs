@@ -178,6 +178,10 @@ describe("segretari", () => {
       ["board_status", "thread_read", "post_message", "open_plan_task", "decide_proposal"],
     );
     assert.ok(SECRETARY_TOOLS.every((t) => t.description.length > 0));
+    const text = Object.fromEntries(SECRETARY_TOOLS.map((t) => [t.id, t.description]));
+    assert.equal(text.open_plan_task, "Apre un task di pianificazione");
+    assert.equal(text.decide_proposal, "Accetta o scarta la proposta a cui rispondi");
+    assert.deepEqual(EMPTY_DRAFT.tools, []);
   });
 
   it("toggleChannel: nell'ordine dei canali esistenti", () => {

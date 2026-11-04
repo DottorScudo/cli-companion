@@ -10,10 +10,11 @@ import {
   XCircle,
   type LucideIcon,
 } from "lucide-react";
-import { focusTerminal } from "../../app/actions/view";
+import { focusTerminal, openManager } from "../../app/actions/view";
 import { useStores } from "../../hooks/useStore";
 import { formatRelative } from "../../lib/board";
 import { eventLook, workerTabOf } from "../../lib/hubEvents";
+import { planTaskOf } from "../../lib/hubProposals";
 import type { HubEventIcon, HubEventTone } from "../../lib/hubEvents";
 import type { HubEvent, HubMessage } from "../../lib/tauri";
 import { cn } from "../../lib/utils";
@@ -40,6 +41,7 @@ const TONE_CLASS: Record<HubEventTone, string> = {
 };
 
 const WORKER_STORES = [boardsStore, tabsStore] as const;
+const BOARDS_ONLY = [boardsStore] as const;
 
 interface Props {
   message: HubMessage;
@@ -61,6 +63,9 @@ export default function HubEventRow({ message, event, target, now, onReply }: Pr
     [event],
   );
   const workerTab = useStores(WORKER_STORES, computeWorkerTab);
+  const computePlanTask = useCallback(() => planTaskOf(boardsStore.getState().boards, event), [event]);
+  const planTask = useStores(BOARDS_ONLY, computePlanTask);
+  const { workspace } = event;
   return (
     <div className="group flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-accent/40">
       <Icon className={cn("mt-0.5 !size-4 flex-shrink-0", TONE_CLASS[look.tone])} aria-hidden="true" />
@@ -77,6 +82,15 @@ export default function HubEventRow({ message, event, target, now, onReply }: Pr
             className="self-start text-[11px] text-primary hover:underline"
           >
             apri il terminale del worker
+          </button>
+        )}
+        {planTask && workspace !== null && (
+          <button
+            type="button"
+            onClick={() => openManager(workspace, { taskId: planTask.id })}
+            className="self-start text-[11px] text-primary hover:underline"
+          >
+            apri il task di pianificazione nel Tasks Manager
           </button>
         )}
         {target && <ReplyReference target={target} />}

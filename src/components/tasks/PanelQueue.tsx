@@ -7,6 +7,8 @@ import { dropSlot, moveBeforeId, queueSubtitle } from "../../lib/taskPanel";
 import { cn } from "@/lib/utils";
 import { ReviewBadge } from "./ReviewBadges";
 import { isReview } from "../../lib/review";
+import { isPlan } from "../../lib/plan";
+import { PlanBadge } from "./PlanBadge";
 
 interface PanelQueueProps {
   /** Task Da fare nell'ordine della coda. */
@@ -112,6 +114,7 @@ function QueueRowButton({ task, allTasks, onOpen }: { task: Task; allTasks: Task
       <span className="flex min-w-0 items-center gap-1.5">
         <span className="truncate text-[13px] text-text-secondary">{task.title}</span>
         {isReview(task) && <ReviewBadge className="text-[10px]" />}
+        {isPlan(task) && <PlanBadge className="text-[10px]" />}
       </span>
       {sub && <span className="truncate text-[11px] text-muted-foreground">{sub}</span>}
     </button>

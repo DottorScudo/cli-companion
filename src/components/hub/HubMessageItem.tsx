@@ -5,7 +5,9 @@ import { findSecretary } from "../../lib/hubSecretaries";
 import type { HubMessage, HubSecretary } from "../../lib/tauri";
 import BotAvatar from "../BotAvatar";
 import Markdown from "../tasks/Markdown";
+import type { ProposalStatus } from "../../lib/hubProposals";
 import HubEventRow from "./HubEventRow";
+import HubProposalCard from "./HubProposalCard";
 import ReplyReference from "./ReplyReference";
 import SecretaryBadge from "./SecretaryBadge";
 
@@ -20,6 +22,8 @@ interface Props {
   secretaries: readonly HubSecretary[];
   /** Nomi dei segretari, per evidenziare le menzioni nel testo. */
   mentions: readonly string[];
+  /** Stato della proposta del messaggio «proposta pronta»; assente negli altri. */
+  proposalStatus?: ProposalStatus;
   onReply: (messageId: string) => void;
 }
 
@@ -27,7 +31,21 @@ interface Props {
  * Un messaggio della conversazione: testo dell'utente, risposta di un
  * segretario (avatar, nome e badge), oppure evento in forma compatta.
  */
-function HubMessageItem({ message, target, now, secretaries, mentions, onReply }: Props) {
+function HubMessageItem({ message, target, now, secretaries, mentions, proposalStatus, onReply }: Props) {
+  const proposalId = message.event?.proposal_id;
+  if (message.event && proposalId && proposalStatus) {
+    return (
+      <HubProposalCard
+        message={message}
+        event={message.event}
+        proposalId={proposalId}
+        status={proposalStatus}
+        target={target}
+        now={now}
+        onReply={onReply}
+      />
+    );
+  }
   if (message.event) {
     return <HubEventRow message={message} event={message.event} target={target} now={now} onReply={onReply} />;
   }

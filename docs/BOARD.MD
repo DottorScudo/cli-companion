@@ -867,6 +867,9 @@ consegna codice: niente branch da integrare, niente istruzioni di consegna. Rego
   commit, al massimo **una** proposta e poi `complete_task`; se la richiesta è troppo ambigua non
   propone e chiude `completed` con un `summary` che inizia con "Questions for the user:" e le domande
   numerate.
+- **Interfaccia**: badge «Pianificazione» (`PlanBadge`, `lib/plan.ts`) su schede, righe, nodi, pannello Task e dettaglio; nel
+  dettaglio un `plan` concluso con «Questions for the user:» mostra le domande in evidenza («Domande del pianificatore»).
+  Le azioni disponibili sono quelle di `allowed_actions`, come per ogni task.
 - **Esito**: `complete_task` senza `commit`, `pr_url`, `verdict`, `findings` (vedi "Tool MCP");
   `done` → tab chiuso → worktree rimosso e branch cancellato (`-D` in `pr`, `-d` altrimenti), mai
   merge, push o PR. Un piano `failed` tiene il worktree per il retry, come ogni task; eliminarlo lo

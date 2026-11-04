@@ -178,3 +178,11 @@ export function authorLabel(author: HubMessage["author"]): string {
       return author.name;
   }
 }
+
+/**
+ * Titolare di un thread dell'elenco. Il riassunto (`HubThreadSummary`) non lo
+ * porta: si conosce solo quello del thread aperto, già letto per intero.
+ */
+export function listedOwner(openThread: Pick<HubThread, "id" | "owner"> | null, threadId: string): string | null {
+  return openThread !== null && openThread.id === threadId ? openThread.owner : null;
+}
