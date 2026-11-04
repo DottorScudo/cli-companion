@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
-import AgentSettingsTab from "./AgentSettingsTab";
 import UpdateCheck from "./UpdateCheck";
 import ScheduleSettings from "./ScheduleSettings";
 import GeneralLaunchesPage from "./settings/GeneralLaunchesPage";
 import BotsPage from "./settings/BotsPage";
+import IntegrationsPage from "./settings/IntegrationsPage";
 import WorkspaceLaunchesPage from "./settings/WorkspaceLaunchesPage";
 import WorkerPage from "./settings/WorkerPage";
 import RepoPage from "./settings/RepoPage";
@@ -22,7 +22,7 @@ export type SettingsTab =
   | "general-launches"
   | "bots"
   | "schedule"
-  | "agents"
+  | "integrations"
   | "updates"
   | "launches"
   | "worker"
@@ -35,7 +35,7 @@ const GENERAL_TABS: { id: SettingsTab; label: string }[] = [
   { id: "general-launches", label: "Avvii" },
   { id: "bots", label: "Bot" },
   { id: "schedule", label: "Fasce orarie" },
-  { id: "agents", label: "Coding agent" },
+  { id: "integrations", label: "Integrazioni" },
   { id: "updates", label: "Aggiornamenti" },
   { id: "archived", label: "Workspace archiviati" },
 ];
@@ -130,15 +130,8 @@ export default function SettingsDialog() {
             <ScheduleSettings />
           </SettingsPage>
         );
-      case "agents":
-        return (
-          <SettingsPage
-            title="Coding agent"
-            description="Il plugin che avvisa l’app quando un agente ha finito o ha bisogno di te."
-          >
-            <AgentSettingsTab />
-          </SettingsPage>
-        );
+      case "integrations":
+        return <IntegrationsPage />;
       case "updates":
         return (
           <SettingsPage title="Aggiornamenti" description="Controlla e installa le nuove versioni dell’app.">

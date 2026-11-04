@@ -2,16 +2,12 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   agentEnvBadge,
-  agentEnvState,
-  agentEnvStateText,
-  agentInstallLabel,
   agentRowKey,
   applyAgentEvent,
   agentIdForCommand,
   applyUserInput,
   resolveInputOverride,
   tabAgentId,
-  groupByAgent,
   installedAgentsSummary,
   countNeedingInput,
   terminalCountText,
@@ -35,41 +31,11 @@ const env = (over = {}) => ({
   ...over,
 });
 
-describe("agenti: stato per ambiente", () => {
-  it("stato e testo", () => {
-    assert.equal(agentEnvState(env()), "not-installed");
-    assert.equal(agentEnvState(env({ installed: true })), "installed");
-    assert.equal(agentEnvState(env({ found: false })), "not-found");
-    assert.equal(agentEnvStateText(env()), "Non installato · v2.1.211");
-    assert.equal(agentEnvStateText(env({ installed: true })), "Installato · v2.1.211");
-    assert.equal(agentEnvStateText(env({ version: null })), "Non installato");
-    assert.equal(agentEnvStateText(env({ found: false, version: null })), "Non trovato");
-  });
-
-  it("etichetta del bottone e badge", () => {
-    assert.equal(agentInstallLabel(env()), "Installa");
-    assert.equal(agentInstallLabel(env({ installed: true })), "Reinstalla");
-    assert.equal(agentInstallLabel(env({ found: false })), null);
+describe("agenti: etichette degli ambienti", () => {
+  it("badge e chiave di riga", () => {
     assert.equal(agentEnvBadge(env()), "WIN");
     assert.equal(agentEnvBadge(env({ env_kind: "wsl", env_label: "Ubuntu-24.04" })), "Ubuntu-24.04");
-  });
-
-  it("raggruppa per agente mantenendo l'ordine", () => {
-    const rows = [
-      env(),
-      env({ agent_id: "altro", agent_name: "Altro", env_key: "windows" }),
-      env({ env_key: "Ubuntu", env_label: "Ubuntu", env_kind: "wsl" }),
-    ];
-    const groups = groupByAgent(rows);
-    assert.deepEqual(
-      groups.map((g) => [g.agentId, g.agentName, g.envs.length]),
-      [
-        ["claude-code", "Claude Code", 2],
-        ["altro", "Altro", 1],
-      ],
-    );
-    assert.deepEqual(groupByAgent([]), []);
-    assert.equal(agentRowKey(rows[2]), "claude-code::Ubuntu");
+    assert.equal(agentRowKey(env({ env_key: "Ubuntu" })), "claude-code::Ubuntu");
   });
 });
 

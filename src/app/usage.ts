@@ -12,7 +12,7 @@ import {
   usageTargets,
   workspaceEnvKey,
 } from "../lib/usage";
-import { configStore } from "../stores/config";
+import { configStore, enabledEnvs } from "../stores/config";
 import { runtimeStore } from "../stores/tabRuntime";
 import { tabsStore } from "../stores/tabs";
 import { usageStore } from "../stores/usage";
@@ -29,8 +29,8 @@ const usageEnabled = (): boolean => configStore.getState().showUsage;
 export function startLimitsPolling(): () => void {
   let cancelled = false;
   const load = () => {
-    const { agentProfiles, agentEnvs } = configStore.getState();
-    for (const { key, env } of usageTargets(agentProfiles, agentEnvs)) {
+    const state = configStore.getState();
+    for (const { key, env } of usageTargets(state.agentProfiles, enabledEnvs(state))) {
       api
         .agentUsageLimits(env.agent_id, env.env_key)
         .then((reply) => {

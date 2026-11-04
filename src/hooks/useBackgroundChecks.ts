@@ -2,11 +2,10 @@ import { useEffect } from "react";
 import { check } from "@tauri-apps/plugin-updater";
 import { api } from "../lib/tauri";
 import { ignoreError, report } from "../lib/errors";
-import { setAgentEnvs } from "../app/actions/settings";
 import { uiStore } from "../stores/ui";
 import { useStore } from "./useStore";
 
-/** Attesa prima dei controlli in background (stato dei plugin) dopo il ripristino della sessione. */
+/** Attesa prima del controllo in background (pacchetti non aggiornati) dopo il ripristino della sessione. */
 const BACKGROUND_CHECK_DELAY_MS = 1500;
 
 type Check = (isCancelled: () => boolean) => void;
@@ -28,16 +27,6 @@ function useDelayedCheck(enabled: boolean, run: Check): void {
   }, [enabled, run]);
 }
 
-/** `agent_env_status` lancia processi (wsl.exe, la CLI dell'agente): una sola volta, in background. */
-const detectInstalledPlugins: Check = (isCancelled) => {
-  api
-    .agentEnvStatus()
-    .then((envs) => {
-      if (!isCancelled()) setAgentEnvs(envs);
-    })
-    .catch((e) => report("rilevamento dei plugin installati", e));
-};
-
 /** Plugin installati con versione diversa dall'app: controllo una sola volta per avvio. */
 const detectOutdatedPlugins: Check = (isCancelled) => {
   api
@@ -51,9 +40,9 @@ const detectOutdatedPlugins: Check = (isCancelled) => {
 /**
  * Controlli in background. Aggiornamento dell'app (plugin updater): silenzioso
  * all'avvio, se c'è un update compare il pallino su "Impostazioni"; gli errori
- * (rete, release assente) non fanno rumore. Stato dei plugin degli agenti:
- * una volta sola, con un po' di ritardo, quando la sessione è già ripristinata.
- * Non blocca la UI; dopo install/rimozione lo aggiornano le Impostazioni.
+ * (rete, release assente) non fanno rumore. Pacchetti degli agenti non
+ * aggiornati: una volta sola, con un po' di ritardo, quando la sessione è già
+ * ripristinata. Non blocca la UI.
  */
 export function useBackgroundChecks(): void {
   const sessionReady = useStore(uiStore, (s) => s.sessionReady);
@@ -64,6 +53,5 @@ export function useBackgroundChecks(): void {
       .catch(ignoreError("controllo silenzioso degli aggiornamenti: senza rete o release non c'è nulla da dire"));
   }, []);
 
-  useDelayedCheck(sessionReady, detectInstalledPlugins);
   useDelayedCheck(sessionReady, detectOutdatedPlugins);
 }

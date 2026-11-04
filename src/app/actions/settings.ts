@@ -1,9 +1,9 @@
 // Dialoghi e impostazioni: apertura di Impostazioni e "Aggiungi workspace",
 // e i valori che le Impostazioni riportano all'app.
 
-import { api } from "../../lib/tauri";
-import type { AgentEnvStatus, BotSettings, Workspace } from "../../lib/tauri";
+import type { BotSettings, Workspace } from "../../lib/tauri";
 import { report } from "../../lib/errors";
+import { refreshIntegrations } from "./integrations";
 import { configStore } from "../../stores/config";
 import { uiStore } from "../../stores/ui";
 
@@ -29,10 +29,6 @@ export function closeAddWorkspace(): void {
   uiStore.setAddWorkspaceOpen(false);
 }
 
-export function setAgentEnvs(agentEnvs: AgentEnvStatus[]): void {
-  configStore.patch({ agentEnvs });
-}
-
 export function setShowUsage(showUsage: boolean): void {
   configStore.patch({ showUsage });
 }
@@ -48,8 +44,5 @@ export function setBotSettings(botSettings: BotSettings): void {
 export function closePluginUpdate(): void {
   uiStore.setOutdatedPlugins([]);
   // Dopo un aggiornamento non seguito da riavvio lo stato va riletto.
-  api
-    .agentEnvStatus()
-    .then(setAgentEnvs)
-    .catch((e) => report("rilevamento dei plugin installati", e));
+  refreshIntegrations().catch((e) => report("rilevamento dei pacchetti installati", e));
 }

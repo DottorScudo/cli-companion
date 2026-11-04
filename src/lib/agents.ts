@@ -1,4 +1,4 @@
-// Coding agent: stato per ambiente (Impostazioni) e stato per tab (macchina
+// Coding agent: etichette degli ambienti e stato per tab (macchina
 // a stati degli eventi degli hook). File volutamente a zero dipendenze:
 // importabile sia dall'app sia dai test `node --test` (type-stripping).
 
@@ -10,57 +10,12 @@ import type { ResumeSpec } from "../bindings/ResumeSpec.ts";
 import type { TargetKind } from "../bindings/TargetKind.ts";
 
 // ---------------------------------------------------------------------------
-// Impostazioni -> Coding agent
+// Ambienti dei coding agent
 // ---------------------------------------------------------------------------
-
-export type AgentEnvState = "not-found" | "not-installed" | "installed";
-
-export function agentEnvState(env: Pick<AgentEnvStatus, "found" | "installed">): AgentEnvState {
-  if (!env.found) return "not-found";
-  return env.installed ? "installed" : "not-installed";
-}
-
-/** Testo di stato, con la versione se nota (anche per i non installati). */
-export function agentEnvStateText(env: Pick<AgentEnvStatus, "found" | "installed" | "version">): string {
-  const text = {
-    installed: "Installato",
-    "not-installed": "Non installato",
-    "not-found": "Non trovato",
-  }[agentEnvState(env)];
-  const version = env.version?.trim();
-  return env.found && version ? `${text} · v${version}` : text;
-}
-
-/** Etichetta del bottone principale: "Installa" / "Reinstalla" (null = nessuno). */
-export function agentInstallLabel(env: Pick<AgentEnvStatus, "found" | "installed">): string | null {
-  const state = agentEnvState(env);
-  if (state === "not-found") return null;
-  return state === "installed" ? "Reinstalla" : "Installa";
-}
 
 /** Testo del badge ambiente: `WIN` per Windows, il nome per le distro WSL. */
 export function agentEnvBadge(env: Pick<AgentEnvStatus, "env_kind" | "env_label">): string {
   return env.env_kind === "windows" ? "WIN" : env.env_label;
-}
-
-export interface AgentGroup<T extends AgentEnvStatus = AgentEnvStatus> {
-  agentId: string;
-  agentName: string;
-  envs: T[];
-}
-
-/** Raggruppa per agente mantenendo l'ordine di prima comparsa. */
-export function groupByAgent<T extends AgentEnvStatus>(envs: T[]): AgentGroup<T>[] {
-  const groups: AgentGroup<T>[] = [];
-  for (const env of envs) {
-    let group = groups.find((g) => g.agentId === env.agent_id);
-    if (!group) {
-      group = { agentId: env.agent_id, agentName: env.agent_name, envs: [] };
-      groups.push(group);
-    }
-    group.envs.push(env);
-  }
-  return groups;
 }
 
 /** Chiave unica (agente, env) per lo stato "operazione in corso". */

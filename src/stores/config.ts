@@ -1,10 +1,11 @@
 // Dati letti dal backend o dalle impostazioni, non legati a un tab: profili
-// degli agenti, avvii integrati, bot, ambienti con i plugin installati.
+// degli agenti, integrazioni (con lo stato dei loro ambienti), avvii integrati, bot.
 
 import { createStore } from "../lib/store.ts";
 import { botImageOf } from "../lib/bots.ts";
 import type { BotImage } from "../lib/bots.ts";
-import type { AgentEnvStatus, AgentProfile, BotSettings, BuiltinLaunch } from "../lib/tauri.ts";
+import { defaultOf, enabledEnvStatuses, enabledOf } from "../lib/integrations.ts";
+import type { AgentEnvStatus, AgentProfile, BotSettings, BuiltinLaunch, IntegrationInfo } from "../lib/tauri.ts";
 
 export interface ConfigState {
   /** Profili di input e ripresa degli agenti (statici): letti una volta all'avvio. */
@@ -17,8 +18,8 @@ export interface ConfigState {
   showUsage: boolean;
   /** Nome e avatar di ogni sessione; la pool serve ai nomi dei tab ripristinati. */
   botSettings: BotSettings;
-  /** Plugin degli agenti installati per ambiente (barra di stato). */
-  agentEnvs: AgentEnvStatus[];
+  /** Tutte le integrazioni, abilitate o no, con lo stato per ambiente: i componenti usano i selettori. */
+  integrations: IntegrationInfo[];
   appVersion: string | null;
 }
 
@@ -31,7 +32,7 @@ export const INITIAL_CONFIG: ConfigState = {
   globalLaunch: null,
   showUsage: true,
   botSettings: DEFAULT_BOT_SETTINGS,
-  agentEnvs: [],
+  integrations: [],
   appVersion: null,
 };
 
@@ -77,6 +78,17 @@ export function botImageResolver(bots: BotSettings): BotImageResolver {
 export function shownBot(bots: BotSettings, name: string): string | undefined {
   return bots.enabled ? name : undefined;
 }
+
+type WithIntegrations = Pick<ConfigState, "integrations">;
+
+/** Integrazioni abilitate: l'unico elenco che il resto dell'interfaccia deve considerare. */
+export const enabledIntegrations = (s: WithIntegrations): IntegrationInfo[] => enabledOf(s.integrations);
+
+/** Integrazione predefinita (una delle abilitate); `null` finché l'elenco non è caricato. */
+export const defaultIntegration = (s: WithIntegrations): IntegrationInfo | null => defaultOf(s.integrations);
+
+/** Stato degli ambienti delle integrazioni abilitate. */
+export const enabledEnvs = (s: WithIntegrations): AgentEnvStatus[] => enabledEnvStatuses(s.integrations);
 
 export function createConfigStore() {
   const store = createStore<ConfigState>(INITIAL_CONFIG);

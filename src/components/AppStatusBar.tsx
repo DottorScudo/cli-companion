@@ -2,7 +2,7 @@ import { useStore, useStores } from "../hooks/useStore";
 import { agentEnvBadge, installedAgentsSummary } from "../lib/agents";
 import { limitGroups, usageTargets } from "../lib/usage";
 import type { LimitGroup } from "../lib/usage";
-import { configStore } from "../stores/config";
+import { configStore, enabledEnvs } from "../stores/config";
 import { attentionCount } from "../stores/selectors";
 import { runtimeStore } from "../stores/tabRuntime";
 import { tabsStore } from "../stores/tabs";
@@ -16,11 +16,11 @@ const computeAttention = () => attentionCount(tabsStore.getState(), runtimeStore
 
 /** Limiti di utilizzo per agente e ambiente (nessuno con l'interruttore spento). */
 function computeLimits(): LimitGroup[] {
-  const { showUsage, agentProfiles, agentEnvs } = configStore.getState();
-  if (!showUsage) return [];
+  const state = configStore.getState();
+  if (!state.showUsage) return [];
   const { limits } = usageStore.getState();
   return limitGroups(
-    usageTargets(agentProfiles, agentEnvs).map((t) => ({
+    usageTargets(state.agentProfiles, enabledEnvs(state)).map((t) => ({
       key: t.key,
       agentName: t.agentName,
       label: agentEnvBadge(t.env),
@@ -36,7 +36,7 @@ const sameLimits = (a: LimitGroup[], b: LimitGroup[]) => JSON.stringify(a) === J
 export default function AppStatusBar() {
   const terminalCount = useStore(tabsStore, (s) => s.length);
   const attention = useStores(ATTENTION_STORES, computeAttention);
-  const agentsSummary = useStore(configStore, (s) => installedAgentsSummary(s.agentEnvs));
+  const agentsSummary = useStore(configStore, (s) => installedAgentsSummary(enabledEnvs(s)));
   const limits = useStores(LIMIT_STORES, computeLimits, sameLimits);
 
   return (

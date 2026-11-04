@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { refreshAllSessionUsage, startLimitsPolling } from "../app/usage";
 import { SESSION_POLL_MS, sessionPollInterval, usageTargets } from "../lib/usage";
-import { configStore } from "../stores/config";
+import { configStore, enabledEnvs } from "../stores/config";
 import { runtimeStore } from "../stores/tabRuntime";
 import { tabsStore } from "../stores/tabs";
 import { usageStore } from "../stores/usage";
@@ -9,7 +9,7 @@ import { useStore, useStores } from "./useStore";
 
 // Chiave stabile delle coppie (agente, ambiente) con i limiti da leggere.
 const targetSignature = (s: ReturnType<typeof configStore.getState>) =>
-  usageTargets(s.agentProfiles, s.agentEnvs)
+  usageTargets(s.agentProfiles, enabledEnvs(s))
     .map((t) => t.key)
     .join("\n");
 

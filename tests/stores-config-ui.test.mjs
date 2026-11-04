@@ -5,6 +5,9 @@ import {
   INITIAL_CONFIG,
   botImageResolver,
   createConfigStore,
+  defaultIntegration,
+  enabledEnvs,
+  enabledIntegrations,
   patchConfig,
   shownBot,
 } from "../src/stores/config.ts";
@@ -39,11 +42,11 @@ describe("config: patchConfig", () => {
   it("stessi valori (Object.is) = stesso stato", () => {
     assert.equal(patchConfig(INITIAL_CONFIG, {}), INITIAL_CONFIG);
     assert.equal(patchConfig(INITIAL_CONFIG, { showUsage: true, globalLaunch: null }), INITIAL_CONFIG);
-    assert.equal(patchConfig(INITIAL_CONFIG, { agentEnvs: INITIAL_CONFIG.agentEnvs }), INITIAL_CONFIG);
+    assert.equal(patchConfig(INITIAL_CONFIG, { integrations: INITIAL_CONFIG.integrations }), INITIAL_CONFIG);
   });
 
   it("un array nuovo, anche se vuoto, è un cambiamento", () => {
-    assert.notEqual(patchConfig(INITIAL_CONFIG, { agentEnvs: [] }), INITIAL_CONFIG);
+    assert.notEqual(patchConfig(INITIAL_CONFIG, { integrations: [] }), INITIAL_CONFIG);
   });
 
   it("cambia solo i campi indicati e ignora gli undefined", () => {
@@ -198,5 +201,40 @@ describe("createUiStore", () => {
     store.openManager("w1", { taskId: "t" });
     store.consumeIntent();
     assert.equal(calls, 2);
+  });
+});
+
+describe("config: selettori delle integrazioni", () => {
+  const integration = (id, over = {}) => ({ id, name: id, enabled: true, is_default: false, envs: [], ...over });
+  const state = (integrations) => ({ ...INITIAL_CONFIG, integrations });
+
+  it("stato iniziale: nessuna integrazione, nessuna predefinita", () => {
+    assert.deepEqual(INITIAL_CONFIG.integrations, []);
+    assert.deepEqual(enabledIntegrations(INITIAL_CONFIG), []);
+    assert.equal(defaultIntegration(INITIAL_CONFIG), null);
+    assert.deepEqual(enabledEnvs(INITIAL_CONFIG), []);
+  });
+
+  it("i selettori considerano solo le abilitate", () => {
+    const a = integration("a", { is_default: true });
+    const b = integration("b", { enabled: false });
+    const s = state([a, b]);
+    assert.deepEqual(enabledIntegrations(s), [a]);
+    assert.equal(defaultIntegration(s), a);
+  });
+
+  it("stesso riferimento finché l'elenco non cambia (niente ridisegni)", () => {
+    const s = state([integration("a", { is_default: true })]);
+    assert.equal(enabledIntegrations(s), enabledIntegrations({ ...s, showUsage: false }));
+    assert.equal(enabledEnvs(s), enabledEnvs({ ...s, showUsage: false }));
+  });
+
+  it("un elenco nuovo è un cambiamento dello store", () => {
+    const store = createConfigStore();
+    let calls = 0;
+    store.subscribe(() => calls++);
+    store.patch({ integrations: [integration("a", { is_default: true })] });
+    assert.equal(calls, 1);
+    assert.equal(defaultIntegration(store.getState())?.id, "a");
   });
 });

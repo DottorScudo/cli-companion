@@ -9,6 +9,7 @@ import type { BotSettings } from "../bindings/BotSettings.ts";
 import type { BuiltinLaunch } from "../bindings/BuiltinLaunch.ts";
 import type { Delivery } from "../bindings/Delivery.ts";
 import type { E2eEvent as E2eUpdateEvent } from "../bindings/E2eEvent.ts";
+import type { IntegrationEnv } from "../bindings/IntegrationEnv.ts";
 import type { IntegrationInfo } from "../bindings/IntegrationInfo.ts";
 import type { IntegrationsState } from "../bindings/IntegrationsState.ts";
 import type { IpcStatus } from "../bindings/IpcStatus.ts";
@@ -40,6 +41,7 @@ export type {
   BotSettings,
   BuiltinLaunch,
   Delivery,
+  IntegrationEnv,
   IntegrationInfo,
   IntegrationsState,
   OutdatedPlugin,
@@ -277,5 +279,6 @@ export interface TauriEvents {
   "e2e-update": E2eUpdateEvent;
   "task-notify": TaskNotifyEvent;
   "agent-event": AgentEvent;
+  "integrations-changed": IntegrationsState;
   "store-warning": StoreWarning;
 }

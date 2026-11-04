@@ -1056,9 +1056,11 @@ src/
   trascinamento tratteggiato con "Rilascia qui per spostare"; stato vuoto con logo.
   Resta valido: i `TerminalView` sono figli diretti di un unico contenitore fisso.
 - `components/StatusBar.tsx` (26px): "N terminali", "K in attesa di risposta" e, a destra, gli
-  ambienti con il plugin installato (`installedAgentsSummary`). `agent_env_status` lancia
-  processi: e' chiamato una volta, in background ~1,5 s dopo il ripristino della sessione, e
-  aggiornato dalle Impostazioni dopo installa/rimuovi (`setAgentEnvs`, in `src/app/actions/settings.ts`).
+  ambienti con il pacchetto installato (`installedAgentsSummary`) delle sole integrazioni abilitate.
+  Le integrazioni stanno in `configStore.integrations` (`integrations_list` lancia processi: letto
+  all'avvio da `useIntegrationsSync`, riletto a ogni evento `integrations-changed` e dopo
+  installa/rimuovi, vedi `src/app/actions/integrations.ts`); i componenti leggono i selettori
+  `enabledIntegrations`, `defaultIntegration` ed `enabledEnvs`, mai l'elenco grezzo.
 - **Tema e brand**: tema dark unico in `src/index.css` (palette `base`, `surface`, `surface-2`,
   `border-strong`, `text-secondary`, `faint` (solo decorativo), `pane-area`, `pane-header`,
   stati `status-running/attention/finished`), font Geist / Geist Mono bundlati (offline),
@@ -1068,11 +1070,15 @@ src/
   WSL: lista distro con caricamento async, input percorso con bottone "Verifica".
 - `components/SettingsDialog.tsx`: due tab, "Avvii personalizzati" (selettore
   workspace, lista/modifica/elimina/predefinito, form di aggiunta; ogni
-  modifica è salvata subito via comandi) e "Coding agent" (`AgentSettingsTab.tsx`: per agente, una riga per env con
-  badge, stato, versione e Installa/Reinstalla/Rimuovi; "Prova notifica" e log).
-- `lib/agents.ts`: logica pura zero-dep (stato per env, raggruppamento, macchina a
+  modifica è salvata subito via comandi) e "Integrazioni" (`settings/IntegrationsPage.tsx`: una card per integrazione con
+  "Abilitata", "Predefinita", contratti dichiarati e, per env, stato e Installa/Aggiorna/Rimuovi;
+  disabilitare nasconde l'integrazione ma lascia il pacchetto, con "Rimuovi dagli ambienti";
+  la conferma mostra terminali aperti e task in coda coinvolti; "Prova notifica" e "Mostra utilizzo"
+  stanno nella sezione per tutte le integrazioni).
+- `lib/agents.ts`: logica pura zero-dep (etichette degli env, macchina a
   stati dell'agente per tab, testi delle notifiche), testata da
-  `tests/agents.test.mjs`. Stato per tab in `stores/tabRuntime.ts` (campo `agent`, chiave = `tab_id`, aggiornato da `app/events.ts`):
+  `tests/agents.test.mjs`; `lib/integrations.ts` (etichette dei contratti, stato e azioni per env,
+  abilitate/predefinita, impatto della disabilitazione), testata da `tests/integrations.test.mjs`. Stato per tab in `stores/tabRuntime.ts` (campo `agent`, chiave = `tab_id`, aggiornato da `app/events.ts`):
   `session-start` marca il tab come agente (idle) e salva `agentSessionId`; Invio
   -> running; `finished` -> ✓; `needs-input` -> ❗; qualsiasi input lo toglie. Per
   i tab agente sostituisce il pallino busy/idle. Gli eventi con `tab_id` senza
