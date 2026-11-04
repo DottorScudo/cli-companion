@@ -13,9 +13,11 @@ use super::runtime::SecretaryEngine;
 use super::sessions::{usable, Job, ThreadKey};
 use super::texts;
 use super::turn::{compact, run_turn, updated_summary, TurnEnd, TurnSpec};
+use super::workspace_names::WorkspaceNames;
 use crate::hub::model::Author;
 use crate::hub::settings::HubSettingsStore;
 use crate::hub::text::{clean_text, BODY_MAX};
+use crate::workspaces::WorkspaceStore;
 use tauri::{AppHandle, Manager};
 
 /// Caratteri tenuti della risposta finale: `clean_text` aggiunge "…" a un
@@ -62,9 +64,10 @@ async fn reply(app: &AppHandle, key: &ThreadKey, name: &str, mut trigger: Trigge
     let Some(mut turn) = engine.begin_turn(key, name, epoch) else {
         return;
     };
+    let names = current_workspace_names(app);
     let proposal = proposal_target(&thread, trigger.id, trigger.cause);
     trigger.proposal = proposal.as_ref().map(|p| p.proposal_id.as_str());
-    let Some(opening) = context::turn_message(&thread, &trigger, turn.last_seen.as_deref(), name) else {
+    let Some(opening) = context::turn_message(&thread, &trigger, turn.last_seen.as_deref(), name, &names) else {
         log::warn!("hub: messaggio {} non piu' nel thread, turno di {name} saltato", trigger.id);
         engine.end_turn(key, name, turn, epoch);
         return;
@@ -79,8 +82,12 @@ async fn reply(app: &AppHandle, key: &ThreadKey, name: &str, mut trigger: Trigge
     };
     turn.conversation.push(ChatMessage::User(opening));
     let max_steps = settings.session.max_steps;
-    let spec = TurnSpec { secretary, system: context::system_prompt(secretary, settings.language), max_steps };
-    let host = AppTurnHost { io: &io, secretary, trigger: trigger.id, proposal: proposal.clone() };
+    let spec = TurnSpec {
+        secretary,
+        system: context::system_prompt(secretary, settings.language, &key.channel, &names),
+        max_steps,
+    };
+    let host = AppTurnHost { io: &io, secretary, trigger: trigger.id, proposal: proposal.clone(), names: &names };
     match run_turn(&model, &host, &spec, &mut turn.conversation).await {
         TurnEnd::Reply(text) => post_reply(&io, name, &text).await,
         TurnEnd::StepLimit => io.notice(texts::step_limit(name, max_steps)).await,
@@ -128,4 +135,10 @@ async fn summarize(app: &AppHandle, key: &ThreadKey, name: &str, conversation: &
     if let Err(e) = io.save_summary(summary).await {
         log::error!("hub: riassunto di {name} non salvato: {e}");
     }
+}
+
+/// I workspace di adesso (nome compreso: un rinominato si vede subito), letti
+/// dallo store in memoria all'inizio del turno.
+fn current_workspace_names(app: &AppHandle) -> WorkspaceNames {
+    WorkspaceNames::new(app.state::<WorkspaceStore>().all().into_iter().map(|w| (w.id, w.name)))
 }

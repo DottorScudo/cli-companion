@@ -18,6 +18,7 @@ use super::runtime::SecretaryEngine;
 use super::sessions::ThreadKey;
 use super::tools::{board_workspace, BoardAccessError};
 use super::turn::TurnHost;
+use super::workspace_names::WorkspaceNames;
 use crate::board::BoardView;
 use crate::hub::actions::{BoardActions, HubBoardActions};
 use crate::hub::api_key::ApiKey;
@@ -190,6 +191,8 @@ pub struct AppTurnHost<'a> {
     pub trigger: &'a str,
     /// La proposta che il turno puo' decidere (`planning::proposal_target`).
     pub proposal: Option<ProposalRef>,
+    /// I workspace all'inizio del turno, per parlarne col nome.
+    pub names: &'a WorkspaceNames,
 }
 
 impl AppTurnHost<'_> {
@@ -209,32 +212,26 @@ impl AppTurnHost<'_> {
 
 impl TurnHost for AppTurnHost<'_> {
     async fn board_status(&self, workspace: Option<String>) -> Result<Value, String> {
-        match board_workspace(workspace, self.channel(), self.secretary) {
+        let requested = workspace.map(|reference| self.names.find_for_model(&reference, self.secretary)).transpose()?;
+        match board_workspace(requested, self.channel(), self.secretary) {
             Ok(id) => {
                 let views = self.views().await?;
                 let view = views.iter().find(|v| v.workspace_id == id);
-                view.map(output::board_status).ok_or_else(|| format!("Workspace `{id}` not found."))
+                view.map(|v| output::board_status(v, self.names)).ok_or_else(|| "That workspace was not found.".to_string())
             }
-            Err(BoardAccessError::NoChannelBoard) => {
-                let readable: Vec<String> = self
-                    .views()
-                    .await?
-                    .into_iter()
-                    .map(|v| v.workspace_id)
-                    .filter(|id| self.secretary.channels.allows(&Channel::Workspace(id.clone())))
-                    .collect();
-                Err(format!(
-                    "This thread is in the General channel, which has no board: pass `workspace` with one of {readable:?}."
-                ))
-            }
-            Err(BoardAccessError::NotAllowed(id)) => {
-                Err(format!("You cannot read the board of workspace `{id}`: it is not one of your channels."))
-            }
+            Err(BoardAccessError::NoChannelBoard) => Err(format!(
+                "This thread is in the General channel, which has no board: pass `workspace` with the name of one of: {}.",
+                self.names.readable_names(self.secretary).join(", ")
+            )),
+            Err(BoardAccessError::NotAllowed(id)) => Err(format!(
+                "You cannot read the board of workspace \"{}\": it is not one of your channels.",
+                self.names.name_of(&id).unwrap_or("unknown")
+            )),
         }
     }
 
     async fn thread_read(&self) -> Result<Value, String> {
-        self.io.load_thread().await.map(|t| output::thread(&t)).map_err(|e| {
+        self.io.load_thread().await.map(|t| output::thread(&t, self.names)).map_err(|e| {
             log::warn!("hub: thread_read fallito: {e}");
             "The thread could not be read.".to_string()
         })

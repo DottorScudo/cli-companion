@@ -7,6 +7,7 @@
 
 use super::chat::{ToolCall, ToolSpec};
 use super::planning::GOAL_MAX;
+use super::workspace_names::REFERENCE_MAX;
 use crate::hub::channel::Channel;
 use crate::hub::settings::{Secretary, SecretaryTool};
 use crate::hub::text::{self, clean_text, BODY_MAX};
@@ -68,7 +69,7 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
     match tool {
         SecretaryTool::BoardStatus => ToolSpec {
             name: tool.code(),
-            description: "Read the task board of a workspace: for each task its id, title, status, whether it \
+            description: "Read the task board of a workspace (given by its name): for each task its id, title, status, whether it \
                 needs the user's attention, the tasks it waits on and a short summary of its last report. Without \
                 `workspace` it reads the board of this thread's channel.",
             parameters: json!({
@@ -76,7 +77,9 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
                 "properties": {
                     "workspace": {
                         "type": "string",
-                        "description": "Id of the workspace whose board to read. Omit it to use this thread's channel."
+                        "description": "Name of the workspace whose board to read (an id also works). Omit it to use \
+                            this thread's channel.",
+                        "maxLength": REFERENCE_MAX
                     }
                 },
                 "additionalProperties": false
@@ -193,10 +196,10 @@ pub fn parse(call: &ToolCall, secretary: &Secretary) -> Result<Invocation, ToolR
             let args: BoardStatusArgs = arguments(&call.arguments).map_err(invalid)?;
             let workspace = match args.workspace.as_deref().map(str::trim) {
                 None | Some("") => None,
-                Some(id) => match Channel::parse(id) {
-                    Ok(Channel::Workspace(id)) => Some(id),
-                    _ => return Err(invalid("`workspace` is not a valid workspace id".to_string())),
-                },
+                Some(reference) if reference.chars().count() > REFERENCE_MAX => {
+                    return Err(invalid(format!("`workspace` must be at most {REFERENCE_MAX} characters")));
+                }
+                Some(reference) => Some(reference.to_string()),
             };
             Ok(Invocation::BoardStatus { workspace })
         }
@@ -341,15 +344,19 @@ mod tests {
             Ok(Invocation::BoardStatus { workspace: Some("ws-2".into()) })
         );
         assert_eq!(
+            parse(&call("board_status", r#"{"workspace":" Sito Web "}"#), &s),
+            Ok(Invocation::BoardStatus { workspace: Some("Sito Web".into()) })
+        );
+        assert_eq!(
             parse(&call("post_message", r#"{"body":"  Controllo.  "}"#), &s),
             Ok(Invocation::PostMessage { body: "Controllo.".into() })
         );
+        let too_long = format!(r#"{{"workspace":"{}"}}"#, "x".repeat(REFERENCE_MAX + 1));
         for (name, args) in [
             ("thread_read", r#"{"limit":3}"#),
             ("thread_read", "[]"),
             ("thread_read", "{"),
-            ("board_status", r#"{"workspace":"general"}"#),
-            ("board_status", r#"{"workspace":"../x"}"#),
+            ("board_status", too_long.as_str()),
             ("board_status", r#"{"workspace":3}"#),
             ("post_message", "{}"),
             ("post_message", r#"{"body":"   "}"#),

@@ -10,6 +10,14 @@ pub fn ws() -> Channel {
     Channel::Workspace(WS.to_string())
 }
 
+/// I workspace di prova: `ws-1` "Muse Companion" e `ws-2` "Sito Web".
+pub fn names() -> super::workspace_names::WorkspaceNames {
+    super::workspace_names::WorkspaceNames::new([
+        (WS.to_string(), "Muse Companion".to_string()),
+        ("ws-2".to_string(), "Sito Web".to_string()),
+    ])
+}
+
 /// Segretario configurato, in tutti i canali, con tutti i tool.
 pub fn secretary(name: &str) -> Secretary {
     Secretary {

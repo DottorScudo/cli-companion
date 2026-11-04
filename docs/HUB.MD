@@ -592,7 +592,9 @@ Le sessioni stanno solo in memoria (un riavvio dell'app le chiude); la memoria v
 
 - **Risveglio**: il contesto si costruisce da zero. System prompt = system prompt del segretario + istruzione fissa
   del motore (in inglese: chi è, che lavora con la board di coding agents, che non conosce il codice, che non
-  decide questioni tecniche, che usa i tool per leggere lo stato, risposte brevi) + «Always reply to the user in
+  decide questioni tecniche, che usa i tool per leggere lo stato, che parla dei workspace sempre per nome e non mostra
+  mai i loro id, risposte brevi) + **dove si trova** (il Generale, o il workspace del canale col suo nome) e i
+  **workspace che può consultare**, con nome e id (`workspace_names.rs`) + «Always reply to the user in
   <Language>». Il primo messaggio porta i dati del thread (titolo, canale, stato, task e proposta collegati,
   **riassunto**), gli **ultimi 10 messaggi** prima di quello che lo ha svegliato (in JSON, con i dati degli eventi)
   e il messaggio che lo ha svegliato.
@@ -651,11 +653,18 @@ scrivono sulla board (vedi "Pianificazione dal thread").
 
 | Tool | Argomenti | Effetto |
 |---|---|---|
-| `board_status` | `workspace?` (id di un workspace) | la board del workspace del canale, o di quello indicato se il segretario ha quel canale: conteggi per stato, task con `id`, `title`, `status`, `attention`, `waiting_on`, riassunto del report (300 caratteri) e nota (200), proposte pendenti (`BoardView::to_list_json`); al massimo 40 task, poi `omitted_tasks`. Nel Generale senza `workspace` l'errore elenca i workspace leggibili |
-| `thread_read` | — | titolo, canale, stato, task e proposta collegati, riassunto e ultimi 20 messaggi (autore, ora UTC, testo tagliato a 1000 caratteri, dati dell'evento senza i campi vuoti), più `older_messages` |
+| `board_status` | `workspace?` (il **nome** del workspace, senza distinguere maiuscole e spazi ai bordi; vale anche l'id; al massimo 200 caratteri) | la board del workspace del canale, o di quello indicato se il segretario ha quel canale, con `workspace` (id) e `workspace_name`: conteggi per stato, task con `id`, `title`, `status`, `attention`, `waiting_on`, riassunto del report (300 caratteri) e nota (200), proposte pendenti (`BoardView::to_list_json`); al massimo 40 task, poi `omitted_tasks`. Nel Generale senza `workspace` l'errore elenca i nomi dei workspace leggibili; un nome sconosciuto elenca i nomi possibili, un nome ambiguo (due workspace con lo stesso nome) elenca gli id tra cui scegliere |
+| `thread_read` | — | titolo, canale (con `workspace_name` nel canale di un workspace), stato, task e proposta collegati, riassunto e ultimi 20 messaggi (autore, ora UTC, testo tagliato a 1000 caratteri, dati dell'evento senza i campi vuoti), più `older_messages` |
 | `post_message` | `body` (1..8000 caratteri) | un messaggio intermedio del segretario nel thread; la risposta finale è comunque il testo del modello |
 | `open_plan_task` | `goal` (1..4000 caratteri, ripulito dai caratteri di controllo) | crea un task `plan` in coda nel workspace del canale, collegato al thread, e rende il segretario titolare; esito `{ task_id, title, status }`. Nel Generale è un errore per il modello: deve chiedere all'utente il progetto |
 | `decide_proposal` | `accept` (bool), **nessun id** | accetta o scarta la proposta dell'evento a cui risponde il messaggio dell'utente; esito `{ proposal, decision, tasks_queued }` |
+
+**Workspace per nome**: gli id restano il riferimento interno (file, eventi, comandi), ma il modello parla dei
+workspace col nome. `WorkspaceNames` (`workspace_names.rs`, puro) è l'istantanea dei workspace letta dal
+`WorkspaceStore` a ogni turno: un workspace rinominato si vede subito col nome nuovo, perché nessun nome è copiato
+nei file dei thread. Risolve il riferimento di `board_status` (prima l'id esatto, poi il nome) e aggiunge
+`workspace_name` accanto all'id nei dati degli eventi (`event.workspace_name`) e nell'intestazione del thread.
+Gli id dei task restano visibili all'utente; quelli dei workspace no.
 
 Il segretario non vede mai la API key né file del disco: i tool leggono solo board (dalla sorgente delle viste che
 `lib.rs` registra con `automation::board_views`) e thread, e agiscono sulla board solo con le azioni che `lib.rs`

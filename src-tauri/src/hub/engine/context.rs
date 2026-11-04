@@ -11,6 +11,8 @@
 use super::chat::ChatMessage;
 use super::output;
 use super::sessions::WakeCause;
+use super::workspace_names::WorkspaceNames;
+use crate::hub::channel::Channel;
 use crate::hub::model::{Author, Message, Thread};
 use crate::hub::settings::{Language, Secretary};
 use crate::hub::text::clean_text;
@@ -30,7 +32,9 @@ const ENGINE_INSTRUCTIONS: &str = "You are {name}, a secretary of the Agents HUB
 coding agents work on the tasks of a board, one board per workspace. You talk with the user in a thread of a \
 channel. You do not know the code of the projects and you never decide technical questions: report facts, and \
 leave technical choices to the user and to the coding agents. Use your tools to read the current state of the \
-board and of the thread instead of guessing, and never invent task ids or states. Keep your replies short. Your \
+board and of the thread instead of guessing, and never invent task ids or states. Always refer to a workspace by its name and never show a workspace id to the \
+user (task ids are fine: the app shows them); when the user names a project, match it to the workspace names you \
+are given. Keep your replies short. Your \
 final message, without tool calls, is posted in the thread as your reply.";
 
 const SUMMARY_INSTRUCTIONS: &str = "You keep the memory of a thread of the Agents HUB. From the previous summary and \
@@ -63,11 +67,12 @@ pub struct Trigger<'a> {
 }
 
 /// System prompt del segretario + istruzione fissa del motore + lingua.
-pub fn system_prompt(secretary: &Secretary, language: Language) -> String {
+pub fn system_prompt(secretary: &Secretary, language: Language, channel: &Channel, names: &WorkspaceNames) -> String {
     format!(
-        "{}\n\n{}\n\nAlways reply to the user in {}.",
+        "{}\n\n{}\n\n{}\n\nAlways reply to the user in {}.",
         secretary.system_prompt,
         ENGINE_INSTRUCTIONS.replace("{name}", &secretary.name),
+        names.describe(channel, secretary),
         language.english_name()
     )
 }
@@ -77,13 +82,19 @@ pub fn system_prompt(secretary: &Secretary, language: Language) -> String {
 /// indicazioni per il titolare. `last_seen` e' il messaggio che ha aperto il
 /// turno precedente della sessione (`None` al risveglio, o se e' stato
 /// potato). `None` se il messaggio non e' (piu') nel thread.
-pub fn turn_message(thread: &Thread, trigger: &Trigger<'_>, last_seen: Option<&str>, me: &str) -> Option<String> {
+pub fn turn_message(
+    thread: &Thread,
+    trigger: &Trigger<'_>,
+    last_seen: Option<&str>,
+    me: &str,
+    names: &WorkspaceNames,
+) -> Option<String> {
     let at = thread.messages.iter().position(|m| m.id == trigger.id)?;
     let before = &thread.messages[..at];
     let seen = last_seen.and_then(|id| before.iter().position(|m| m.id == id));
     let mut out = match seen {
-        Some(seen) => since_last_turn(&before[seen + 1..], me),
-        None => wake_context(thread, before),
+        Some(seen) => since_last_turn(&before[seen + 1..], me, names),
+        None => wake_context(thread, before, names),
     };
     if !out.is_empty() {
         out.push_str("\n\n");
@@ -102,7 +113,7 @@ pub fn turn_message(thread: &Thread, trigger: &Trigger<'_>, last_seen: Option<&s
         WakeCause::BoardEvent => {
             out.push_str(BOARD_EVENT);
             out.push('\n');
-            out.push_str(&output::message(message).to_string());
+            out.push_str(&output::message(message, names).to_string());
             out.push_str("\n\n");
             out.push_str(EVENT_GUIDE);
         }
@@ -110,22 +121,25 @@ pub fn turn_message(thread: &Thread, trigger: &Trigger<'_>, last_seen: Option<&s
     Some(out)
 }
 
-fn wake_context(thread: &Thread, before: &[Message]) -> String {
+fn wake_context(thread: &Thread, before: &[Message], names: &WorkspaceNames) -> String {
     let recent = &before[before.len().saturating_sub(RECENT_MESSAGES)..];
     format!(
         "This thread (JSON):\n{}\n\nLatest messages of the thread, oldest first (JSON):\n{}",
-        output::header(thread),
-        output::messages(recent)
+        output::header(thread, names),
+        output::messages(recent, names)
     )
 }
 
-fn since_last_turn(new: &[Message], me: &str) -> String {
+fn since_last_turn(new: &[Message], me: &str, names: &WorkspaceNames) -> String {
     let others: Vec<Message> = new.iter().filter(|m| !is_by(m, me)).cloned().collect();
     if others.is_empty() {
         return String::new();
     }
     let recent = &others[others.len().saturating_sub(RECENT_MESSAGES)..];
-    format!("Messages posted in the thread since your last reply, oldest first (JSON):\n{}", output::messages(recent))
+    format!(
+        "Messages posted in the thread since your last reply, oldest first (JSON):\n{}",
+        output::messages(recent, names)
+    )
 }
 
 fn is_by(message: &Message, name: &str) -> bool {
@@ -171,7 +185,7 @@ pub fn clean_summary(raw: &str) -> Option<String> {
 mod tests {
     use super::*;
     use crate::hub::engine::chat::ToolCall;
-    use crate::hub::engine::fixtures::{bot, msg, numbered, secretary, thread, user};
+    use crate::hub::engine::fixtures::{bot, msg, names, numbered, secretary, thread, user, ws};
     use crate::hub::model::{HubEvent, HubEventKind};
 
     fn by_user(id: &str) -> Trigger<'_> {
@@ -180,12 +194,24 @@ mod tests {
 
     #[test]
     fn the_system_prompt_adds_the_engine_rules_and_the_language() {
-        let p = system_prompt(&secretary("mario"), Language::De);
+        let p = system_prompt(&secretary("mario"), Language::De, &Channel::General, &names());
         assert!(p.starts_with("You are mario. Report the board status.\n\n"));
         assert!(p.contains("You are mario, a secretary of the Agents HUB"));
         assert!(p.contains("never decide technical questions"));
         assert!(p.ends_with("Always reply to the user in German."));
-        assert!(system_prompt(&secretary("mario"), Language::It).ends_with("in Italian."));
+        assert!(system_prompt(&secretary("mario"), Language::It, &ws(), &names()).ends_with("in Italian."));
+    }
+
+    #[test]
+    fn the_system_prompt_tells_the_channel_and_the_workspaces_by_name() {
+        let s = secretary("mario");
+        let general = system_prompt(&s, Language::It, &Channel::General, &names());
+        assert!(general.contains("never show a workspace id to the user"), "{general}");
+        assert!(general.contains("This thread is in the #Generale channel"), "{general}");
+        assert!(general.contains("\"Muse Companion\" (id: ws-1)") && general.contains("\"Sito Web\" (id: ws-2)"));
+        let workspace = system_prompt(&s, Language::It, &Channel::Workspace("ws-2".into()), &names());
+        assert!(workspace.contains("the channel of workspace \"Sito Web\""), "{workspace}");
+        assert!(workspace.contains("\"Muse Companion\" (id: ws-1)"), "{workspace}");
     }
 
     #[test]
@@ -194,7 +220,7 @@ mod tests {
         messages.push(user("trigger", "@mario a che punto siamo?"));
         let mut t = thread(messages);
         t.summary = Some("Login: t-1 running.".into());
-        let text = turn_message(&t, &by_user("trigger"), None, "mario").unwrap();
+        let text = turn_message(&t, &by_user("trigger"), None, "mario", &names()).unwrap();
         assert!(text.contains(r#""summary":"Login: t-1 running.""#), "{text}");
         assert!(text.contains(r#""title":"Login""#));
         assert!(!text.contains(r#""id":"m4""#) && text.contains(r#""id":"m5""#) && text.contains(r#""id":"m14""#));
@@ -210,13 +236,13 @@ mod tests {
             bot("m3", "giorgio", "Io controllo i test."),
             user("m4", "e il login?"),
         ]);
-        let text = turn_message(&t, &by_user("m4"), Some("m1"), "mario").unwrap();
+        let text = turn_message(&t, &by_user("m4"), Some("m1"), "mario", &names()).unwrap();
         assert!(text.starts_with("Messages posted in the thread since your last reply"));
         assert!(text.contains("Io controllo i test.") && !text.contains("Tutto in coda."));
         assert!(!text.contains("summary") && !text.contains("\"title\""));
         let only_mine = thread(vec![user("m1", "x"), bot("m2", "mario", "y"), user("m3", "e poi?")]);
         assert_eq!(
-            turn_message(&only_mine, &by_user("m3"), Some("m1"), "mario").unwrap(),
+            turn_message(&only_mine, &by_user("m3"), Some("m1"), "mario", &names()).unwrap(),
             "New message from the user:\ne poi?"
         );
     }
@@ -224,15 +250,17 @@ mod tests {
     #[test]
     fn a_pruned_last_seen_falls_back_to_a_full_wake_and_a_missing_trigger_to_none() {
         let t = thread(vec![user("m1", "x"), user("m2", "y")]);
-        assert!(turn_message(&t, &by_user("m2"), Some("gone"), "mario").unwrap().starts_with("This thread (JSON)"));
-        assert!(turn_message(&t, &by_user("gone"), None, "mario").is_none());
+        assert!(turn_message(&t, &by_user("m2"), Some("gone"), "mario", &names())
+            .unwrap()
+            .starts_with("This thread (JSON)"));
+        assert!(turn_message(&t, &by_user("gone"), None, "mario", &names()).is_none());
     }
 
     #[test]
     fn a_reply_to_a_pending_proposal_is_pointed_out() {
         let t = thread(vec![user("m1", "sì, accetta")]);
         let trigger = Trigger { id: "m1", cause: WakeCause::Message, proposal: Some("p-1") };
-        let text = turn_message(&t, &trigger, None, "giorgio").unwrap();
+        let text = turn_message(&t, &trigger, None, "giorgio", &names()).unwrap();
         assert!(text.contains("New message from the user:\nsì, accetta\n\n"), "{text}");
         assert!(text.ends_with(
             "pending task proposal p-1. If the user clearly accepts or rejects it, call \
@@ -249,10 +277,14 @@ decide_proposal; if the intent is not clear, ask the user instead of deciding."
         });
         let t = thread(vec![user("m1", "@giorgio aggiungi il login"), event]);
         let trigger = Trigger { id: "e1", cause: WakeCause::BoardEvent, proposal: None };
-        let text = turn_message(&t, &trigger, None, "giorgio").unwrap();
+        let text = turn_message(&t, &trigger, None, "giorgio", &names()).unwrap();
         assert!(text.starts_with("This thread (JSON)") && text.contains("aggiungi il login"), "{text}");
         assert!(text.contains("A board event in this thread woke you up (JSON):\n{"), "{text}");
         assert!(text.contains(r#""kind":"proposal_created""#) && text.contains(r#""proposal_id":"p-1""#), "{text}");
+        assert!(
+            text.contains(r#""workspace":"ws-1""#) && text.contains(r#""workspace_name":"Muse Companion""#),
+            "{text}"
+        );
         assert!(text.contains("you cannot decide it yourself now") && !text.contains("New message from the user"));
     }
 

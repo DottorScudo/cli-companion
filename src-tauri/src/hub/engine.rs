@@ -41,5 +41,6 @@ pub mod status;
 mod texts;
 mod tools;
 mod turn;
+mod workspace_names;
 
 pub use runtime::SecretaryEngine;
