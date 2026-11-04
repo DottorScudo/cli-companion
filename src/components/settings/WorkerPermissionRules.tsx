@@ -4,7 +4,7 @@ import { api } from "../../lib/tauri";
 import type { AgentProfile, Workspace } from "../../lib/tauri";
 import { parseWorkerRules, rulesToText } from "../../lib/workerPermission";
 import type { WorkerPermission } from "../../lib/workerPermission";
-import { Field, Section } from "./shared";
+import { Field, Section, fieldGridClass } from "./shared";
 import type { WorkspaceRun } from "./shared";
 
 const rulesAreaClass =
@@ -57,7 +57,7 @@ export default function WorkerPermissionRules({ workspace, profile, permission, 
             vigore.
           </p>
         )}
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className={fieldGridClass}>
           <div>
             <div className="mb-1 text-[11px] font-medium">Consentiti</div>
             <textarea

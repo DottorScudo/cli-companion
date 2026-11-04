@@ -16,7 +16,7 @@ import {
 import type { RepoDraft } from "../../lib/repoConfig";
 import { cn } from "../../lib/utils";
 import RepoE2eRun from "./RepoE2eRun";
-import { Field, Section, SettingsPage, useWorkspaceOp } from "./shared";
+import { Field, Section, SettingsPage, fieldGridClass, useWorkspaceOp } from "./shared";
 
 const areaClass =
   "w-full resize-y rounded-md border border-input bg-transparent px-2 py-1.5 font-mono text-[12px] outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50";
@@ -77,7 +77,7 @@ const RepoCard = memo(function RepoCard({ workspaceId, repo, saved, missing }: C
       </button>
       {open && (
         <div className="flex flex-col gap-3 pt-1">
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className={fieldGridClass}>
             <Field label="Branch base">
               <Input
                 value={draft.base_branch}
@@ -159,7 +159,7 @@ const RepoCard = memo(function RepoCard({ workspaceId, repo, saved, missing }: C
                 className="h-8 font-mono text-[12px]"
               />
             </Field>
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className={fieldGridClass}>
               <Field label="Percorso del report JUnit" help="Relativo alla cartella del task.">
                 <Input
                   value={draft.e2e_junit}

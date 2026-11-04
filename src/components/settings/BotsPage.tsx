@@ -10,7 +10,8 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import BotImagePreview from "./BotImagePreview";
 import BotNameRow from "./BotNameRow";
-import { Field, Section, SettingsPage } from "./shared";
+import { cn } from "../../lib/utils";
+import { Field, Section, SettingsPage, fieldGridClass } from "./shared";
 import { BOT_IMAGE_ACCEPT, useBotImagePicker } from "./useBotImagePicker";
 
 /** Generale › Bot: nome e avatar di ogni sessione, e la pool da cui si pescano i nomi. */
@@ -132,7 +133,7 @@ export default function BotsPage() {
         {settings.names.length === 0 ? (
           <p className="text-xs text-muted-foreground">Nessun nome: le sessioni si chiameranno “Bot 1”, “Bot 2”...</p>
         ) : (
-          <ul className="grid grid-cols-2 gap-1.5">
+          <ul className={cn(fieldGridClass, "gap-1.5")}>
             {settings.names.map((name) => (
               <BotNameRow
                 key={name}

@@ -2,6 +2,8 @@ import type { HubChannel } from "../../../lib/hub";
 import { GENERAL_CHANNEL } from "../../../lib/hub";
 import { SECRETARY_TOOLS, toggleChannel, toggleTool } from "../../../lib/hubSettings";
 import type { SecretaryDraft } from "../../../lib/hubSettings";
+import { cn } from "../../../lib/utils";
+import { fieldGridClass } from "../shared";
 
 const CHECK_CLASS = "mt-0.5 h-3.5 w-3.5 accent-primary";
 
@@ -16,7 +18,7 @@ export function ToolsField({ draft, disabled, onChange }: ToolsProps) {
   return (
     <fieldset className="flex flex-col gap-2" disabled={disabled}>
       <legend className="mb-1 text-xs font-semibold">Tool consentiti</legend>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className={cn(fieldGridClass, "gap-2")}>
         {SECRETARY_TOOLS.map((tool) => (
           <label key={tool.id} className="flex items-start gap-2 rounded-md border px-2.5 py-2">
             <input

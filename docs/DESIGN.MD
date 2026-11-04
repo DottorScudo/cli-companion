@@ -1318,8 +1318,16 @@ src/
     si adatta (`fit()` + `pty_resize`) quando cambia il suo rettangolo.
   - `ResizeObserver` + evento "torna attivo" tengono sincronizzate dimensioni
     xterm e PTY (`fit()` + `pty_resize`).
-  - Cleanup completo all'unmount (unlisten, `pty_close`, `dispose`), robusto
-    anche al double-mount di `StrictMode` in dev.
+  - Cleanup completo all'unmount (unlisten, `dispose`, rilascio della sessione).
+  - La sessione del tab passa da `ptyKeeper` (`lib/ptyKeeper.ts`, istanza in `app/ptyKeeper.ts`,
+    test in `tests/pty-keeper.test.mjs`): all'unmount la chiusura (`pty_close`) e' rinviata di un giro
+    dell'event loop e un rimontaggio dello stesso tab nel frattempo (double-mount di `StrictMode` in dev,
+    Fast Refresh) riprende la stessa shell, con l'output arrivato nel mezzo e il comando di avvio iniettato
+    una volta sola. Prima il secondo spawn trovava lo slot del tab ancora prenotato dal primo, in volo
+    ("il tab ha gia' una sessione") e il primo, scartato, chiudeva la sua shell: tab senza terminale e,
+    per un worker, variabili preparate dal backend gia' consumate. Uno spawn nuovo di un tab parte solo
+    a chiusura precedente finita. Il backend non cambia: entro la vita del frontend gli id di sessione li
+    conosce il frontend, che riaggancia senza un comando in piu'.
 
 ## Scelte e limiti noti
 

@@ -6,6 +6,8 @@ import "@xterm/xterm/css/xterm.css";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Channel } from "@tauri-apps/api/core";
 import { api } from "../lib/tauri";
+import { ptyKeeper } from "../app/ptyKeeper";
+import type { SessionLease } from "../lib/ptyKeeper";
 import { ignoreError, report } from "../lib/errors";
 import { isTerminalReply } from "../lib/agents";
 import type { TabStatus } from "../lib/agents";
@@ -182,6 +184,8 @@ function TerminalView({
     fitRef.current = fit;
 
     let disposed = false;
+    // Aggancio alla sessione del tab: sopravvive a un rimontaggio rapido.
+    let lease: SessionLease | null = null;
 
     // Il font è bundlato ma caricato in modo lazy: xterm misura la cella al
     // primo render, quindi a font arrivato rilanciamo la misura (riassegnando
@@ -246,6 +250,8 @@ function TerminalView({
       const s = sessionRef.current;
       if (s === 0 || !shouldInjectLaunch(wantedCommand)) return;
       injected = true;
+      // Sessione ripresa dopo un rimontaggio: il comando potrebbe essere gia' partito.
+      if (!lease?.claimLaunch()) return;
       void api.ptyWrite(s, buildLaunchInput(wantedCommand)).catch((e) => report("avvio del comando nel terminale", e));
       status.markEnter();
     };
@@ -349,10 +355,7 @@ function TerminalView({
           await new Promise<void>((resolve) => term.write(text, resolve));
           if (disposed) return;
         }
-        // Canale dedicato a questa sessione: riceve solo il suo output, anche
-        // quello emesso prima che ptySpawn ritorni (prompt iniziale).
-        const channel = new Channel<PtyEvent>();
-        channel.onmessage = (e) => {
+        const onEvent = (e: PtyEvent) => {
           if (disposed) return;
           if (e.kind === "exit") {
             status.markIdle();
@@ -372,18 +375,29 @@ function TerminalView({
             injectTimer = setTimeout(injectLaunch, LAUNCH_AFTER_OUTPUT_MS);
           }
         };
-        const id = await api.ptySpawn(workspaceId, tabId, initialCols, initialRows, channel, cwdRef.current);
-        if (disposed) {
-          void api.ptyClose(id).catch((e) => report("chiusura del terminale", e));
-          return;
-        }
+        // Sessione ancora aperta del tab (rimontaggio) ripresa, altrimenti una
+        // nuova con un canale dedicato: riceve solo il suo output, anche quello
+        // emesso prima che ptySpawn ritorni (prompt iniziale).
+        lease = ptyKeeper.attach(tabId, onEvent, (deliver) => {
+          const channel = new Channel<PtyEvent>();
+          channel.onmessage = deliver;
+          return api.ptySpawn(workspaceId, tabId, initialCols, initialRows, channel, cwdRef.current);
+        });
+        const adopted = lease.adopted;
+        const id = await lease.session;
+        // Smontato nel frattempo: la sessione e' gia' rilasciata (si chiude, o la riprende chi rimonta).
+        if (disposed) return;
         sessionRef.current = id;
         if (pendingInput !== "") {
           void api.ptyWrite(id, pendingInput).catch((e) => report("scrittura sul terminale", e));
           pendingInput = "";
         }
-        // Lo spawn e' avvenuto con la dimensione iniziale: e' gia' quella nota al pty.
-        lastSizeRef.current = { session: id, cols: initialCols, rows: initialRows };
+        // Lo spawn e' avvenuto con la dimensione iniziale: e' gia' quella nota al
+        // pty. Una sessione ripresa ha quella del terminale precedente: il
+        // primo syncSize la riallinea.
+        lastSizeRef.current = adopted
+          ? { session: 0, cols: 0, rows: 0 }
+          : { session: id, cols: initialCols, rows: initialRows };
         if (shouldInjectLaunch(wantedCommand)) {
           fallbackTimer = setTimeout(injectLaunch, LAUNCH_FALLBACK_MS);
         }
@@ -398,6 +412,7 @@ function TerminalView({
           }
         }
       } catch (err) {
+        if (disposed) return;
         term.writeln(`\x1b[1;31m${String(err)}\x1b[0m`);
       }
     })();
@@ -429,9 +444,8 @@ function TerminalView({
       if (fallbackTimer !== undefined) clearTimeout(fallbackTimer);
       titleDisp.dispose();
       status.dispose();
-      const s = sessionRef.current;
       sessionRef.current = 0;
-      if (s !== 0) void api.ptyClose(s).catch((e) => report("chiusura del terminale", e));
+      lease?.release();
       term.dispose();
       termRef.current = null;
       fitRef.current = null;

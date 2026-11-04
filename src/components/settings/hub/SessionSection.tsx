@@ -6,7 +6,7 @@ import { IDLE_MINUTES_RANGE, MAX_STEPS_RANGE, checkSession, sessionSummary } fro
 import type { HubSettingsView } from "../../../lib/tauri";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
-import { Field } from "../shared";
+import { Field, fieldGridClass } from "../shared";
 import HubAccordion from "./HubAccordion";
 
 /** Accordion «Sessioni dei segretari»: quando tornano a dormire e quanti passi fanno a ogni risveglio. */
@@ -45,7 +45,7 @@ export default function SessionSection({ settings }: { settings: HubSettingsView
       summary={sessionSummary(settings.session)}
     >
       <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-3">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className={fieldGridClass}>
           <Field
             label="Torna a dormire dopo (minuti)"
             help={`Da ${IDLE_MINUTES_RANGE.min} a ${IDLE_MINUTES_RANGE.max} minuti di inattività.`}

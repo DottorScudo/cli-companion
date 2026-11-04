@@ -7,6 +7,13 @@ import { cn } from "../../lib/utils";
 export const selectClass =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>option]:bg-popover [&>option]:text-popover-foreground";
 
+/**
+ * Griglia dei campi di un form: tante colonne quante ne stanno, ciascuna
+ * larga almeno 18rem; le colonne senza campi spariscono (auto-fit),
+ * cosi' i campi si allargano invece di lasciare spazio vuoto a destra.
+ */
+export const fieldGridClass = "grid grid-cols-[repeat(auto-fit,minmax(min(100%,18rem),1fr))] gap-3";
+
 /** Pagina di impostazioni: titolo, descrizione di una riga, poi le sezioni. */
 export function SettingsPage({
   title,

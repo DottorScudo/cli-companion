@@ -215,9 +215,7 @@ export default function SettingsDialog() {
             </div>
           </nav>
 
-          <div className="min-w-0 flex-1 overflow-y-auto p-5">
-            <div className="max-w-3xl">{renderPage()}</div>
-          </div>
+          <div className="min-w-0 flex-1 overflow-y-auto p-5">{renderPage()}</div>
         </div>
 
         <DialogFooter className="border-t px-5 py-3">

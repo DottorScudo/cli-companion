@@ -295,7 +295,7 @@ dei workspace visibili (`totalWaiting`).
 | Logica pura dei segretari: menzionabili, `@` in corso, evidenziazione, stato, titolare, "sta scrivendo" | `lib/hubSecretaries.ts` |
 | Pagina Impostazioni › Agents HUB: interruttore e tre accordion | `components/settings/HubPage.tsx`, `components/settings/hub/*` |
 | Controlli, riepiloghi e bozza del segretario delle impostazioni; salvataggio (ogni comando ritorna le impostazioni, che finiscono nello store) | `lib/hubSettings.ts`, `app/actions/hubSettings.ts` |
-| Messaggi dei segretari (avatar, badge «SEGRETARIO»), menzioni evidenziate | `components/hub/HubMessageItem.tsx`, `components/hub/SecretaryBadge.tsx`, `components/tasks/Markdown.tsx` |
+| Messaggi dei segretari (avatar, badge «SEGRETARIO»), dell'utente (bolla a destra), menzioni evidenziate | `components/hub/HubMessageItem.tsx`, `components/hub/HubUserMessage.tsx`, `components/hub/SecretaryBadge.tsx`, `components/tasks/Markdown.tsx` |
 | Compositore con autocompletamento di `@` | `components/hub/HubComposer.tsx`, `MentionMenu.tsx`, `useMentionAutocomplete.ts` |
 | «sta scrivendo…», titolare del thread e sessione attiva | `components/hub/TypingIndicator.tsx`, `components/hub/ThreadOwner.tsx`, `components/hub/ThreadSession.tsx`, `components/hub/ListOwner.tsx` |
 | Scheda della proposta (task espandibili, stato, «Rispondi») e link al task `plan` | `components/hub/HubProposalCard.tsx`, `HubProposalTask.tsx`, `HubEventRow.tsx`, `lib/hubProposals.ts` |
@@ -344,8 +344,10 @@ arrivate la pagina scrive «Impostazioni non disponibili.» e gli accordion non 
 ### Conversazione
 
 - **Messaggi** (`HubMessageItem`): un messaggio di un segretario ha l'avatar (la sua immagine, o quella
-  deterministica), `@nome`, il badge **SEGRETARIO** (`SecretaryBadge`) e uno sfondo con il colore primario; quelli
-  dell'utente restano com'erano. Gli eventi sono righe compatte (`HubEventRow`).
+  deterministica), `@nome`, il badge **SEGRETARIO** (`SecretaryBadge`) e uno sfondo con il colore primario. Quelli
+  dell'utente (`HubUserMessage`) stanno a destra, come in una chat: una bolla con sfondo `surface-2`, larga al massimo
+  il 75% della conversazione, senza nome né avatar, con il riferimento della risposta e l'ora dentro la bolla.
+  Segretari, sistema ed eventi restano a sinistra. Gli eventi sono righe compatte (`HubEventRow`).
 - **Menzioni evidenziate**: nel testo, `@nome` di un segretario che esiste si evidenzia (`splitMentions` in
   `lib/hubSecretaries.ts`, usato da `Markdown` tramite la prop `mentions`). La grammatica è quella del backend
   (`engine/mentions.rs`): `posta@mario.it` o `@màrio` non sono menzioni; un nome che non è di un segretario resta

@@ -73,12 +73,12 @@ DialogHeader.displayName = "DialogHeader";
 
 /**
  * Corpo scorrevole di una modale: header e footer restano fissi, il contenuto
- * lungo scorre qui dentro. Il contenuto e' centrato e di larghezza leggibile,
- * cosi' i form brevi non si stirano su tutta la modale.
+ * lungo scorre qui dentro. Il contenuto usa tutta la larghezza della modale:
+ * sono i form a distribuire i campi (es. in griglia), non il corpo a stringerli.
  */
 const DialogBody = ({ className, children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div className="-mx-6 min-h-0 flex-1 overflow-y-auto px-6" {...props}>
-    <div className={cn("mx-auto flex w-full max-w-xl flex-col gap-4", className)}>{children}</div>
+    <div className={cn("flex w-full flex-col gap-4", className)}>{children}</div>
   </div>
 );
 DialogBody.displayName = "DialogBody";

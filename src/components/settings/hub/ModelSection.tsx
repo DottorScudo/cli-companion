@@ -6,7 +6,7 @@ import { BASE_URL_MAX, MODEL_MAX, checkProvider, modelSummary } from "../../../l
 import type { HubSettingsView } from "../../../lib/tauri";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
-import { Field } from "../shared";
+import { Field, fieldGridClass } from "../shared";
 import ApiKeyField from "./ApiKeyField";
 import HubAccordion from "./HubAccordion";
 
@@ -46,7 +46,7 @@ export default function ModelSection({ settings }: { settings: HubSettingsView }
       defaultOpen
     >
       <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-3">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className={fieldGridClass}>
           <Field label="Endpoint" help="Indirizzo base dell’API, per esempio http://127.0.0.1:8080/v1.">
             <Input
               value={baseUrl}

@@ -8,6 +8,7 @@ import Markdown from "../tasks/Markdown";
 import type { ProposalStatus } from "../../lib/hubProposals";
 import HubEventRow from "./HubEventRow";
 import HubProposalCard from "./HubProposalCard";
+import HubUserMessage from "./HubUserMessage";
 import ReplyReference from "./ReplyReference";
 import SecretaryBadge from "./SecretaryBadge";
 
@@ -28,8 +29,9 @@ interface Props {
 }
 
 /**
- * Un messaggio della conversazione: testo dell'utente, risposta di un
- * segretario (avatar, nome e badge), oppure evento in forma compatta.
+ * Un messaggio della conversazione: testo dell'utente (bolla a destra),
+ * risposta di un segretario (avatar, nome e badge) o del sistema, oppure
+ * evento in forma compatta; tutti tranne l'utente stanno a sinistra.
  */
 function HubMessageItem({ message, target, now, secretaries, mentions, proposalStatus, onReply }: Props) {
   const proposalId = message.event?.proposal_id;
@@ -50,6 +52,9 @@ function HubMessageItem({ message, target, now, secretaries, mentions, proposalS
     return <HubEventRow message={message} event={message.event} target={target} now={now} onReply={onReply} />;
   }
   const { author } = message;
+  if (author.type === "user") {
+    return <HubUserMessage message={message} target={target} now={now} mentions={mentions} />;
+  }
   const isSecretary = author.type === "bot";
   const secretary = author.type === "bot" ? findSecretary(secretaries, author.name) : undefined;
   return (
