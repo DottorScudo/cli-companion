@@ -17,7 +17,7 @@ use super::{AGENT_ID, MARKETPLACE, PLUGIN};
 use crate::agents::presets::{Preset, PRESETS};
 
 /// Notification che richiedono una risposta dell'utente.
-const NEEDS_INPUT_MATCHER: &str = "permission_prompt|idle_prompt|elicitation_dialog";
+pub(super) const NEEDS_INPUT_MATCHER: &str = "permission_prompt|idle_prompt|elicitation_dialog";
 const HOOK_TIMEOUT_SECS: u32 = 10;
 /// Chiave del server MCP nel plugin.
 const MCP_SERVER: &str = "cli-companion";

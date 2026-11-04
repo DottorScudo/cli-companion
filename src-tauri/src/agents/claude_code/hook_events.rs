@@ -2,8 +2,14 @@
 //! su stdin e scrive la decisione di blocco dello Stop hook.
 
 use super::ClaudeCode;
-use crate::agents::{HookEvent, HookEventKind, HookEvents};
+use crate::agents::{HookEvent, HookEventKind, HookEvents, WaitKind};
 use serde_json::Value;
+
+/// Valori di `notification_type` del Notification hook (gli stessi del matcher
+/// in `plugin.rs`).
+const NOTIFICATION_PERMISSION: &str = "permission_prompt";
+const NOTIFICATION_IDLE: &str = "idle_prompt";
+const NOTIFICATION_ELICITATION: &str = "elicitation_dialog";
 
 /// Lunghezza massima del riassunto di `tool_input` (comando, path).
 const TOOL_SUMMARY_MAX_CHARS: usize = 200;
@@ -72,6 +78,17 @@ fn background_work(v: &Value) -> Option<u32> {
     Some((active + crons.map_or(0, Vec::len)).min(u32::MAX as usize) as u32)
 }
 
+/// Tipo neutro di un `notification_type` del Notification hook. Un tipo
+/// sconosciuto (versione futura di Claude Code) e' un'attesa generica.
+fn wait_kind(notification_type: &str) -> WaitKind {
+    match notification_type {
+        NOTIFICATION_PERMISSION => WaitKind::Permission,
+        NOTIFICATION_IDLE => WaitKind::Idle,
+        NOTIFICATION_ELICITATION => WaitKind::Question,
+        _ => WaitKind::Other,
+    }
+}
+
 /// Estrae i campi noti dal JSON dell'hook. Tollerante: JSON invalido, non
 /// oggetto o campi di tipo sbagliato danno semplicemente `None`.
 fn parse_hook_stdin(raw: &str) -> HookEvent {
@@ -85,7 +102,7 @@ fn parse_hook_stdin(raw: &str) -> HookEvent {
         tool_name,
         tool_summary,
         agent_session_id: field("session_id", FIELD_MAX_CHARS),
-        notification_type: field("notification_type", FIELD_MAX_CHARS),
+        wait: field("notification_type", FIELD_MAX_CHARS).map(|t| wait_kind(&t)),
         message: field("message", MESSAGE_MAX_CHARS),
         already_continuing: v.get("stop_hook_active").and_then(Value::as_bool),
         background_work: background_work(&v),
@@ -134,8 +151,28 @@ mod tests {
         let raw = r#"{"session_id":"s-1","hook_event_name":"Notification","notification_type":"idle_prompt","message":"  Claude aspetta  ","cwd":"C:/x"}"#;
         let e = parse(raw);
         assert_eq!(e.agent_session_id.as_deref(), Some("s-1"));
-        assert_eq!(e.notification_type.as_deref(), Some("idle_prompt"));
+        assert_eq!(e.wait, Some(WaitKind::Idle));
         assert_eq!(e.message.as_deref(), Some("Claude aspetta"));
+    }
+
+    #[test]
+    fn notification_types_map_to_neutral_wait_kinds() {
+        let wait = |t: &str| parse(&format!(r#"{{"notification_type":"{t}"}}"#)).wait;
+        assert_eq!(wait("permission_prompt"), Some(WaitKind::Permission));
+        assert_eq!(wait(" idle_prompt "), Some(WaitKind::Idle));
+        assert_eq!(wait("elicitation_dialog"), Some(WaitKind::Question));
+        // Tipo sconosciuto: attesa generica; assente, vuoto o non stringa: nessuna.
+        assert_eq!(wait("auth_success"), Some(WaitKind::Other));
+        for raw in [r#"{"session_id":"s"}"#, r#"{"notification_type":"  "}"#, r#"{"notification_type":3}"#] {
+            assert_eq!(parse(raw).wait, None, "{raw}");
+        }
+    }
+
+    #[test]
+    fn every_type_the_hook_matches_has_its_own_wait_kind() {
+        for t in super::super::plugin::NEEDS_INPUT_MATCHER.split('|') {
+            assert_ne!(wait_kind(t), WaitKind::Other, "{t}");
+        }
     }
 
     #[test]

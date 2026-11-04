@@ -146,11 +146,22 @@ fn normalize(&self, kind: HookEventKind, raw: &str) -> HookEvent;
 fn stop_block_output(&self, reason: &str) -> String;
 ```
 
-- `HookEvent` ha solo campi opzionali: `agent_session_id`, `notification_type`,
+- `HookEvent` ha solo campi opzionali: `agent_session_id`, `wait`,
   `message`, `already_continuing`, `background_work`, `start_source`, `end_reason`,
   `transcript_path`, `tool_name`, `tool_summary`. Si riempie ciò che l'agente
   fornisce. I nomi dei campi dell'agente (`session_id`, ...) restano nel file
   dell'integrazione.
+- `wait` dice cosa aspetta l'agente in un `needs-input`, con un tipo neutro
+  `WaitKind`: `Permission` (un dialogo di permesso), `Idle` (turno finito, la
+  sessione aspetta da tempo un messaggio: non è ferma su un dialogo), `Question`
+  (una domanda all'utente), `Other` (attesa non classificata). È l'integrazione a
+  tradurre i propri tipi di notifica: Claude Code mappa `permission_prompt`,
+  `idle_prompt` ed `elicitation_dialog`, e un tipo sconosciuto in `Other`. Il core
+  non vede mai il valore grezzo: un worker in attesa `Idle` resta `running`, ogni
+  altra attesa lo porta a `needs_input`, e un `needs-input` di attesa
+  `Permission` che segue di poco un `permission-request` dello stesso tab è un
+  duplicato e si scarta. Sul filo `notification_type` porta il nome del tipo
+  neutro (`permission`, `idle`, `question`, `other`), scelto dal protocollo.
 - `normalize` è tollerante: input vuoto o malformato dà un evento senza dettagli,
   mai un errore.
 - `stop_block_output` è la riga scritta su stdout dall'hook di fine turno quando
@@ -441,7 +452,8 @@ standard.
    core nomina gli agenti. L'ordine conta: la prima è l'agente predefinito dei
    worker. Aggiungila *dopo* quella esistente, a meno che non debba diventare il
    default. Poi dichiara l'agente ai test architetturali: una riga in
-   `INTEGRATIONS` di `agents/architecture.rs` (cartella, id, comandi) e una in
+   `INTEGRATIONS` di `agents/architecture.rs` (cartella, id, comandi, valori
+   propri degli hook come i tipi di notifica) e una in
    quello di `tests/architecture.test.mjs`. Senza la riga Rust il test fallisce
    ("le cartelle di agents/ e INTEGRATIONS devono coincidere").
 8. **Esegui i test di conformità.** `cargo test conformance` verifica da solo ogni
@@ -621,7 +633,7 @@ eventi del bus, più `permission.asked`. Il plugin può eseguire comandi con `$`
 | --- | --- | --- |
 | `session-start` | `session.created` | l'id di sessione è nell'evento |
 | `finished` | `session.idle` | l'esempio ufficiale delle notifiche usa proprio questo |
-| `needs-input` | `permission.asked` (e la domanda all'utente) | **[da verificare]** quali eventi coprano le domande dell'agente (`question`) oltre ai permessi |
+| `needs-input` | `permission.asked` (e la domanda all'utente) | `normalize` dà `WaitKind::Permission` o `Question`; **[da verificare]** quali eventi coprano le domande dell'agente (`question`) oltre ai permessi |
 | `permission-request` | `permission.asked` | porta il tool richiesto |
 | `session-end` | `session.deleted` / `server.*` | **[da verificare]**: non c'è un "fine sessione" documentato; un TUI chiuso potrebbe non emettere nulla |
 

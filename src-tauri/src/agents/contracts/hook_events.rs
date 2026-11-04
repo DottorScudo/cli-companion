@@ -26,12 +26,34 @@ impl HookEventKind {
     ];
 }
 
+/// Cosa aspetta l'agente quando segnala `needs-input`, in forma neutra: ogni
+/// integrazione traduce in uno di questi i propri tipi di notifica.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitKind {
+    /// Un permesso per un tool: la sessione e' ferma su un dialogo.
+    Permission,
+    /// Turno finito, la sessione aspetta da tempo un nuovo messaggio: non e'
+    /// ferma su un dialogo.
+    Idle,
+    /// Una domanda posta all'utente (una scelta, un modulo).
+    Question,
+    /// Un'attesa che l'integrazione non sa classificare.
+    Other,
+}
+
+impl WaitKind {
+    /// Tutti i tipi, per le suite di conformita' e di protocollo.
+    #[cfg(test)]
+    pub const ALL: [WaitKind; 4] = [WaitKind::Permission, WaitKind::Idle, WaitKind::Question, WaitKind::Other];
+}
+
 /// Dettagli di un evento in forma neutra, indipendente dall'agente. Ogni
 /// campo e' opzionale: l'agente fornisce quelli che conosce.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HookEvent {
     pub agent_session_id: Option<String>,
-    pub notification_type: Option<String>,
+    /// Solo `needs-input`: cosa aspetta l'agente.
+    pub wait: Option<WaitKind>,
     pub message: Option<String>,
     /// La sessione sta gia' proseguendo dopo uno stop bloccato.
     pub already_continuing: Option<bool>,

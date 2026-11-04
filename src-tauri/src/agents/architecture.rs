@@ -1,5 +1,5 @@
 //! Test architetturale: il core non nomina mai un agente specifico. Tutto cio'
-//! che e' proprio di un agente (id, comandi, moduli) sta in
+//! che e' proprio di un agente (id, comandi, moduli, valori degli hook) sta in
 //! `agents/<cartella>/`; fuori da li' si passa dai contratti. Fa eccezione solo
 //! la registrazione del modulo (`agents/mod.rs`, `agents/registry.rs`).
 //!
@@ -25,11 +25,18 @@ struct Integration {
     id: &'static str,
     /// Programmi dell'agente: nessuna stringa fuori dalla cartella e' uguale a uno di questi.
     commands: &'static [&'static str],
+    /// Valori propri dell'agente negli eventi degli hook (tipi di notifica):
+    /// nessuna stringa fuori dalla cartella li contiene, il core usa i tipi neutri.
+    hook_values: &'static [&'static str],
 }
 
 /// Integrazioni note al test. Aggiungendo un agente: una riga qui.
-const INTEGRATIONS: &[Integration] =
-    &[Integration { folder: "claude_code", id: "claude-code", commands: &["claude", "claude.exe"] }];
+const INTEGRATIONS: &[Integration] = &[Integration {
+    folder: "claude_code",
+    id: "claude-code",
+    commands: &["claude", "claude.exe"],
+    hook_values: &["permission_prompt", "idle_prompt", "elicitation_dialog"],
+}];
 
 /// Cartelle di `agents/` che non sono integrazioni.
 const CORE_FOLDERS: [&str; 3] = ["architecture", "contracts", "presets"];
@@ -66,6 +73,9 @@ fn violations_in(path: &str, tokens: &[Token]) -> Vec<Violation> {
                 }
                 TokenKind::Str if integration.commands.contains(&token.text.as_str()) => {
                     format!("il comando {:?} (di `{}`)", token.text, integration.folder)
+                }
+                TokenKind::Str if integration.hook_values.iter().any(|v| token.text.contains(v)) => {
+                    format!("la stringa {:?} (valore degli hook di `{}`)", token.text, integration.folder)
                 }
                 _ => continue,
             };
@@ -212,6 +222,17 @@ mod tests {
             #[cfg(test)]\n\
             mod tests { fn t() { let _ = \"claude-code\"; let _ = \"claude\"; } }\n";
         assert!(violations_of("board.rs", source).is_empty());
+    }
+
+    #[test]
+    fn hook_values_of_an_agent_are_reported_outside_its_folder() {
+        let source = "fn f(t: &str) -> bool { t == \"idle_prompt\" || t.contains(\"permission_prompt|x\") }";
+        let found = violations_of("automation/worker.rs", source);
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!(what(&found)[0].contains("valore degli hook"));
+        assert!(violations_of("agents/claude_code/hook_events.rs", source).is_empty());
+        // I tipi neutri del protocollo non sono valori di un agente.
+        assert!(violations_of("ipc/wire.rs", "const W: &str = \"permission\";").is_empty());
     }
 
     #[test]

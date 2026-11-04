@@ -148,7 +148,7 @@ fn invalid_values_fail_with_the_english_texts_for_the_model() {
         (json!({"worker_allow": ["a\nb"]}), "worker_allow: rule"),
         (
             json!({"worker_deny": ["mcp__srv__tool(x)"]}),
-            "worker_deny: rule \"mcp__srv__tool(x)\": mcp__ rules take no parentheses",
+            "worker_deny: rule \"mcp__srv__tool(x)\": this kind of rule takes no arguments",
         ),
         (json!({"worker_deny": [format!("Bash({})", "a".repeat(rule_limits().max_rule_chars))]}), "worker_deny: rule"),
         (
@@ -256,8 +256,8 @@ fn rule_errors_name_their_list_and_keep_limits() {
     assert!(err.message_en().ends_with(&format!("longer than {max_rule_chars} characters")));
     assert!(err.message_it().starts_with("Vietati: regola \"Bash(aaa"), "{}", err.message_it());
     let err = patch(json!({"worker_allow": ["a b"]})).normalized(&w).unwrap_err();
-    assert_eq!(err.message_en(), "worker_allow: rule \"a b\": expected Name or Name(...), e.g. Bash(git:*)");
-    assert_eq!(err.message_it(), "Consentiti: regola \"a b\": forma attesa: Nome oppure Nome(...), es. Bash(git:*)");
+    assert_eq!(err.message_en(), "worker_allow: rule \"a b\": not a valid rule for the worker agent");
+    assert_eq!(err.message_it(), "Consentiti: regola \"a b\": forma non valida per l'agente dei worker");
     let many: Vec<String> = (0..=rule_limits().max_rules).map(|i| format!("R{i}")).collect();
     let err = patch(json!({"worker_deny": many})).normalized(&w).unwrap_err();
     let max_rules = rule_limits().max_rules;

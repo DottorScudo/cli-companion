@@ -21,7 +21,7 @@ mod worker_permissions;
 
 pub use automation::{is_shell_safe_path, AutomationRequest, PermissionMode, WorkerAutomation};
 pub use capabilities::{Capabilities, Capability};
-pub use hook_events::{HookEvent, HookEventKind, HookEvents};
+pub use hook_events::{HookEvent, HookEventKind, HookEvents, WaitKind};
 pub use input_profile::{InputEvent, InputProfile, InputProfileSource, InputRule};
 pub use integration::{AgentIntegration, Detection};
 pub use package::{plugins_dir, sanitize_env_key, InstallCtx, IntegrationPackage, PackageFile};

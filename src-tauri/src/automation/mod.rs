@@ -32,6 +32,7 @@
 //! - `boards`, `worktrees`, `review`, `settings`, `skills`, `e2e`, `auto`:
 //!   operazioni sulle board e funzioni dei singoli ambiti.
 
+use crate::agents::WaitKind;
 use crate::board::{
     self, build_report, Board, BoardView, FailCause, Outcome, ReportFields, Task, TaskKind, TaskStatus, WorkerActivity,
     WorkerEnd, WorkerSignal, WorktreeInfo, SUMMARY_MAX,

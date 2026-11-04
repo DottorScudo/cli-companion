@@ -411,17 +411,23 @@ implementato in `agents/claude_code/hook_events.rs`); cosa farne lo decide il co
 - Se stdin non e' un terminale (`IsTerminal`) viene letta (tetto 1 MB, solo dopo
   la decisione di inviare) e passata a `HookEvents::normalize(kind, raw)`, che la parsa con
   tolleranza ai fallimenti e restituisce un `HookEvent` neutro (id sessione dell'agente,
-  `notification_type`, `message` troncato, `start_source`, `end_reason`, `already_continuing`,
+  `wait` (tipo di attesa neutro `WaitKind`: `Permission`, `Idle`, `Question`, `Other`), `message`
+  troncato, `start_source`, `end_reason`, `already_continuing`,
   `background_work`, `transcript_path`, `tool_name`, `tool_summary`). Per Claude Code i nomi dei
   campi dello stdin (`session_id`, `background_tasks`, `session_crons`, `tool_input`...) stanno solo
-  in `agents/claude_code/hook_events.rs`. Il self-test lancia l'exe con stdin nulla.
+  in `agents/claude_code/hook_events.rs`, come la traduzione dei suoi `notification_type`
+  (`permission_prompt`, `idle_prompt`, `elicitation_dialog`, altro) in `WaitKind`. Il self-test
+  lancia l'exe con stdin nulla.
 - Payload (una riga JSON su TCP `127.0.0.1:<porta>`, poi uguale nell'evento Tauri
   `agent-event`):
   `{event, agent, tab_id?, agent_session_id?, notification_type?, message?, token?,
   stop_hook_active?, background_work?, source?, reason?, transcript_path?, tool_name?}` (campi
   opzionali: i client vecchi restano validi; i nomi sono quelli del protocollo e non si rinominano).
   `token` viene da `CLI_COMPANION_TOKEN` ed e' il segreto del tab `tab_id`. Per `permission-request` il messaggio e'
-  "Permesso richiesto: <tool> - <riassunto>", costruito dal client.
+  "Permesso richiesto: <tool> - <riassunto>", costruito dal client. `notification_type` porta il
+  `WaitKind` con un nome scelto dal protocollo (`permission`, `idle`, `question`, `other`;
+  `NotifyPayload::wait_kind` lo rilegge, un nome sconosciuto non e' nessun tipo): il core non vede
+  mai i valori grezzi di un agente.
 - Porta: il listener (aperto in modo sincrono nel `setup`, prima di ogni pty) prova `DEFAULT_PORT`
   (17421); se e' occupata (altra istanza) ripiega su una porta libera e lo logga. La porta in ascolto
   arriva ai terminali in `CLI_COMPANION_PORT` (anche in `WSLENV`, solo se impostata); `--notify` e
@@ -429,7 +435,7 @@ implementato in `agents/claude_code/hook_events.rs`); cosa farne lo decide il co
   ritorna `{port, preferred_port, error}`.
 - Cancello (`gate.rs`, puro, tempo iniettato): un evento senza `tab_id` valido e senza il segreto di QUEL tab (`IpcHandler::authenticate`) e' scartato (non va ne'
   all'handler ne' al frontend); gli altri perdono il token; `permission-request` diventa `needs-input`
-  con `notification_type: permission_prompt`; un `needs-input`/`permission_prompt` per un tab con un
+  con l'attesa `Permission`; un `needs-input` di attesa `Permission` per un tab con un
   `permission-request` negli ultimi 60 s e' un duplicato e si scarta (memoria limitata a 256 tab).
   Uno `finished` bloccato o con lavoro in background non va al frontend (`forwards_to_frontend`).
 - Connessioni: un thread per connessione, al massimo `MAX_CONNECTIONS` (32) insieme; oltre, la
@@ -536,7 +542,7 @@ le servono.
     normal dialog still shows) -> `permission-request`: stdin `tool_name` + `tool_input` are
     summarised (Bash command / file path / URL, max 200 chars) into
     `Permesso richiesto: Bash — <command>`; the backend turns it into a `needs-input`
-    (`permission_prompt`) carrying that text, and drops the generic `permission_prompt`
+    (wait kind `Permission`) carrying that text, and drops the generic permission
     Notification that follows for the same tab within 60 s (no duplicate event/sound).
     The hook fires only when a prompt is actually shown (not in bypass, not when a rule
     already allows). Il plugin contiene anche `.mcp.json` con il server `cli-companion`
@@ -670,7 +676,7 @@ dati, consegna, scheduler, tool, UI): [BOARD.MD](BOARD.MD). Struttura a strati, 
 
 Stati del worker: `starting` -> `running` (`get_task`) -> `completed` | `failed`
 (`complete_task`) -> `closed` (tab chiuso). In mezzo, dagli hook di `--notify` (solo con segreto
-valido): `needs_input` (hook needs-input, tranne `idle_prompt`), `background` e `idle`.
+valido): `needs_input` (hook needs-input, tranne l'attesa `Idle`), `background` e `idle`.
 `Registry::on_hook` su `finished`: con `background_work > 0` -> `background`; altrimenti, con
 `stop_hook_active != true`, risposta `block` con `STOP_BLOCK_REASON` (promemoria in inglese);
 con `stop_hook_active == true` -> `idle`. `needs_input` e `idle` = "richiede attenzione" e

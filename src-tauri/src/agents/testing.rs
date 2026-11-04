@@ -133,9 +133,24 @@ impl IntegrationPackage for FakeIntegration {
     }
 }
 
+/// Stdin finto di un hook che aspetta: `wait:<nome>`, con nomi propri
+/// dell'agente finto (diversi da quelli di qualunque agente reale).
+pub const FAKE_WAIT_PREFIX: &str = "wait:";
+pub const FAKE_WAIT_APPROVAL: &str = "tool-approval";
+pub const FAKE_WAIT_NUDGE: &str = "still-there";
+pub const FAKE_WAIT_ASK: &str = "user-answer";
+
 impl HookEvents for FakeIntegration {
-    fn normalize(&self, _: HookEventKind, _: &str) -> HookEvent {
-        HookEvent::default()
+    /// Solo il tipo di attesa, da `wait:<nome>`; un nome sconosciuto e'
+    /// un'attesa generica, ogni altro stdin un evento senza dettagli.
+    fn normalize(&self, _: HookEventKind, raw: &str) -> HookEvent {
+        let wait = raw.strip_prefix(FAKE_WAIT_PREFIX).map(|name| match name {
+            FAKE_WAIT_APPROVAL => WaitKind::Permission,
+            FAKE_WAIT_NUDGE => WaitKind::Idle,
+            FAKE_WAIT_ASK => WaitKind::Question,
+            _ => WaitKind::Other,
+        });
+        HookEvent { wait, ..HookEvent::default() }
     }
 
     fn stop_block_output(&self, reason: &str) -> String {

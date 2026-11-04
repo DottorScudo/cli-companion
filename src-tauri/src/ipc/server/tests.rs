@@ -1,5 +1,8 @@
 use super::*;
-use crate::ipc::client::{rpc_call, send_for_reply, send_to};
+use crate::agents::testing::{FakeIntegration, FAKE_WAIT_APPROVAL, FAKE_WAIT_ASK, FAKE_WAIT_NUDGE, FAKE_WAIT_PREFIX};
+use crate::agents::{HookEvents, WaitKind};
+use crate::ipc::client::{build_payload, rpc_call, send_for_reply, send_to};
+use crate::ipc::wire::hook_kind;
 
 fn payload(event: &str, token: Option<&str>) -> NotifyPayload {
     NotifyPayload {
@@ -128,14 +131,46 @@ fn permission_requests_are_rewritten_before_the_handler_sees_them() {
     let gate = Mutex::new(NotifyGate::default());
     let (_, forwarded) = run_with(&gate, &handler, payload("permission-request", Some("secret")));
     assert_eq!(handler.received()[0].event, "needs-input");
-    assert_eq!(forwarded[0].notification_type.as_deref(), Some("permission_prompt"));
+    assert_eq!(forwarded[0].wait_kind(), Some(WaitKind::Permission));
     // Il duplicato che segue non raggiunge ne' l'handler ne' il frontend.
     let mut dup = payload("needs-input", Some("secret"));
-    dup.notification_type = Some("permission_prompt".to_string());
+    dup.set_wait_kind(Some(WaitKind::Permission));
     let (reply, forwarded) = run_with(&gate, &handler, dup);
     assert_eq!(reply, Ok(NotifyReply::default()));
     assert!(forwarded.is_empty());
     assert_eq!(handler.received().len(), 1);
+}
+
+/// Payload di `--notify <event>` con lo stdin `raw` dell'integrazione finta,
+/// come lo spedisce il client.
+fn from_fake_agent(event: &str, raw: &str) -> NotifyPayload {
+    let kind = hook_kind(event).expect("evento di un hook");
+    let details = FakeIntegration::full("fake").normalize(kind, raw);
+    NotifyPayload { token: Some("secret".to_string()), ..build_payload(event, "fake", Some("tab-1"), details) }
+}
+
+#[test]
+fn an_agent_with_its_own_notification_names_gets_the_same_rewrite_and_dedupe() {
+    let handler = FakeHandler::new(None);
+    let gate = Mutex::new(NotifyGate::default());
+    let wait = |name: &str| format!("{FAKE_WAIT_PREFIX}{name}");
+    // L'attesa inattiva arriva come tale, senza aprire la finestra del duplicato.
+    let (_, forwarded) = run_with(&gate, &handler, from_fake_agent("needs-input", &wait(FAKE_WAIT_NUDGE)));
+    assert_eq!(forwarded[0].wait_kind(), Some(WaitKind::Idle));
+    let (_, forwarded) = run_with(&gate, &handler, from_fake_agent("needs-input", &wait(FAKE_WAIT_APPROVAL)));
+    assert_eq!(forwarded[0].wait_kind(), Some(WaitKind::Permission));
+    // Il permesso segnalato con il dettaglio scarta il needs-input che lo ripete.
+    let (_, forwarded) = run_with(&gate, &handler, from_fake_agent("permission-request", ""));
+    assert_eq!((forwarded[0].event.as_str(), forwarded[0].wait_kind()), ("needs-input", Some(WaitKind::Permission)));
+    let (reply, forwarded) = run_with(&gate, &handler, from_fake_agent("needs-input", &wait(FAKE_WAIT_APPROVAL)));
+    assert_eq!(reply, Ok(NotifyReply::default()));
+    assert!(forwarded.is_empty());
+    // Una domanda all'utente non e' un duplicato del permesso.
+    let (_, forwarded) = run_with(&gate, &handler, from_fake_agent("needs-input", &wait(FAKE_WAIT_ASK)));
+    assert_eq!(forwarded[0].wait_kind(), Some(WaitKind::Question));
+    let waits: Vec<_> = handler.received().iter().map(NotifyPayload::wait_kind).collect();
+    let (idle, permission, question) = (Some(WaitKind::Idle), Some(WaitKind::Permission), Some(WaitKind::Question));
+    assert_eq!(waits, vec![idle, permission, permission, question]);
 }
 
 #[test]

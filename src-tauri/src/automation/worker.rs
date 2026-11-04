@@ -121,7 +121,8 @@ impl Worker {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HookEvent<'a> {
     pub event: &'a str,
-    pub notification_type: Option<&'a str>,
+    /// Solo `needs-input`: cosa aspetta l'agente.
+    pub wait: Option<WaitKind>,
     pub stop_hook_active: Option<bool>,
     pub background_work: Option<u32>,
     /// `session_id` dello stdin dell'hook.
@@ -167,7 +168,7 @@ impl Registry {
 
     /// Evento di un hook con token valido. Per i worker aggiorna lo stato;
     /// ritorna `Some(motivo)` se lo Stop hook va bloccato: il worker ha chiuso
-    /// il turno senza riferire e Claude Code deve proseguire. Gli eventi di
+    /// il turno senza riferire e l'agente deve proseguire. Gli eventi di
     /// un'altra sessione dell'agente (processi secondari) o senza id dopo il
     /// legame sono ignorati.
     pub fn on_hook(&mut self, tab: &str, hook: &HookEvent, now: i64) -> Option<String> {
@@ -179,9 +180,9 @@ impl Registry {
             return None;
         }
         match hook.event {
-            // `idle_prompt` (~60 s dopo la fine del turno) non e' una
+            // L'attesa inattiva (dopo la fine del turno) non e' una
             // richiesta di permesso: il worker non e' fermo su un dialogo.
-            "needs-input" if hook.notification_type == Some("idle_prompt") => {}
+            "needs-input" if hook.wait == Some(WaitKind::Idle) => {}
             "needs-input" => {
                 self.signal_worker(tab, WorkerSignal::PermissionPrompt, now);
             }

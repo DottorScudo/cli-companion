@@ -1,7 +1,7 @@
 //! Protocollo sul socket: tipi, costanti e (de)serializzazione di una riga.
 //! Non sa nulla degli agenti: i dettagli di un evento arrivano gia' normalizzati.
 
-use crate::agents::HookEventKind;
+use crate::agents::{HookEventKind, WaitKind};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Read};
@@ -89,6 +89,49 @@ pub struct NotifyPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub tool_name: Option<String>,
+}
+
+/// Nomi sul filo (`notification_type`) dei tipi di attesa neutri: li sceglie
+/// il protocollo, non l'agente.
+const WAIT_PERMISSION: &str = "permission";
+const WAIT_IDLE: &str = "idle";
+const WAIT_QUESTION: &str = "question";
+const WAIT_OTHER: &str = "other";
+
+fn wait_name(kind: WaitKind) -> &'static str {
+    match kind {
+        WaitKind::Permission => WAIT_PERMISSION,
+        WaitKind::Idle => WAIT_IDLE,
+        WaitKind::Question => WAIT_QUESTION,
+        WaitKind::Other => WAIT_OTHER,
+    }
+}
+
+fn parse_wait_name(name: &str) -> Option<WaitKind> {
+    Some(match name {
+        WAIT_PERMISSION => WaitKind::Permission,
+        WAIT_IDLE => WaitKind::Idle,
+        WAIT_QUESTION => WaitKind::Question,
+        WAIT_OTHER => WaitKind::Other,
+        _ => return None,
+    })
+}
+
+impl NotifyPayload {
+    /// Tipo di attesa neutro portato da `notification_type`. Un nome che il
+    /// protocollo non conosce non e' nessun tipo.
+    pub fn wait_kind(&self) -> Option<WaitKind> {
+        self.notification_type.as_deref().and_then(parse_wait_name)
+    }
+
+    pub(super) fn set_wait_kind(&mut self, kind: Option<WaitKind>) {
+        self.notification_type = notification_type_of(kind);
+    }
+}
+
+/// Valore di `notification_type` per un tipo di attesa.
+pub(super) fn notification_type_of(kind: Option<WaitKind>) -> Option<String> {
+    kind.map(|k| wait_name(k).to_string())
 }
 
 /// Risposta del listener a una notifica: `{}` oppure `{"block":"<motivo>"}`.
@@ -291,6 +334,22 @@ mod tests {
         assert_eq!((old.source, old.reason, old.transcript_path, old.tool_name), (None, None, None, None));
         let with = parse_line(r#"{"event":"finished","agent":"x","token":"abc"}"#).unwrap();
         assert_eq!(with.token.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn wait_kinds_roundtrip_through_notification_type() {
+        let mut p = sample("needs-input");
+        for kind in WaitKind::ALL {
+            p.set_wait_kind(Some(kind));
+            assert_eq!(parse_line(&build_line(&p).unwrap()).unwrap().wait_kind(), Some(kind));
+        }
+        p.set_wait_kind(None);
+        assert_eq!((p.notification_type.as_deref(), p.wait_kind()), (None, None));
+        // Un nome che il protocollo non conosce non e' nessun tipo.
+        for name in ["", "Permission", "permission ", "idle_prompt"] {
+            p.notification_type = Some(name.to_string());
+            assert_eq!(p.wait_kind(), None, "{name:?}");
+        }
     }
 
     #[test]

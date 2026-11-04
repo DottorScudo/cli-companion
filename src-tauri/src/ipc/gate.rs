@@ -3,13 +3,10 @@
 //! niente globali, il tempo entra come argomento.
 
 use super::wire::{is_valid_tab_id, NotifyPayload, EVENT_FINISHED, EVENT_NEEDS_INPUT, EVENT_PERMISSION_REQUEST};
+use crate::agents::WaitKind;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-/// Tipo di notifica neutro del protocollo per "aspetta un permesso": lo usano
-/// sia la riscrittura di `permission-request` sia lo scarto del duplicato che
-/// un agente puo' mandare come `needs-input` poco dopo.
-pub(super) const PERMISSION_PROMPT: &str = "permission_prompt";
 /// Dopo un `permission-request` il `needs-input` di tipo permesso per lo
 /// stesso tab (puo' arrivare dopo alcuni secondi) e' un duplicato.
 const PERMISSION_DEDUPE: Duration = Duration::from_secs(60);
@@ -45,12 +42,12 @@ impl NotifyGate {
         if payload.event == EVENT_PERMISSION_REQUEST {
             // Per il resto dell'app e' un `needs-input` con il dettaglio.
             payload.event = EVENT_NEEDS_INPUT.to_string();
-            payload.notification_type = Some(PERMISSION_PROMPT.to_string());
+            payload.set_wait_kind(Some(WaitKind::Permission));
             if let Some(tab) = payload.tab_id.as_deref() {
                 self.note(tab, now);
             }
         } else if payload.event == EVENT_NEEDS_INPUT
-            && payload.notification_type.as_deref() == Some(PERMISSION_PROMPT)
+            && payload.wait_kind() == Some(WaitKind::Permission)
             && payload.tab_id.as_deref().is_some_and(|tab| self.seen(tab, now))
         {
             // Gia' segnalato con il dettaglio da `permission-request`.
@@ -133,7 +130,7 @@ mod tests {
 
     fn prompt(tab: &str) -> NotifyPayload {
         let mut p = from_tab("needs-input", tab);
-        p.notification_type = Some(PERMISSION_PROMPT.to_string());
+        p.set_wait_kind(Some(WaitKind::Permission));
         p
     }
 
@@ -205,20 +202,20 @@ mod tests {
     }
 
     #[test]
-    fn permission_request_becomes_a_permission_prompt() {
+    fn permission_request_becomes_a_permission_wait() {
         let mut gate = NotifyGate::default();
         let mut p = from_tab("permission-request", "t1");
         p.message = Some("Permesso richiesto".into());
         p.tool_name = Some("tool".into());
         let out = gate.admit(p, authentic, Instant::now()).unwrap();
         assert_eq!(out.event, "needs-input");
-        assert_eq!(out.notification_type.as_deref(), Some(PERMISSION_PROMPT));
+        assert_eq!(out.wait_kind(), Some(WaitKind::Permission));
         assert_eq!((out.message.as_deref(), out.tool_name.as_deref()), (Some("Permesso richiesto"), Some("tool")));
         assert_eq!(out.token, None);
     }
 
     #[test]
-    fn duplicate_permission_prompt_is_dropped_within_the_window_only() {
+    fn duplicate_permission_wait_is_dropped_within_the_window_only() {
         let mut gate = NotifyGate::default();
         let t0 = Instant::now();
         // Nessun permission-request prima: il needs-input passa.
@@ -231,15 +228,19 @@ mod tests {
     }
 
     #[test]
-    fn dedupe_is_per_tab_and_only_for_permission_prompts() {
+    fn dedupe_is_per_tab_and_only_for_permission_waits() {
         let mut gate = NotifyGate::default();
         let t0 = Instant::now();
         gate.admit(from_tab("permission-request", "t1"), authentic, t0).unwrap();
         // Altro tab, altro tipo di notifica, altro evento: passano.
         assert!(gate.admit(prompt("t2"), authentic, t0).is_some());
         let mut idle = from_tab("needs-input", "t1");
-        idle.notification_type = Some("idle".into());
+        idle.set_wait_kind(Some(WaitKind::Idle));
         assert!(gate.admit(idle, authentic, t0).is_some());
+        // Il nome grezzo di un agente non e' il tipo neutro del protocollo.
+        let mut raw = from_tab("needs-input", "t1");
+        raw.notification_type = Some("permission_request".into());
+        assert!(gate.admit(raw, authentic, t0).is_some());
         assert!(gate.admit(from_tab("needs-input", "t1"), authentic, t0).is_some());
         assert!(gate.admit(from_tab("finished", "t1"), authentic, t0).is_some());
     }

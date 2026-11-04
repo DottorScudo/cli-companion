@@ -60,16 +60,16 @@ error_codes! {
         "rule \"{value}\": contains newlines or control characters"
     ),
     PermissionRuleBadShape => (
-        "regola \"{value}\": forma attesa: Nome oppure Nome(...), es. Bash(git:*)",
-        "rule \"{value}\": expected Name or Name(...), e.g. Bash(git:*)"
+        "regola \"{value}\": forma non valida per l'agente dei worker",
+        "rule \"{value}\": not a valid rule for the worker agent"
     ),
     PermissionRulesUnsupported => (
         "l'agente dei worker non supporta le regole di permesso",
         "the worker agent does not support permission rules"
     ),
-    PermissionRuleMcpParens => (
-        "regola \"{value}\": le regole mcp__ non accettano parentesi",
-        "rule \"{value}\": mcp__ rules take no parentheses"
+    PermissionRuleTakesNoArguments => (
+        "regola \"{value}\": questo tipo di regola non accetta argomenti",
+        "rule \"{value}\": this kind of rule takes no arguments"
     ),
     // Configurazione di un repository.
     BaseBranchInvalid => ("branch base non valido: {value}", "invalid base_branch: {value}"),

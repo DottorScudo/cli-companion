@@ -129,7 +129,7 @@ fn check_rule(rule: &str) -> Result<(), ErrorCode> {
         return Err(ErrorCode::PermissionRuleBadShape);
     }
     if name.starts_with("mcp__") {
-        return Err(ErrorCode::PermissionRuleMcpParens);
+        return Err(ErrorCode::PermissionRuleTakesNoArguments);
     }
     Ok(())
 }
@@ -244,13 +244,13 @@ mod tests {
         let code = |rule: &str| validate(&v(&[rule])).unwrap_err().code();
         assert_eq!(code("git status"), ErrorCode::PermissionRuleBadShape);
         assert_eq!(code("Bash(git\nstatus)"), ErrorCode::PermissionRuleControlChars);
-        assert_eq!(code("mcp__srv__tool(x)"), ErrorCode::PermissionRuleMcpParens);
+        assert_eq!(code("mcp__srv__tool(x)"), ErrorCode::PermissionRuleTakesNoArguments);
         assert_eq!(code(&format!("Bash({})", "a".repeat(MAX_RULE_CHARS))), ErrorCode::PermissionRuleTooLong);
         let many: Vec<String> = (0..=MAX_RULES).map(|i| format!("Bash(c{i}:*)")).collect();
         assert_eq!(validate(&many).unwrap_err().code(), ErrorCode::PermissionRulesTooMany);
         let e = validate(&v(&["a b"])).unwrap_err();
-        assert_eq!(e.message_it(), "regola \"a b\": forma attesa: Nome oppure Nome(...), es. Bash(git:*)");
-        assert_eq!(e.message_en(), "rule \"a b\": expected Name or Name(...), e.g. Bash(git:*)");
+        assert_eq!(e.message_it(), "regola \"a b\": forma non valida per l'agente dei worker");
+        assert_eq!(e.message_en(), "rule \"a b\": not a valid rule for the worker agent");
     }
 
     #[test]

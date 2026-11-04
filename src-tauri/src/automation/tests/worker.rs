@@ -2,6 +2,8 @@
 //! background), complete_task, chiusura del tab, pulizia, guardiano.
 
 use super::*;
+use crate::agents::testing::{FakeIntegration, FAKE_WAIT_APPROVAL, FAKE_WAIT_ASK, FAKE_WAIT_NUDGE, FAKE_WAIT_PREFIX};
+use crate::agents::{HookEventKind, HookEvents};
 use crate::board::texts::WORKER_GUARDRAILS;
 use crate::board::TaskAction;
 use crate::validate::valid_model;
@@ -231,8 +233,8 @@ fn background_work_is_not_an_abandonment() {
 fn permission_requests_need_attention_once() {
     let (st, h, w) = running(DeliveryMode::Commit, false);
     call(&st, &h, &w, "get_task", json!({})).unwrap();
-    // `idle_prompt` non e' una richiesta di permesso.
-    let idle = HookEvent { event: "needs-input", notification_type: Some("idle_prompt"), ..Default::default() };
+    // L'attesa inattiva non e' una richiesta di permesso.
+    let idle = HookEvent { event: "needs-input", wait: Some(WaitKind::Idle), ..Default::default() };
     st.run(&h, |r| r.on_hook(&w, &idle, 1));
     assert_eq!(task(&st, &h, "a")["worker_status"], "running");
     hook(&st, &h, &w, "needs-input");
@@ -248,6 +250,31 @@ fn permission_requests_need_attention_once() {
     assert_eq!(h.notices().len(), 2);
     // Il Stop che segue un permesso risolto mette in moto il promemoria.
     assert!(stop(&st, &h, &w, None, None).is_some());
+}
+
+/// `needs-input` normalizzato da un'integrazione con nomi di notifica propri.
+fn fake_needs_input(name: &str) -> Option<WaitKind> {
+    FakeIntegration::full("fake").normalize(HookEventKind::NeedsInput, &format!("{FAKE_WAIT_PREFIX}{name}")).wait
+}
+
+#[test]
+fn an_agent_with_its_own_notification_names_gets_the_same_worker_states() {
+    let (st, h, w) = running(DeliveryMode::Commit, false);
+    call(&st, &h, &w, "get_task", json!({})).unwrap();
+    let needs_input = |name: &str| {
+        let ev = HookEvent { event: "needs-input", wait: fake_needs_input(name), ..Default::default() };
+        st.run(&h, |r| r.on_hook(&w, &ev, 1));
+    };
+    needs_input(FAKE_WAIT_NUDGE);
+    assert_eq!(task(&st, &h, "a")["worker_status"], "running");
+    assert!(h.notices().is_empty());
+    needs_input(FAKE_WAIT_APPROVAL);
+    assert_eq!(task(&st, &h, "a")["worker_status"], "needs_input");
+    assert_eq!(h.notices().len(), 1);
+    // Una domanda all'utente ferma il worker come un permesso.
+    st.run(&h, |r| r.user_input(&w, 2));
+    needs_input(FAKE_WAIT_ASK);
+    assert_eq!(task(&st, &h, "a")["worker_status"], "needs_input");
 }
 
 #[test]

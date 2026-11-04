@@ -14,7 +14,7 @@ pub fn on_hook_event(app: &AppHandle, payload: &NotifyPayload) -> Option<String>
     let tab = payload.tab_id.as_deref()?;
     let hook = HookEvent {
         event: &payload.event,
-        notification_type: payload.notification_type.as_deref(),
+        wait: payload.wait_kind(),
         stop_hook_active: payload.stop_hook_active,
         background_work: payload.background_work,
         agent_session_id: payload.agent_session_id.as_deref(),

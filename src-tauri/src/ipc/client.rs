@@ -3,8 +3,9 @@
 //! il contratto `HookEvents` dell'agente; qui c'e' solo il trasporto.
 
 use super::wire::{
-    build_line, hook_kind, is_known_event, is_valid_tab_id, NotifyPayload, NotifyReply, DEFAULT_PORT, EVENT_FINISHED,
-    EVENT_PERMISSION_REQUEST, PORT_ENV, RPC_RESPONSE_MAX_BYTES, SESSION_ENV, TOKEN_ENV, WIRE_MAX_BYTES,
+    build_line, hook_kind, is_known_event, is_valid_tab_id, notification_type_of, NotifyPayload, NotifyReply,
+    DEFAULT_PORT, EVENT_FINISHED, EVENT_PERMISSION_REQUEST, PORT_ENV, RPC_RESPONSE_MAX_BYTES, SESSION_ENV, TOKEN_ENV,
+    WIRE_MAX_BYTES,
 };
 use crate::agents::{HookEvent, HookEvents};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -192,7 +193,7 @@ fn permission_text(tool: &str, summary: Option<&str>) -> String {
 }
 
 /// Costruisce il payload da evento, agente, id tab e dettagli dell'agente.
-fn build_payload(event: &str, agent: &str, tab_id: Option<&str>, details: HookEvent) -> NotifyPayload {
+pub(super) fn build_payload(event: &str, agent: &str, tab_id: Option<&str>, details: HookEvent) -> NotifyPayload {
     let message = if event == EVENT_PERMISSION_REQUEST {
         details.tool_name.as_deref().map(|t| permission_text(t, details.tool_summary.as_deref()))
     } else {
@@ -203,7 +204,7 @@ fn build_payload(event: &str, agent: &str, tab_id: Option<&str>, details: HookEv
         agent: agent.to_string(),
         tab_id: tab_id.filter(|t| is_valid_tab_id(t)).map(str::to_string),
         agent_session_id: details.agent_session_id,
-        notification_type: details.notification_type,
+        notification_type: notification_type_of(details.wait),
         message,
         token: None,
         stop_hook_active: details.already_continuing,

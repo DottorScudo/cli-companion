@@ -1,5 +1,5 @@
 use super::*;
-use crate::agents::HookEventKind;
+use crate::agents::{HookEventKind, WaitKind};
 use crate::ipc::wire::{parse_line, read_wire, Wire};
 use std::net::TcpListener;
 use std::sync::Mutex;
@@ -25,7 +25,7 @@ impl HookEvents for FakeHooks {
             let v = value.to_string();
             match key {
                 "id" => e.agent_session_id = Some(v),
-                "type" => e.notification_type = Some(v),
+                "type" => e.wait = Some(if value == "nudge" { WaitKind::Idle } else { WaitKind::Other }),
                 "msg" => e.message = Some(v),
                 "cont" => e.already_continuing = Some(value == "1"),
                 "bg" => e.background_work = value.parse().ok(),
@@ -243,7 +243,7 @@ fn permission_request_message_is_built_from_tool_and_summary() {
 
 #[test]
 fn build_payload_maps_every_detail_to_its_wire_field() {
-    let raw = "id=s;type=idle;msg=ciao;cont=1;bg=3;src=clear;why=other;path=/p;tool=T";
+    let raw = "id=s;type=nudge;msg=ciao;cont=1;bg=3;src=clear;why=other;path=/p;tool=T";
     let details = FakeHooks::default().normalize(HookEventKind::Finished, raw);
     let p = build_payload("finished", "fake", Some("t1"), details);
     assert_eq!((p.event.as_str(), p.agent.as_str(), p.tab_id.as_deref()), ("finished", "fake", Some("t1")));
