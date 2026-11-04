@@ -33,10 +33,7 @@ use std::process::Command;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
+use crate::platform::hide_window;
 
 /// Porta del listener locale. Solo 127.0.0.1: nessun prompt del firewall.
 pub const NOTIFY_PORT: u16 = 17421;
@@ -626,8 +623,7 @@ pub async fn test_agent_notify() -> Result<String, String> {
 fn self_test_blocking() -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| format!("percorso exe: {e}"))?;
     let mut cmd = Command::new(&exe);
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
+    hide_window(&mut cmd);
     let status = cmd
         .args(["--notify", "test", "self-test"])
         .stdin(std::process::Stdio::null())

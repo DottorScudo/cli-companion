@@ -1,7 +1,7 @@
 //! `$HOME` dell'utente di default di una distro WSL, risolto una volta per
 //! processo. Serve a raggiungere `~/.claude` della distro da Windows (path UNC).
 
-use super::{is_valid_distro_name, output_with_timeout, wsl_command};
+use crate::platform::{is_valid_distro_name, output_with_timeout, wsl_exe};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -34,7 +34,7 @@ fn resolve_home(distro: &str) -> Result<String, String> {
         return Err("invalid distro name".to_string());
     }
     let script = format!("printf '%s\\n%s' {HOME_MARKER} \"$HOME\"");
-    let out = output_with_timeout(wsl_command().args(["-d", distro, "-e", "sh", "-c", &script]), HOME_TIMEOUT)
+    let out = output_with_timeout(wsl_exe().args(["-d", distro, "-e", "sh", "-c", &script]), HOME_TIMEOUT)
         .map_err(|e| e.to_string())?;
     // Il rumore puo' esserci anche con exit != 0: si interpreta comunque lo stdout.
     parse_home(&String::from_utf8_lossy(&out.stdout))

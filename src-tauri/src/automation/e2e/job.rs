@@ -42,7 +42,7 @@ struct E2eJob {
 
 impl E2eJob {
     fn junit_path(&self) -> String {
-        join_path(&self.target.ws.kind, &self.target.dir, &self.e2e.junit)
+        join_path(self.target.ws.kind, &self.target.dir, &self.e2e.junit)
     }
 
     fn timeout(&self) -> Duration {

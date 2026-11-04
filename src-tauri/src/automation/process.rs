@@ -7,6 +7,9 @@ use super::hooks::tail;
 use super::worktrees::{output_with_timeout, GitOut};
 use super::*;
 use crate::board::strip_ansi;
+#[cfg(windows)]
+use crate::platform::hide_window;
+use crate::platform::wsl_run_command;
 use std::io::Read;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -65,7 +68,7 @@ tr '\\0' '\\n' < \"$p/environ\" 2>/dev/null | grep -qxF \"CLI_COMPANION_RUN=$1\"
 done; done; true";
 
 fn wsl_kill_command(distro: &str, marker: &str) -> Command {
-    crate::wsl::wsl_run_command(distro, "/", &["sh", "-c", WSL_KILL_SCRIPT, "sh", marker])
+    wsl_run_command(distro, "/", &["sh", "-c", WSL_KILL_SCRIPT, "sh", marker])
 }
 
 /// Ultimi `OUTPUT_KEEP_BYTES` di uno stream, letto da un thread.
@@ -112,14 +115,14 @@ impl Drain {
 /// `taskkill /PID <pid> /T /F` con attesa limitata. Solo Windows.
 #[cfg(windows)]
 fn taskkill_tree(pid: u32) {
-    use std::os::windows::process::CommandExt;
-    let spawned = Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
-        .spawn();
+    let spawned = hide_window(
+        Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+    )
+    .spawn();
     if let Ok(mut tk) = spawned {
         let start = Instant::now();
         while matches!(tk.try_wait(), Ok(None)) {
@@ -235,7 +238,8 @@ mod tests {
         fn cmd_c(script: &str) -> Command {
             use std::os::windows::process::CommandExt;
             let mut c = Command::new("cmd.exe");
-            c.raw_arg(format!("/D /S /C \"{script}\"")).creation_flags(0x08000000).current_dir(std::env::temp_dir());
+            c.raw_arg(format!("/D /S /C \"{script}\"")).current_dir(std::env::temp_dir());
+            hide_window(&mut c);
             c
         }
 

@@ -10,12 +10,15 @@
 use super::process::{new_run_marker, run_command, CancelFlag, KillTree, RUN_MARKER_VAR};
 use super::worktrees::{join_path, output_with_timeout, GitOut};
 use super::*;
+use crate::platform::{hide_window, wsl_run_command, wsl_to_windows_path, Target};
 use crate::workspaces::RepoConfig;
 
 /// Tetto di un singolo comando di setup (una copia di `vendor` e' lenta).
 pub(super) const HOOK_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// Tetto di un comando di pulizia.
 pub(super) const CLEANUP_TIMEOUT: Duration = Duration::from_secs(2 * 60);
+/// Tetto del controllo di esistenza di un percorso in WSL.
+const PATH_CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 /// Quanto dell'output di un passo si tiene nei messaggi.
 const OUTPUT_TAIL: usize = 2048;
 
@@ -78,10 +81,6 @@ pub(super) fn wsl_hook_argv(command: &str, env: &[(String, String)]) -> Vec<Stri
     argv
 }
 
-fn distro_of(ws: &Workspace) -> Result<&str, String> {
-    ws.distro.as_deref().filter(|d| !d.is_empty()).ok_or_else(|| "WSL distro missing".to_string())
-}
-
 /// Esegue un comando dell'utente nella shell della piattaforma (vedi il
 /// modulo), con output limitato e albero di processi ucciso a timeout o
 /// annullamento. `Err` solo se non parte, scade o viene annullato.
@@ -93,46 +92,51 @@ pub(super) fn run_hook_real(
     timeout: Duration,
     cancel: Option<&CancelFlag>,
 ) -> Result<GitOut, String> {
-    let mut kill = KillTree::Native;
-    let cmd = if ws.kind == "wsl" {
-        let distro = distro_of(ws)?;
-        // Il marcatore e' ereditato da tutti i discendenti Linux: serve a ucciderli.
-        let marker = new_run_marker();
-        let mut env = env.to_vec();
-        env.push((RUN_MARKER_VAR.to_string(), marker.clone()));
-        let argv = wsl_hook_argv(command, &env);
-        let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
-        kill = KillTree::Wsl { distro: distro.to_string(), marker };
-        crate::wsl::wsl_run_command(distro, dir, &refs)
-    } else {
-        let mut cmd;
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd = std::process::Command::new("cmd.exe");
-            // /S toglie le virgolette esterne: il comando arriva com'e'.
-            cmd.raw_arg(format!("/D /S /C \"{command}\"")).creation_flags(0x08000000);
-            // CREATE_NO_WINDOW
+    let (cmd, kill) = match ws.target()? {
+        Target::Wsl { distro } => {
+            // Il marcatore e' ereditato da tutti i discendenti Linux: serve a ucciderli.
+            let marker = new_run_marker();
+            let mut env = env.to_vec();
+            env.push((RUN_MARKER_VAR.to_string(), marker.clone()));
+            let argv = wsl_hook_argv(command, &env);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            let cmd = wsl_run_command(&distro, dir, &refs);
+            (cmd, KillTree::Wsl { distro, marker })
         }
-        #[cfg(not(windows))]
-        {
-            cmd = std::process::Command::new("sh");
-            cmd.args(["-c", command]);
-        }
-        cmd.current_dir(dir).envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
-        cmd
+        Target::Windows => (windows_hook_command(command, dir, env), KillTree::Native),
     };
     run_command(cmd, timeout, cancel, &kill)
 }
 
-/// Percorso del filesystem Windows per un percorso nel formato del workspace
-/// (WSL: `\\wsl.localhost\<distro>\...`).
-pub(super) fn fs_path(ws: &Workspace, path: &str) -> Result<std::path::PathBuf, String> {
-    if ws.kind == "wsl" {
-        let converted = crate::wsl::wsl_to_windows_path(distro_of(ws)?, path);
-        return converted.map(std::path::PathBuf::from).ok_or_else(|| format!("invalid WSL path: {path}"));
+/// Il comando dell'utente nella shell nativa (`cmd /D /S /C` su Windows).
+fn windows_hook_command(command: &str, dir: &str, env: &[(String, String)]) -> std::process::Command {
+    let mut cmd;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd = std::process::Command::new("cmd.exe");
+        // /S toglie le virgolette esterne: il comando arriva com'e'.
+        cmd.raw_arg(format!("/D /S /C \"{command}\""));
+        hide_window(&mut cmd);
     }
-    Ok(std::path::PathBuf::from(path))
+    #[cfg(not(windows))]
+    {
+        cmd = std::process::Command::new("sh");
+        cmd.args(["-c", command]);
+    }
+    cmd.current_dir(dir).envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+    cmd
+}
+
+/// Percorso del filesystem Windows per un percorso nel formato del workspace
+/// (WSL: `\wsl.localhost\<distro>\...`).
+pub(super) fn fs_path(ws: &Workspace, path: &str) -> Result<std::path::PathBuf, String> {
+    match ws.target()? {
+        Target::Wsl { distro } => wsl_to_windows_path(&distro, path)
+            .map(std::path::PathBuf::from)
+            .ok_or_else(|| format!("invalid WSL path: {path}")),
+        Target::Windows => Ok(std::path::PathBuf::from(path)),
+    }
 }
 
 /// Legge un file di testo UTF-8 (senza BOM) di al piu' `max_bytes`. `Ok(None)`
@@ -167,19 +171,16 @@ pub(super) fn remove_file_real(ws: &Workspace, path: &str) -> Result<(), String>
     }
 }
 
-/// Il percorso (file o cartella) esiste?
+/// Il percorso (file o cartella) esiste? Se WSL non risponde vale "no".
 pub(super) fn path_exists_real(ws: &Workspace, path: &str) -> bool {
-    if ws.kind == "wsl" {
-        let Ok(distro) = distro_of(ws) else {
-            return false;
-        };
-        return crate::wsl::wsl_command()
-            .args(["-d", distro, "-e", "test", "-e", path])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
+    match ws.target() {
+        Ok(Target::Wsl { distro }) => {
+            let cmd = wsl_run_command(&distro, "/", &["test", "-e", path]);
+            output_with_timeout(cmd, PATH_CHECK_TIMEOUT).is_ok_and(|out| out.status.success())
+        }
+        Ok(Target::Windows) => std::path::Path::new(path).exists(),
+        Err(_) => false,
     }
-    std::path::Path::new(path).exists()
 }
 
 fn copy_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
@@ -201,13 +202,21 @@ fn copy_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Resu
 /// Copia ricorsiva `src` -> `dst` (file o cartella), creando le cartelle
 /// padre. WSL: `cp -a` (conserva permessi e link).
 pub(super) fn copy_path_real(ws: &Workspace, src: &str, dst: &str) -> Result<(), String> {
-    if ws.kind == "wsl" {
-        let script = "mkdir -p \"$(dirname \"$2\")\" && cp -a \"$1\" \"$2\"";
-        let cmd = crate::wsl::wsl_run_command(distro_of(ws)?, "/", &["sh", "-c", script, "sh", src, dst]);
-        let out = output_with_timeout(cmd, HOOK_TIMEOUT)?;
-        return if out.status.success() { Ok(()) } else { Err(tail(&String::from_utf8_lossy(&out.stderr), 300)) };
+    match ws.target()? {
+        Target::Wsl { distro } => {
+            let script = "mkdir -p \"$(dirname \"$2\")\" && cp -a \"$1\" \"$2\"";
+            let cmd = wsl_run_command(&distro, "/", &["sh", "-c", script, "sh", src, dst]);
+            let out = output_with_timeout(cmd, HOOK_TIMEOUT)?;
+            if out.status.success() {
+                Ok(())
+            } else {
+                Err(tail(&String::from_utf8_lossy(&out.stderr), 300))
+            }
+        }
+        Target::Windows => {
+            copy_recursive(std::path::Path::new(src), std::path::Path::new(dst)).map_err(|e| e.to_string())
+        }
     }
-    copy_recursive(std::path::Path::new(src), std::path::Path::new(dst)).map_err(|e| e.to_string())
 }
 
 /// Un worktree da preparare.
@@ -237,7 +246,7 @@ fn describe(out: &GitOut) -> String {
 /// partire. Ok = avvisi (percorsi non copiati); Err = messaggio con il
 /// passo e la coda dell'output.
 pub(super) fn run_setup<H: Host>(host: &H, c: &SetupCtx, report: &dyn Fn(&str)) -> Result<Vec<String>, String> {
-    let (ws, kind) = (c.ws, c.ws.kind.as_str());
+    let (ws, kind) = (c.ws, c.ws.kind);
     let mut warnings = Vec::new();
     for p in &c.cfg.copy_ignored {
         report(&format!("copy {p}"));
@@ -321,7 +330,7 @@ mod tests {
         assert_eq!(argv, ["env", "REPO=/home/u/my repo", "BRANCH=task/a'b", "sh", "-c", cmd]);
         // Il comando wsl.exe finale: --cd e -e (exec), nessuna shell della distro.
         let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
-        let c = crate::wsl::wsl_run_command("Ubuntu", "/home/u/r/.worktrees/a", &refs);
+        let c = wsl_run_command("Ubuntu", "/home/u/r/.worktrees/a", &refs);
         let args: Vec<String> = c.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
         assert_eq!(&args[..5], ["-d", "Ubuntu", "--cd", "/home/u/r/.worktrees/a", "-e"]);
         assert_eq!(args.last().map(String::as_str), Some(cmd));
@@ -336,10 +345,11 @@ mod tests {
 
     #[cfg(windows)]
     fn windows_ws(dir: &std::path::Path) -> Workspace {
+        use crate::platform::TargetKind;
         Workspace {
             id: "w".into(),
             name: "w".into(),
-            kind: "windows".into(),
+            kind: TargetKind::Windows,
             path: dir.to_string_lossy().into_owned(),
             distro: None,
             shell: None,

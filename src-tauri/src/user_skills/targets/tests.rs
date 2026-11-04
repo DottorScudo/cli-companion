@@ -144,5 +144,5 @@ fn wsl_skills_real_sync_and_remove_through_unc() {
 
 /// `test -f` eseguito dentro la distro: conferma il file dal lato Linux.
 fn distro_has_file(distro: &str, linux_file: &str) -> bool {
-    crate::wsl::wsl_command().args(["-d", distro, "-e", "test", "-f", linux_file]).status().is_ok_and(|s| s.success())
+    crate::platform::wsl_exe().args(["-d", distro, "-e", "test", "-f", linux_file]).status().is_ok_and(|s| s.success())
 }

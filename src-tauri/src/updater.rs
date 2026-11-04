@@ -22,6 +22,8 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::process::Command;
 
+use crate::platform::hide_window;
+
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
@@ -196,18 +198,6 @@ fn latest_release_url(cfg: &UpdateConfig) -> String {
     format!("{}/repos/{}/{}/releases/latest", cfg.api_url.trim_end_matches('/'), cfg.owner, cfg.repo)
 }
 
-/// Niente finestra console per i processi figli: la build release e' una app
-/// GUI (windows_subsystem) e curl/cmd aprirebbero un terminale lampeggiante.
-pub(crate) fn quiet(cmd: &mut Command) -> &mut Command {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-    cmd
-}
-
 pub(crate) fn run_curl(args: &[String]) -> Result<Vec<u8>, String> {
     run_curl_with(args, None)
 }
@@ -228,7 +218,7 @@ fn run_curl_with(args: &[String], stdin: Option<&[u8]>) -> Result<Vec<u8>, Strin
         )
     };
     let mut cmd = Command::new(&bin);
-    quiet(&mut cmd).args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
+    hide_window(&mut cmd).args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
     cmd.stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() });
     let mut child = cmd.spawn().map_err(spawn_err)?;
     if let (Some(data), Some(mut pipe)) = (stdin, child.stdin.take()) {

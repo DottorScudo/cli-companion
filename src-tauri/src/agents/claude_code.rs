@@ -16,10 +16,11 @@ use std::path::Path;
 
 use super::presets::{Preset, PRESETS};
 use super::{
-    claude_usage, parse_version, resolve_wsl_command_cached, AgentProvider, AutomationRequest, Detection, Env,
-    InputEvent, InputProfile, InputRule, InstallCtx, PermissionMode, SessionUsage, TranscriptCache, UsageLimitsReply,
+    claude_usage, parse_version, resolve_wsl_command_cached, AgentProvider, AutomationRequest, Detection, InputEvent,
+    InputProfile, InputRule, InstallCtx, PermissionMode, SessionUsage, TranscriptCache, UsageLimitsReply,
     DETECT_TIMEOUT, PLUGIN_LIST_TIMEOUT,
 };
+use crate::platform::{Target, TargetKind};
 
 pub struct ClaudeCode;
 
@@ -182,7 +183,7 @@ fn plugin_listed(list_json: &str, id: &str) -> bool {
 
 /// Esegue un passo del flusso e lo registra nel log; in caso di errore
 /// ritorna il messaggio con il log accumulato.
-fn step(log: &mut Vec<String>, env: &Env, program: &str, label: &str, args: &[&str]) -> Result<(), String> {
+fn step(log: &mut Vec<String>, env: &Target, program: &str, label: &str, args: &[&str]) -> Result<(), String> {
     match env.run(program, args) {
         Ok(_) => {
             log.push(format!("{label}: ok"));
@@ -193,7 +194,7 @@ fn step(log: &mut Vec<String>, env: &Env, program: &str, label: &str, args: &[&s
 }
 
 /// Come `step` ma gli errori non fermano il flusso (pulizia best-effort).
-fn step_lenient(log: &mut Vec<String>, env: &Env, program: &str, label: &str, args: &[&str]) {
+fn step_lenient(log: &mut Vec<String>, env: &Target, program: &str, label: &str, args: &[&str]) {
     match env.run(program, args) {
         Ok(_) => log.push(format!("{label}: ok")),
         Err(e) => log.push(format!("{label}: {}", e.lines().next().unwrap_or(""))),
@@ -205,7 +206,7 @@ impl AgentProvider for ClaudeCode {
         AGENT_ID
     }
 
-    fn plugin_version(&self, ctx: &InstallCtx, env: &Env) -> Option<String> {
+    fn plugin_version(&self, ctx: &InstallCtx, env: &Target) -> Option<String> {
         ctx.exe_for(env).ok().map(|exe| plugin_version_for(&exe))
     }
 
@@ -219,14 +220,14 @@ impl AgentProvider for ClaudeCode {
     fn input_profile(&self) -> InputProfile {
         let rule =
             |env_kind| InputRule { event: InputEvent::ImagePaste, env_kind: Some(env_kind), send: "\x1bv".to_string() };
-        InputProfile { rules: vec![rule("windows"), rule("wsl")] }
+        InputProfile { rules: vec![rule(TargetKind::Windows), rule(TargetKind::Wsl)] }
     }
 
     /// `claude "<prompt>" --permission-mode <m> --allowedTools <regola> [--model <m>]`.
     /// Il prompt va PRIMA dei flag (`--allowedTools` e' variadico). La stringa
     /// e' digitata in PowerShell, cmd o bash/zsh: un prompt con caratteri
     /// speciali per una qualunque di queste shell viene rifiutato.
-    fn automation_command(&self, _env_kind: &str, req: &AutomationRequest) -> Option<String> {
+    fn automation_command(&self, _env_kind: TargetKind, req: &AutomationRequest) -> Option<String> {
         let unsafe_char = |c: char| matches!(c, '"' | '$' | '`' | '%' | '!' | '\\') || c.is_control();
         if req.bootstrap_prompt.is_empty() || req.bootstrap_prompt.chars().any(unsafe_char) {
             return None;
@@ -271,23 +272,23 @@ impl AgentProvider for ClaudeCode {
         Some(format!("claude --dangerously-skip-permissions \"/{PLUGIN}:{}\"", preset.id))
     }
 
-    fn usage_limits(&self, env: &Env) -> Option<UsageLimitsReply> {
+    fn usage_limits(&self, env: &Target) -> Option<UsageLimitsReply> {
         Some(claude_usage::limits(env))
     }
 
     fn session_usage(
         &self,
-        env: &Env,
+        env: &Target,
         transcript_path: &str,
         cache: &TranscriptCache,
     ) -> Option<Result<SessionUsage, String>> {
         Some(claude_usage::session_usage(env, transcript_path, cache))
     }
 
-    fn detect(&self, env: &Env) -> Detection {
+    fn detect(&self, env: &Target) -> Detection {
         let path = match env {
-            Env::Windows => Some("claude".to_string()),
-            Env::Wsl(d) => resolve_wsl_command_cached(d, "claude"),
+            Target::Windows => Some("claude".to_string()),
+            Target::Wsl { distro } => resolve_wsl_command_cached(distro, "claude"),
         };
         let Some(path) = path else {
             return Detection::default();
@@ -298,7 +299,7 @@ impl AgentProvider for ClaudeCode {
         }
     }
 
-    fn is_installed(&self, env: &Env, det: &Detection) -> bool {
+    fn is_installed(&self, env: &Target, det: &Detection) -> bool {
         let Some(program) = det.path.as_deref() else {
             return false;
         };
@@ -307,7 +308,7 @@ impl AgentProvider for ClaudeCode {
             .unwrap_or(false)
     }
 
-    fn install(&self, ctx: &InstallCtx, env: &Env, det: &Detection) -> Result<String, String> {
+    fn install(&self, ctx: &InstallCtx, env: &Target, det: &Detection) -> Result<String, String> {
         let program = det
             .path
             .as_deref()
@@ -359,7 +360,7 @@ impl AgentProvider for ClaudeCode {
         Ok(log.join("\n"))
     }
 
-    fn uninstall(&self, ctx: &InstallCtx, env: &Env, det: &Detection) -> Result<String, String> {
+    fn uninstall(&self, ctx: &InstallCtx, env: &Target, det: &Detection) -> Result<String, String> {
         let mut log = Vec::new();
         if let Some(program) = det.path.as_deref().filter(|_| det.found) {
             step_lenient(
@@ -557,20 +558,20 @@ mod tests {
     fn automation_command_adds_quoted_settings_before_allowed_tools() {
         let mut r = req(PermissionMode::Default, Some("opus"), "ciao");
         r.settings_path = Some(r"C:\Users\Mario Rossi\AppData\Roaming\cli-companion\worker-settings\ws-1.json");
-        let c = ClaudeCode.automation_command("windows", &r).unwrap();
+        let c = ClaudeCode.automation_command(TargetKind::Windows, &r).unwrap();
         assert_eq!(
             c,
             "claude \"ciao\" --permission-mode default --settings \"C:\\Users\\Mario Rossi\\AppData\\Roaming\\cli-companion\\worker-settings\\ws-1.json\" --allowedTools mcp__plugin_cli-companion-notify_cli-companion --model opus"
         );
         r.settings_path = Some("/mnt/c/Users/me/AppData/Roaming/cli-companion/worker-settings/ws-1.json");
-        let c = ClaudeCode.automation_command("wsl", &r).unwrap();
+        let c = ClaudeCode.automation_command(TargetKind::Wsl, &r).unwrap();
         assert!(c.contains(
             " --settings \"/mnt/c/Users/me/AppData/Roaming/cli-companion/worker-settings/ws-1.json\" --allowedTools"
         ));
         // Path con caratteri speciali per la shell: nessun comando.
         for bad in ["C:\\a$b\\x.json", "C:\\a`b", "C:\\100%\\x", "C:\\a\"b", "C:\\hi!\\x"] {
             r.settings_path = Some(bad);
-            assert!(ClaudeCode.automation_command("windows", &r).is_none(), "{bad:?}");
+            assert!(ClaudeCode.automation_command(TargetKind::Windows, &r).is_none(), "{bad:?}");
         }
     }
 
@@ -583,7 +584,7 @@ mod tests {
             (PermissionMode::Plan, "plan"),
             (PermissionMode::Bypass, "bypassPermissions"),
         ];
-        for env in ["windows", "wsl"] {
+        for env in [TargetKind::Windows, TargetKind::Wsl] {
             for (mode, flag) in cases {
                 let c = ClaudeCode.automation_command(env, &req(mode, None, p)).unwrap();
                 assert_eq!(
@@ -598,21 +599,22 @@ mod tests {
 
     #[test]
     fn automation_command_model_and_rejections() {
-        let c =
-            ClaudeCode.automation_command("wsl", &req(PermissionMode::Plan, Some("claude-opus-4.1"), "ciao")).unwrap();
+        let c = ClaudeCode
+            .automation_command(TargetKind::Wsl, &req(PermissionMode::Plan, Some("claude-opus-4.1"), "ciao"))
+            .unwrap();
         assert!(c.ends_with(" --model claude-opus-4.1"));
         for bad in ["a\"b", "a$b", "a`b", "a%b", "a!b", "a\\b", "a\nb", ""] {
             let r = req(PermissionMode::Default, None, bad);
-            assert!(ClaudeCode.automation_command("windows", &r).is_none(), "{bad:?}");
+            assert!(ClaudeCode.automation_command(TargetKind::Windows, &r).is_none(), "{bad:?}");
         }
         let long = "a".repeat(65);
         for bad in ["", "m x", "m;ls", "m\"", long.as_str()] {
             let r = req(PermissionMode::Default, Some(bad), "ok");
-            assert!(ClaudeCode.automation_command("windows", &r).is_none(), "{bad:?}");
+            assert!(ClaudeCode.automation_command(TargetKind::Windows, &r).is_none(), "{bad:?}");
         }
         // Tramite l'helper pubblico.
         let r = req(PermissionMode::Default, None, "ok");
-        assert!(crate::agents::automation_command("claude-code", "wsl", &r).is_ok());
+        assert!(crate::agents::automation_command("claude-code", TargetKind::Wsl, &r).is_ok());
     }
 
     #[test]
@@ -642,16 +644,16 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("mc-claude-validate-{}", std::process::id()));
         let ctx =
             InstallCtx { exe: "C:/Program Files/cli-companion/cli-companion.exe".to_string(), data_dir: dir.clone() };
-        let root = ctx.plugin_root(AGENT_ID, &Env::Windows);
+        let root = ctx.plugin_root(AGENT_ID, &Target::Windows);
         for (rel, content) in plugin_files(&ctx.exe) {
             let file = root.join(rel);
             std::fs::create_dir_all(file.parent().unwrap()).unwrap();
             std::fs::write(file, content).unwrap();
         }
-        let market = Env::Windows.path_arg(&root).unwrap();
+        let market = Target::Windows.path_arg(&root).unwrap();
         let plugin = format!("{market}/plugins/{PLUGIN}");
-        let a = Env::Windows.run("claude", &["plugin", "validate", &plugin]);
-        let b = Env::Windows.run("claude", &["plugin", "validate", &market]);
+        let a = Target::Windows.run("claude", &["plugin", "validate", &plugin]);
+        let b = Target::Windows.run("claude", &["plugin", "validate", &market]);
         let _ = std::fs::remove_dir_all(&dir);
         a.expect("validate plugin");
         b.expect("validate marketplace");
@@ -662,8 +664,10 @@ mod tests {
     #[test]
     #[ignore]
     fn claude_detect_real_envs() {
-        let mut envs = vec![Env::Windows];
-        envs.extend(crate::wsl::installed_distros().unwrap_or_default().into_iter().map(Env::Wsl));
+        let mut envs = vec![Target::Windows];
+        envs.extend(
+            crate::wsl::installed_distros().unwrap_or_default().into_iter().map(|distro| Target::Wsl { distro }),
+        );
         for env in envs {
             let det = ClaudeCode.detect(&env);
             println!("{}: {:?} installato={}", env.key(), det, det.found && ClaudeCode.is_installed(&env, &det));
@@ -678,7 +682,7 @@ mod tests {
         let distro = std::env::var("CC_TEST_DISTRO").unwrap_or_else(|_| "Ubuntu-24.04".to_string());
         let path = crate::agents::resolve_wsl_command(&distro, "claude").expect("claude nella distro");
         println!("claude: {path}");
-        let out = Env::Wsl(distro).run(&path, &["plugin", "list", "--json"]).expect("plugin list");
+        let out = Target::Wsl { distro }.run(&path, &["plugin", "list", "--json"]).expect("plugin list");
         println!("{out}");
         assert!(serde_json::from_str::<serde_json::Value>(out.trim()).is_ok(), "non e' JSON: {out}");
     }

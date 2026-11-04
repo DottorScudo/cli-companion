@@ -47,7 +47,7 @@ pub(in crate::automation) fn report_file<H: Host>(
 ) -> Result<PathBuf, String> {
     let ws = workspace_of(host, ws_id)?;
     let (dir, run) = run_dir(st, host, &ws, task_id, repo)?;
-    let file = join_path(&ws.kind, &dir, &run.junit);
+    let file = join_path(ws.kind, &dir, &run.junit);
     if !host.path_exists(&ws, &file) {
         return Err(REPORT_MISSING.to_string());
     }

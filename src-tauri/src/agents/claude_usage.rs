@@ -11,8 +11,8 @@
 //! `<id>/subagents/*.jsonl`) sono append-only; la cache tiene per ogni file
 //! l'offset letto, cosi' ad ogni chiamata si leggono solo i byte nuovi.
 
-use super::{Env, LimitWindow, SessionUsage, TokenTotals, UsageLimitsReply};
-use crate::wsl::wsl_to_windows_path;
+use super::{LimitWindow, SessionUsage, TokenTotals, UsageLimitsReply};
+use crate::platform::{wsl_to_windows_path, Target};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
@@ -78,10 +78,10 @@ pub(crate) fn windows_claude_dir() -> Result<PathBuf, String> {
 }
 
 /// File delle credenziali da provare, in ordine.
-fn credentials_candidates(env: &Env) -> Result<Vec<PathBuf>, String> {
+fn credentials_candidates(env: &Target) -> Result<Vec<PathBuf>, String> {
     match env {
-        Env::Windows => Ok(vec![windows_claude_dir()?.join(".credentials.json")]),
-        Env::Wsl(d) => {
+        Target::Windows => Ok(vec![windows_claude_dir()?.join(".credentials.json")]),
+        Target::Wsl { distro: d } => {
             let home = crate::wsl::linux_home(d)
                 .map_err(|e| format!("Home della distro non risolta: {e}"))?
                 .replace('/', "\\");
@@ -93,7 +93,7 @@ fn credentials_candidates(env: &Env) -> Result<Vec<PathBuf>, String> {
     }
 }
 
-fn read_credentials(env: &Env) -> Result<String, String> {
+fn read_credentials(env: &Target) -> Result<String, String> {
     let mut last = None;
     for path in credentials_candidates(env)? {
         match std::fs::read_to_string(&path) {
@@ -242,7 +242,7 @@ fn limits_cache() -> &'static Mutex<HashMap<String, LimitsEntry>> {
 
 /// Limiti dell'abbonamento per `env`, con cache (3 min) e pausa dopo un 429
 /// (10 min). Bloccante: chiamare fuori dal main thread.
-pub fn limits(env: &Env) -> UsageLimitsReply {
+pub fn limits(env: &Target) -> UsageLimitsReply {
     let key = env.key();
     {
         let mut cache = limits_cache().lock().unwrap();
@@ -446,20 +446,20 @@ fn validate_transcript_path(p: &str) -> Result<(), String> {
 
 /// Path del transcript leggibile dall'host: invariato su Windows, UNC (o
 /// `C:\` per `/mnt/c`) per una distro WSL.
-fn resolve_transcript_path(env: &Env, p: &str) -> Result<PathBuf, String> {
+fn resolve_transcript_path(env: &Target, p: &str) -> Result<PathBuf, String> {
     validate_transcript_path(p)?;
     let p = p.trim();
     match env {
-        Env::Windows if p.starts_with('/') => Err("Percorso del transcript non valido.".to_string()),
-        Env::Windows => Ok(PathBuf::from(p)),
-        Env::Wsl(d) => wsl_to_windows_path(d, p)
+        Target::Windows if p.starts_with('/') => Err("Percorso del transcript non valido.".to_string()),
+        Target::Windows => Ok(PathBuf::from(p)),
+        Target::Wsl { distro: d } => wsl_to_windows_path(d, p)
             .map(PathBuf::from)
             .ok_or_else(|| "Percorso del transcript non valido.".to_string()),
     }
 }
 
 /// Consumi di token della sessione con transcript `transcript_path`.
-pub fn session_usage(env: &Env, transcript_path: &str, cache: &TranscriptCache) -> Result<SessionUsage, String> {
+pub fn session_usage(env: &Target, transcript_path: &str, cache: &TranscriptCache) -> Result<SessionUsage, String> {
     let path = resolve_transcript_path(env, transcript_path)?;
     read_usage(cache, &path)
 }
@@ -762,7 +762,7 @@ mod tests {
 
     #[test]
     fn transcript_path_resolution_per_env() {
-        let wsl = Env::Wsl("Ubuntu".into());
+        let wsl = Target::Wsl { distro: "Ubuntu".into() };
         assert_eq!(
             resolve_transcript_path(&wsl, "/home/u/.claude/projects/s/a.jsonl").unwrap(),
             PathBuf::from(r"\\wsl.localhost\Ubuntu\home\u\.claude\projects\s\a.jsonl")
@@ -773,10 +773,10 @@ mod tests {
         );
         assert!(resolve_transcript_path(&wsl, r"C:\x\projects\s\a.jsonl").is_err());
         assert_eq!(
-            resolve_transcript_path(&Env::Windows, r"C:\u\.claude\projects\s\a.jsonl").unwrap(),
+            resolve_transcript_path(&Target::Windows, r"C:\u\.claude\projects\s\a.jsonl").unwrap(),
             PathBuf::from(r"C:\u\.claude\projects\s\a.jsonl")
         );
-        assert!(resolve_transcript_path(&Env::Windows, "/home/u/.claude/projects/s/a.jsonl").is_err());
+        assert!(resolve_transcript_path(&Target::Windows, "/home/u/.claude/projects/s/a.jsonl").is_err());
         assert!(resolve_transcript_path(&wsl, "/home/u/../x/projects/s/a.jsonl").is_err());
     }
 }

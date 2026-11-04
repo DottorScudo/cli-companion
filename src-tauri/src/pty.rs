@@ -9,6 +9,7 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
 use crate::agent_notify::{SESSION_ENV, TOKEN_ENV};
+use crate::platform::{Target, TargetKind, WSL_EXE};
 use crate::workspaces::WorkspaceStore;
 
 const MAX_SESSIONS: usize = 32;
@@ -226,13 +227,13 @@ mod tests {
     #[test]
     fn session_env_is_set_and_wsl_adds_wslenv() {
         let mut c = CommandBuilder::new("dummy");
-        apply_session_env(&mut c, "tab-1", false);
+        apply_session_env(&mut c, "tab-1", TargetKind::Windows);
         assert_eq!(c.get_env("CLI_COMPANION_SESSION"), Some(std::ffi::OsStr::new("tab-1")));
         let token = c.get_env("CLI_COMPANION_TOKEN").unwrap().to_string_lossy().into_owned();
         assert_eq!(token, crate::automation::token());
         assert!(c.get_env("WSLENV").is_none());
         let mut w = CommandBuilder::new("dummy");
-        apply_session_env(&mut w, "tab-1", true);
+        apply_session_env(&mut w, "tab-1", TargetKind::Wsl);
         let wslenv = w.get_env("WSLENV").unwrap().to_string_lossy().into_owned();
         assert!(wslenv.split(':').any(|e| e == "CLI_COMPANION_SESSION/u"), "{wslenv}");
         assert!(wslenv.split(':').any(|e| e == "CLI_COMPANION_TOKEN/u"), "{wslenv}");
@@ -306,10 +307,10 @@ fn merge_wslenv(existing: Option<&str>, vars: &[&str]) -> String {
 /// Imposta `CLI_COMPANION_SESSION` (id del tab) e `CLI_COMPANION_TOKEN` per
 /// gli hook degli agenti e il server MCP; su WSL le fa attraversare il
 /// confine con WSLENV.
-fn apply_session_env(cmd: &mut CommandBuilder, tab_id: &str, wsl: bool) {
+fn apply_session_env(cmd: &mut CommandBuilder, tab_id: &str, kind: TargetKind) {
     cmd.env(SESSION_ENV, tab_id);
     cmd.env(TOKEN_ENV, crate::automation::token());
-    if wsl {
+    if kind == TargetKind::Wsl {
         let parent = std::env::var("WSLENV").ok();
         cmd.env("WSLENV", merge_wslenv(parent.as_deref(), &[SESSION_ENV, TOKEN_ENV]));
     }
@@ -372,43 +373,40 @@ fn spawn_blocking_session(
         }
     }
 
-    let cmd = if ws.kind == "wsl" {
-        let distro = ws.distro.clone().unwrap_or_default();
-        if distro.is_empty() {
-            return Err("distro mancante nel workspace".to_string());
+    let cmd = match ws.target()? {
+        Target::Wsl { distro } => {
+            crate::wsl::ensure_wsl_dir(&distro, &dir)?;
+            let mut c = CommandBuilder::new(WSL_EXE);
+            c.arg("-d");
+            c.arg(&distro);
+            c.arg("--cd");
+            c.arg(&dir);
+            if let Some(shell) = ws.shell.clone().filter(|s| !s.is_empty()) {
+                c.arg("-e");
+                c.arg(&shell);
+            }
+            apply_color_env(&mut c);
+            apply_session_env(&mut c, tab_id, TargetKind::Wsl);
+            c
         }
-        if !crate::wsl::wsl_dir_exists(&distro, &dir) {
-            return Err(format!("cartella non trovata in {distro}: {dir}"));
+        Target::Windows => {
+            let meta = std::fs::metadata(&dir).map_err(|_| format!("cartella non trovata: {dir}"))?;
+            if !meta.is_dir() {
+                return Err(format!("non è una cartella: {dir}"));
+            }
+            let shell = ws.shell.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| "powershell.exe".to_string());
+            let mut c = CommandBuilder::new(&shell);
+            if is_powershell(&shell) {
+                c.arg("-NoLogo");
+                c.arg("-NoExit");
+                c.arg("-Command");
+                c.arg(POWERSHELL_TITLE_HOOK);
+            }
+            c.cwd(&dir);
+            apply_color_env(&mut c);
+            apply_session_env(&mut c, tab_id, TargetKind::Windows);
+            c
         }
-        let mut c = CommandBuilder::new("wsl.exe");
-        c.arg("-d");
-        c.arg(&distro);
-        c.arg("--cd");
-        c.arg(&dir);
-        if let Some(shell) = ws.shell.clone().filter(|s| !s.is_empty()) {
-            c.arg("-e");
-            c.arg(&shell);
-        }
-        apply_color_env(&mut c);
-        apply_session_env(&mut c, tab_id, true);
-        c
-    } else {
-        let meta = std::fs::metadata(&dir).map_err(|_| format!("cartella non trovata: {dir}"))?;
-        if !meta.is_dir() {
-            return Err(format!("non è una cartella: {dir}"));
-        }
-        let shell = ws.shell.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| "powershell.exe".to_string());
-        let mut c = CommandBuilder::new(&shell);
-        if is_powershell(&shell) {
-            c.arg("-NoLogo");
-            c.arg("-NoExit");
-            c.arg("-Command");
-            c.arg(POWERSHELL_TITLE_HOOK);
-        }
-        c.cwd(&dir);
-        apply_color_env(&mut c);
-        apply_session_env(&mut c, tab_id, false);
-        c
     };
 
     let pty_system = native_pty_system();

@@ -1,26 +1,15 @@
-use std::collections::HashMap;
-use std::hash::Hash;
-use std::io::Read;
-use std::process::{Command, Output, Stdio};
-use std::sync::{mpsc, Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+//! Cio' che e' davvero WSL: distro installate, home, verifica delle cartelle.
+//! Il lancio dei processi e le conversioni di path stanno in `platform`.
+
+use crate::platform::{output_with_timeout, windows_to_wsl_path, wsl_exe};
+use crate::ttl_cache::TtlCache;
+use std::process::Output;
+use std::sync::OnceLock;
+use std::time::Duration;
 
 mod home;
 
 pub use home::linux_home;
-
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-pub(crate) fn wsl_command() -> Command {
-    let mut cmd = Command::new("wsl.exe");
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    cmd
-}
 
 /// wsl.exe scrive in UTF-16LE con BOM: decodifica tollerante (UTF-16LE/BE o UTF-8).
 fn decode_output(bytes: &[u8]) -> String {
@@ -32,86 +21,6 @@ fn decode_output(bytes: &[u8]) -> String {
         String::from_utf16_lossy(&units)
     } else {
         String::from_utf8_lossy(bytes).into_owned()
-    }
-}
-
-/// Come `Command::output` ma con timeout: allo scadere il figlio viene
-/// ucciso e si ritorna `TimedOut`. stdout/stderr sono letti in thread
-/// dedicati (un figlio loquace non si blocca su una pipe piena); dopo il
-/// kill un nipote che tiene aperte le pipe non blocca: si usa quanto letto.
-pub(crate) fn output_with_timeout(cmd: &mut Command, timeout: Duration) -> std::io::Result<Output> {
-    let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
-    let drain = |pipe: Option<Box<dyn Read + Send>>| {
-        let buf = Arc::new(Mutex::new(Vec::new()));
-        let (tx, rx) = mpsc::channel();
-        if let Some(mut pipe) = pipe {
-            let buf = buf.clone();
-            std::thread::spawn(move || {
-                let mut chunk = [0u8; 8192];
-                while let Ok(n) = pipe.read(&mut chunk) {
-                    if n == 0 {
-                        break;
-                    }
-                    buf.lock().unwrap().extend_from_slice(&chunk[..n]);
-                }
-                let _ = tx.send(());
-            });
-        } else {
-            let _ = tx.send(());
-        }
-        (buf, rx)
-    };
-    let (out_buf, out_done) = drain(child.stdout.take().map(|p| Box::new(p) as _));
-    let (err_buf, err_done) = drain(child.stderr.take().map(|p| Box::new(p) as _));
-
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        if let Some(s) = child.try_wait()? {
-            break Some(s);
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            break None;
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    };
-    let grace = Duration::from_secs(1);
-    let _ = out_done.recv_timeout(grace);
-    let _ = err_done.recv_timeout(grace);
-    let take = |b: &Arc<Mutex<Vec<u8>>>| std::mem::take(&mut *b.lock().unwrap());
-    match status {
-        Some(status) => Ok(Output { status, stdout: take(&out_buf), stderr: take(&err_buf) }),
-        None => Err(std::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            format!("nessuna risposta entro {}s", timeout.as_secs()),
-        )),
-    }
-}
-
-/// Cache in-process con scadenza: i risultati del rilevamento WSL (processi
-/// lenti) non vanno rifatti a ogni apertura delle impostazioni.
-pub(crate) struct TtlCache<K, V> {
-    ttl: Duration,
-    map: Mutex<HashMap<K, (Instant, V)>>,
-}
-
-impl<K: Eq + Hash, V: Clone> TtlCache<K, V> {
-    pub(crate) fn new(ttl: Duration) -> Self {
-        Self { ttl, map: Mutex::new(HashMap::new()) }
-    }
-
-    pub(crate) fn get(&self, key: &K) -> Option<V> {
-        let map = self.map.lock().unwrap();
-        map.get(key).filter(|(at, _)| at.elapsed() < self.ttl).map(|(_, v)| v.clone())
-    }
-
-    pub(crate) fn put(&self, key: K, value: V) {
-        self.map.lock().unwrap().insert(key, (Instant::now(), value));
-    }
-
-    pub(crate) fn clear(&self) {
-        self.map.lock().unwrap().clear();
     }
 }
 
@@ -141,7 +50,7 @@ pub fn installed_distros() -> Result<Vec<String>, String> {
 }
 
 fn installed_distros_uncached() -> Result<Vec<String>, String> {
-    let output = output_with_timeout(wsl_command().args(["-l", "-q"]), LIST_DISTROS_TIMEOUT)
+    let output = output_with_timeout(wsl_exe().args(["-l", "-q"]), LIST_DISTROS_TIMEOUT)
         .map_err(|e| format!("wsl.exe non disponibile: {e}"))?;
     let text = decode_output(&output.stdout);
     let mut names: Vec<String> =
@@ -154,87 +63,43 @@ fn installed_distros_uncached() -> Result<Vec<String>, String> {
     Ok(names)
 }
 
-pub fn wsl_dir_exists(distro: &str, path: &str) -> bool {
-    wsl_command().args(["-d", distro, "-e", "test", "-d", path]).status().map(|s| s.success()).unwrap_or(false)
+/// Verificare una cartella puo' richiedere l'avvio della VM (secondi), ma
+/// una WSL appesa non deve bloccare chi chiama.
+const DIR_CHECK_TIMEOUT: Duration = Duration::from_secs(20);
+/// Exit code di `test -d` quando la cartella non esiste.
+const TEST_FALSE_EXIT_CODE: i32 = 1;
+
+/// `Ok(true/false)` = la cartella c'e' / non c'e'. `Err` = WSL non ha
+/// risposto (timeout, distro assente o ferma, `wsl.exe` non avviabile): non
+/// si sa se la cartella esista, e il messaggio lo dice.
+pub fn wsl_dir_exists(distro: &str, path: &str) -> Result<bool, String> {
+    let mut cmd = wsl_exe();
+    cmd.args(["-d", distro, "-e", "test", "-d", path]);
+    dir_check_outcome(distro, output_with_timeout(&mut cmd, DIR_CHECK_TIMEOUT))
 }
 
-/// Comando `argv` nella distro, con `dir` come cartella corrente. `-e`
-/// (exec) e' indispensabile: con `--` wsl.exe passa la riga alla shell di
-/// default della distro, che rompe spazi, `;` e apici negli argomenti.
-pub fn wsl_run_command(distro: &str, dir: &str, argv: &[&str]) -> Command {
-    let mut cmd = wsl_command();
-    cmd.args(["-d", distro, "--cd", dir, "-e"]).args(argv).stdin(std::process::Stdio::null());
-    cmd
-}
-
-/// `git <args>` nella distro, in `dir` (vedi `wsl_run_command`).
-pub fn wsl_git_command(distro: &str, dir: &str, args: &[&str]) -> Command {
-    let mut argv = vec!["git"];
-    argv.extend_from_slice(args);
-    wsl_run_command(distro, dir, &argv)
-}
-
-/// Converte path Windows in path Linux WSL:
-/// - `C:\Users\me\proj` -> `/mnt/c/Users/me/proj`
-/// - `\\wsl$\Ubuntu\home\me` -> `/home/me`
-pub fn windows_to_wsl_path(win: &str) -> Option<String> {
-    let t = win.trim();
-    let slashed = t.replace('\\', "/");
-    let lower = slashed.to_lowercase();
-    if lower.starts_with("//wsl$/") {
-        let mut parts = slashed.split('/').filter(|p| !p.is_empty());
-        let _ = parts.next()?; // wsl$
-        let _ = parts.next()?; // distro
-        let rest: Vec<&str> = parts.collect();
-        return Some(format!("/{}", rest.join("/")));
-    }
-    let bytes = t.as_bytes();
-    if t.len() >= 3 && bytes[1] == b':' && (bytes[2] == b'\\' || bytes[2] == b'/') {
-        let drive = bytes[0] as char;
-        if drive.is_ascii_alphabetic() {
-            let rest = t[2..].replace('\\', "/");
-            return Some(format!("/mnt/{}/{}", drive.to_ascii_lowercase(), rest.trim_start_matches('/')));
+fn dir_check_outcome(distro: &str, output: std::io::Result<Output>) -> Result<bool, String> {
+    let unreachable = |reason: String| format!("WSL non risponde nella distro {distro}: {reason}");
+    let output = output.map_err(|e| unreachable(e.to_string()))?;
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(TEST_FALSE_EXIT_CODE) => Ok(false),
+        code => {
+            let stderr = decode_output(&output.stderr);
+            let detail = stderr.trim();
+            Err(unreachable(if detail.is_empty() { format!("exit code {code:?}") } else { detail.to_string() }))
         }
     }
-    None
 }
 
-/// `true` se il path Linux sta su un drive Windows montato (`/mnt/c/...`,
-/// mount root predefinita): li' ci sono i programmi di Windows.
-pub fn is_windows_drive_path(linux: &str) -> bool {
-    let mut comps = linux.trim().split('/').filter(|c| !c.is_empty());
-    linux.trim().starts_with('/')
-        && comps.next() == Some("mnt")
-        && comps.next().is_some_and(|d| d.len() == 1 && d.as_bytes()[0].is_ascii_alphabetic())
-}
-
-/// Inverso di `windows_to_wsl_path`: path Linux di `distro` -> path Windows
-/// leggibile dall'host.
-/// - `/mnt/c/Users/me` -> `C:\Users\me`
-/// - `/home/me/x` -> `\\wsl.localhost\Ubuntu\home\me\x`
-///
-/// `None` se il path non e' assoluto.
-pub fn wsl_to_windows_path(distro: &str, linux: &str) -> Option<String> {
-    let t = linux.trim();
-    if !t.starts_with('/') {
-        return None;
+/// Come `wsl_dir_exists`, ma con l'esito pronto per l'utente: `Err` sia se
+/// la cartella manca sia se WSL non risponde (con messaggi diversi).
+pub fn ensure_wsl_dir(distro: &str, path: &str) -> Result<(), String> {
+    if wsl_dir_exists(distro, path)? {
+        Ok(())
+    } else {
+        Err(format!("cartella non trovata in {distro}: {path}"))
     }
-    let comps: Vec<&str> = t.split('/').filter(|c| !c.is_empty()).collect();
-    if let [mnt, drive, rest @ ..] = comps.as_slice() {
-        if *mnt == "mnt" && drive.len() == 1 && drive.as_bytes()[0].is_ascii_alphabetic() {
-            let d = drive.to_ascii_uppercase();
-            return Some(if rest.is_empty() { format!("{d}:\\") } else { format!("{d}:\\{}", rest.join("\\")) });
-        }
-    }
-    Some(format!("\\\\wsl.localhost\\{distro}\\{}", comps.join("\\")))
-}
-
-/// Nome di distro sicuro da usare in un path UNC: niente separatori o
-/// caratteri insoliti.
-pub(crate) fn is_valid_distro_name(name: &str) -> bool {
-    name.len() <= 64
-        && name != ".."
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ' '))
 }
 
 #[tauri::command]
@@ -255,75 +120,51 @@ pub async fn check_wsl_path(distro: String, path: String) -> Result<bool, String
     } else {
         return Ok(false);
     };
-    crate::blocking(move || Ok(wsl_dir_exists(distro.trim(), &linux_path))).await
+    crate::blocking(move || wsl_dir_exists(distro.trim(), &linux_path)).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn utf16le(text: &str) -> Vec<u8> {
+        [0xFF, 0xFE].into_iter().chain(text.encode_utf16().flat_map(u16::to_le_bytes)).collect()
+    }
+
+    #[cfg(windows)]
+    fn output_with_code(code: u32, stderr: Vec<u8>) -> std::io::Result<Output> {
+        use std::os::windows::process::ExitStatusExt;
+        Ok(Output { status: std::process::ExitStatus::from_raw(code), stdout: Vec::new(), stderr })
+    }
+
     #[cfg(windows)]
     #[test]
-    fn output_with_timeout_kills_hung_child_and_captures_output() {
-        let mut slow = Command::new("ping");
-        slow.args(["-n", "30", "127.0.0.1"]);
-        let t = Instant::now();
-        let err = output_with_timeout(&mut slow, Duration::from_millis(300)).unwrap_err();
-        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
-        assert!(t.elapsed() < Duration::from_secs(5));
-
-        let mut ok = Command::new("cmd");
-        ok.args(["/c", "echo ciao"]);
-        let out = output_with_timeout(&mut ok, Duration::from_secs(10)).unwrap();
-        assert!(String::from_utf8_lossy(&out.stdout).contains("ciao"));
+    fn dir_check_tells_a_missing_folder_from_an_unresponsive_wsl() {
+        assert_eq!(dir_check_outcome("U", output_with_code(0, Vec::new())), Ok(true));
+        assert_eq!(dir_check_outcome("U", output_with_code(1, Vec::new())), Ok(false));
+        // Distro inesistente: wsl.exe esce con -1 e scrive il motivo in UTF-16LE.
+        let err = dir_check_outcome("U", output_with_code(u32::MAX, utf16le("no distro"))).unwrap_err();
+        assert_eq!(err, "WSL non risponde nella distro U: no distro");
+        let err = dir_check_outcome("U", output_with_code(2, Vec::new())).unwrap_err();
+        assert!(err.contains("WSL non risponde") && err.contains("exit code"), "{err}");
     }
 
     #[test]
-    fn ttl_cache_expires_and_clears() {
-        let c = TtlCache::new(Duration::from_millis(50));
-        c.put(1, Some("a".to_string()));
-        assert_eq!(c.get(&1), Some(Some("a".to_string())));
-        std::thread::sleep(Duration::from_millis(80));
-        assert_eq!(c.get(&1), None);
-        c.put(2, None);
-        c.clear();
-        assert_eq!(c.get(&2), None);
-    }
-
-    #[test]
-    fn windows_drive_paths_are_recognized() {
-        for p in ["/mnt/c/Users/me/AppData/Roaming/npm/claude", "/mnt/D/x", "/mnt/c", " /mnt/c/x "] {
-            assert!(is_windows_drive_path(p), "{p}");
-        }
-        for p in ["/home/u/.local/bin/claude", "/mnt/cd/x", "/mnt/wsl/x", "/mnt", "/usr/mnt/c/x", "mnt/c/x", ""] {
-            assert!(!is_windows_drive_path(p), "{p}");
-        }
-    }
-
-    #[test]
-    fn wsl_to_windows_converts_mnt_and_distro_paths() {
-        let w = |p: &str| wsl_to_windows_path("Ubuntu", p);
-        assert_eq!(w("/mnt/c/Users/me/x.jsonl").as_deref(), Some(r"C:\Users\me\x.jsonl"));
-        assert_eq!(w("/mnt/d").as_deref(), Some(r"D:\"));
+    fn dir_check_reports_timeouts_and_spawn_failures_as_unresponsive() {
+        let timed_out = Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "nessuna risposta entro 20s"));
         assert_eq!(
-            w("/home/u/.claude/projects/p/s.jsonl").as_deref(),
-            Some(r"\\wsl.localhost\Ubuntu\home\u\.claude\projects\p\s.jsonl")
+            dir_check_outcome("U", timed_out).unwrap_err(),
+            "WSL non risponde nella distro U: nessuna risposta entro 20s"
         );
-        // `/mnt/cd` non e' un drive.
-        assert_eq!(w("/mnt/cd/x").as_deref(), Some(r"\\wsl.localhost\Ubuntu\mnt\cd\x"));
-        assert_eq!(w("relativo/x"), None);
-        assert_eq!(w(r"C:\x"), None);
-        // Inverso di windows_to_wsl_path per i drive.
-        let back = windows_to_wsl_path(&w("/mnt/c/a/b").unwrap()).unwrap();
-        assert_eq!(back, "/mnt/c/a/b");
+        let missing = Err(std::io::Error::from(std::io::ErrorKind::NotFound));
+        assert!(dir_check_outcome("U", missing).unwrap_err().starts_with("WSL non risponde"));
     }
 
     #[test]
-    fn run_and_git_use_exec_so_argv_skips_the_distro_shell() {
-        let args = |c: &Command| c.get_args().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>();
-        let c = wsl_run_command("Ubuntu", "/p q", &["sh", "-c", "echo $1", "sh", "a b;c"]);
-        assert_eq!(args(&c), ["-d", "Ubuntu", "--cd", "/p q", "-e", "sh", "-c", "echo $1", "sh", "a b;c"]);
-        let g = wsl_git_command("Ubuntu", "/p", &["worktree", "add", "/p/.worktrees/a b"]);
-        assert_eq!(args(&g), ["-d", "Ubuntu", "--cd", "/p", "-e", "git", "worktree", "add", "/p/.worktrees/a b"]);
+    fn decode_output_handles_utf16_and_utf8() {
+        assert_eq!(decode_output(&utf16le("Ubuntu")), "Ubuntu");
+        let be: Vec<u8> = [0xFE, 0xFF].into_iter().chain("Ubuntu".encode_utf16().flat_map(u16::to_be_bytes)).collect();
+        assert_eq!(decode_output(&be), "Ubuntu");
+        assert_eq!(decode_output(b"Ubuntu"), "Ubuntu");
     }
 }

@@ -1,12 +1,15 @@
 use crate::agents::PermissionMode;
+use crate::platform::{hide_window, Target, TargetKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+use target::WSL_DISTRO_MISSING;
 use tauri::{AppHandle, Manager, State};
 
 mod e2e;
 mod settings_patch;
+mod target;
 pub use e2e::{E2eConfig, MAX_E2E_TIMEOUT_MIN, MIN_E2E_TIMEOUT_MIN};
 pub use settings_patch::{
     apply_settings_patch, validation_error_en, SettingsPatch, MAX_PATCH_LAUNCHES, MAX_PATCH_REPOS,
@@ -38,11 +41,11 @@ pub struct Launch {
 pub struct Workspace {
     pub id: String,
     pub name: String,
-    /// "windows" oppure "wsl"
-    pub kind: String,
+    /// Famiglia del target: `"windows"` oppure `"wsl"` nel JSON.
+    pub kind: TargetKind,
     /// Percorso Windows (es. C:\proj) oppure percorso Linux assoluto (es. /home/user/proj)
     pub path: String,
-    /// Distro WSL, valorizzato solo quando kind == "wsl"
+    /// Distro WSL, valorizzato solo quando kind è Wsl
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub distro: Option<String>,
     /// Shell opzionale (es. pwsh, cmd, bash, zsh). Default: powershell su Windows, shell di default su WSL.
@@ -436,28 +439,23 @@ fn add_workspace_blocking(
     distro: Option<String>,
     shell: Option<String>,
 ) -> Result<Workspace, String> {
-    let kind = kind.trim().to_lowercase();
-    if kind != "windows" && kind != "wsl" {
-        return Err("kind non valido (usa \"windows\" o \"wsl\")".to_string());
-    }
+    let kind = TargetKind::parse(&kind)?;
     let mut path = path.trim().to_string();
     if path.is_empty() {
         return Err("percorso mancante".to_string());
     }
 
-    let distro = if kind == "wsl" {
+    let distro = if kind == TargetKind::Wsl {
         let distro = distro.unwrap_or_default().trim().to_string();
         if distro.is_empty() {
-            return Err("WSL distro missing".to_string());
+            return Err(WSL_DISTRO_MISSING.to_string());
         }
         // Accetta anche path incollati in formato Windows o \\wsl$\...
         if !path.starts_with('/') {
-            path = crate::wsl::windows_to_wsl_path(&path)
+            path = crate::platform::windows_to_wsl_path(&path)
                 .ok_or_else(|| "il percorso WSL deve essere assoluto (es. /home/user/proj)".to_string())?;
         }
-        if !crate::wsl::wsl_dir_exists(&distro, &path) {
-            return Err(format!("cartella non trovata in {distro}: {path}"));
-        }
+        crate::wsl::ensure_wsl_dir(&distro, &path)?;
         Some(distro)
     } else {
         let meta = std::fs::metadata(&path).map_err(|_| format!("cartella non trovata: {path}"))?;
@@ -943,12 +941,10 @@ fn wsl_unc_path(distro: &str, path: &str) -> String {
 
 /// Percorso da passare a explorer.exe per il workspace.
 fn explorer_target(ws: &Workspace) -> Result<String, String> {
-    if ws.kind == "wsl" {
-        let distro = ws.distro.as_deref().filter(|d| !d.is_empty()).ok_or_else(|| "WSL distro missing".to_string())?;
-        Ok(wsl_unc_path(distro, &ws.path))
-    } else {
-        Ok(ws.path.clone())
-    }
+    Ok(match ws.target()? {
+        Target::Windows => ws.path.clone(),
+        Target::Wsl { distro } => wsl_unc_path(&distro, &ws.path),
+    })
 }
 
 /// Apre una cartella o un file con explorer.exe (un file si apre con
@@ -956,11 +952,7 @@ fn explorer_target(ws: &Workspace) -> Result<String, String> {
 pub(crate) fn open_in_explorer(target: &std::ffi::OsStr) -> Result<(), String> {
     let mut cmd = std::process::Command::new("explorer.exe");
     cmd.arg(target);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
+    hide_window(&mut cmd);
     // explorer.exe esce spesso con codice 1 anche se la cartella si apre:
     // conta solo il fallimento dello spawn, l'exit code non si guarda.
     cmd.spawn().map(|_| ()).map_err(|e| format!("impossibile aprire Esplora risorse: {e}"))

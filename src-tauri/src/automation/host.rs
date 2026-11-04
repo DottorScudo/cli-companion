@@ -5,9 +5,11 @@
 use super::process::CancelFlag;
 use super::*;
 use crate::agents::{self, AutomationRequest};
+use crate::platform::{Target, TargetKind};
 use crate::schedule::{Schedule, ScheduleState};
 use crate::user_skills::targets;
 use crate::workspaces::{SettingsPatch, WorkspaceStore};
+use crate::wsl::wsl_dir_exists;
 use tauri::Emitter;
 
 /// Eventi Tauri verso il frontend.
@@ -26,7 +28,7 @@ pub trait Host: Clone + Send + 'static {
     fn tab_workspace(&self, tab_id: &str) -> Option<Workspace>;
     /// La cartella esiste nell'ambiente del workspace?
     fn dir_exists(&self, ws: &Workspace, path: &str) -> bool;
-    fn launch_command(&self, agent: &str, env_kind: &str, req: &AutomationRequest) -> Result<String, String>;
+    fn launch_command(&self, agent: &str, env_kind: TargetKind, req: &AutomationRequest) -> Result<String, String>;
     /// File settings con le regole di permesso pre-approvate/vietate del
     /// workspace per l'agente `agent` (solo Claude Code), nel formato di path
     /// del suo ambiente. `None` = nessuna regola o agente senza supporto.
@@ -194,14 +196,18 @@ impl Host for TauriHost {
     }
 
     fn dir_exists(&self, ws: &Workspace, path: &str) -> bool {
-        if ws.kind == "wsl" {
-            crate::wsl::wsl_dir_exists(ws.distro.as_deref().unwrap_or(""), path)
-        } else {
-            std::path::Path::new(path).is_dir()
+        match ws.target() {
+            Ok(Target::Wsl { distro }) => wsl_dir_exists(&distro, path).unwrap_or_else(|e| {
+                // Il chiamante sa solo "c'e'/non c'e'": la causa va almeno nel log.
+                eprintln!("dir check {path}: {e}");
+                false
+            }),
+            Ok(Target::Windows) => std::path::Path::new(path).is_dir(),
+            Err(_) => false,
         }
     }
 
-    fn launch_command(&self, agent: &str, env_kind: &str, req: &AutomationRequest) -> Result<String, String> {
+    fn launch_command(&self, agent: &str, env_kind: TargetKind, req: &AutomationRequest) -> Result<String, String> {
         agents::automation_command(agent, env_kind, req)
     }
 
@@ -211,7 +217,7 @@ impl Host for TauriHost {
             return Ok(None);
         }
         let data_dir = auto::data_dir(&self.0)?;
-        crate::worker_permissions::prepare_settings_file(&data_dir, &ws.id, &ws.kind, &ws.worker_allow, &ws.worker_deny)
+        crate::worker_permissions::prepare_settings_file(&data_dir, &ws.id, ws.kind, &ws.worker_allow, &ws.worker_deny)
     }
 
     fn emit_spawn(&self, ev: &SpawnEvent) {

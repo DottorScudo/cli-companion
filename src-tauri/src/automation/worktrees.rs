@@ -7,6 +7,7 @@ use super::hooks;
 use super::*;
 use crate::agents::AutomationRequest;
 use crate::board::{repo_key, valid_branch, Task, TaskSpec, WorktreeInfo};
+use crate::platform::{wsl_run_command, Target, TargetKind};
 use crate::workspaces::{DeliveryMode, RepoConfig};
 use std::path::PathBuf;
 
@@ -67,15 +68,15 @@ pub(super) fn git<H: Host>(host: &H, ws: &Workspace, dir: &str, args: &[&str]) -
 
 /// Unisce un path relativo (con `/`) al path della root nell'ambiente del
 /// workspace: `\` su Windows, `/` su WSL.
-pub(super) fn join_path(kind: &str, root: &str, rel: &str) -> String {
-    let sep = if kind == "wsl" { '/' } else { '\\' };
+pub(super) fn join_path(kind: TargetKind, root: &str, rel: &str) -> String {
+    let sep = if kind == TargetKind::Wsl { '/' } else { '\\' };
     let root = root.trim_end_matches(['/', '\\']);
     let rel: String = rel.chars().map(|c| if c == '/' { sep } else { c }).collect();
     format!("{root}{sep}{rel}")
 }
 
-fn is_abs(kind: &str, p: &str) -> bool {
-    if kind == "wsl" {
+fn is_abs(kind: TargetKind, p: &str) -> bool {
+    if kind == TargetKind::Wsl {
         return p.starts_with('/');
     }
     let b = p.as_bytes();
@@ -87,7 +88,7 @@ fn is_abs(kind: &str, p: &str) -> bool {
 /// se `repo` e' `None`, altrimenti `repo` sotto la root.
 pub(super) fn repo_dir(ws: &Workspace, repo: Option<&str>) -> String {
     match repo {
-        Some(r) => join_path(&ws.kind, &ws.path, r),
+        Some(r) => join_path(ws.kind, &ws.path, r),
         None => ws.path.clone(),
     }
 }
@@ -224,7 +225,7 @@ fn remote_or_local<H: Host>(
 fn add_worktrees_exclude<H: Host>(host: &H, ws: &Workspace, dir: &str, warnings: &mut Vec<String>) {
     match git(host, ws, dir, &["rev-parse", "--git-path", "info/exclude"]) {
         Ok(rel) => {
-            let file = if is_abs(&ws.kind, &rel) { rel } else { join_path(&ws.kind, dir, &rel) };
+            let file = if is_abs(ws.kind, &rel) { rel } else { join_path(ws.kind, dir, &rel) };
             if let Err(e) = host.append_exclude(ws, &file, EXCLUDE_LINE) {
                 warnings.push(format!(
                     "{EXCLUDE_LINE} not added to the git exclude file ({e}): it may show up in git status"
@@ -292,7 +293,7 @@ fn prepare_worktree<H: Host>(
         .worktree
         .as_ref()
         .map(|w| w.path.clone())
-        .unwrap_or_else(|| join_path(&ws.kind, &dir, &format!(".worktrees/{}", task.id)));
+        .unwrap_or_else(|| join_path(ws.kind, &dir, &format!(".worktrees/{}", task.id)));
     let mut info = WorktreeInfo { path, branch: format!("task/{}", task.id), base: base_ref, setup_done: true };
     // Cartella gia' presente ma non registrata (non e' nostra): niente setup.
     if host.dir_exists(ws, &info.path) {
@@ -442,10 +443,9 @@ pub(super) fn parse_repo_list(out: &str) -> Vec<String> {
 /// sottocartelle dirette (profondita' 1, senza quelle nascoste) con un `.git`
 /// (cartella o file). WSL: una sola chiamata `sh`.
 pub fn detect_repos(ws: &Workspace) -> Result<Vec<String>, String> {
-    if ws.kind == "wsl" {
-        let distro = ws.distro.as_deref().filter(|d| !d.is_empty()).ok_or_else(|| "WSL distro missing".to_string())?;
+    if let Target::Wsl { distro } = ws.target()? {
         let script = "for d in */; do [ -e \"${d}.git\" ] && printf '%s\\n' \"${d%/}\"; done; [ -e .git ] && printf '.\\n'; exit 0";
-        let cmd = crate::wsl::wsl_run_command(distro, &ws.path, &["sh", "-c", script]);
+        let cmd = wsl_run_command(&distro, &ws.path, &["sh", "-c", script]);
         let out = output_with_timeout(cmd, GIT_TIMEOUT)?;
         if !out.status.success() {
             return Err(format!(
@@ -529,7 +529,7 @@ fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Res
         model: task.model.as_deref().or(ws.worker_model.as_deref()),
         settings_path: settings_path.as_deref(),
     };
-    let command = host.launch_command(&task.agent, &ws.kind, &req)?;
+    let command = host.launch_command(&task.agent, ws.kind, &req)?;
     Ok(Prepared {
         worktree,
         warnings,
@@ -623,19 +623,7 @@ pub(super) fn output_with_timeout(
 }
 
 pub(super) fn run_git(ws: &Workspace, dir: &str, args: &[&str]) -> Result<GitOut, String> {
-    let cmd = if ws.kind == "wsl" {
-        let distro = ws.distro.as_deref().filter(|d| !d.is_empty()).ok_or_else(|| "WSL distro missing".to_string())?;
-        crate::wsl::wsl_git_command(distro, dir, args)
-    } else {
-        let mut cmd = std::process::Command::new("git");
-        cmd.args(args).current_dir(dir).env("GIT_TERMINAL_PROMPT", "0");
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        }
-        cmd
-    };
+    let cmd = ws.target()?.git_command(dir, args);
     let limit = if args.first() == Some(&"fetch") { FETCH_TIMEOUT } else { GIT_TIMEOUT };
     let output = output_with_timeout(cmd, limit).map_err(|e| format!("git {}: {e}", args.join(" ")))?;
     Ok(GitOut {
@@ -649,10 +637,9 @@ pub(super) fn run_git(ws: &Workspace, dir: &str, args: &[&str]) -> Result<GitOut
 /// con file e riga passati come argv (mai interpolati; `-e`, senza la shell
 /// di default della distro di mezzo).
 pub(super) fn append_exclude_line(ws: &Workspace, file: &str, line: &str) -> Result<(), String> {
-    if ws.kind == "wsl" {
-        let distro = ws.distro.as_deref().filter(|d| !d.is_empty()).ok_or_else(|| "WSL distro missing".to_string())?;
+    if let Target::Wsl { distro } = ws.target()? {
         let script = "mkdir -p \"$(dirname \"$1\")\" && { grep -qxF -e \"$2\" \"$1\" 2>/dev/null || printf '%s\n' \"$2\" >> \"$1\"; }";
-        let cmd = crate::wsl::wsl_run_command(distro, &ws.path, &["sh", "-c", script, "sh", file, line]);
+        let cmd = wsl_run_command(&distro, &ws.path, &["sh", "-c", script, "sh", file, line]);
         let out = output_with_timeout(cmd, GIT_TIMEOUT)?;
         return if out.status.success() {
             Ok(())

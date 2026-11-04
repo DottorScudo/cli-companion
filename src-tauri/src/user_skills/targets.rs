@@ -17,7 +17,7 @@
 //! dopo che la distro ha risposto alla risoluzione della home.
 
 use crate::agents::{plugins_dir, sanitize_env_key, CLAUDE_CODE_ID};
-use crate::wsl::{is_valid_distro_name, wsl_to_windows_path};
+use crate::platform::{is_valid_distro_name, wsl_to_windows_path, WINDOWS_KEY};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 mod tests;
 
 /// Nome dell'ambiente Windows nei risultati dei tool delle skill.
-pub const WINDOWS_ENV: &str = "windows";
+pub const WINDOWS_ENV: &str = WINDOWS_KEY;
 
 /// Prefisso delle distro interne di Docker, senza una shell utilizzabile.
 const DOCKER_DISTRO_PREFIX: &str = "docker-desktop";

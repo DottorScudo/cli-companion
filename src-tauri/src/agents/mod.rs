@@ -23,24 +23,18 @@ pub use claude_usage::TranscriptCache;
 use presets::{Preset, PRESETS};
 
 use crate::launch_settings::LaunchSettingsStore;
-use crate::wsl::{
-    installed_distros, invalidate_distros_cache, is_valid_distro_name, is_windows_drive_path, output_with_timeout,
-    windows_to_wsl_path, TtlCache,
+use crate::platform::{
+    forward_slashes, is_valid_distro_name, is_windows_drive_path, output_with_timeout, windows_to_wsl_path, Target,
+    TargetKind,
 };
+use crate::ttl_cache::TtlCache;
+use crate::wsl::{installed_distros, invalidate_distros_cache};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::OnceLock;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-/// Timeout di un comando generico (installazione/rimozione del plugin).
-const RUN_TIMEOUT: Duration = Duration::from_secs(120);
 /// Timeout della risoluzione del path (shell login/interattiva) e di `--version`.
 pub(crate) const DETECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Timeout di `plugin list` (l'agente puo' consultare i marketplace).
@@ -52,127 +46,6 @@ const RESOLVE_CACHE_TTL: Duration = Duration::from_secs(60);
 
 /// Registro degli agenti supportati.
 static PROVIDERS: &[&dyn AgentProvider] = &[&claude_code::ClaudeCode];
-
-/// Ambiente in cui gira un agente.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Env {
-    Windows,
-    Wsl(String),
-}
-
-impl Env {
-    /// Chiave stabile usata dal frontend: "windows" o il nome della distro.
-    pub fn key(&self) -> String {
-        match self {
-            Env::Windows => "windows".to_string(),
-            Env::Wsl(d) => d.clone(),
-        }
-    }
-
-    pub fn label(&self) -> String {
-        match self {
-            Env::Windows => "Windows".to_string(),
-            Env::Wsl(d) => d.clone(),
-        }
-    }
-
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Env::Windows => "windows",
-            Env::Wsl(_) => "wsl",
-        }
-    }
-
-    fn from_key(key: &str) -> Result<Env, String> {
-        let key = key.trim();
-        if key.is_empty() {
-            return Err("env mancante".to_string());
-        }
-        Ok(if key == "windows" { Env::Windows } else { Env::Wsl(key.to_string()) })
-    }
-
-    /// Comando che esegue `program` nell'ambiente. Su Windows passa da
-    /// `cmd /c`: gli shim npm (.cmd) non si risolvono con uno spawn diretto
-    /// (CreateProcess cerca solo .exe), `cmd` applica PATHEXT. Su WSL il
-    /// programma e' di norma un path assoluto (`resolve_wsl_command`), eseguito
-    /// tramite `bash -lc` (vedi `wsl_login_script`).
-    pub fn command(&self, program: &str) -> Command {
-        let mut cmd = match self {
-            #[cfg(windows)]
-            Env::Windows => {
-                let mut c = Command::new("cmd");
-                c.args(["/c", program]);
-                c
-            }
-            #[cfg(not(windows))]
-            Env::Windows => Command::new(program),
-            Env::Wsl(d) => {
-                let mut c = Command::new("wsl.exe");
-                // `-e` (exec diretto): con `--` wsl.exe riunisce gli argomenti e li
-                // rilegge la shell di default della distro, perdendo virgolette
-                // e argomenti posizionali.
-                c.args(["-d", d, "-e"]);
-                if program.starts_with('/') {
-                    // Path assoluto (risolto con una login shell): va eseguito
-                    // dalla stessa login shell, altrimenti un eseguibile con
-                    // `#!/usr/bin/env node` (claude installato con nvm) non
-                    // trova `node` nel PATH non-login. Gli argomenti seguono
-                    // `_` e arrivano come "$@": nessuna interpolazione.
-                    c.args(["bash", "-lc", &wsl_login_script(program), "_"]);
-                } else {
-                    c.arg(program);
-                }
-                c
-            }
-        };
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        cmd
-    }
-
-    /// Esegue `program args...`; ritorna lo stdout, o in errore lo stderr
-    /// (o lo stdout, o l'exit code).
-    pub fn run(&self, program: &str, args: &[&str]) -> Result<String, String> {
-        self.run_timeout(program, args, RUN_TIMEOUT)
-    }
-
-    /// Come `run` con un timeout esplicito (il figlio viene ucciso allo scadere).
-    pub fn run_timeout(&self, program: &str, args: &[&str], timeout: Duration) -> Result<String, String> {
-        run_command(self.command(program), args, program, timeout)
-    }
-
-    /// Path di una cartella locale come lo vede l'agente nell'ambiente:
-    /// slash dritti su Windows, `/mnt/c/...` su WSL.
-    pub fn path_arg(&self, win_path: &Path) -> Result<String, String> {
-        let s = forward_slashes(&win_path.to_string_lossy());
-        match self {
-            Env::Windows => Ok(s),
-            Env::Wsl(_) => windows_to_wsl_path(&s).ok_or_else(|| format!("percorso non traducibile per WSL: {s}")),
-        }
-    }
-}
-
-/// Script `bash -lc` che esegue `abs_path` con gli argomenti posizionali.
-/// Il path e' tra apici singoli (quelli interni sono escapati).
-fn wsl_login_script(abs_path: &str) -> String {
-    format!("'{}' \"$@\"", abs_path.replace('\'', "'\\''"))
-}
-
-/// Backslash -> slash e senza prefisso `\\?\` (i validatori degli agenti
-/// rifiutano i backslash nei valori).
-pub fn forward_slashes(p: &str) -> String {
-    p.replace('\\', "/").trim_start_matches("//?/").to_string()
-}
-
-fn run_command(mut cmd: Command, args: &[&str], label: &str, timeout: Duration) -> Result<String, String> {
-    let out = output_with_timeout(cmd.args(args), timeout).map_err(|e| format!("{label} non avviabile: {e}"))?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        let msg = if err.is_empty() { String::from_utf8_lossy(&out.stdout).trim().to_string() } else { err };
-        return Err(if msg.is_empty() { format!("{label} uscito con codice {:?}", out.status.code()) } else { msg });
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-}
 
 /// Primo token che inizia con una cifra (`2.1.211 (Claude Code)` -> `2.1.211`).
 pub fn parse_version(output: &str) -> Option<String> {
@@ -222,7 +95,7 @@ pub fn parse_command_candidates(output: &str) -> Option<String> {
 pub fn resolve_wsl_command(distro: &str, name: &str) -> Option<String> {
     let script = candidates_script(name);
     for flag in ["-lc", "-ic"] {
-        let mut cmd = Env::Wsl(distro.to_string()).command("bash");
+        let mut cmd = Target::Wsl { distro: distro.to_string() }.command("bash");
         // Lo stdout basta (anche con exit != 0 per il rumore); lo stderr si ignora.
         if let Ok(out) = output_with_timeout(cmd.args([flag, &script]), DETECT_TIMEOUT) {
             if let Some(p) = parse_command_candidates(&String::from_utf8_lossy(&out.stdout)) {
@@ -274,17 +147,17 @@ pub struct InstallCtx {
 
 impl InstallCtx {
     /// Exe come lo vede l'agente nell'ambiente (`/mnt/c/...` su WSL).
-    pub fn exe_for(&self, env: &Env) -> Result<String, String> {
+    pub fn exe_for(&self, env: &Target) -> Result<String, String> {
         match env {
-            Env::Windows => Ok(self.exe.clone()),
-            Env::Wsl(_) => windows_to_wsl_path(&self.exe)
+            Target::Windows => Ok(self.exe.clone()),
+            Target::Wsl { .. } => windows_to_wsl_path(&self.exe)
                 .ok_or_else(|| format!("percorso exe non traducibile per WSL: {}", self.exe)),
         }
     }
 
     /// Cartella del plugin generato per (agente, ambiente). Il marketplace
     /// locale e' caricato sul posto: deve restare su disco finche' installato.
-    pub fn plugin_root(&self, agent_id: &str, env: &Env) -> PathBuf {
+    pub fn plugin_root(&self, agent_id: &str, env: &Target) -> PathBuf {
         plugins_dir(&self.data_dir, agent_id).join(sanitize_env_key(&env.key()))
     }
 }
@@ -316,8 +189,8 @@ pub enum InputEvent {
 #[derive(Debug, Clone, Serialize)]
 pub struct InputRule {
     pub event: InputEvent,
-    /// "windows" | "wsl" (vedi `Env::kind`); `None` = tutti gli ambienti.
-    pub env_kind: Option<&'static str>,
+    /// "windows" | "wsl" (vedi `Target::kind`); `None` = tutti gli ambienti.
+    pub env_kind: Option<TargetKind>,
     pub send: String,
 }
 
@@ -450,21 +323,21 @@ pub trait AgentProvider: Sync {
     /// Versione che avrebbe il plugin generato ora per questo env (`None` =
     /// agente senza plugin versionato: non e' mai considerato da aggiornare).
     /// Solo calcolo, nessun processo.
-    fn plugin_version(&self, _ctx: &InstallCtx, _env: &Env) -> Option<String> {
+    fn plugin_version(&self, _ctx: &InstallCtx, _env: &Target) -> Option<String> {
         None
     }
-    fn detect(&self, env: &Env) -> Detection;
+    fn detect(&self, env: &Target) -> Detection;
     /// Solo se `det.found`: il plugin e' gia' installato?
-    fn is_installed(&self, env: &Env, det: &Detection) -> bool;
+    fn is_installed(&self, env: &Target, det: &Detection) -> bool;
     /// Installa (o reinstalla) il plugin; ritorna il log dei passi.
-    fn install(&self, ctx: &InstallCtx, env: &Env, det: &Detection) -> Result<String, String>;
+    fn install(&self, ctx: &InstallCtx, env: &Target, det: &Detection) -> Result<String, String>;
     /// Rimuove il plugin e i file generati; ritorna il log dei passi.
-    fn uninstall(&self, ctx: &InstallCtx, env: &Env, det: &Detection) -> Result<String, String>;
+    fn uninstall(&self, ctx: &InstallCtx, env: &Target, det: &Detection) -> Result<String, String>;
     /// Comando da digitare nella shell del tab per avviare una sessione
     /// automatica (`None` = l'agente non supporta l'automazione). `env_kind`
-    /// e' "windows" o "wsl": la stringa deve funzionare in PowerShell, cmd e
+    /// e' la famiglia del target: la stringa deve funzionare in PowerShell, cmd e
     /// bash/zsh.
-    fn automation_command(&self, _env_kind: &str, _req: &AutomationRequest) -> Option<String> {
+    fn automation_command(&self, _env_kind: TargetKind, _req: &AutomationRequest) -> Option<String> {
         None
     }
     /// Comando che avvia l'agente in modo interattivo (`None` = nessun avvio
@@ -478,7 +351,7 @@ pub trait AgentProvider: Sync {
     }
     /// Limiti dell'abbonamento nell'ambiente (`None` = non supportato).
     /// Bloccante (rete): da chiamare fuori dal main thread.
-    fn usage_limits(&self, _env: &Env) -> Option<UsageLimitsReply> {
+    fn usage_limits(&self, _env: &Target) -> Option<UsageLimitsReply> {
         None
     }
     /// Consumi di token di una sessione dal suo transcript, come path visto
@@ -486,7 +359,7 @@ pub trait AgentProvider: Sync {
     /// rileggere il file ad ogni chiamata.
     fn session_usage(
         &self,
-        _env: &Env,
+        _env: &Target,
         _transcript_path: &str,
         _cache: &TranscriptCache,
     ) -> Option<Result<SessionUsage, String>> {
@@ -559,7 +432,7 @@ pub fn builtin_launches() -> Vec<BuiltinLaunch> {
 }
 
 /// Comando di avvio di una sessione automatica per l'agente `agent_id`.
-pub fn automation_command(agent_id: &str, env_kind: &str, req: &AutomationRequest) -> Result<String, String> {
+pub fn automation_command(agent_id: &str, env_kind: TargetKind, req: &AutomationRequest) -> Result<String, String> {
     // Errori letti dal modello via RPC: in inglese.
     let provider = find_provider(agent_id).map_err(|_| format!("unknown agent: {agent_id}"))?;
     provider
@@ -573,14 +446,14 @@ fn find_provider(id: &str) -> Result<&'static dyn AgentProvider, String> {
 
 /// Windows + distro WSL installate (senza quelle interne di Docker, che non
 /// hanno una shell utilizzabile).
-fn list_envs() -> Vec<Env> {
-    let mut envs = vec![Env::Windows];
+fn list_envs() -> Vec<Target> {
+    let mut envs = vec![Target::Windows];
     envs.extend(
         installed_distros()
             .unwrap_or_default()
             .into_iter()
             .filter(|d| !d.to_lowercase().starts_with("docker-desktop"))
-            .map(Env::Wsl),
+            .map(|distro| Target::Wsl { distro }),
     );
     envs
 }
@@ -591,13 +464,13 @@ pub struct AgentEnvStatus {
     pub agent_name: String,
     pub env_key: String,
     pub env_label: String,
-    pub env_kind: String,
+    pub env_kind: TargetKind,
     pub found: bool,
     pub version: Option<String>,
     pub installed: bool,
 }
 
-fn status_for(provider: &dyn AgentProvider, env: &Env) -> AgentEnvStatus {
+fn status_for(provider: &dyn AgentProvider, env: &Target) -> AgentEnvStatus {
     let det = provider.detect(env);
     let installed = det.found && provider.is_installed(env, &det);
     AgentEnvStatus {
@@ -605,7 +478,7 @@ fn status_for(provider: &dyn AgentProvider, env: &Env) -> AgentEnvStatus {
         agent_name: provider.display_name().to_string(),
         env_key: env.key(),
         env_label: env.label(),
-        env_kind: env.kind().to_string(),
+        env_kind: env.kind(),
         found: det.found,
         version: det.version,
         installed,
@@ -655,11 +528,11 @@ pub fn agent_profiles() -> Vec<AgentProfile> {
     collect_profiles()
 }
 
-/// Env dal frontend per le letture dei consumi. Il nome della distro finisce
+/// Target dal frontend per le letture dei consumi. Il nome della distro finisce
 /// in un path UNC: niente separatori o caratteri insoliti.
-fn usage_env(env_key: &str) -> Result<Env, String> {
-    let env = Env::from_key(env_key)?;
-    if let Env::Wsl(d) = &env {
+fn usage_env(env_key: &str) -> Result<Target, String> {
+    let env = Target::from_key(env_key)?;
+    if let Target::Wsl { distro: d } = &env {
         if !is_valid_distro_name(d) {
             return Err(format!("nome distro non valido: {d}"));
         }
@@ -721,11 +594,11 @@ fn prepare(
     app: &AppHandle,
     agent_id: &str,
     env_key: &str,
-) -> Result<(&'static dyn AgentProvider, Env, Detection, InstallCtx), String> {
+) -> Result<(&'static dyn AgentProvider, Target, Detection, InstallCtx), String> {
     let provider = find_provider(agent_id)?;
-    let env = Env::from_key(env_key)?;
-    if let Env::Wsl(d) = &env {
-        if !list_envs().contains(&Env::Wsl(d.clone())) {
+    let env = Target::from_key(env_key)?;
+    if let Target::Wsl { distro: d } = &env {
+        if !list_envs().contains(&env) {
             return Err(format!("distro non trovata: {d}"));
         }
     }
@@ -738,7 +611,7 @@ fn prepare(
 fn install_and_mark(
     provider: &dyn AgentProvider,
     ctx: &InstallCtx,
-    env: &Env,
+    env: &Target,
     det: &Detection,
 ) -> Result<String, String> {
     let log = provider.install(ctx, env, det)?;
@@ -767,9 +640,9 @@ pub struct OutdatedPlugin {
 fn find_outdated(
     providers: &[&dyn AgentProvider],
     ctx: &InstallCtx,
-    envs: &mut dyn FnMut() -> Vec<Env>,
+    envs: &mut dyn FnMut() -> Vec<Target>,
 ) -> Vec<OutdatedPlugin> {
-    let mut all: Option<Vec<Env>> = None;
+    let mut all: Option<Vec<Target>> = None;
     let mut out = Vec::new();
     for provider in providers {
         let base = plugins_dir(&ctx.data_dir, provider.id());
@@ -781,8 +654,8 @@ fn find_outdated(
             .collect();
         names.sort();
         for name in names {
-            let env = if name == "windows" {
-                Env::Windows
+            let env = if name == Target::Windows.key() {
+                Target::Windows
             } else {
                 let list = all.get_or_insert_with(&mut *envs);
                 // Distro rimossa: nessun env da aggiornare.
@@ -851,7 +724,7 @@ pub async fn agent_plugins_update(app: AppHandle) -> Result<Vec<PluginUpdateResu
 fn update_one(ctx: &InstallCtx, o: OutdatedPlugin) -> PluginUpdateResult {
     let res = (|| {
         let provider = find_provider(&o.agent_id)?;
-        let env = Env::from_key(&o.env_key)?;
+        let env = Target::from_key(&o.env_key)?;
         let det = provider.detect(&env);
         if !det.found {
             return Err(format!("{} non trovato in questo env", provider.display_name()));
@@ -984,24 +857,16 @@ mod tests {
     }
 
     #[test]
-    fn env_keys_and_paths() {
-        assert_eq!(Env::from_key("windows"), Ok(Env::Windows));
-        assert_eq!(Env::from_key(" Ubuntu "), Ok(Env::Wsl("Ubuntu".to_string())));
-        assert!(Env::from_key("  ").is_err());
-        assert_eq!(Env::Windows.kind(), "windows");
-        assert_eq!(Env::Wsl("U".into()).kind(), "wsl");
-
-        let p = Path::new(r"C:\Users\me\AppData\Roaming\app");
-        assert_eq!(Env::Windows.path_arg(p).unwrap(), "C:/Users/me/AppData/Roaming/app");
-        assert_eq!(Env::Wsl("U".into()).path_arg(p).unwrap(), "/mnt/c/Users/me/AppData/Roaming/app");
-        assert_eq!(forward_slashes(r"\\?\C:\a\b.exe"), "C:/a/b.exe");
-
+    fn install_ctx_translates_exe_and_plugin_root_per_target() {
         let ctx = InstallCtx {
             exe: "C:/Program Files/cc/cli-companion.exe".to_string(),
             data_dir: PathBuf::from(r"C:\data"),
         };
-        assert_eq!(ctx.exe_for(&Env::Wsl("U".into())).unwrap(), "/mnt/c/Program Files/cc/cli-companion.exe");
-        let root = ctx.plugin_root("claude-code", &Env::Wsl("Ubuntu 24".into()));
+        assert_eq!(
+            ctx.exe_for(&Target::Wsl { distro: "U".into() }).unwrap(),
+            "/mnt/c/Program Files/cc/cli-companion.exe"
+        );
+        let root = ctx.plugin_root("claude-code", &Target::Wsl { distro: "Ubuntu 24".into() });
         assert!(root.ends_with(Path::new("agent-plugins/claude-code/Ubuntu-24")));
     }
 
@@ -1023,10 +888,10 @@ mod tests {
         assert_eq!(cc.agent_name, "Claude Code");
         let v = serde_json::to_value(cc).unwrap();
         let rules = v["input_profile"]["rules"].as_array().unwrap();
-        for kind in ["windows", "wsl"] {
+        for kind in [TargetKind::Windows, TargetKind::Wsl] {
             assert!(rules
                 .iter()
-                .any(|r| r["event"] == "image-paste" && r["env_kind"] == kind && r["send"] == "\u{1b}v"));
+                .any(|r| r["event"] == "image-paste" && r["env_kind"] == kind.as_str() && r["send"] == "\u{1b}v"));
         }
     }
 
@@ -1044,16 +909,16 @@ mod tests {
         fn display_name(&self) -> &'static str {
             "Fake"
         }
-        fn detect(&self, _: &Env) -> Detection {
+        fn detect(&self, _: &Target) -> Detection {
             Detection::default()
         }
-        fn is_installed(&self, _: &Env, _: &Detection) -> bool {
+        fn is_installed(&self, _: &Target, _: &Detection) -> bool {
             false
         }
-        fn install(&self, _: &InstallCtx, _: &Env, _: &Detection) -> Result<String, String> {
+        fn install(&self, _: &InstallCtx, _: &Target, _: &Detection) -> Result<String, String> {
             Ok(String::new())
         }
-        fn uninstall(&self, _: &InstallCtx, _: &Env, _: &Detection) -> Result<String, String> {
+        fn uninstall(&self, _: &InstallCtx, _: &Target, _: &Detection) -> Result<String, String> {
             Ok(String::new())
         }
         fn interactive_command(&self) -> Option<&'static str> {
@@ -1128,19 +993,19 @@ mod tests {
         fn display_name(&self) -> &'static str {
             "Versioned"
         }
-        fn plugin_version(&self, _: &InstallCtx, _: &Env) -> Option<String> {
+        fn plugin_version(&self, _: &InstallCtx, _: &Target) -> Option<String> {
             Some("1.0-habc".to_string())
         }
-        fn detect(&self, _: &Env) -> Detection {
+        fn detect(&self, _: &Target) -> Detection {
             Detection::default()
         }
-        fn is_installed(&self, _: &Env, _: &Detection) -> bool {
+        fn is_installed(&self, _: &Target, _: &Detection) -> bool {
             false
         }
-        fn install(&self, _: &InstallCtx, _: &Env, _: &Detection) -> Result<String, String> {
+        fn install(&self, _: &InstallCtx, _: &Target, _: &Detection) -> Result<String, String> {
             Ok(String::new())
         }
-        fn uninstall(&self, _: &InstallCtx, _: &Env, _: &Detection) -> Result<String, String> {
+        fn uninstall(&self, _: &InstallCtx, _: &Target, _: &Detection) -> Result<String, String> {
             Ok(String::new())
         }
     }
@@ -1162,7 +1027,7 @@ mod tests {
         let mut calls = 0;
         let mut envs = || {
             calls += 1;
-            vec![Env::Windows, Env::Wsl("Ubuntu".into()), Env::Wsl("Debian".into())]
+            vec![Target::Windows, Target::Wsl { distro: "Ubuntu".into() }, Target::Wsl { distro: "Debian".into() }]
         };
         let out = find_outdated(&[&Versioned, &Fake { id: "none", interactive: None, preset: None }], &ctx, &mut envs);
         let found: Vec<_> = out.iter().map(|o| (o.env_key.as_str(), o.installed_version.as_deref())).collect();
@@ -1175,7 +1040,7 @@ mod tests {
         std::fs::remove_dir_all(base.join("Ubuntu")).unwrap();
         std::fs::remove_dir_all(base.join("Debian")).unwrap();
         std::fs::remove_dir_all(base.join("Gone")).unwrap();
-        let mut never = || -> Vec<Env> { panic!("list_envs non deve essere chiamata") };
+        let mut never = || -> Vec<Target> { panic!("list_envs non deve essere chiamata") };
         assert_eq!(find_outdated(&[&Versioned], &ctx, &mut never).len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1183,10 +1048,10 @@ mod tests {
     #[test]
     fn usage_is_unsupported_by_default_and_env_is_validated() {
         let f = Fake { id: "f", interactive: None, preset: None };
-        assert!(f.usage_limits(&Env::Windows).is_none());
-        assert!(f.session_usage(&Env::Windows, "x", &TranscriptCache::default()).is_none());
-        assert_eq!(usage_env("windows"), Ok(Env::Windows));
-        assert_eq!(usage_env("Ubuntu-24.04"), Ok(Env::Wsl("Ubuntu-24.04".into())));
+        assert!(f.usage_limits(&Target::Windows).is_none());
+        assert!(f.session_usage(&Target::Windows, "x", &TranscriptCache::default()).is_none());
+        assert_eq!(usage_env("windows"), Ok(Target::Windows));
+        assert_eq!(usage_env("Ubuntu-24.04"), Ok(Target::Wsl { distro: "Ubuntu-24.04".into() }));
         for bad in ["", "a\\b", "a/b", "..", "x:y", "a\nb"] {
             assert!(usage_env(bad).is_err(), "{bad:?}");
         }
@@ -1198,66 +1063,5 @@ mod tests {
     #[test]
     fn default_input_profile_is_empty() {
         assert!(InputProfile::default().rules.is_empty());
-    }
-
-    #[test]
-    fn command_wraps_windows_cmd_shim_and_wsl() {
-        let c = Env::Windows.command("claude");
-        #[cfg(windows)]
-        {
-            use std::ffi::OsStr;
-            assert_eq!(c.get_program(), "cmd");
-            let args: Vec<_> = c.get_args().collect();
-            assert_eq!(args, vec![OsStr::new("/c"), OsStr::new("claude")]);
-        }
-        #[cfg(not(windows))]
-        assert_eq!(c.get_program(), "claude");
-        let w = Env::Wsl("Ubuntu-24.04".into()).command("/home/u/.local/bin/claude");
-        assert_eq!(w.get_program(), "wsl.exe");
-        let wargs: Vec<_> = w.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
-        assert_eq!(wargs, vec!["-d", "Ubuntu-24.04", "-e", "bash", "-lc", "'/home/u/.local/bin/claude' \"$@\"", "_"]);
-        // Programma non assoluto (es. `bash` per la risoluzione): invariato.
-        let b = Env::Wsl("U".into()).command("bash");
-        let bargs: Vec<_> = b.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
-        assert_eq!(bargs, vec!["-d", "U", "-e", "bash"]);
-    }
-
-    #[test]
-    fn wsl_login_script_quotes_path_and_passes_args_positionally() {
-        assert_eq!(wsl_login_script("/a b/claude"), "'/a b/claude' \"$@\"");
-        assert_eq!(wsl_login_script("/it's/claude"), "'/it'\\''s/claude' \"$@\"");
-        // Gli argomenti di run() vengono dopo `_` e non toccano lo script.
-        let mut c = Env::Wsl("U".into()).command("/x/claude");
-        c.args(["plugin", "list", "--json"]);
-        let a: Vec<_> = c.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
-        assert_eq!(&a[a.len() - 4..], ["_", "plugin", "list", "--json"]);
-    }
-
-    /// Regressione "agente non trovato" su Windows: `claude`/`npm` si risolvono
-    /// a shim .cmd e CreateProcess cerca solo .exe per nome, quindi lo spawn
-    /// diretto fallisce mentre `cmd /c` (PATHEXT) lo trova. Prova con uno
-    /// shim finto in temp (niente dipendenza da un agente installato).
-    #[test]
-    #[cfg(windows)]
-    fn cmd_shim_found_only_through_cmd_c() {
-        let dir = std::env::temp_dir().join(format!("mc-cmd-probe-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("mc-fake-shim.cmd"), "@echo fake-shim-ok\r\n").unwrap();
-
-        // Solo lo shim in testa al PATH (ripristinato subito dopo gli spawn).
-        let prev_path = std::env::var_os("PATH").unwrap_or_default();
-        let mut paths = vec![dir.clone()];
-        paths.extend(std::env::split_paths(&prev_path));
-        std::env::set_var("PATH", std::env::join_paths(paths).unwrap());
-
-        // Spawn diretto per nome: non risolve. Via Env::run (cmd /c): si'.
-        let direct = run_command(Command::new("mc-fake-shim"), &[], "shim", RUN_TIMEOUT);
-        let via_cmd = Env::Windows.run("mc-fake-shim", &[]);
-
-        std::env::set_var("PATH", &prev_path);
-        let _ = std::fs::remove_dir_all(&dir);
-
-        assert!(direct.is_err(), "lo spawn diretto non deve risolvere gli shim .cmd");
-        assert!(via_cmd.expect("cmd /c deve risolvere gli shim .cmd").contains("fake-shim-ok"));
     }
 }

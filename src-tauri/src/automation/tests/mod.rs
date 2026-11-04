@@ -5,6 +5,7 @@
 use super::process::CancelFlag;
 use super::*;
 use crate::agents::AutomationRequest;
+use crate::platform::TargetKind;
 use crate::schedule::{Schedule, ScheduleState};
 use crate::workspaces::{DeliveryMode, MergeMethod, RepoConfig, SettingsPatch};
 use serde_json::json;
@@ -24,12 +25,14 @@ mod worker;
 const INTAKE: &str = "tab-intake";
 
 pub(super) fn ws(id: &str, name: &str, kind: &str) -> Workspace {
+    let kind = TargetKind::parse(kind).expect("kind del workspace di test");
+    let wsl = kind == TargetKind::Wsl;
     Workspace {
         id: id.to_string(),
         name: name.to_string(),
-        kind: kind.to_string(),
-        path: if kind == "wsl" { "/home/u".to_string() } else { "C:\\p".to_string() },
-        distro: (kind == "wsl").then(|| "Ubuntu".to_string()),
+        kind,
+        path: if wsl { "/home/u".to_string() } else { "C:\\p".to_string() },
+        distro: wsl.then(|| "Ubuntu".to_string()),
         shell: None,
         created_at: 0,
         launches: Vec::new(),
@@ -197,12 +200,13 @@ impl Host for FakeHost {
     fn dir_exists(&self, _ws: &Workspace, path: &str) -> bool {
         path.contains("esiste") || self.dirs.lock().unwrap().iter().any(|d| d == path)
     }
-    fn launch_command(&self, agent: &str, env_kind: &str, req: &AutomationRequest) -> Result<String, String> {
+    fn launch_command(&self, agent: &str, env_kind: TargetKind, req: &AutomationRequest) -> Result<String, String> {
         if agent != "claude-code" {
             return Err(format!("unknown agent: {agent}"));
         }
         Ok(format!(
-            "fake {env_kind} {:?} {} model={}",
+            "fake {} {:?} {} model={}",
+            env_kind.as_str(),
             req.permission_mode,
             req.bootstrap_prompt,
             req.model.unwrap_or("-")

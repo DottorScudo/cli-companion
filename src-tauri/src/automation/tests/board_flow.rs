@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::board::{Task, TaskSpec};
+use crate::platform::TargetKind;
 
 fn pr_parallel() -> (AutomationState, FakeHost) {
     (AutomationState::default(), FakeHost::with_delivery(DeliveryMode::Pr, true))
@@ -813,8 +814,8 @@ fn git_commands_have_the_expected_timeouts() {
 fn repo_detection_list_parsing() {
     assert_eq!(worktrees::parse_repo_list("api\n.\n\nweb\napi\n../x\n"), [".", "api", "web"]);
     assert!(worktrees::parse_repo_list("").is_empty());
-    assert_eq!(worktrees::join_path("windows", "C:\\p\\", "a/b"), "C:\\p\\a\\b");
-    assert_eq!(worktrees::join_path("wsl", "/home/u/", "a/b"), "/home/u/a/b");
+    assert_eq!(worktrees::join_path(TargetKind::Windows, "C:\\p\\", "a/b"), "C:\\p\\a\\b");
+    assert_eq!(worktrees::join_path(TargetKind::Wsl, "/home/u/", "a/b"), "/home/u/a/b");
     assert_eq!(worktrees::repo_dir(&ws("w", "w", "wsl"), Some("api")), "/home/u/api");
 }
 

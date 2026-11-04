@@ -7,7 +7,7 @@
 //! liste `allow`/`deny` si sommano; `deny` vince sempre su `allow`, anche in
 //! `bypassPermissions`).
 
-use crate::wsl::windows_to_wsl_path;
+use crate::platform::{windows_to_wsl_path, TargetKind};
 use std::path::{Path, PathBuf};
 
 pub const MAX_RULES: usize = 100;
@@ -90,9 +90,9 @@ fn file_name(workspace_id: &str) -> String {
 
 /// Path del file come lo vede `claude`: invariato su Windows, `/mnt/<d>/...`
 /// per i workspace WSL.
-pub fn path_for_env(file: &Path, env_kind: &str) -> Result<String, String> {
+pub fn path_for_env(file: &Path, env_kind: TargetKind) -> Result<String, String> {
     let win = file.to_string_lossy().to_string();
-    if env_kind == "wsl" {
+    if env_kind == TargetKind::Wsl {
         windows_to_wsl_path(&win).ok_or_else(|| format!("path non convertibile per WSL: {win}"))
     } else {
         Ok(win)
@@ -107,7 +107,7 @@ pub fn path_for_env(file: &Path, env_kind: &str) -> Result<String, String> {
 pub fn prepare_settings_file(
     data_dir: &Path,
     workspace_id: &str,
-    env_kind: &str,
+    env_kind: TargetKind,
     allow: &[String],
     deny: &[String],
 ) -> Result<Option<String>, String> {
@@ -197,9 +197,9 @@ mod tests {
     #[test]
     fn path_is_converted_for_wsl_and_plain_for_windows() {
         let f = Path::new(r"C:\Users\Me\AppData\Roaming\cli-companion\worker-settings\ws-1.json");
-        assert_eq!(path_for_env(f, "windows").unwrap(), f.to_string_lossy());
+        assert_eq!(path_for_env(f, TargetKind::Windows).unwrap(), f.to_string_lossy());
         assert_eq!(
-            path_for_env(f, "wsl").unwrap(),
+            path_for_env(f, TargetKind::Wsl).unwrap(),
             "/mnt/c/Users/Me/AppData/Roaming/cli-companion/worker-settings/ws-1.json"
         );
     }
@@ -217,16 +217,16 @@ mod tests {
     fn prepare_writes_only_on_change_and_skips_when_empty() {
         let dir = std::env::temp_dir().join(format!("cc-rules-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(prepare_settings_file(&dir, "ws-1", "windows", &[], &[]).unwrap(), None);
+        assert_eq!(prepare_settings_file(&dir, "ws-1", TargetKind::Windows, &[], &[]).unwrap(), None);
         assert!(!dir.exists());
         let allow = v(&["Bash(git:*)"]);
-        let p = prepare_settings_file(&dir, "ws-1", "windows", &allow, &[]).unwrap().unwrap();
+        let p = prepare_settings_file(&dir, "ws-1", TargetKind::Windows, &allow, &[]).unwrap().unwrap();
         let on_disk = std::fs::read_to_string(&p).unwrap();
         assert_eq!(on_disk, settings_json(&allow, &[]));
         let m1 = std::fs::metadata(&p).unwrap().modified().unwrap();
-        prepare_settings_file(&dir, "ws-1", "windows", &allow, &[]).unwrap();
+        prepare_settings_file(&dir, "ws-1", TargetKind::Windows, &allow, &[]).unwrap();
         assert_eq!(std::fs::metadata(&p).unwrap().modified().unwrap(), m1);
-        let p2 = prepare_settings_file(&dir, "ws-1", "windows", &allow, &v(&["Edit"])).unwrap().unwrap();
+        let p2 = prepare_settings_file(&dir, "ws-1", TargetKind::Windows, &allow, &v(&["Edit"])).unwrap().unwrap();
         assert_eq!(p, p2);
         assert!(std::fs::read_to_string(&p).unwrap().contains("Edit"));
         let _ = std::fs::remove_dir_all(&dir);
