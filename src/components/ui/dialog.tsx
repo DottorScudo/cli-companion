@@ -27,10 +27,22 @@ const DialogOverlay = React.forwardRef<
 ));
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
+/**
+ * Una modale si chiude solo con la X o con i pulsanti espliciti: Esc e click
+ * fuori sono sempre bloccati, cosi' non si perde il lavoro in un form. Il
+ * gestore del chiamante viene comunque invocato, ma non puo' riattivarli.
+ */
+function keepOpen<E extends Event>(handler?: (event: E) => void) {
+  return (event: E) => {
+    handler?.(event);
+    event.preventDefault();
+  };
+}
+
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, onEscapeKeyDown, onPointerDownOutside, onInteractOutside, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
@@ -40,6 +52,9 @@ const DialogContent = React.forwardRef<
         className,
       )}
       {...props}
+      onEscapeKeyDown={keepOpen(onEscapeKeyDown)}
+      onPointerDownOutside={keepOpen(onPointerDownOutside)}
+      onInteractOutside={keepOpen(onInteractOutside)}
     >
       {children}
       <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">

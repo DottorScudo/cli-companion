@@ -60,12 +60,7 @@ export default function PluginUpdateDialog({ outdated, onClose, onBeforeRestart 
         if (!o && !updating) onClose();
       }}
     >
-      <DialogContent
-        onEscapeKeyDown={(e) => updating && e.preventDefault()}
-        onPointerDownOutside={(e) => updating && e.preventDefault()}
-        onInteractOutside={(e) => updating && e.preventDefault()}
-        className={updating ? "[&>button:last-child]:hidden" : undefined}
-      >
+      <DialogContent className={updating ? "[&>button:last-child]:hidden" : undefined}>
         {phase === "ask" && (
           <>
             <DialogHeader>
