@@ -58,12 +58,18 @@ export function mergeTabs(s: TabsState, incoming: readonly TabEntry[]): TabsStat
   return fresh.length === 0 ? s : [...s, ...fresh];
 }
 
-/** Nome per un nuovo bot: unico rispetto ai bot dei tab presenti. */
-export function nextBotName(s: TabsState, pool: readonly string[], random?: () => number): string {
+/** Nome per un nuovo bot: unico rispetto ai bot dei tab presenti e diverso dai nomi riservati. */
+export function nextBotName(
+  s: TabsState,
+  pool: readonly string[],
+  random?: () => number,
+  reserved: Iterable<string> = [],
+): string {
   return pickBotName(
     pool,
     s.map((t) => t.bot),
     random,
+    reserved,
   );
 }
 
@@ -75,11 +81,11 @@ export function createTabsStore(random?: () => number) {
   const store = createStore<TabsState>([]);
   return {
     ...store,
-    /** Apre un tab con nome bot unico rispetto ai tab presenti; `null` se la chiave esiste già. */
-    open(tab: Omit<TabEntry, "bot">, pool: readonly string[]): TabEntry | null {
+    /** Apre un tab con nome bot unico rispetto ai tab presenti e ai nomi `reserved`; `null` se la chiave esiste già. */
+    open(tab: Omit<TabEntry, "bot">, pool: readonly string[], reserved: Iterable<string> = []): TabEntry | null {
       const current = store.getState();
       if (findTab(current, tab.key)) return null;
-      const entry: TabEntry = { ...tab, bot: nextBotName(current, pool, random) };
+      const entry: TabEntry = { ...tab, bot: nextBotName(current, pool, random, reserved) };
       store.set(addTab(current, entry));
       return entry;
     },

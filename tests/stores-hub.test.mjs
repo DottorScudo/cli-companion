@@ -7,6 +7,8 @@ import {
   filterSet,
   messageAdded,
   replySet,
+  reservedBotNames,
+  secretaryStatusLoaded,
   settingsLoaded,
   summaryUpdated,
   threadLoaded,
@@ -48,6 +50,31 @@ const thread = (id, messages = [], extra = {}) => ({
   messages,
   ...extra,
 });
+const secretary = (name, extra = {}) => ({
+  name,
+  image: null,
+  system_prompt: "You help.",
+  tools: [],
+  channels: { mode: "all" },
+  ...extra,
+});
+const settingsView = (extra = {}) => ({
+  api_key_set: false,
+  enabled: true,
+  provider: { base_url: "", model: "" },
+  language: "it",
+  session: { idle_minutes: 20, max_steps: 8 },
+  secretaries: [],
+  ...extra,
+});
+const status = (secretaryName, extra = {}) => ({
+  channel: "general",
+  thread_id: "t1",
+  secretary: secretaryName,
+  expires_at: 1000,
+  working: false,
+  ...extra,
+});
 const ids = (list) => list.map((t) => t.id);
 const withThread = (t) => threadLoaded(threadSelected({ ...INITIAL_HUB, enabled: true }, t.id), t);
 
@@ -58,16 +85,66 @@ describe("hub store: impostazioni", () => {
     assert.equal(INITIAL_HUB.filter, "open");
   });
 
-  it("settingsLoaded: lo stesso valore non cambia nulla", () => {
-    assert.equal(settingsLoaded(INITIAL_HUB, false), INITIAL_HUB);
-    const on = settingsLoaded(INITIAL_HUB, true);
-    assert.equal(on.enabled, true);
-    assert.equal(settingsLoaded(on, true), on);
+  it("senza impostazioni lette non ci sono né impostazioni né segretari svegli", () => {
+    assert.equal(INITIAL_HUB.settings, null);
+    assert.deepEqual(INITIAL_HUB.secretaryStatus, []);
   });
 
-  it("spegnere l'HUB scarta ciò che era in memoria", () => {
+  it("settingsLoaded: accende l'HUB e tiene le impostazioni", () => {
+    const view = settingsView({ secretaries: [secretary("mario")] });
+    const on = settingsLoaded(INITIAL_HUB, view);
+    assert.equal(on.enabled, true);
+    assert.equal(on.settings, view);
+  });
+
+  it("settingsLoaded: un nuovo salvataggio sostituisce le impostazioni senza toccare il resto", () => {
     const busy = threadsLoaded(withThread(thread("t1")), "general", [summary("t1")]);
-    assert.equal(settingsLoaded(busy, false), INITIAL_HUB);
+    const next = settingsLoaded(busy, settingsView({ language: "en" }));
+    assert.equal(next.settings.language, "en");
+    assert.equal(next.thread, busy.thread);
+    assert.equal(next.threads, busy.threads);
+  });
+
+  it("spegnere l'HUB scarta thread e segretari svegli, ma tiene le impostazioni", () => {
+    const busy = secretaryStatusLoaded(threadsLoaded(withThread(thread("t1")), "general", [summary("t1")]), [
+      status("mario"),
+    ]);
+    const view = settingsView({ enabled: false, secretaries: [secretary("mario")] });
+    assert.deepEqual(settingsLoaded(busy, view), { ...INITIAL_HUB, settings: view });
+  });
+
+  it("HUB spento: le impostazioni si leggono comunque", () => {
+    const view = settingsView({ enabled: false });
+    const s = settingsLoaded(INITIAL_HUB, view);
+    assert.equal(s.enabled, false);
+    assert.equal(s.settings, view);
+  });
+});
+
+describe("hub store: segretari", () => {
+  it("secretaryStatusLoaded sostituisce l'elenco intero", () => {
+    const on = settingsLoaded(INITIAL_HUB, settingsView());
+    const a = secretaryStatusLoaded(on, [status("mario"), status("luisa")]);
+    assert.deepEqual(
+      a.secretaryStatus.map((x) => x.secretary),
+      ["mario", "luisa"],
+    );
+    assert.deepEqual(secretaryStatusLoaded(a, []).secretaryStatus, []);
+  });
+
+  it("secretaryStatusLoaded con l'HUB spento non cambia nulla", () => {
+    assert.equal(secretaryStatusLoaded(INITIAL_HUB, [status("mario")]), INITIAL_HUB);
+  });
+
+  it("reservedBotNames: i nomi dei segretari; nessuno prima di leggere le impostazioni", () => {
+    assert.deepEqual(reservedBotNames(INITIAL_HUB), []);
+    const s = settingsLoaded(INITIAL_HUB, settingsView({ secretaries: [secretary("mario"), secretary("bolt")] }));
+    assert.deepEqual(reservedBotNames(s), ["mario", "bolt"]);
+  });
+
+  it("i nomi riservati restano anche con l'HUB spento", () => {
+    const s = settingsLoaded(INITIAL_HUB, settingsView({ enabled: false, secretaries: [secretary("mario")] }));
+    assert.deepEqual(reservedBotNames(s), ["mario"]);
   });
 });
 
@@ -174,7 +251,6 @@ describe("createHubStore", () => {
     const store = createHubStore();
     let calls = 0;
     store.subscribe(() => (calls += 1));
-    store.settingsLoaded(false);
     store.channelSelected("general");
     store.filterSet("open");
     store.threadSelected(null);
@@ -186,7 +262,7 @@ describe("createHubStore", () => {
     const store = createHubStore();
     let calls = 0;
     store.subscribe(() => (calls += 1));
-    store.settingsLoaded(true);
+    store.settingsLoaded(settingsView());
     store.threadsLoaded("general", [summary("a")]);
     store.threadSelected("a");
     store.threadLoaded(thread("a"));

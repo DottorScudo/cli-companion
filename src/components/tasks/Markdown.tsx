@@ -1,8 +1,30 @@
-import { Fragment, useMemo } from "react";
+import { Fragment, createContext, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
 import { parseMarkdown } from "../../lib/markdown";
 import type { MdBlock, MdInline, MdList } from "../../lib/markdown";
 import { openExternal } from "../../lib/openExternal";
+import { splitMentions } from "../../lib/hubSecretaries";
+
+/** Nomi da evidenziare come menzioni nel testo (i segretari dell'Agents HUB); vuoto altrove. */
+const MentionsContext = createContext<readonly string[]>([]);
+
+function Text({ text }: { text: string }): ReactNode {
+  const mentions = useContext(MentionsContext);
+  if (mentions.length === 0) return text;
+  return (
+    <>
+      {splitMentions(text, mentions).map((seg, i) =>
+        seg.mention ? (
+          <span key={i} className="rounded bg-primary/15 px-1 font-medium text-primary">
+            {seg.text}
+          </span>
+        ) : (
+          <Fragment key={i}>{seg.text}</Fragment>
+        ),
+      )}
+    </>
+  );
+}
 
 function Inline({ nodes }: { nodes: MdInline[] }): ReactNode {
   return (
@@ -10,7 +32,7 @@ function Inline({ nodes }: { nodes: MdInline[] }): ReactNode {
       {nodes.map((n, i) => {
         switch (n.t) {
           case "text":
-            return <Fragment key={i}>{n.text}</Fragment>;
+            return <Text key={i} text={n.text} />;
           case "code":
             return (
               <code key={i} className="rounded bg-surface-2 px-1 py-px font-mono text-[12px] text-foreground">
@@ -115,15 +137,25 @@ function Block({ block }: { block: MdBlock }) {
   }
 }
 
+interface MarkdownProps {
+  source: string;
+  /** Nomi di segretari: le loro `@menzioni` nel testo sono evidenziate. */
+  mentions?: readonly string[];
+}
+
+const NO_MENTIONS: readonly string[] = [];
+
 /** Markdown della specifica di un task, reso con elementi React (niente HTML grezzo). */
-export default function Markdown({ source }: { source: string }) {
+export default function Markdown({ source, mentions = NO_MENTIONS }: MarkdownProps) {
   const blocks = useMemo(() => parseMarkdown(source), [source]);
   if (blocks.length === 0) return <p className="text-muted-foreground">Nessuna specifica.</p>;
   return (
-    <div className="flex min-w-0 flex-col gap-2.5 text-[13px] leading-[1.55] text-text-secondary">
-      {blocks.map((b, i) => (
-        <Block key={i} block={b} />
-      ))}
-    </div>
+    <MentionsContext.Provider value={mentions}>
+      <div className="flex min-w-0 flex-col gap-2.5 text-[13px] leading-[1.55] text-text-secondary">
+        {blocks.map((b, i) => (
+          <Block key={i} block={b} />
+        ))}
+      </div>
+    </MentionsContext.Provider>
   );
 }

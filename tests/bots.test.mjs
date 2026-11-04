@@ -50,6 +50,31 @@ describe("pickBotName", () => {
     );
   });
 
+  it("non da mai un nome riservato, senza badare alle maiuscole", () => {
+    assert.equal(
+      pickBotName(POOL, [], () => 0, ["BOLT"]),
+      "Pixel",
+    );
+    assert.equal(
+      pickBotName(POOL, ["Pixel"], () => 0, new Set(["bolt"])),
+      "Gizmo",
+    );
+  });
+
+  it("con la pool tutta riservata o occupata aggiunge il suffisso", () => {
+    assert.equal(
+      pickBotName(POOL, ["Bolt"], () => 0, ["pixel", "Gizmo"]),
+      "Bolt 2",
+    );
+  });
+
+  it("un nome riservato fuori dalla pool non cambia nulla", () => {
+    assert.equal(
+      pickBotName(POOL, [], () => 0, ["mario"]),
+      "Bolt",
+    );
+  });
+
   it("non ripete mai un nome finche la pool ne ha di liberi", () => {
     const taken = [];
     for (let i = 0; i < POOL.length; i++) taken.push(pickBotName(POOL, taken));
@@ -122,6 +147,32 @@ describe("assignRestoredNames", () => {
     );
     assert.equal(names.get("a"), "Bolt");
     assert.equal(names.get("b"), "Pixel");
+  });
+
+  it("un tab con un nome diventato riservato ne riceve un altro, gli altri tengono il loro", () => {
+    const names = assignRestoredNames(
+      [
+        { tabId: "a", botName: "Bolt" },
+        { tabId: "b", botName: "Pixel" },
+      ],
+      POOL,
+      () => 0,
+      ["bolt"],
+    );
+    assert.notEqual(names.get("a"), "Bolt");
+    assert.equal(names.get("a"), "Gizmo");
+    assert.equal(names.get("b"), "Pixel");
+  });
+
+  it("i nomi assegnati ai tab senza nome non sono riservati", () => {
+    const names = assignRestoredNames([{ tabId: "a" }, { tabId: "b" }, { tabId: "c" }], POOL, () => 0, [
+      "Bolt",
+      "Pixel",
+    ]);
+    const assigned = [...names.values()];
+    assert.equal(assigned[0], "Gizmo");
+    assert.equal(new Set(assigned).size, 3);
+    for (const name of assigned) assert.ok(!["bolt", "pixel"].includes(name.toLowerCase()));
   });
 
   it("il secondo tab con lo stesso nome ne riceve uno nuovo", () => {

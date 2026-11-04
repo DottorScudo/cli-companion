@@ -37,7 +37,9 @@ export function useInitialData(): void {
   }, []);
 
   // Interruttore dell'Agents HUB (spento di default).
-  useEffect(loadHubSettings, []);
+  useEffect(() => {
+    void loadHubSettings();
+  }, []);
 
   // Versione dell'app (footer della sidebar).
   useEffect(() => {

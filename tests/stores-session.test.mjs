@@ -175,6 +175,13 @@ describe("restoredTabs", () => {
     tabs,
   });
 
+  it("un tab con un nome diventato riservato prende un altro nome", () => {
+    const data = dataOf([savedTab("t1", { botName: "Nova" }), savedTab("t2", { botName: "Zed" })]);
+    const { tabs } = restoredTabs(data, [], POOL, [], first, ["nova"]);
+    assert.notEqual(tabs[0].bot.toLowerCase(), "nova");
+    assert.equal(tabs[1].bot, "Zed");
+  });
+
   it("riporta chiave, avvio, comando di ripresa e marca il tab come ripristinato", () => {
     const data = dataOf([
       savedTab("t1", {

@@ -2,25 +2,42 @@
 // dei messaggi. Lo stato sta in `stores/hub.ts`; qui l'I/O col backend.
 
 import { api } from "../../lib/tauri";
-import type { HubThreadSummary } from "../../lib/tauri";
+import type { HubSecretaryStatus, HubThreadSummary } from "../../lib/tauri";
 import { report } from "../../lib/errors";
 import { summarizeThread, threadNeedsReload } from "../../lib/hub";
 import type { ThreadFilter } from "../../lib/hub";
 import { hubStore } from "../../stores/hub";
 import { uiStore } from "../../stores/ui";
 
-/** Interruttore letto all'avvio: con l'HUB spento il backend non crea né legge altro. */
-export function loadHubSettings(): void {
-  api
+/**
+ * Impostazioni lette all'avvio (interruttore, modello, segretari): con l'HUB
+ * spento il backend non crea né legge altro. Non rifiuta mai: l'errore è già
+ * segnalato, e il ripristino della sessione può aspettarla.
+ */
+export function loadHubSettings(): Promise<void> {
+  return api
     .hubGetSettings()
-    .then((s) => hubStore.settingsLoaded(s.enabled))
+    .then((s) => hubStore.settingsLoaded(s))
     .catch((e) => report("caricamento delle impostazioni dell'Agents HUB", e, { notify: true }));
+}
+
+/** Segretari svegli adesso (con l'HUB acceso), poi li tiene aggiornati `hub-secretary-status`. */
+export function loadSecretaryStatus(): void {
+  api
+    .hubSecretaryStatus()
+    .then((list) => hubStore.secretaryStatusLoaded(list))
+    .catch((e) => report("caricamento dello stato dei segretari", e));
+}
+
+/** `hub-secretary-status`: l'elenco completo dei segretari svegli. */
+export function onSecretaryStatus(list: HubSecretaryStatus[]): void {
+  hubStore.secretaryStatusLoaded(list);
 }
 
 /** Accende o spegne l'HUB. Spegnerlo riporta ai terminali. Rifiuta con l'errore del backend. */
 export async function setHubEnabled(enabled: boolean): Promise<void> {
   const settings = await api.hubSetEnabled(enabled);
-  hubStore.settingsLoaded(settings.enabled);
+  hubStore.settingsLoaded(settings);
   if (!settings.enabled) uiStore.setWorld("terminals");
 }
 

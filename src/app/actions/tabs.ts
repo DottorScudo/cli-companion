@@ -12,6 +12,7 @@ import { noticeStore } from "../../lib/notices";
 import { workspaceEnvKey } from "../../lib/usage";
 import { closeTabIn, openTab } from "../../lib/layout";
 import { configStore, launchesFor } from "../../stores/config";
+import { hubStore, reservedBotNames } from "../../stores/hub";
 import { layoutStore } from "../../stores/layout";
 import { paneDragStore } from "../../stores/paneDrag";
 import { runtimeStore } from "../../stores/tabRuntime";
@@ -59,6 +60,7 @@ export function spawnTab(ws: Workspace, launch?: Launch | BuiltinLaunch): void {
   tabsStore.open(
     { key, workspaceId: ws.id, launchId: chosen?.id, agentId: launchAgentId(chosen), command, startCommand },
     botSettings.names,
+    reservedBotNames(hubStore.getState()),
   );
   layoutStore.apply((l) => openTab(l, ws.id, key));
 }

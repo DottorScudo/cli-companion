@@ -17,6 +17,11 @@ export function openIntegrationSettings(): void {
   uiStore.openSettings("integrations");
 }
 
+/** Impostazioni sulla pagina Agents HUB (modello e segretari). */
+export function openHubSettings(): void {
+  uiStore.openSettings("hub");
+}
+
 /** Impostazioni sugli avvii del workspace. */
 export function openLaunchSettings(ws: Workspace): void {
   uiStore.openSettings("launches", ws.id);

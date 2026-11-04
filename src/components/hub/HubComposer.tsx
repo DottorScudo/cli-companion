@@ -1,13 +1,16 @@
-import { useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { Send, X } from "lucide-react";
 import { sendMessage, startReply } from "../../app/actions/hub";
 import { useStore } from "../../hooks/useStore";
 import { errorMessage } from "../../lib/errors";
 import { MESSAGE_MAX_CHARS, authorLabel, checkBody, excerpt, replyTarget } from "../../lib/hub";
+import { mentionable } from "../../lib/hubSecretaries";
 import type { HubThread } from "../../lib/tauri";
 import { hubStore } from "../../stores/hub";
 import { Button } from "../ui/button";
+import MentionMenu, { mentionOptionId } from "./MentionMenu";
+import { useMentionAutocomplete } from "./useMentionAutocomplete";
 
 /** Da quanti caratteri si mostra il conteggio. */
 const COUNTER_FROM_CHARS = MESSAGE_MAX_CHARS - 500;
@@ -17,13 +20,18 @@ interface Props {
   thread: HubThread;
 }
 
-/** Compositore in fondo alla conversazione: Invio invia, Maiusc+Invio va a capo. */
+/** Compositore in fondo alla conversazione: Invio invia, Maiusc+Invio va a capo, `@` chiama un segretario. */
 export default function HubComposer({ channel, thread }: Props) {
   const replyTo = useStore(hubStore, (s) => s.replyTo);
   const target = replyTarget(thread, replyTo);
+  const secretaries = useStore(hubStore, (s) => s.settings?.secretaries);
+  const candidates = useMemo(() => mentionable(secretaries ?? [], channel), [secretaries, channel]);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const menuId = useId();
+  const mentions = useMentionAutocomplete({ text, setText, candidates, textareaRef });
 
   const send = async () => {
     const checked = checkBody(text);
@@ -44,6 +52,7 @@ export default function HubComposer({ channel, thread }: Props) {
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentions.handleKeyDown(e)) return;
     // Durante la composizione (IME) Invio conferma i caratteri, non invia.
     if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
     e.preventDefault();
@@ -53,7 +62,15 @@ export default function HubComposer({ channel, thread }: Props) {
   const length = [...text].length;
 
   return (
-    <div className="flex flex-col gap-1.5 border-t bg-base p-3">
+    <div className="relative flex flex-col gap-1.5 border-t bg-base p-3">
+      {mentions.menu && (
+        <MentionMenu
+          id={menuId}
+          options={mentions.menu.options}
+          active={mentions.menu.active}
+          onSelect={mentions.complete}
+        />
+      )}
       {target && (
         <div className="flex items-center gap-2 rounded-md border bg-card px-2 py-1 text-[11px] text-muted-foreground">
           <span className="min-w-0 flex-1 truncate">
@@ -72,14 +89,24 @@ export default function HubComposer({ channel, thread }: Props) {
       )}
       <div className="flex items-end gap-2">
         <textarea
+          ref={textareaRef}
           value={text}
           rows={2}
           maxLength={MESSAGE_MAX_CHARS}
           disabled={sending}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            mentions.track(e.target.value, e.target.selectionStart);
+          }}
+          onSelect={(e) => mentions.track(e.currentTarget.value, e.currentTarget.selectionStart)}
           onKeyDown={onKeyDown}
-          placeholder="Scrivi un messaggio (Invio invia, Maiusc+Invio va a capo)"
+          placeholder="Scrivi un messaggio, @ per chiamare un segretario (Invio invia, Maiusc+Invio va a capo)"
           aria-label="Messaggio"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={mentions.menu !== null}
+          aria-controls={mentions.menu ? menuId : undefined}
+          aria-activedescendant={mentions.menu ? mentionOptionId(menuId, mentions.menu.active) : undefined}
           className="max-h-40 min-h-[3.25rem] flex-1 resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         />
         <Button

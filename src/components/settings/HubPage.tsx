@@ -3,11 +3,18 @@ import { setHubEnabled } from "../../app/actions/hub";
 import { errorMessage } from "../../lib/errors";
 import { useStore } from "../../hooks/useStore";
 import { hubStore } from "../../stores/hub";
+import ModelSection from "./hub/ModelSection";
+import SecretariesSection from "./hub/SecretariesSection";
+import SessionSection from "./hub/SessionSection";
 import { Section, SettingsPage } from "./shared";
 
-/** Generale › Agents HUB: l'interruttore della modalità (spenta di default). */
+/**
+ * Generale › Agents HUB: l'interruttore della modalità (spenta di default) e,
+ * anche da spenta, le impostazioni dei segretari in tre accordion.
+ */
 export default function HubPage() {
   const enabled = useStore(hubStore, (s) => s.enabled);
+  const settings = useStore(hubStore, (s) => s.settings);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,7 +34,7 @@ export default function HubPage() {
   return (
     <SettingsPage
       title="Agents HUB"
-      description="Uno spazio stile chat con un canale per workspace e un canale Generale, dove seguire i thread e gli eventi dei task."
+      description="Uno spazio stile chat con un canale per workspace e un canale Generale, dove seguire i thread e gli eventi dei task e chiamare i segretari."
     >
       <Section>
         <label className="flex items-center gap-2 text-[13px]">
@@ -46,6 +53,15 @@ export default function HubPage() {
         </p>
         {error && <p className="text-[11px] text-destructive">{error}</p>}
       </Section>
+      {settings === null ? (
+        <p className="text-xs text-muted-foreground">Impostazioni non disponibili.</p>
+      ) : (
+        <>
+          <ModelSection settings={settings} />
+          <SessionSection settings={settings} />
+          <SecretariesSection settings={settings} />
+        </>
+      )}
     </SettingsPage>
   );
 }

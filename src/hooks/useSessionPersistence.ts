@@ -5,9 +5,11 @@ import { report } from "../lib/errors";
 import { startSubscription } from "../lib/subscription";
 import { noticeStore } from "../lib/notices";
 import { parseSession, unavailableAgentsNotice } from "../lib/session";
+import { loadHubSettings } from "../app/actions/hub";
 import { flushBeforeExit } from "../app/lifecycle";
 import { sessionSaver, watchSessionChanges } from "../app/sessionSaver";
 import { configStore } from "../stores/config";
+import { hubStore, reservedBotNames } from "../stores/hub";
 import { layoutStore } from "../stores/layout";
 import { mergeRestoredLayout, restoredTabs } from "../stores/session";
 import { runtimeStore } from "../stores/tabRuntime";
@@ -40,8 +42,17 @@ async function restoreSession(): Promise<void> {
     return configStore.getState().botSettings;
   });
   configStore.patch({ botSettings: bots });
+  // I nomi dei segretari sono riservati: le impostazioni dell'HUB servono prima di assegnare i nomi.
+  await loadHubSettings();
   if (data) {
-    const restored = restoredTabs(data, tabsStore.getState(), bots.names, configStore.getState().agentProfiles);
+    const restored = restoredTabs(
+      data,
+      tabsStore.getState(),
+      bots.names,
+      configStore.getState().agentProfiles,
+      undefined,
+      reservedBotNames(hubStore.getState()),
+    );
     for (const [key, init] of Object.entries(restored.runtime)) runtimeStore.seed(key, init);
     if (restored.unavailableAgents.length > 0) {
       noticeStore.push({

@@ -19,16 +19,19 @@ const nameKey = (name: string): string => name.toLowerCase();
 
 /**
  * Nome per un nuovo bot: a caso tra quelli della pool non usati dai tab aperti
- * (`taken`). Pool esaurita: un nome della pool col primo suffisso numerico
- * libero ("Bolt 2"). Pool vuota: "Bot 1", "Bot 2"...
+ * (`taken`) e non riservati (`reserved`: i nomi dei segretari dell'Agents HUB).
+ * Pool esaurita: un nome della pool col primo suffisso numerico libero
+ * ("Bolt 2"). Pool vuota: "Bot 1", "Bot 2"...
  */
 export function pickBotName(
   pool: readonly string[],
   taken: Iterable<string>,
   random: () => number = Math.random,
+  reserved: Iterable<string> = [],
 ): string {
   const used = new Set<string>();
   for (const name of taken) used.add(nameKey(name));
+  for (const name of reserved) used.add(nameKey(name));
   const pickFrom = (list: readonly string[]) => list[Math.min(list.length - 1, Math.floor(random() * list.length))];
 
   const free = pool.filter((n) => !used.has(nameKey(n)));
@@ -56,15 +59,18 @@ export function sanitizeBotName(v: unknown, max = BOT_NAME_MAX + SUFFIX_ROOM): s
 
 /**
  * Nomi dei tab ripristinati: chi ha un nome valido lo tiene, ma il secondo tab
- * con lo stesso nome (o chi non ne ha) ne riceve uno nuovo.
+ * con lo stesso nome, chi ha un nome diventato riservato (`reserved`) e chi non
+ * ne ha ne riceve uno nuovo.
  */
 export function assignRestoredNames(
   tabs: ReadonlyArray<{ tabId: string; botName?: string }>,
   pool: readonly string[],
   random: () => number = Math.random,
+  reserved: Iterable<string> = [],
 ): Map<string, string> {
   const names = new Map<string, string>();
   const used = new Set<string>();
+  for (const name of reserved) used.add(nameKey(name));
   const needNew: string[] = [];
   for (const t of tabs) {
     if (t.botName && !used.has(nameKey(t.botName))) {

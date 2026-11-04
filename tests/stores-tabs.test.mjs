@@ -61,6 +61,23 @@ describe("tabs: transizioni pure", () => {
   });
 });
 
+describe("nomi riservati", () => {
+  it("nextBotName non da i nomi riservati", () => {
+    assert.equal(
+      nextBotName([], POOL, () => 0, ["BOLT"]),
+      POOL.find((n) => n.toLowerCase() !== "bolt"),
+    );
+  });
+
+  it("open non assegna mai un nome riservato, anche a pool esaurita", () => {
+    const store = createTabsStore(() => 0);
+    const reserved = POOL.slice(0, 1);
+    const names = ["a", "b", "c", "d", "e"].map((key) => store.open(spec(key), POOL, reserved).bot);
+    assert.ok(names.every((n) => n.toLowerCase() !== reserved[0].toLowerCase()));
+    assert.equal(new Set(names.map((n) => n.toLowerCase())).size, names.length);
+  });
+});
+
 describe("createTabsStore", () => {
   it("open assegna nomi bot unici anche per chiamate consecutive", () => {
     const store = createTabsStore(() => 0);

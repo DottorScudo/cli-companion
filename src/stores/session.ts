@@ -107,11 +107,13 @@ export function restoredTabs(
   pool: readonly string[],
   profiles: RestoreProfileLike[],
   random?: () => number,
+  reserved: Iterable<string> = [],
 ): RestoredTabs {
   const names = assignRestoredNames(
     [...present.map((t) => ({ tabId: t.key, botName: t.bot })), ...data.tabs],
     pool,
     random,
+    reserved,
   );
   const runtime: Record<string, Partial<TabRuntime>> = {};
   const unavailable = new Set<string>();

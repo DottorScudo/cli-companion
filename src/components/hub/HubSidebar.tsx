@@ -7,6 +7,7 @@ import { waitingCount, waitingText } from "../../lib/hub";
 import type { HubChannel } from "../../lib/hub";
 import { cn } from "../../lib/utils";
 import { hubStore } from "../../stores/hub";
+import HubSecretaryList from "./HubSecretaryList";
 import WaitingBadge from "./WaitingBadge";
 
 const ChannelItem = memo(function ChannelItem({ channel, selected }: { channel: HubChannel; selected: boolean }) {
@@ -33,18 +34,20 @@ const ChannelItem = memo(function ChannelItem({ channel, selected }: { channel: 
 
 /**
  * Colonna di sinistra del mondo Agents HUB (260px, come la sidebar dei
- * workspace): Generale in cima, poi un canale per workspace visibile.
+ * workspace): Generale in cima, poi un canale per workspace visibile, e sotto i
+ * segretari con il loro stato.
  */
 function HubSidebar() {
   const { channels, current } = useHubChannels();
   return (
     <nav aria-label="Canali" className="flex w-[260px] flex-shrink-0 flex-col overflow-hidden border-r bg-base">
       <h1 className="pb-2 pl-4 pr-3 pt-3.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">Canali</h1>
-      <ul className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2">
+      <ul className="flex max-h-[55%] min-h-0 flex-shrink-0 flex-col gap-0.5 overflow-y-auto px-2">
         {channels.map((c) => (
           <ChannelItem key={c.id} channel={c} selected={c.id === current} />
         ))}
       </ul>
+      <HubSecretaryList />
     </nav>
   );
 }

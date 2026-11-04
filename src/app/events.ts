@@ -10,6 +10,7 @@ import { openTabBackground } from "../lib/layout";
 import { playAttention, playDing } from "../lib/notifySound";
 import { notifyIfUnfocused } from "../lib/systemNotify";
 import { configStore } from "../stores/config";
+import { hubStore, reservedBotNames } from "../stores/hub";
 import { layoutStore } from "../stores/layout";
 import { tabLabel } from "../stores/selectors";
 import { runtimeStore } from "../stores/tabRuntime";
@@ -72,6 +73,7 @@ export function onAutomationSpawn(ev: AutomationSpawn): void {
       cwd: ev.cwd,
     },
     configStore.getState().botSettings.names,
+    reservedBotNames(hubStore.getState()),
   );
   // In secondo piano: non toglie all'utente la vista in cui sta lavorando.
   layoutStore.apply((l) => openTabBackground(l, ws.id, ev.tab_id));
