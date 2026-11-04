@@ -357,21 +357,24 @@ export interface TaskFilter {
   statuses: TaskStatus[];
   /** Repository ammessi ("." = la root); vuoto = tutti. */
   repos: string[];
+  /** Agenti ammessi (id dell'integrazione); vuoto = tutti. */
+  agents: string[];
 }
 
-export const EMPTY_FILTER: TaskFilter = { query: "", statuses: [], repos: [] };
+export const EMPTY_FILTER: TaskFilter = { query: "", statuses: [], repos: [], agents: [] };
 
 /** C'è almeno un filtro attivo? (per "Azzera filtri") */
 export function isFiltering(f: TaskFilter): boolean {
-  return f.query.trim() !== "" || f.statuses.length > 0 || f.repos.length > 0;
+  return f.query.trim() !== "" || f.statuses.length > 0 || f.repos.length > 0 || f.agents.length > 0;
 }
 
-/** Applica ricerca, stati e repository (l'ordine dei task non cambia). */
+/** Applica ricerca, stati, repository e agenti (l'ordine dei task non cambia). */
 export function filterTasks(tasks: Task[], f: TaskFilter): Task[] {
   return tasks.filter(
     (t) =>
       (f.statuses.length === 0 || f.statuses.includes(t.status)) &&
       (f.repos.length === 0 || f.repos.includes(t.repo || ".")) &&
+      (f.agents.length === 0 || f.agents.includes(t.agent)) &&
       matchesQuery(t, f.query),
   );
 }

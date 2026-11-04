@@ -12,6 +12,11 @@ export function openSettings(): void {
   uiStore.openSettings(uiStore.getState().updateAvailable ? "updates" : "general-launches");
 }
 
+/** Impostazioni sulla pagina Integrazioni. */
+export function openIntegrationSettings(): void {
+  uiStore.openSettings("integrations");
+}
+
 /** Impostazioni sugli avvii del workspace. */
 export function openLaunchSettings(ws: Workspace): void {
   uiStore.openSettings("launches", ws.id);

@@ -12,6 +12,8 @@ import {
   ChevronsLeft,
 } from "lucide-react";
 import { workspaceUpdated } from "../../app/actions/workspaces";
+import { useTaskAgents } from "../../hooks/useTaskAgents";
+import { agentBadge } from "../../lib/taskAgent";
 import { api } from "../../lib/tauri";
 import type { Workspace } from "../../lib/tauri";
 import type { BotImage } from "../../lib/bots";
@@ -82,6 +84,7 @@ export default function TaskPanel({
   const workspaceId = workspace.id;
   const [error, setError] = useState<string | null>(null);
   const [pausing, setPausing] = useState(false);
+  const agents = useTaskAgents(workspace);
 
   const counts = useMemo(() => taskCounts(board), [board]);
   const running = useMemo(() => (board ? runningTasks(board) : []), [board]);
@@ -207,7 +210,14 @@ export default function TaskPanel({
         ) : (
           <>
             {board.proposals.map((p) => (
-              <ProposalCard key={p.id} workspaceId={workspaceId} proposal={p} board={board} onBoard={onBoard} />
+              <ProposalCard
+                key={p.id}
+                workspaceId={workspaceId}
+                proposal={p}
+                board={board}
+                agents={agents}
+                onBoard={onBoard}
+              />
             ))}
             {board.settings_proposals.map((p) => (
               <SettingsProposalCard
@@ -229,6 +239,7 @@ export default function TaskPanel({
                     key={t.id}
                     task={t}
                     now={now}
+                    agent={agentBadge(agents, t.agent)}
                     bot={t.session ? botOf?.(t.session) : undefined}
                     botImage={t.session ? botImageOf?.(t.session) : undefined}
                     onClick={() => (t.session ? onFocusTab(t.session) : onOpenManager(t.id))}

@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { TriangleAlert } from "lucide-react";
 import { cn } from "../../lib/utils";
+import AgentBadge from "./AgentBadge";
 import { ReviewBadge, VerdictBadge } from "./ReviewBadges";
 import { TaskE2eBadge } from "./E2eBadges";
 import { isReview } from "../../lib/review";
@@ -13,6 +14,8 @@ import {
   statusTextClass,
 } from "../../lib/board";
 import type { Task } from "../../lib/board";
+import { agentBadge, unavailableText } from "../../lib/taskAgent";
+import type { TaskAgents } from "../../lib/taskAgent";
 
 /** Colonne della Lista: Stato, Titolo, Modello, Aggiornato, Durata. */
 export const LIST_GRID = "grid grid-cols-[150px_minmax(220px,1fr)_96px_110px_80px] gap-3";
@@ -20,6 +23,8 @@ export const LIST_GRID = "grid grid-cols-[150px_minmax(220px,1fr)_96px_110px_80p
 interface Props {
   task: Task;
   subtitle: string;
+  /** Agenti del workspace: badge e motivo di un agente non pronto. */
+  agents: TaskAgents;
   now: number;
   selected: boolean;
   /** Mostra il repository davanti al sottotitolo (workspace multi-repo). */
@@ -28,9 +33,11 @@ interface Props {
 }
 
 /** Riga della Lista: un bottone (tastiera e lettori di schermo) con le celle in griglia. */
-function ListRow({ task, subtitle, now, selected, showRepo, onSelect }: Props) {
+function ListRow({ task, subtitle, agents, now, selected, showRepo, onSelect }: Props) {
   const status = displayStatus(task);
-  const sub = [showRepo ? task.repo || "." : null, subtitle].filter(Boolean).join(" · ");
+  const sub = [showRepo ? task.repo || "." : null, unavailableText(agents, task.agent_unavailable), subtitle]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <button
       type="button"
@@ -59,6 +66,7 @@ function ListRow({ task, subtitle, now, selected, showRepo, onSelect }: Props) {
           {isReview(task) && <ReviewBadge className="text-[11px]" />}
           <VerdictBadge task={task} className="text-[11px]" />
           <TaskE2eBadge task={task} className="text-[11px]" />
+          <AgentBadge name={agentBadge(agents, task.agent)} className="text-[11px]" />
         </span>
         {sub && <span className="truncate text-[11px] text-muted-foreground">{sub}</span>}
       </span>

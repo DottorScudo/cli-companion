@@ -301,10 +301,10 @@ describe("board: ricerca e filtri", () => {
     assert.equal(matchesQuery(task(), "esito"), false);
   });
   const tasks = [
-    task({ id: "a", status: "queued", title: "Alfa" }),
-    task({ id: "b", status: "running", title: "Beta", repo: "api" }),
-    task({ id: "c", status: "failed", title: "Gamma", repo: "web" }),
-    task({ id: "d", status: "done", title: "Alfa due", repo: "api" }),
+    task({ id: "a", status: "queued", title: "Alfa", agent: "ag-one" }),
+    task({ id: "b", status: "running", title: "Beta", repo: "api", agent: "ag-two" }),
+    task({ id: "c", status: "failed", title: "Gamma", repo: "web", agent: "ag-one" }),
+    task({ id: "d", status: "done", title: "Alfa due", repo: "api", agent: "ag-two" }),
   ];
   it("filtro per stato (selezione multipla), repo e testo", () => {
     assert.deepEqual(
@@ -324,7 +324,19 @@ describe("board: ricerca e filtri", () => {
       ["a"],
     );
     assert.deepEqual(
-      filterTasks(tasks, { query: "alfa", statuses: ["done"], repos: [] }).map((x) => x.id),
+      filterTasks(tasks, { ...EMPTY_FILTER, agents: ["ag-two"] }).map((x) => x.id),
+      ["b", "d"],
+    );
+    assert.deepEqual(
+      filterTasks(tasks, { ...EMPTY_FILTER, agents: ["ag-one", "ag-two"], repos: ["api"] }).map((x) => x.id),
+      ["b", "d"],
+    );
+    assert.deepEqual(
+      filterTasks(tasks, { ...EMPTY_FILTER, agents: ["ag-one"], statuses: ["failed"] }).map((x) => x.id),
+      ["c"],
+    );
+    assert.deepEqual(
+      filterTasks(tasks, { ...EMPTY_FILTER, query: "alfa", statuses: ["done"] }).map((x) => x.id),
       ["d"],
     );
   });
@@ -335,6 +347,7 @@ describe("board: ricerca e filtri", () => {
     assert.equal(isFiltering({ ...EMPTY_FILTER, query: " x " }), true);
     assert.equal(isFiltering({ ...EMPTY_FILTER, statuses: ["done"] }), true);
     assert.equal(isFiltering({ ...EMPTY_FILTER, repos: ["api"] }), true);
+    assert.equal(isFiltering({ ...EMPTY_FILTER, agents: ["ag-one"] }), true);
   });
   it("ordine per aggiornamento: discendente di default, senza mutare l'input", () => {
     const x = [task({ id: "o", updated_at: 1 }), task({ id: "n", updated_at: 9 })];

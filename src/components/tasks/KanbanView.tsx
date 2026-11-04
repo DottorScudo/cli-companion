@@ -7,11 +7,14 @@ import { isParallel, statusDotClass } from "../../lib/board";
 import type { BoardView, Task, TaskStatus } from "../../lib/board";
 import { acceptsDrop, dragIntent, kanbanColumns, reorderTarget } from "../../lib/taskViews";
 import type { DragIntent } from "../../lib/taskViews";
+import type { TaskAgents } from "../../lib/taskAgent";
 import { api } from "../../lib/tauri";
 
 interface Props {
   workspaceId: string;
   board: BoardView;
+  /** Agenti del workspace: badge e motivo di un agente non pronto sulle card. */
+  agents: TaskAgents;
   query: string;
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -46,6 +49,7 @@ const EMPTY_TEXT = "Nessun task";
 export default function KanbanView({
   workspaceId,
   board,
+  agents,
   query,
   selectedId,
   onSelect,
@@ -127,6 +131,7 @@ export default function KanbanView({
       key={t.id}
       task={t}
       tasks={board.tasks}
+      agents={agents}
       now={now}
       selected={t.id === selectedId}
       showRepo={showRepo}

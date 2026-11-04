@@ -175,12 +175,33 @@ describe("lista", () => {
     assert.deepEqual(toggleSort({ key: "title", desc: false }, "duration"), { key: "duration", desc: true });
   });
   it("conteggi: seguono ricerca e repo, non gli stati", () => {
-    assert.deepEqual(statusCounts(tasks, { query: "", repos: [] }), { queued: 1, running: 1, done: 1, failed: 1 });
-    assert.deepEqual(statusCounts(tasks, { query: "alfa", repos: [] }), { queued: 0, running: 1, done: 0, failed: 0 });
-    assert.deepEqual(statusCounts(tasks, { query: "", repos: ["api"] }), { queued: 1, running: 0, done: 0, failed: 0 });
+    assert.deepEqual(statusCounts(tasks, { query: "", repos: [], agents: [] }), {
+      queued: 1,
+      running: 1,
+      done: 1,
+      failed: 1,
+    });
+    assert.deepEqual(statusCounts(tasks, { query: "alfa", repos: [], agents: [] }), {
+      queued: 0,
+      running: 1,
+      done: 0,
+      failed: 0,
+    });
+    assert.deepEqual(statusCounts(tasks, { query: "", repos: ["api"], agents: [] }), {
+      queued: 1,
+      running: 0,
+      done: 0,
+      failed: 0,
+    });
+    assert.deepEqual(statusCounts(tasks, { query: "", repos: [], agents: ["nessuno"] }), {
+      queued: 0,
+      running: 0,
+      done: 0,
+      failed: 0,
+    });
   });
   it("righe: filtri e ordinamento", () => {
-    const rows = listRows(tasks, { query: "", statuses: ["done", "failed"], repos: [] }, DEFAULT_SORT, NOW);
+    const rows = listRows(tasks, { query: "", statuses: ["done", "failed"], repos: [], agents: [] }, DEFAULT_SORT, NOW);
     assert.deepEqual(
       rows.map((t) => t.id),
       ["a", "d"],
@@ -212,7 +233,10 @@ describe("preferenze", () => {
   });
   it("scrittura e lettura per workspace", () => {
     const m = memory();
-    const p = { view: "list", list: { statuses: ["done"], repos: ["api"], sort: { key: "title", desc: false } } };
+    const p = {
+      view: "list",
+      list: { statuses: ["done"], repos: ["api"], agents: ["ag-one"], sort: { key: "title", desc: false } },
+    };
     writePrefs(m, "w1", p);
     writePrefs(m, "w2", { ...defaultPrefs(), view: "graph" });
     assert.deepEqual(readPrefs(m, "w1"), p);
@@ -222,13 +246,17 @@ describe("preferenze", () => {
   it("valori non validi scartati", () => {
     const m = memory(
       JSON.stringify({
-        w: { view: "boh", list: { statuses: ["done", "x", 3], repos: ["a", 1], sort: { key: "zzz" } } },
+        w: {
+          view: "boh",
+          list: { statuses: ["done", "x", 3], repos: ["a", 1], agents: ["ag-one", 2], sort: { key: "zzz" } },
+        },
       }),
     );
     const p = readPrefs(m, "w");
     assert.equal(p.view, "kanban");
     assert.deepEqual(p.list.statuses, ["done"]);
     assert.deepEqual(p.list.repos, ["a"]);
+    assert.deepEqual(p.list.agents, ["ag-one"]);
     assert.deepEqual(p.list.sort, DEFAULT_SORT);
   });
   it("accessor che lancia: nessun errore", () => {

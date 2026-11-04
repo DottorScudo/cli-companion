@@ -1,9 +1,12 @@
 import { useMemo } from "react";
 import { AlertTriangle, ChevronsLeft, ListOrdered, Loader2, Sparkles, XCircle } from "lucide-react";
+import { useStore } from "../../hooks/useStore";
 import type { BoardView } from "../../lib/board";
 import type { Workspace } from "../../lib/tauri";
 import type { BotImage } from "../../lib/bots";
+import { agentBadge, taskAgents } from "../../lib/taskAgent";
 import { activityGroups, activityTotals, groupSummary, proposalsText } from "../../lib/taskPanel";
+import { configStore } from "../../stores/config";
 import EnvChip from "../EnvChip";
 import PanelHeaderButton from "./PanelHeaderButton";
 import PanelRail from "./PanelRail";
@@ -46,6 +49,7 @@ export default function GlobalTaskPanel({
 }: GlobalTaskPanelProps) {
   const groups = useMemo(() => activityGroups(workspaces, boards), [workspaces, boards]);
   const totals = useMemo(() => activityTotals(groups), [groups]);
+  const integrations = useStore(configStore, (s) => s.integrations);
   const now = usePanelNow(!collapsed && totals.running > 0);
 
   if (collapsed) {
@@ -110,6 +114,7 @@ export default function GlobalTaskPanel({
       <div className="flex min-h-0 flex-1 flex-col gap-[18px] overflow-y-auto overflow-x-hidden p-2.5">
         {groups.map((g) => {
           const ws = g.workspace;
+          const agents = taskAgents(integrations, ws);
           return (
             <section key={ws.id} aria-label={ws.name} className="flex min-w-0 flex-col gap-1.5">
               <button
@@ -128,6 +133,7 @@ export default function GlobalTaskPanel({
                   key={t.id}
                   task={t}
                   now={now}
+                  agent={agentBadge(agents, t.agent)}
                   bot={t.session ? botOf?.(t.session) : undefined}
                   botImage={t.session ? botImageOf?.(t.session) : undefined}
                   onClick={() => (t.session ? onFocusTab(t.session) : onOpenWorkspace(ws.id))}

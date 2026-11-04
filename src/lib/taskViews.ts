@@ -155,8 +155,11 @@ export function listRows(tasks: Task[], filter: TaskFilter, sort: ListSort, now:
   return sortTasks(filterTasks(tasks, filter), sort, now);
 }
 
-/** Conteggi dei chip di stato: rispecchiano ricerca e repository, non la selezione degli stati. */
-export function statusCounts(tasks: Task[], filter: Pick<TaskFilter, "query" | "repos">): Record<TaskStatus, number> {
+/** Conteggi dei chip di stato: rispecchiano ricerca, repository e agenti, non la selezione degli stati. */
+export function statusCounts(
+  tasks: Task[],
+  filter: Pick<TaskFilter, "query" | "repos" | "agents">,
+): Record<TaskStatus, number> {
   const counts = { queued: 0, running: 0, done: 0, failed: 0 };
   for (const t of filterTasks(tasks, { ...filter, statuses: [] })) counts[t.status]++;
   return counts;
@@ -197,6 +200,8 @@ export interface ListPrefs {
   statuses: TaskStatus[];
   /** Repository ammessi; vuoto = tutti. */
   repos: string[];
+  /** Agenti ammessi (id dell'integrazione); vuoto = tutti. */
+  agents: string[];
   sort: ListSort;
 }
 
@@ -206,7 +211,7 @@ export interface WorkspacePrefs {
 }
 
 export function defaultPrefs(): WorkspacePrefs {
-  return { view: "kanban", list: { statuses: [], repos: [], sort: { ...DEFAULT_SORT } } };
+  return { view: "kanban", list: { statuses: [], repos: [], agents: [], sort: { ...DEFAULT_SORT } } };
 }
 
 /** Parte minima di `Storage` che serve qui. */
@@ -240,6 +245,7 @@ export function readPrefs(storage: StorageLike | null | undefined, workspaceId: 
     const l = list as Record<string, unknown>;
     if (Array.isArray(l.statuses)) out.list.statuses = STATUSES.filter((s) => (l.statuses as unknown[]).includes(s));
     if (Array.isArray(l.repos)) out.list.repos = l.repos.filter((r): r is string => typeof r === "string");
+    if (Array.isArray(l.agents)) out.list.agents = l.agents.filter((a): a is string => typeof a === "string");
     const sort = l.sort as Record<string, unknown> | null | undefined;
     if (sort && (sort.key === "updated" || sort.key === "title" || sort.key === "duration")) {
       out.list.sort = { key: sort.key, desc: sort.desc === true };

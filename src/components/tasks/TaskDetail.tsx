@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
+import AgentBadge from "./AgentBadge";
 import DetailActions from "./DetailActions";
+import DetailAgentUnavailable from "./DetailAgentUnavailable";
 import DetailE2e from "./DetailE2e";
 import DetailFacts from "./DetailFacts";
 import DetailResult from "./DetailResult";
@@ -20,6 +22,8 @@ import {
 } from "../../lib/board";
 import type { BoardView, Task, TaskAction } from "../../lib/board";
 import { isReview } from "../../lib/review";
+import { agentBadge } from "../../lib/taskAgent";
+import type { TaskAgents } from "../../lib/taskAgent";
 import { isMultiRepo, repoOptions } from "../../lib/taskForm";
 import { openExternal } from "../../lib/openExternal";
 import { api } from "../../lib/tauri";
@@ -49,8 +53,8 @@ export interface TaskDetailProps {
   repos?: string[];
   /** Configurazione per repository del workspace (`Workspace.repos`): dice dove gli E2E sono configurati. */
   repoConfigs?: Workspace["repos"];
-  /** Modello predefinito dei worker, come segnaposto del campo modello. */
-  defaultModel?: string | null;
+  /** Agenti del workspace: badge, scelta nella modifica, motivo di un agente non pronto. */
+  agents: TaskAgents;
   /** Il tab del worker esiste ancora? Assente = si assume di sì. */
   isTabOpen?: (tabId: string) => boolean;
   /** Orologio condiviso del manager (durata di un task in corso). */
@@ -68,7 +72,7 @@ export default function TaskDetail({
   onSelectTask,
   repos = NO_REPOS,
   repoConfigs,
-  defaultModel = null,
+  agents,
   isTabOpen,
   now,
 }: TaskDetailProps) {
@@ -85,6 +89,11 @@ export default function TaskDetail({
 
   const session = task.session ?? "";
   const tabAvailable = canOpenTerminal(task) && (task.status === "running" || (isTabOpen ? isTabOpen(session) : true));
+
+  const startEditing = () => {
+    clearError();
+    setEditing(true);
+  };
 
   const act = (action: TaskAction) => void run(() => api.taskAction(workspaceId, task.id, action));
 
@@ -108,6 +117,7 @@ export default function TaskDetail({
           {isReview(task) && <ReviewBadge className="text-xs" />}
           <VerdictBadge task={task} className="text-xs" />
           <TaskE2eBadge task={task} className="text-xs" />
+          <AgentBadge name={agentBadge(agents, task.agent)} className="text-xs" />
           <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground" title={task.id}>
             {task.id}
           </span>
@@ -127,10 +137,7 @@ export default function TaskDetail({
             board={board}
             busy={busy}
             canOpenTerminal={tabAvailable}
-            onEdit={() => {
-              clearError();
-              setEditing(true);
-            }}
+            onEdit={startEditing}
             onAction={act}
             onOpenTerminal={() => onOpenTerminal(session)}
             onOpenPr={openExternal}
@@ -152,11 +159,12 @@ export default function TaskDetail({
             onBoard={onBoard}
             repoChoices={repoChoices}
             repoConfigs={repoConfigs}
-            modelPlaceholder={defaultModel || "predefinito dei worker"}
+            agents={agents}
             onDone={() => setEditing(false)}
           />
         ) : (
           <>
+            <DetailAgentUnavailable task={task} agents={agents} onChangeAgent={startEditing} />
             <DetailResult task={task} />
             <DetailE2e workspaceId={workspaceId} task={task} />
             {task.note && (

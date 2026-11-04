@@ -10,7 +10,7 @@ import { useCommand } from "./useDetailCommand";
 import { useManagerNow } from "./useManagerNow";
 import { useManagerPrefs } from "./useManagerPrefs";
 import { useWorkspaceRepos } from "./useWorkspaceRepos";
-import { useWorkerAgent } from "../../hooks/useWorkerAgent";
+import { useTaskAgents } from "../../hooks/useTaskAgents";
 import { clampToBounds, deliveryLabel } from "../../lib/board";
 import type { BoardView, Task } from "../../lib/board";
 import { repoOptions } from "../../lib/taskForm";
@@ -86,7 +86,7 @@ export default function TasksManager({
   const detected = useWorkspaceRepos(workspace.id);
   const searchRef = useRef<HTMLInputElement>(null);
   const header = useCommand(onBoard);
-  const { settings: workerSettings } = useWorkerAgent(workspace);
+  const agents = useTaskAgents(workspace);
 
   const repoChoices = useMemo(() => repoOptions(board?.tasks ?? [], detected), [board?.tasks, detected]);
   const multiRepo = repoChoices.length > 1;
@@ -175,7 +175,7 @@ export default function TasksManager({
           Coda in pausa: i task in corso finiscono, nessun nuovo task parte.
         </p>
       )}
-      {board && <ManagerProposals workspaceId={workspace.id} board={board} onBoard={onBoard} />}
+      {board && <ManagerProposals workspaceId={workspace.id} board={board} agents={agents} onBoard={onBoard} />}
 
       <div className="flex min-h-0 flex-1">
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -189,6 +189,7 @@ export default function TasksManager({
             <KanbanView
               workspaceId={workspace.id}
               board={board}
+              agents={agents}
               query={query}
               selectedId={selectedId}
               onSelect={setSelectedId}
@@ -200,6 +201,7 @@ export default function TasksManager({
           ) : prefs.view === "list" ? (
             <ListView
               board={board}
+              agents={agents}
               query={query}
               onQuery={setQuery}
               prefs={prefs.list}
@@ -220,13 +222,13 @@ export default function TasksManager({
             workspaceId={workspace.id}
             task={selected}
             board={board}
+            agents={agents}
             onBoard={onBoard}
             onClose={() => setSelectedId(null)}
             onOpenTerminal={onOpenTerminal}
             onSelectTask={setSelectedId}
             repos={detected}
             repoConfigs={workspace.repos}
-            defaultModel={workerSettings.model}
             isTabOpen={isTabOpen}
             now={now}
           />
@@ -237,6 +239,7 @@ export default function TasksManager({
         open={newTaskOpen}
         workspace={workspace}
         board={board}
+        agents={agents}
         onBoard={onBoard}
         onClose={() => setNewTaskOpen(false)}
         onOpenIntake={onOpenIntake}

@@ -4,12 +4,16 @@ import ListFilters from "./ListFilters";
 import ListRow, { LIST_GRID } from "./ListRow";
 import { isFiltering } from "../../lib/board";
 import type { BoardView } from "../../lib/board";
+import { agentFilterOptions, agentName, showAgentFilter } from "../../lib/taskAgent";
+import type { TaskAgents } from "../../lib/taskAgent";
 import { listRows, listSubtitle, queuePositions, statusCounts, toggleSort } from "../../lib/taskViews";
 import type { ListPrefs, ListSortKey } from "../../lib/taskViews";
 import { cn } from "../../lib/utils";
 
 interface Props {
   board: BoardView;
+  /** Agenti del workspace: badge, motivo di un agente non pronto e nomi del filtro. */
+  agents: TaskAgents;
   /** Ricerca della barra del manager. */
   query: string;
   onQuery: (query: string) => void;
@@ -37,6 +41,7 @@ const HEADERS: { key: ListSortKey | null; label: string }[] = [
  */
 export default function ListView({
   board,
+  agents,
   query,
   onQuery,
   prefs,
@@ -49,9 +54,20 @@ export default function ListView({
 }: Props) {
   const tasks = board.tasks;
   const multiRepo = repoChoices.length > 1;
+  const agentIds = useMemo(() => agentFilterOptions(tasks, prefs.agents), [tasks, prefs.agents]);
+  const agentFilter = showAgentFilter(agentIds);
+  const agentChoices = useMemo(
+    () => (agentFilter ? agentIds.map((id) => ({ value: id, label: agentName(agents, id) })) : []),
+    [agentFilter, agentIds, agents],
+  );
   const filter = useMemo(
-    () => ({ query, statuses: prefs.statuses, repos: multiRepo ? prefs.repos : [] }),
-    [query, prefs.statuses, prefs.repos, multiRepo],
+    () => ({
+      query,
+      statuses: prefs.statuses,
+      repos: multiRepo ? prefs.repos : [],
+      agents: agentFilter ? prefs.agents : [],
+    }),
+    [query, prefs.statuses, prefs.repos, prefs.agents, multiRepo, agentFilter],
   );
   const rows = useMemo(() => listRows(tasks, filter, prefs.sort, now), [tasks, filter, prefs.sort, now]);
   const counts = useMemo(() => statusCounts(tasks, filter), [tasks, filter]);
@@ -60,7 +76,7 @@ export default function ListView({
 
   const reset = () => {
     onQuery("");
-    onPrefs({ ...prefs, statuses: [], repos: [] });
+    onPrefs({ ...prefs, statuses: [], repos: [], agents: [] });
   };
 
   return (
@@ -72,6 +88,9 @@ export default function ListView({
         repoChoices={repoChoices}
         repos={prefs.repos}
         onRepos={(repos) => onPrefs({ ...prefs, repos })}
+        agentChoices={agentChoices}
+        agents={prefs.agents}
+        onAgents={(selected) => onPrefs({ ...prefs, agents: selected })}
         filtering={filtering}
         onReset={reset}
       />
@@ -112,6 +131,7 @@ export default function ListView({
             key={t.id}
             task={t}
             subtitle={listSubtitle(t, tasks, positions)}
+            agents={agents}
             now={now}
             selected={t.id === selectedId}
             showRepo={multiRepo}

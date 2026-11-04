@@ -6,6 +6,8 @@ import { dependencyOptions } from "../../lib/taskForm";
 import type { TaskFormErrors, TaskFormValues } from "../../lib/taskForm";
 import type { Task } from "../../lib/board";
 import { MODEL_MAX } from "../../lib/model";
+import { agentOptions, modelAfterAgentChange, modelPlaceholder, modelSuggestions } from "../../lib/taskAgent";
+import type { TaskAgents } from "../../lib/taskAgent";
 import { E2E_OPTION_LABEL, e2eOption } from "../../lib/e2e";
 import { REVIEW_OPTION_HELP, REVIEW_OPTION_LABEL } from "../../lib/review";
 import { cn } from "../../lib/utils";
@@ -26,7 +28,8 @@ interface Props {
   repoLocked?: boolean;
   /** Il repository scelto ha gli E2E configurati: senza, la casella "Richiede E2E" e' disattivata. */
   e2eConfigured: boolean;
-  modelPlaceholder: string;
+  /** Agenti selezionabili e dati per i suggerimenti del modello. */
+  agents: TaskAgents;
   disabled: boolean;
   specRows?: number;
 }
@@ -72,13 +75,15 @@ export default function DetailTaskFields({
   repoChoices,
   repoLocked = false,
   e2eConfigured,
-  modelPlaceholder,
+  agents,
   disabled,
   specRows = 8,
 }: Props) {
   const options = dependencyOptions(tasks, selfId, values.depends_on);
   const id = (name: string) => `${idPrefix}-${name}`;
   const e2e = e2eOption(values.e2e, e2eConfigured);
+  const agentChoices = agentOptions(agents, values.agent);
+  const suggestions = modelSuggestions(agents, values.agent);
   return (
     <>
       <FieldBox id={id("title")} label="Titolo" error={errors.title}>
@@ -162,6 +167,30 @@ export default function DetailTaskFields({
         )}
       </div>
 
+      {agentChoices.length > 0 && (
+        <FieldBox
+          id={id("agent")}
+          label="Agente"
+          help="Chi esegue il task. Cambiandolo, il modello si svuota se il nuovo agente non lo consiglia."
+        >
+          <select
+            id={id("agent")}
+            value={values.agent}
+            disabled={disabled || agentChoices.length === 1}
+            onChange={(e) =>
+              onChange({ agent: e.target.value, model: modelAfterAgentChange(agents, e.target.value, values.model) })
+            }
+            className={selectClass}
+          >
+            {agentChoices.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label}
+              </option>
+            ))}
+          </select>
+        </FieldBox>
+      )}
+
       <FieldBox
         id={id("model")}
         label="Modello"
@@ -173,11 +202,21 @@ export default function DetailTaskFields({
           value={values.model}
           disabled={disabled}
           maxLength={MODEL_MAX + 16}
-          placeholder={modelPlaceholder}
+          placeholder={modelPlaceholder(agents, values.agent)}
+          list={suggestions.length > 0 ? id("model-suggestions") : undefined}
           aria-invalid={errors.model ? true : undefined}
           aria-describedby={errors.model ? `${id("model")}-error` : undefined}
           onChange={(e) => onChange({ model: e.target.value })}
         />
+        {suggestions.length > 0 && (
+          <datalist id={id("model-suggestions")}>
+            {suggestions.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </datalist>
+        )}
       </FieldBox>
 
       {repoChoices.length > 1 && (

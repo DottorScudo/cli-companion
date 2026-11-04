@@ -3,6 +3,7 @@ import { PREPARING_LABEL, displayStatus } from "../../lib/board";
 import type { Task } from "../../lib/board";
 import { runningMeta } from "../../lib/taskPanel";
 import { cn } from "@/lib/utils";
+import AgentBadge from "./AgentBadge";
 import { ReviewBadge } from "./ReviewBadges";
 import { TaskE2eBadge } from "./E2eBadges";
 import { isReview } from "../../lib/review";
@@ -14,6 +15,8 @@ interface PanelRunningCardProps {
   now: number;
   /** Nome del bot (se la funzione e' attiva) del tab del worker. */
   bot?: string;
+  /** Nome dell'agente da mostrare (null = niente badge: una sola integrazione, quella del workspace). */
+  agent?: string | null;
   /** Immagine del bot (se il suo nome ne ha una). */
   botImage?: BotImage;
   onClick: () => void;
@@ -23,7 +26,7 @@ interface PanelRunningCardProps {
  * Card di un task in corso: spinner ambra e "modello · tempo", oppure triangolo
  * arancione e "Richiede attenzione" (bordo evidenziato). Un solo pulsante.
  */
-export default function PanelRunningCard({ task, now, bot, botImage, onClick }: PanelRunningCardProps) {
+export default function PanelRunningCard({ task, now, agent = null, bot, botImage, onClick }: PanelRunningCardProps) {
   const attention = displayStatus(task) === "attention";
   const preparing = Boolean(task.preparing);
   const meta = attention ? "Richiede attenzione" : preparing ? PREPARING_LABEL : runningMeta(task, now);
@@ -56,6 +59,7 @@ export default function PanelRunningCard({ task, now, bot, botImage, onClick }: 
           {task.title}
           {isReview(task) && <ReviewBadge className="ml-1.5 align-middle text-[10px]" />}
           <TaskE2eBadge task={task} className="ml-1.5 align-middle text-[10px]" />
+          <AgentBadge name={agent} className="ml-1.5 align-middle text-[10px]" />
         </span>
         {meta && (
           <span className={cn("truncate text-[11px]", attention ? "text-status-attention" : "text-muted-foreground")}>

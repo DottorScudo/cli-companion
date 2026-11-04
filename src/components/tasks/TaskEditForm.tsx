@@ -4,6 +4,7 @@ import DetailTaskFields from "./DetailTaskFields";
 import { useCommand } from "./useDetailCommand";
 import { Button } from "../ui/button";
 import { repoHasE2e, withRepoE2e } from "../../lib/e2e";
+import type { TaskAgents } from "../../lib/taskAgent";
 import { api } from "../../lib/tauri";
 import { buildPatch, formFromTask, hasErrors, validateTaskForm } from "../../lib/taskForm";
 import type { TaskFormErrors, TaskFormValues } from "../../lib/taskForm";
@@ -19,12 +20,13 @@ interface Props {
   repoChoices: string[];
   /** Configurazione per repository del workspace: dice dove gli E2E sono disponibili. */
   repoConfigs: Workspace["repos"];
-  modelPlaceholder: string;
+  /** Agenti selezionabili e dati per i suggerimenti del modello. */
+  agents: TaskAgents;
   /** Esce dalla modifica (salvato o annullato). */
   onDone: () => void;
 }
 
-/** Modifica di un task Da fare / Fallito: titolo, specifica, dipendenze, modello, repo. */
+/** Modifica di un task Da fare / Fallito: titolo, specifica, dipendenze, agente, modello, repo. */
 export default function TaskEditForm({
   workspaceId,
   task,
@@ -32,7 +34,7 @@ export default function TaskEditForm({
   onBoard,
   repoChoices,
   repoConfigs,
-  modelPlaceholder,
+  agents,
   onDone,
 }: Props) {
   const [values, setValues] = useState<TaskFormValues>(() => formFromTask(task));
@@ -72,7 +74,7 @@ export default function TaskEditForm({
         repoChoices={repoChoices}
         repoLocked={repoLocked}
         e2eConfigured={repoHasE2e(repoConfigs, values.repo)}
-        modelPlaceholder={modelPlaceholder}
+        agents={agents}
         disabled={busy}
         specRows={12}
       />

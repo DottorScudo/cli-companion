@@ -4,9 +4,10 @@ import DetailTaskFields from "./DetailTaskFields";
 import { useCommand } from "./useDetailCommand";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
-import { useWorkerAgent } from "../../hooks/useWorkerAgent";
 import { repoHasE2e, withRepoE2e } from "../../lib/e2e";
 import { sanitizeModel } from "../../lib/model";
+import { defaultAgentChoice } from "../../lib/taskAgent";
+import type { TaskAgents } from "../../lib/taskAgent";
 import { api } from "../../lib/tauri";
 import {
   ROOT_REPO,
@@ -23,7 +24,8 @@ import type { Workspace } from "../../lib/tauri";
 
 /**
  * Props del dialog "Nuovo task": titolo, specifica, dipendenze (multi-selezione
- * tra i task non Fatti), modello (default del workspace), repo (solo
+ * tra i task non Fatti), agente (preselezionato: quello del workspace), modello
+ * (suggerimenti dell'agente, default del workspace), repo (solo
  * multi-repo; `api.workspaceDetectRepos`) e il suggerimento "Per una specifica
  * completa usa Task Intake". Crea con `api.taskCreate` e passa a `onBoard` la
  * board restituita, poi chiama `onClose`.
@@ -31,6 +33,8 @@ import type { Workspace } from "../../lib/tauri";
 export interface NewTaskDialogProps {
   open: boolean;
   workspace: Workspace;
+  /** Agenti selezionabili per il task e dati dei workspace. */
+  agents: TaskAgents;
   /** Board corrente (null = non ancora caricata): serve alle dipendenze possibili. */
   board: BoardView | null;
   onBoard: (board: BoardView) => void;
@@ -49,6 +53,7 @@ const NO_REPOS: string[] = [];
 export default function NewTaskDialog({
   open,
   workspace,
+  agents,
   board,
   onBoard,
   onClose,
@@ -62,6 +67,7 @@ export default function NewTaskDialog({
       <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
         <NewTaskForm
           workspace={workspace}
+          agents={agents}
           board={board}
           onBoard={onBoard}
           onClose={onClose}
@@ -76,8 +82,7 @@ export default function NewTaskDialog({
 
 type FormProps = Omit<NewTaskDialogProps, "open"> & { repos: string[] };
 
-function NewTaskForm({ workspace, board, onBoard, onClose, onOpenIntake, repos, onCreated }: FormProps) {
-  const { settings: workerSettings } = useWorkerAgent(workspace);
+function NewTaskForm({ workspace, agents, board, onBoard, onClose, onOpenIntake, repos, onCreated }: FormProps) {
   const tasks = board?.tasks ?? [];
   const repoChoices = repoOptions(tasks, repos);
   const multiRepo = isMultiRepo(repoChoices);
@@ -85,6 +90,7 @@ function NewTaskForm({ workspace, board, onBoard, onClose, onOpenIntake, repos, 
     title: "",
     task: "",
     depends_on: [],
+    agent: "",
     model: "",
     repo: repoChoices[0] ?? ROOT_REPO,
     kind: "work",
@@ -94,6 +100,8 @@ function NewTaskForm({ workspace, board, onBoard, onClose, onOpenIntake, repos, 
   const { run, busy, error, clearError } = useCommand(onBoard);
   // I repository possono arrivare dopo l'apertura: la scelta vale solo se è fra quelli noti.
   const repo = repoChoices.includes(values.repo) ? values.repo : (repoChoices[0] ?? ROOT_REPO);
+  // Le integrazioni possono arrivare dopo l'apertura: finché non si sceglie, vale l'agente del workspace.
+  const agent = values.agent || defaultAgentChoice(agents);
 
   const taskRepo = multiRepo ? repoValue(repo) : null;
   const e2eConfigured = repoHasE2e(workspace.repos, taskRepo);
@@ -117,6 +125,7 @@ function NewTaskForm({ workspace, board, onBoard, onClose, onOpenIntake, repos, 
         task: values.task.trim(),
         depends_on: values.depends_on,
         repo: taskRepo,
+        agent: agent || null,
         model: sanitizeModel(values.model),
         kind: values.kind,
         e2e: values.e2e && e2eConfigured,
@@ -154,14 +163,14 @@ function NewTaskForm({ workspace, board, onBoard, onClose, onOpenIntake, repos, 
 
       <DetailTaskFields
         idPrefix="new-task"
-        values={{ ...values, repo }}
+        values={{ ...values, repo, agent }}
         onChange={change}
         errors={errors}
         tasks={tasks}
         selfId={null}
         repoChoices={repoChoices}
         e2eConfigured={e2eConfigured}
-        modelPlaceholder={workerSettings.model || "predefinito dei worker"}
+        agents={agents}
         disabled={busy}
       />
 

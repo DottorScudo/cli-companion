@@ -10,14 +10,59 @@ interface Props {
   repoChoices: string[];
   repos: string[];
   onRepos: (repos: string[]) => void;
+  /** Filtro agente: solo con almeno due agenti fra cui scegliere (`agentChoices` vuoto = nascosto). */
+  agentChoices: FilterChoice[];
+  agents: string[];
+  onAgents: (agents: string[]) => void;
   filtering: boolean;
   onReset: () => void;
+}
+
+/** Una voce di un filtro a chip: il valore filtrato e il testo mostrato. */
+export interface FilterChoice {
+  value: string;
+  label: string;
 }
 
 const chipClass =
   "flex h-[30px] items-center gap-1.5 rounded-full border px-2.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-/** Chip di stato a selezione multipla (con conteggi), filtro repo e "Azzera filtri". */
+const chipTone = (on: boolean) =>
+  on
+    ? "border-primary bg-surface-2 text-foreground"
+    : "border-border-strong bg-transparent text-muted-foreground hover:text-foreground";
+
+interface ChoiceChipsProps {
+  label: string;
+  choices: FilterChoice[];
+  selected: string[];
+  onChange: (selected: string[]) => void;
+  chipExtraClass?: string;
+}
+
+/** Chip a selezione multipla di un filtro (repository, agente). */
+function ChoiceChips({ label, choices, selected, onChange, chipExtraClass }: ChoiceChipsProps) {
+  return (
+    <div role="group" aria-label={label} className="flex flex-wrap items-center gap-2">
+      {choices.map((c) => {
+        const on = selected.includes(c.value);
+        return (
+          <button
+            key={c.value}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChange(on ? selected.filter((x) => x !== c.value) : [...selected, c.value])}
+            className={cn(chipClass, chipExtraClass, chipTone(on))}
+          >
+            {c.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Chip di stato a selezione multipla (con conteggi), filtri repo e agente e "Azzera filtri". */
 export default function ListFilters({
   statuses,
   counts,
@@ -25,6 +70,9 @@ export default function ListFilters({
   repoChoices,
   repos,
   onRepos,
+  agentChoices,
+  agents,
+  onAgents,
   filtering,
   onReset,
 }: Props) {
@@ -39,12 +87,7 @@ export default function ListFilters({
               type="button"
               aria-pressed={on}
               onClick={() => onStatuses(toggleStatus(statuses, s))}
-              className={cn(
-                chipClass,
-                on
-                  ? "border-primary bg-surface-2 text-foreground"
-                  : "border-border-strong bg-transparent text-muted-foreground hover:text-foreground",
-              )}
+              className={cn(chipClass, chipTone(on))}
             >
               <span className={cn("h-[7px] w-[7px] rounded-full", statusDotClass(s))} aria-hidden="true" />
               {statusLabel(s)}
@@ -54,28 +97,16 @@ export default function ListFilters({
         })}
       </div>
       {repoChoices.length > 1 && (
-        <div role="group" aria-label="Filtra per repository" className="flex flex-wrap items-center gap-2">
-          {repoChoices.map((r) => {
-            const on = repos.includes(r);
-            return (
-              <button
-                key={r}
-                type="button"
-                aria-pressed={on}
-                onClick={() => onRepos(on ? repos.filter((x) => x !== r) : [...repos, r])}
-                className={cn(
-                  chipClass,
-                  "font-mono text-xs",
-                  on
-                    ? "border-primary bg-surface-2 text-foreground"
-                    : "border-border-strong bg-transparent text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {r}
-              </button>
-            );
-          })}
-        </div>
+        <ChoiceChips
+          label="Filtra per repository"
+          choices={repoChoices.map((r) => ({ value: r, label: r }))}
+          selected={repos}
+          onChange={onRepos}
+          chipExtraClass="font-mono text-xs"
+        />
+      )}
+      {agentChoices.length > 0 && (
+        <ChoiceChips label="Filtra per agente" choices={agentChoices} selected={agents} onChange={onAgents} />
       )}
       {filtering && (
         <button

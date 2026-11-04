@@ -6,10 +6,12 @@ import { ReviewBadge } from "./ReviewBadges";
 import { SpecE2eBadge } from "./E2eBadges";
 import { isReview, proposalHeading } from "../../lib/review";
 import { dependencyLabels, dependsOnText, specExcerpt } from "../../lib/taskPanel";
+import { proposalAgentLabel } from "../../lib/taskAgent";
+import type { TaskAgents } from "../../lib/taskAgent";
 
 /**
  * Props della card "Proposta da Task Intake" / "Proposta dal reviewer" (pannello Task e Tasks Manager):
- * titoli, estratto della specifica, dipendenze, modello e Scarta / Accetta.
+ * titoli, estratto della specifica, dipendenze, agente, modello e Scarta / Accetta.
  * La card chiama `api.proposalDecide` e passa a `onBoard` la board restituita;
  * se la validazione fallisce (es. id nel frattempo occupato) mostra l'errore.
  */
@@ -18,23 +20,33 @@ export interface ProposalCardProps {
   proposal: Proposal;
   /** Board corrente: serve a mostrare i titoli delle dipendenze già in coda. */
   board: BoardView;
+  /** Agenti del workspace: nome dell'agente proposto per ogni task. */
+  agents: TaskAgents;
   onBoard: (board: BoardView) => void;
 }
 
-/** "Dipende da A, B · modello" (le parti assenti si omettono). */
-function SpecMeta({ spec, board, siblings }: { spec: TaskSpec; board: BoardView; siblings: TaskSpec[] }) {
+interface SpecMetaProps {
+  spec: TaskSpec;
+  board: BoardView;
+  agents: TaskAgents;
+  siblings: TaskSpec[];
+}
+
+/** "Dipende da A, B · agente · modello" (le parti assenti si omettono). */
+function SpecMeta({ spec, board, agents, siblings }: SpecMetaProps) {
   const deps = dependsOnText(dependencyLabels(spec.depends_on, board.tasks, siblings));
-  if (!deps && !spec.model) return null;
+  const rest = [proposalAgentLabel(agents, spec.agent), spec.model].filter(Boolean).join(" · ");
+  if (!deps && !rest) return null;
   return (
     <div className="min-w-0 text-[11px] text-muted-foreground">
       {deps && <span className="break-words text-text-secondary">{deps}</span>}
-      {deps && spec.model && " · "}
-      {spec.model}
+      {deps && rest && " · "}
+      {rest}
     </div>
   );
 }
 
-export default function ProposalCard({ workspaceId, proposal, board, onBoard }: ProposalCardProps) {
+export default function ProposalCard({ workspaceId, proposal, board, agents, onBoard }: ProposalCardProps) {
   const [pending, setPending] = useState<"accept" | "discard" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const specs = proposal.tasks;
@@ -76,7 +88,7 @@ export default function ProposalCard({ workspaceId, proposal, board, onBoard }: 
             <SpecE2eBadge spec={single} className="ml-2 align-middle text-[10px]" />
           </div>
           {excerpt && <p className="line-clamp-3 break-words text-xs leading-normal text-text-secondary">{excerpt}</p>}
-          <SpecMeta spec={single} board={board} siblings={specs} />
+          <SpecMeta spec={single} board={board} agents={agents} siblings={specs} />
         </>
       ) : (
         <>
@@ -89,7 +101,7 @@ export default function ProposalCard({ workspaceId, proposal, board, onBoard }: 
                   {isReview(s) && <ReviewBadge className="ml-1.5 align-middle text-[10px]" />}
                   <SpecE2eBadge spec={s} className="ml-1.5 align-middle text-[10px]" />
                 </span>
-                <SpecMeta spec={s} board={board} siblings={specs} />
+                <SpecMeta spec={s} board={board} agents={agents} siblings={specs} />
               </li>
             ))}
           </ul>

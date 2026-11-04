@@ -16,6 +16,8 @@ export interface TaskFormValues {
   title: string;
   task: string;
   depends_on: string[];
+  /** Id dell'agente scelto; vuoto = nessuna scelta (integrazioni non ancora caricate): si lascia decidere al backend. */
+  agent: string;
   model: string;
   /** Repository scelto; `ROOT_REPO` = la root (si invia come null). */
   repo: string;
@@ -100,6 +102,7 @@ export function formFromTask(task: Task): TaskFormValues {
     title: task.title,
     task: task.task,
     depends_on: [...task.depends_on],
+    agent: task.agent,
     model: task.model ?? "",
     repo: task.repo || ROOT_REPO,
     kind: task.kind,
@@ -123,6 +126,7 @@ export function buildPatch(task: Task, v: TaskFormValues, includeRepo: boolean):
   if (spec !== task.task.trim()) patch.task = spec;
   if (!sameSet(v.depends_on, task.depends_on)) patch.depends_on = v.depends_on;
   const model = sanitizeModel(v.model);
+  if (v.agent !== "" && v.agent !== task.agent) patch.agent = v.agent;
   if (model !== (task.model ?? null)) patch.model = model;
   if (v.kind !== task.kind) patch.kind = v.kind;
   if (v.e2e !== (task.e2e ?? false)) patch.e2e = v.e2e;

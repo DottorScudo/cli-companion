@@ -2,11 +2,14 @@ import { memo } from "react";
 import type { DragEvent } from "react";
 import { TriangleAlert } from "lucide-react";
 import { cn } from "../../lib/utils";
+import AgentBadge from "./AgentBadge";
 import { ReviewBadge, VerdictBadge } from "./ReviewBadges";
 import { TaskE2eBadge } from "./E2eBadges";
 import { isReview } from "../../lib/review";
 import { displayStatus, waitingOnLabel, workerSubStatus } from "../../lib/board";
 import type { Task } from "../../lib/board";
+import { agentBadge, unavailableText } from "../../lib/taskAgent";
+import type { TaskAgents } from "../../lib/taskAgent";
 import { dragIntent, kanbanMeta } from "../../lib/taskViews";
 
 export type DropEdge = "before" | "after" | null;
@@ -15,6 +18,8 @@ interface Props {
   task: Task;
   /** Tutti i task: serve al titolo del task da cui dipende. */
   tasks: Task[];
+  /** Agenti del workspace: badge e motivo di un agente non pronto. */
+  agents: TaskAgents;
   now: number;
   selected: boolean;
   /** Mostra il repository (workspace multi-repo). */
@@ -37,6 +42,7 @@ const EDGE_SHADOW: Record<"before" | "after", string> = {
 function KanbanCard({
   task,
   tasks,
+  agents,
   now,
   selected,
   showRepo,
@@ -51,6 +57,7 @@ function KanbanCard({
   const attention = status === "attention";
   const waiting = waitingOnLabel(task, tasks);
   const sub = attention ? null : workerSubStatus(task);
+  const unavailable = unavailableText(agents, task.agent_unavailable);
   const draggable = dragIntent(task) !== null;
   return (
     <button
@@ -81,9 +88,11 @@ function KanbanCard({
         {isReview(task) && <ReviewBadge />}
         <VerdictBadge task={task} />
         <TaskE2eBadge task={task} />
+        <AgentBadge name={agentBadge(agents, task.agent)} />
         {waiting && (
           <span className="max-w-full truncate rounded border border-border-strong px-1.5 py-px">{waiting}</span>
         )}
+        {unavailable && <span className="max-w-full truncate font-medium text-status-running">{unavailable}</span>}
         {showRepo && (
           <span className="max-w-[10rem] truncate rounded bg-surface-2 px-1.5 py-px font-mono">{task.repo || "."}</span>
         )}
