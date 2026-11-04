@@ -55,6 +55,7 @@ contratto); un contratto dichiarato ma fatto male è un difetto.
 | Limiti di utilizzo | `usage_limits` | `UsageLimits` | `contracts/usage_limits.rs` |
 | Consumi della sessione | `session_usage` | `SessionUsageReader` | `contracts/session_usage.rs` |
 | Profilo di input | `input_profile` | `InputProfileSource` | `contracts/input_profile.rs` |
+| Modelli | `models` | `ModelCatalog` | `contracts/models.rs` |
 
 Il frontend non conosce i contratti per nome di agente: riceve i dati
 dichiarativi (`agent_profiles`: contratti dichiarati, regole di input, dati di
@@ -251,8 +252,8 @@ dallo scheduler per avviare i worker; l'agente può comparire come scelta per un
 task.
 
 **Core senza il contratto.** `"<nome> does not support automated sessions"`: i
-task non partono con quell'agente. `registry::default_worker_integration()` (la
-prima del registro) **deve** dichiarare `automation`: lo verifica la conformità.
+task non partono con quell'agente. `registry::default_agent()` (l'agente
+predefinito, la prima del registro finché l'utente non sceglie) **deve** dichiarare `automation`: lo verifica la conformità.
 
 **Conformità** (`automation`): per ogni target e ogni `PermissionMode` esiste un
 comando che contiene il prompt ed è sicuro per la shell; prompt con `" $ \` % ! \\`
@@ -417,6 +418,42 @@ standard.
 **Conformità** (`input_profile`): `send` non vuoto; nessuna regola duplicata per
 (evento, ambiente).
 
+### 11. Modelli: `ModelCatalog`
+
+**Scopo.** I modelli che l'agente consiglia e la regola per riconoscerne il nome.
+Il core non nomina nessun modello: sceglie per *fascia* (`ModelTier::Standard`
+per il lavoro ben definito, `ModelTier::Strong` per progettazione, modifiche
+rischiose e bug difficili).
+
+**Firma** (`contracts/models.rs`).
+
+```rust
+fn suggested(&self) -> &'static [SuggestedModel];  // { id, label, tier }, in ordine di preferenza
+fn default_model(&self) -> Option<&'static str>;   // None = decide l'agente
+fn is_valid(&self, model: &str) -> bool;           // la regola dell'integrazione per un nome
+```
+
+`is_valid` deve rifiutare tutto ciò che non è sicuro come singolo argomento di una
+riga di comando (spazi, `$`, virgolette, backtick, `;`, `|`, `&`, a capo, vuoto).
+Claude Code accetta alias e id completi, quindi usa la forma sicura
+(`validate::valid_model`) invece di un elenco chiuso.
+
+**Core con il contratto.** `agents::tier_models` prende il primo modello consigliato
+di ogni fascia e lo mette nelle descrizioni del campo `model` degli strumenti MCP
+(`propose_tasks`, `update_task`); la skill Task Intake rimanda a quelle
+descrizioni e non nomina modelli. `automation_command` rifiuta un modello che
+`is_valid` non accetta.
+
+**Core senza il contratto.** Nessun consiglio: le descrizioni del campo `model`
+non fanno nomi e la validità è la sola forma sicura (`validate::valid_model`).
+
+**Conformità** (`models`): id consigliati senza duplicati, con etichetta e validi
+per `is_valid`; `default_model`, se presente, valido; `is_valid` rifiuta nomi
+vuoti o con spazi, `$`, virgolette, backtick, `;`, `|`, `&`, a capo; se l'agente
+dichiara anche `automation`, il comando di avvio accetta ogni modello consigliato
+(Windows e WSL). Il test architetturale vieta i nomi dei modelli dell'agente fuori
+dalla sua cartella, skill dei preset comprese.
+
 ## Procedura passo passo
 
 1. **Leggi l'integrazione di riferimento.** `agents/claude_code/` ha un file per
@@ -510,6 +547,8 @@ guida.
       pacchetto, testo identico al catalogo, invocabile come primo prompt.
 - [ ] Se dichiari `automation`: ogni `PermissionMode` mappato; il server MCP è
       utilizzabile senza conferme; prompt, modello e path non fidati rifiutati.
+- [ ] Se dichiari `models`: `is_valid` rifiuta ciò che non è sicuro come argomento;
+      i nomi dei modelli restano nella cartella dell'agente.
 - [ ] Se dichiari `worker_permissions`: l'esempio di `RuleFormat` è valido;
       `prepare` scrive solo se cambia.
 - [ ] Testi per l'utente in italiano, testi letti dal modello (skill, preset,
@@ -854,6 +893,14 @@ Nessuna fonte sui tasti per incollare un'immagine nella TUI di OpenCode
 standard funziona, il profilo resta vuoto (`None`), che è il comportamento
 corretto.
 
+### 11. Modelli
+
+I modelli di OpenCode hanno la forma `provider/modello` [doc: CLI]: la forma
+sicura generica di `valid_model` (che non ammette `/`) non basta. L'integrazione
+dichiara il proprio `ModelCatalog`: `suggested` con un modello per fascia,
+`default_model` `None` (vale la configurazione dell'utente) e un `is_valid` che
+ammette una sola `/` tra due segmenti sicuri e rifiuta il resto.
+
 ### Riepilogo: cosa dichiarerebbe OpenCode
 
 | Contratto | Esito | Perché |
@@ -868,15 +915,17 @@ corretto.
 | `usage_limits` | No | non esiste un limite a finestre |
 | `session_usage` | No (per ora) | niente transcript su file; il contratto prende un path |
 | `input_profile` | No (per ora) | nessuna regola documentata |
+| `models` | Sì | consigli propri; `is_valid` accetta `provider/modello` |
 
 ### Punti in cui il core dovrebbe crescere
 
 Emersi dall'esempio, da decidere *prima* di scrivere l'integrazione (il core non
 si aggira con un `if`, si estende un contratto):
 
-1. **Modelli `provider/modello`**: il modello validato dal core non ammette `/`
-   (`AutomationRequest::model`). Serve una validazione demandata
-   all'integrazione.
+1. **Modelli `provider/modello`**: la validazione è ora demandata all'integrazione
+   (`ModelCatalog::is_valid`, usata da `automation_command`); restano da allineare
+   lo schema degli strumenti MCP e le validazioni di bacheca e impostazioni, che
+   applicano ancora `valid_model` (niente `/`).
 2. **Variabili d'ambiente per un comando** (`OPENCODE_CONFIG_DIR`,
    `OPENCODE_CONFIG`): `WorkerAutomation::command` ritorna solo una riga di comando.
    Per un agente che si configura con l'ambiente servirebbe un modo di esprimerlo

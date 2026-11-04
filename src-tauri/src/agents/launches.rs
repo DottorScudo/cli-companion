@@ -2,7 +2,8 @@
 
 use super::contracts::{AgentIntegration, PresetLauncher};
 use super::presets::{Preset, PRESETS};
-use super::registry::{self, default_worker_integration};
+use super::registry;
+use super::resolve::AgentUse;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -53,9 +54,12 @@ pub(super) fn collect_builtin_launches(
     out
 }
 
-/// Avvii integrati di tutti gli agenti (usata anche per validare gli id).
+/// Avvii integrati degli agenti abilitati (usata anche per validare gli id).
 pub fn builtin_launch_list() -> Vec<BuiltinLaunch> {
-    collect_builtin_launches(registry::all(), default_worker_integration().id(), PRESETS)
+    // I preset partono con l'agente predefinito se li sa lanciare; altrimenti
+    // `collect_builtin_launches` ripiega sul primo abilitato che li dichiara.
+    let preferred = registry::resolve_agent(None, None, AgentUse::Preset).unwrap_or_else(|_| registry::default_agent());
+    collect_builtin_launches(&registry::enabled(), preferred.id(), PRESETS)
 }
 
 #[cfg(test)]

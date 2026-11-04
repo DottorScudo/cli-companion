@@ -1,8 +1,8 @@
 //! L'elenco dei contratti dichiarati da un'integrazione.
 
 use super::{
-    HookEvents, InputProfileSource, IntegrationPackage, PresetLauncher, SessionResume, SessionUsageReader, UsageLimits,
-    UserSkills, WorkerAutomation, WorkerPermissions,
+    HookEvents, InputProfileSource, IntegrationPackage, ModelCatalog, PresetLauncher, SessionResume,
+    SessionUsageReader, UsageLimits, UserSkills, WorkerAutomation, WorkerPermissions,
 };
 use serde::Serialize;
 use ts_rs::TS;
@@ -22,6 +22,7 @@ pub struct Capabilities<'a> {
     pub usage_limits: Option<&'a dyn UsageLimits>,
     pub session_usage: Option<&'a dyn SessionUsageReader>,
     pub input_profile: Option<&'a dyn InputProfileSource>,
+    pub models: Option<&'a dyn ModelCatalog>,
 }
 
 /// Nome di un contratto, come lo vede il frontend (kebab-case).
@@ -39,6 +40,7 @@ pub enum Capability {
     UsageLimits,
     SessionUsage,
     InputProfile,
+    Models,
 }
 
 impl Capabilities<'_> {
@@ -56,6 +58,7 @@ impl Capabilities<'_> {
             usage_limits,
             session_usage,
             input_profile,
+            models,
         } = self;
         [
             (package.is_some(), Capability::Package),
@@ -68,6 +71,7 @@ impl Capabilities<'_> {
             (usage_limits.is_some(), Capability::UsageLimits),
             (session_usage.is_some(), Capability::SessionUsage),
             (input_profile.is_some(), Capability::InputProfile),
+            (models.is_some(), Capability::Models),
         ]
         .into_iter()
         .filter_map(|(on, capability)| on.then_some(capability))
@@ -92,6 +96,7 @@ mod tests {
         assert_eq!(json(Capability::UsageLimits), "usage-limits");
         assert_eq!(json(Capability::SessionUsage), "session-usage");
         assert_eq!(json(Capability::InputProfile), "input-profile");
+        assert_eq!(json(Capability::Models), "models");
     }
 
     #[test]
@@ -107,6 +112,7 @@ mod tests {
             usage_limits: None,
             session_usage: None,
             input_profile: None,
+            models: None,
         };
         assert!(none.declared().is_empty());
     }

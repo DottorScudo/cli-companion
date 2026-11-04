@@ -9,6 +9,8 @@ import type { BotSettings } from "../bindings/BotSettings.ts";
 import type { BuiltinLaunch } from "../bindings/BuiltinLaunch.ts";
 import type { Delivery } from "../bindings/Delivery.ts";
 import type { E2eEvent as E2eUpdateEvent } from "../bindings/E2eEvent.ts";
+import type { IntegrationInfo } from "../bindings/IntegrationInfo.ts";
+import type { IntegrationsState } from "../bindings/IntegrationsState.ts";
 import type { IpcStatus } from "../bindings/IpcStatus.ts";
 import type { LaunchSettings } from "../bindings/LaunchSettings.ts";
 import type { OutdatedPlugin } from "../bindings/OutdatedPlugin.ts";
@@ -38,6 +40,8 @@ export type {
   BotSettings,
   BuiltinLaunch,
   Delivery,
+  IntegrationInfo,
+  IntegrationsState,
   OutdatedPlugin,
   PluginUpdateResult,
   PtyEvent,
@@ -177,6 +181,14 @@ export const api = {
   agentPluginsUpdate: () => invoke<PluginUpdateResult[]>("agent_plugins_update"),
 
   removeAgentPlugin: (agentId: string, envKey: string) => invoke<string>("remove_agent_plugin", { agentId, envKey }),
+
+  /** Tutte le integrazioni con stato e prontezza per target (backend: agents/integrations_commands.rs). */
+  integrationsList: () => invoke<IntegrationInfo[]>("integrations_list"),
+
+  setIntegrationEnabled: (id: string, enabled: boolean) =>
+    invoke<IntegrationsState>("set_integration_enabled", { id, enabled }),
+
+  setDefaultIntegration: (id: string) => invoke<IntegrationsState>("set_default_integration", { id }),
 
   // Sessioni automatiche (backend: src-tauri/src/automation/).
   /** Un tab automatico e' stato chiuso (utente, app o shell uscita). */

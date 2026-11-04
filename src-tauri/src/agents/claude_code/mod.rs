@@ -7,6 +7,7 @@ mod automation;
 mod config_dir;
 mod hook_events;
 mod input_profile;
+mod models;
 mod package;
 mod permissions;
 mod plugin;
@@ -73,6 +74,7 @@ impl AgentIntegration for ClaudeCode {
             usage_limits: Some(self),
             session_usage: Some(self),
             input_profile: Some(self),
+            models: Some(self),
         }
     }
 }

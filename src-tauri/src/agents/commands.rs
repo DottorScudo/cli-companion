@@ -7,11 +7,13 @@ use super::contracts::{
     UsageLimitsReply,
 };
 use super::detection::{invalidate_detection_cache, list_targets};
+use super::env_status::{collect_status, AgentEnvStatus};
 use super::launches::{builtin_launch_list, BuiltinLaunch};
 use super::package::{self, OutdatedPlugin, PluginUpdateResult};
+use super::readiness::forget_readiness;
 use super::registry;
 use crate::launch_settings::LaunchSettingsStore;
-use crate::platform::{forward_slashes, is_valid_distro_name, Target, TargetKind};
+use crate::platform::{forward_slashes, is_valid_distro_name, Target};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use ts_rs::TS;
@@ -20,48 +22,6 @@ use ts_rs::TS;
 #[tauri::command]
 pub fn builtin_launches() -> Vec<BuiltinLaunch> {
     builtin_launch_list()
-}
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[ts(export)]
-pub struct AgentEnvStatus {
-    pub agent_id: String,
-    pub agent_name: String,
-    pub env_key: String,
-    pub env_label: String,
-    pub env_kind: TargetKind,
-    pub found: bool,
-    pub version: Option<String>,
-    pub installed: bool,
-}
-
-fn status_for(integration: &dyn AgentIntegration, target: &Target) -> AgentEnvStatus {
-    let det = integration.detect(target);
-    let installed =
-        det.found && integration.capabilities().package.is_some_and(|package| package.is_installed(target, &det));
-    AgentEnvStatus {
-        agent_id: integration.id().to_string(),
-        agent_name: integration.display_name().to_string(),
-        env_key: target.key(),
-        env_label: target.label(),
-        env_kind: target.kind(),
-        found: det.found,
-        version: det.version,
-        installed,
-    }
-}
-
-/// Ogni coppia agente x target costa piu' processi e su WSL anche l'avvio
-/// della VM: si sondano tutte in parallelo.
-fn collect_status(integrations: &[&dyn AgentIntegration], targets: &[Target]) -> Vec<AgentEnvStatus> {
-    std::thread::scope(|s| {
-        let handles: Vec<_> = targets
-            .iter()
-            .flat_map(|target| integrations.iter().map(move |i| (*i, target)))
-            .map(|(i, target)| s.spawn(move || status_for(i, target)))
-            .collect();
-        handles.into_iter().filter_map(|h| h.join().ok()).collect()
-    })
 }
 
 #[tauri::command]
@@ -78,8 +38,8 @@ pub struct AgentProfile {
     pub capabilities: Vec<Capability>,
     /// Vuoto se l'integrazione non dichiara `input_profile`.
     pub input_profile: InputProfile,
-    /// `true` per l'integrazione predefinita (`default_worker_integration`), la stessa
-    /// che usano i worker.
+    /// `true` per l'agente predefinito (`registry::default_agent`), lo stesso
+    /// che usano i worker e i preset.
     pub is_default: bool,
     /// Dati per riprendere le sessioni; `None` se non dichiara `session_resume`.
     pub session_resume: Option<ResumeSpec>,
@@ -90,7 +50,7 @@ pub struct AgentProfile {
     pub worker_permissions: Option<PermissionsGuide>,
 }
 
-fn collect_profiles(integrations: &[&dyn AgentIntegration]) -> Vec<AgentProfile> {
+fn collect_profiles(integrations: &[&dyn AgentIntegration], default_id: &str) -> Vec<AgentProfile> {
     integrations
         .iter()
         .map(|i| {
@@ -100,7 +60,7 @@ fn collect_profiles(integrations: &[&dyn AgentIntegration]) -> Vec<AgentProfile>
                 agent_name: i.display_name().to_string(),
                 capabilities: caps.declared(),
                 input_profile: caps.input_profile.map(|p| p.input_profile()).unwrap_or_default(),
-                is_default: i.id() == registry::default_worker_integration().id(),
+                is_default: i.id() == default_id,
                 session_resume: caps.session_resume.map(|resume| resume.resume_spec()),
                 usage_limits_notice: caps.usage_limits.map(|limits| limits.notice()),
                 worker_permissions: caps.worker_permissions.map(|permissions| permissions.guide()),
@@ -109,10 +69,10 @@ fn collect_profiles(integrations: &[&dyn AgentIntegration]) -> Vec<AgentProfile>
         .collect()
 }
 
-/// Profili di input di tutti gli agenti: economico, nessun processo.
+/// Profili degli agenti abilitati: economico, nessun processo.
 #[tauri::command]
 pub fn agent_profiles() -> Vec<AgentProfile> {
-    collect_profiles(registry::all())
+    collect_profiles(&registry::enabled(), registry::default_agent().id())
 }
 
 /// Target dal frontend per le letture dei consumi. Il nome della distro finisce
@@ -181,59 +141,62 @@ pub async fn agent_session_usage(
 }
 
 /// Contesto di installazione: exe corrente e cartella dati dell'app.
-fn install_ctx(app: &AppHandle) -> Result<InstallCtx, String> {
+pub(super) fn install_ctx(app: &AppHandle) -> Result<InstallCtx, String> {
     let exe = std::env::current_exe().map_err(|e| format!("percorso exe: {e}"))?;
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     Ok(InstallCtx { exe: forward_slashes(&exe.to_string_lossy()), data_dir })
 }
 
-/// Pacchetti installati da aggiornare (nessun processo dell'agente).
+/// Pacchetti installati da aggiornare, delle sole integrazioni abilitate
+/// (nessun processo dell'agente).
 #[tauri::command]
 pub async fn agent_plugins_outdated(app: AppHandle) -> Result<Vec<OutdatedPlugin>, String> {
     crate::blocking(move || {
         let ctx = install_ctx(&app)?;
-        Ok(package::find_outdated(registry::all(), &ctx, &mut list_targets))
+        Ok(package::find_outdated(&registry::enabled(), &ctx, &mut list_targets))
     })
     .await
 }
 
-/// Reinstalla tutti i pacchetti non aggiornati, in parallelo.
+/// Esegue un'operazione sui pacchetti: rilevamento e prontezza vanno
+/// dimenticati prima (si parte da dati freschi) e la prontezza di nuovo dopo,
+/// perche' un sondaggio avviato durante l'operazione non deve sopravviverle.
+fn with_fresh_detection<T>(operation: impl FnOnce() -> T) -> T {
+    invalidate_detection_cache();
+    forget_readiness();
+    let result = operation();
+    forget_readiness();
+    result
+}
+
+/// Reinstalla i pacchetti non aggiornati delle integrazioni abilitate, in parallelo.
 #[tauri::command]
 pub async fn agent_plugins_update(app: AppHandle) -> Result<Vec<PluginUpdateResult>, String> {
-    crate::blocking(move || {
-        invalidate_detection_cache();
-        let ctx = install_ctx(&app)?;
-        Ok(package::update_all(&ctx))
-    })
-    .await
+    crate::blocking(move || with_fresh_detection(|| Ok(package::update_all(&registry::enabled(), &install_ctx(&app)?))))
+        .await
 }
 
+/// Installa o rimuove il pacchetto di qualunque integrazione registrata: la
+/// pagina delle integrazioni le gestisce tutte, abilitate o no.
 #[tauri::command]
 pub async fn install_agent_plugin(app: AppHandle, agent_id: String, env_key: String) -> Result<String, String> {
-    crate::blocking(move || {
-        invalidate_detection_cache();
-        package::install(&install_ctx(&app)?, &agent_id, &env_key)
-    })
-    .await
+    crate::blocking(move || with_fresh_detection(|| package::install(&install_ctx(&app)?, &agent_id, &env_key))).await
 }
 
 #[tauri::command]
 pub async fn remove_agent_plugin(app: AppHandle, agent_id: String, env_key: String) -> Result<String, String> {
-    crate::blocking(move || {
-        invalidate_detection_cache();
-        package::remove(&install_ctx(&app)?, &agent_id, &env_key)
-    })
-    .await
+    crate::blocking(move || with_fresh_detection(|| package::remove(&install_ctx(&app)?, &agent_id, &env_key))).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::agents::testing::FakeIntegration;
+    use crate::platform::TargetKind;
 
     #[test]
     fn profiles_cover_all_integrations_and_serialize_kebab_case() {
-        let profiles = collect_profiles(registry::all());
+        let profiles = collect_profiles(registry::all(), "claude-code");
         assert_eq!(profiles.len(), registry::all().len());
         let cc = profiles.iter().find(|p| p.agent_id == "claude-code").unwrap();
         assert_eq!(cc.agent_name, "Claude Code");
@@ -261,7 +224,7 @@ mod tests {
     #[test]
     fn profile_without_input_profile_is_empty() {
         let bare = FakeIntegration::bare("bare", "bare-cli");
-        let p = &collect_profiles(&[&bare])[0];
+        let p = &collect_profiles(&[&bare], "other")[0];
         assert!(p.capabilities.is_empty() && p.input_profile.rules.is_empty());
         let v = serde_json::to_value(p).unwrap();
         assert!(
@@ -269,8 +232,8 @@ mod tests {
         );
         assert_eq!(v["is_default"], false);
         let full = FakeIntegration::full("full");
-        let p = &collect_profiles(&[&full])[0];
-        assert_eq!(p.capabilities.len(), 10);
+        let p = &collect_profiles(&[&full], "other")[0];
+        assert_eq!(p.capabilities.len(), 11);
         assert!(!p.input_profile.rules.is_empty());
         let v = serde_json::to_value(p).unwrap();
         assert_eq!(v["is_default"], false);
@@ -280,15 +243,14 @@ mod tests {
     }
 
     #[test]
-    fn status_covers_every_integration_and_target() {
+    fn only_the_given_default_is_marked_default() {
         let a = FakeIntegration::bare("a", "a-cli");
-        let b = FakeIntegration::full("b");
-        let targets = [Target::Windows, Target::Wsl { distro: "Ubuntu".into() }];
-        let mut status = collect_status(&[&a, &b], &targets);
-        status.sort_by(|x, y| (&x.agent_id, &x.env_key).cmp(&(&y.agent_id, &y.env_key)));
-        let keys: Vec<_> = status.iter().map(|s| (s.agent_id.as_str(), s.env_key.as_str())).collect();
-        assert_eq!(keys, vec![("a", "Ubuntu"), ("a", "windows"), ("b", "Ubuntu"), ("b", "windows")]);
-        assert!(status.iter().all(|s| !s.found && !s.installed));
+        let b = FakeIntegration::bare("b", "b-cli");
+        let flags =
+            |default_id| collect_profiles(&[&a, &b], default_id).iter().map(|p| p.is_default).collect::<Vec<_>>();
+        assert_eq!(flags("a"), vec![true, false]);
+        assert_eq!(flags("b"), vec![false, true]);
+        assert_eq!(flags("c"), vec![false, false]);
     }
 
     #[test]

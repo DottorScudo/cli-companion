@@ -168,7 +168,7 @@ export default function WorkerPage({ workspace }: Props) {
               onKeyDown={(e) => {
                 if (e.key === "Enter") e.currentTarget.blur();
               }}
-              placeholder="predefinito dell’agente (es. sonnet, opus)"
+              placeholder="predefinito dell’agente"
               className="h-8 font-mono text-[12px]"
             />
             <Button

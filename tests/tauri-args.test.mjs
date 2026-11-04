@@ -24,6 +24,7 @@ function rustCommands() {
     "ipc/server.rs",
     "toast.rs",
     "agents/commands.rs",
+    "agents/integrations_commands.rs",
     "session.rs",
     "automation/commands.rs",
     "automation/auto.rs",

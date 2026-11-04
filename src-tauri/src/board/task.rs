@@ -4,7 +4,7 @@
 use super::{
     PreviousAttempt, Run, RunPhase, Task, TaskReport, TaskSpec, TaskState, TaskStatus, WorkerActivity, WorkerStatus,
 };
-use crate::agents::default_worker_integration;
+use crate::agents::registry;
 
 impl Task {
     pub fn from_spec(s: TaskSpec, now: i64) -> Task {
@@ -14,7 +14,7 @@ impl Task {
             task: s.task,
             depends_on: s.depends_on,
             repo: s.repo,
-            agent: default_worker_integration().id().to_string(),
+            agent: registry::default_agent().id().to_string(),
             model: s.model,
             kind: s.kind,
             e2e: s.e2e,

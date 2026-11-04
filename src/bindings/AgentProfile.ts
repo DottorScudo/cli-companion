@@ -14,8 +14,8 @@ capabilities: Array<Capability>,
  */
 input_profile: InputProfile, 
 /**
- * `true` per l'integrazione predefinita (`default_worker_integration`), la stessa
- * che usano i worker.
+ * `true` per l'agente predefinito (`registry::default_agent`), lo stesso
+ * che usano i worker e i preset.
  */
 is_default: boolean, 
 /**

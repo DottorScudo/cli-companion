@@ -3,30 +3,71 @@
 
 use super::claude_code;
 use super::contracts::{AgentIntegration, AutomationRequest};
+use super::enablement;
+use super::integrations_store;
+use super::models::model_is_valid;
+use super::resolve::{self, AgentUnavailable, AgentUse};
 use crate::platform::TargetKind;
 
-/// Integrazioni supportate. Per aggiungerne una: una riga qui. La prima e' quella
-/// predefinita dei worker (vedi `default_worker_integration`).
+/// Integrazioni supportate. Per aggiungerne una: una riga qui. Quali sono
+/// abilitate e quale e' il predefinito lo sceglie l'utente (`integrations.json`);
+/// finche' non sceglie, vale la prima.
 static INTEGRATIONS: &[&dyn AgentIntegration] = &[&claude_code::ClaudeCode];
 
-/// Integrazione che usano i worker quando un task non ne indica una: la prima
-/// del registro.
-pub fn default_worker_integration() -> &'static dyn AgentIntegration {
-    INTEGRATIONS[0]
-}
-
+/// Tutte le integrazioni registrate, abilitate o no: serve alla pagina delle
+/// integrazioni, alla conformita' e al client IPC. Chi mostra o avvia qualcosa
+/// all'utente usa `enabled`.
 pub fn all() -> &'static [&'static dyn AgentIntegration] {
     INTEGRATIONS
 }
 
+/// Le integrazioni abilitate, nell'ordine del registro (mai vuoto).
+pub fn enabled() -> Vec<&'static dyn AgentIntegration> {
+    enablement::enabled_in(all(), &integrations_store::current())
+}
+
+/// `id` e' un'integrazione registrata e abilitata.
+pub fn is_enabled(id: &str) -> bool {
+    integrations_store::current().enabled.iter().any(|e| e == id)
+}
+
+/// L'agente predefinito scelto dall'utente: quello dei task senza un agente e
+/// dei preset.
+pub fn default_agent() -> &'static dyn AgentIntegration {
+    enablement::default_in(all(), &integrations_store::current())
+}
+
+/// Cerca fra TUTTE le integrazioni registrate, anche disabilitate: gli hook di
+/// un'integrazione disabilitata il cui plugin e' ancora installato devono
+/// poter essere gestiti senza errori. Per scegliere l'agente di un uso si
+/// passa da `resolve_agent`.
 pub fn find(id: &str) -> Result<&'static dyn AgentIntegration, String> {
     INTEGRATIONS.iter().find(|i| i.id() == id).copied().ok_or_else(|| format!("agente sconosciuto: {id}"))
+}
+
+/// L'unico punto in cui si sceglie l'agente di un uso: `explicit` (la scelta
+/// del chiamante, per esempio l'agente di un task), poi `workspace_agent`,
+/// poi il predefinito globale; vince il primo presente e, se non e'
+/// utilizzabile, e' un errore: mai un ripiego su un altro agente. `purpose`
+/// serve a pretendere il contratto giusto (worker: automazione, preset:
+/// preset), cosi' un agente abilitato ma incapace fallisce subito e con un
+/// messaggio chiaro.
+pub fn resolve_agent(
+    explicit: Option<&str>,
+    workspace_agent: Option<&str>,
+    purpose: AgentUse,
+) -> Result<&'static dyn AgentIntegration, AgentUnavailable> {
+    resolve::resolve_in(all(), &integrations_store::current(), explicit, workspace_agent, purpose)
 }
 
 /// Comando di avvio di una sessione automatica per l'agente `agent_id`.
 pub fn automation_command(agent_id: &str, env_kind: TargetKind, req: &AutomationRequest) -> Result<String, String> {
     // Errori letti dal modello via RPC: in inglese.
-    let integration = find(agent_id).map_err(|_| format!("unknown agent: {agent_id}"))?;
+    let integration =
+        resolve_agent(Some(agent_id), None, AgentUse::Worker).map_err(|unavailable| unavailable.to_string())?;
+    if let Some(model) = req.model.filter(|m| !model_is_valid(integration, m)) {
+        return Err(format!("invalid model for {}: {model}", integration.display_name()));
+    }
     integration
         .capabilities()
         .automation
@@ -57,13 +98,29 @@ mod tests {
             model: None,
             permissions_file: None,
         };
-        assert!(automation_command(default_worker_integration().id(), TargetKind::Wsl, &req).is_ok());
+        assert!(automation_command(default_agent().id(), TargetKind::Wsl, &req).is_ok());
         assert_eq!(automation_command("nope", TargetKind::Windows, &req), Err("unknown agent: nope".to_string()));
         // Richiesta non rappresentabile in modo sicuro.
         let bad = AutomationRequest { bootstrap_prompt: "a$b", ..req };
         assert_eq!(
-            automation_command(default_worker_integration().id(), TargetKind::Windows, &bad),
+            automation_command(default_agent().id(), TargetKind::Windows, &bad),
             Err("Claude Code does not support automated sessions".to_string())
         );
+    }
+
+    #[test]
+    fn automation_command_rejects_a_model_the_agent_does_not_accept() {
+        let req = AutomationRequest {
+            bootstrap_prompt: "ok",
+            permission_mode: PermissionMode::Default,
+            model: Some("a b"),
+            permissions_file: None,
+        };
+        assert_eq!(
+            automation_command(default_agent().id(), TargetKind::Windows, &req),
+            Err("invalid model for Claude Code: a b".to_string())
+        );
+        let known = AutomationRequest { model: Some("sonnet"), ..req };
+        assert!(automation_command(default_agent().id(), TargetKind::Windows, &known).is_ok());
     }
 }

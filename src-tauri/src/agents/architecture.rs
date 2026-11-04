@@ -28,6 +28,9 @@ struct Integration {
     /// Valori propri dell'agente negli eventi degli hook (tipi di notifica):
     /// nessuna stringa fuori dalla cartella li contiene, il core usa i tipi neutri.
     hook_values: &'static [&'static str],
+    /// Nomi dei modelli dell'agente: nessuna stringa fuori dalla cartella li
+    /// contiene (minuscole), il core li legge dal contratto `ModelCatalog`.
+    models: &'static [&'static str],
 }
 
 /// Integrazioni note al test. Aggiungendo un agente: una riga qui.
@@ -36,6 +39,7 @@ const INTEGRATIONS: &[Integration] = &[Integration {
     id: "claude-code",
     commands: &["claude", "claude.exe"],
     hook_values: &["permission_prompt", "idle_prompt", "elicitation_dialog"],
+    models: &["sonnet", "opus", "haiku"],
 }];
 
 /// Cartelle di `agents/` che non sono integrazioni.
@@ -77,6 +81,9 @@ fn violations_in(path: &str, tokens: &[Token]) -> Vec<Violation> {
                 TokenKind::Str if integration.hook_values.iter().any(|v| token.text.contains(v)) => {
                     format!("la stringa {:?} (valore degli hook di `{}`)", token.text, integration.folder)
                 }
+                TokenKind::Str if integration.models.iter().any(|m| token.text.to_lowercase().contains(m)) => {
+                    format!("il modello nella stringa {:?} (di `{}`)", token.text, integration.folder)
+                }
                 _ => continue,
             };
             found.push(Violation { file: path.to_string(), line: token.line, what });
@@ -106,6 +113,16 @@ fn test_module_files(file: &Path, modules: &[String]) -> Vec<PathBuf> {
     modules.iter().flat_map(|m| [base.join(format!("{m}.rs")), base.join(m).join("mod.rs")]).collect()
 }
 
+/// Cartella dei sotto-moduli di un modulo di test (`tests.rs` o `tests/mod.rs`):
+/// anche i suoi file sono codice di test.
+fn test_module_dir(file: &Path) -> PathBuf {
+    if file.file_name().is_some_and(|n| n == "mod.rs") {
+        file.parent().unwrap_or(Path::new("")).to_path_buf()
+    } else {
+        file.with_extension("")
+    }
+}
+
 fn relative(src: &Path, file: &Path) -> String {
     file.strip_prefix(src).unwrap_or(file).to_string_lossy().replace('\\', "/")
 }
@@ -123,9 +140,10 @@ fn violations_under(src: &Path) -> Vec<Violation> {
         .collect();
     let test_files: HashSet<PathBuf> =
         scans.iter().flat_map(|(file, scan)| test_module_files(file, &scan.test_modules)).collect();
+    let test_dirs: Vec<PathBuf> = test_files.iter().map(|file| test_module_dir(file)).collect();
     scans
         .iter()
-        .filter(|(file, _)| !test_files.contains(*file))
+        .filter(|(file, _)| !test_files.contains(*file) && !test_dirs.iter().any(|dir| file.starts_with(dir)))
         .flat_map(|(file, scan)| violations_in(&relative(src, file), &scan.tokens))
         .collect()
 }
@@ -147,6 +165,16 @@ fn src_dir() -> PathBuf {
 fn the_core_does_not_name_a_specific_agent() {
     let found = violations_under(&src_dir());
     assert!(found.is_empty(), "{}", report(&found));
+}
+
+#[test]
+fn no_preset_skill_names_a_model() {
+    for preset in super::presets::PRESETS {
+        let skill = preset.skill_text().to_lowercase();
+        for model in INTEGRATIONS.iter().flat_map(|i| i.models) {
+            assert!(!skill.contains(model), "la skill {} nomina il modello {model:?}: {WIKI_PAGE}", preset.id);
+        }
+    }
 }
 
 #[test]
@@ -236,6 +264,30 @@ mod tests {
     }
 
     #[test]
+    fn model_names_are_reported_outside_the_integration_folder() {
+        let source = "fn f() { let _ = \"Sonnet\"; let _ = \"claude-opus-4.1\"; let _ = \"model: haiku\"; }";
+        let found = violations_of("mcp/tools.rs", source);
+        assert_eq!(found.len(), 3, "{found:?}");
+        assert!(what(&found)[0].contains("il modello") && what(&found)[0].contains("Sonnet"));
+    }
+
+    #[test]
+    fn model_names_are_allowed_inside_the_integration_folder() {
+        let source = "const M: &str = \"sonnet\"; const N: &str = \"opus\";";
+        assert!(violations_of("agents/claude_code/models.rs", source).is_empty());
+    }
+
+    #[test]
+    fn model_names_in_comments_and_tests_are_not_reported() {
+        let source = "            // usa sonnet o opus
+            fn f() { let _ = \"note\"; }
+            #[cfg(test)]
+            mod tests { fn t() { let _ = \"haiku\"; } }
+";
+        assert!(violations_of("board.rs", source).is_empty());
+    }
+
+    #[test]
     fn ids_are_found_inside_longer_strings() {
         let found = violations_of("launch_settings.rs", "fn f() { let _ = \"builtin:claude-code\"; }");
         assert_eq!(found.len(), 1);
@@ -249,6 +301,16 @@ mod tests {
             vec![PathBuf::from("src/agents/tests.rs"), "src/agents/tests/mod.rs".into()]
         );
         assert_eq!(files("src/board.rs"), vec![PathBuf::from("src/board/tests.rs"), "src/board/tests/mod.rs".into()]);
+    }
+
+    #[test]
+    fn the_submodules_of_a_test_module_are_test_code_too() {
+        assert_eq!(test_module_dir(Path::new("src/automation/tests/mod.rs")), PathBuf::from("src/automation/tests"));
+        assert_eq!(test_module_dir(Path::new("src/board/tests.rs")), PathBuf::from("src/board/tests"));
+        assert!(Path::new("src/automation/tests/board_flow.rs")
+            .starts_with(test_module_dir(Path::new("src/automation/tests/mod.rs"))));
+        // Una cartella con lo stesso prefisso non e' un suo sotto-modulo.
+        assert!(!Path::new("src/board/tests_extra/x.rs").starts_with(test_module_dir(Path::new("src/board/tests.rs"))));
     }
 
     #[test]

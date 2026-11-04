@@ -4,7 +4,7 @@
 //! cartella (`automation`), che crea un `JsonFile` per workspace con `board_store`.
 
 use super::{legacy, Board, Task, MAX_PARALLEL_LIMIT};
-use crate::agents::default_worker_integration;
+use crate::agents::registry;
 use crate::store::{Decoded, JsonFile, Migration};
 use serde::Serialize;
 use serde_json::Value;
@@ -49,7 +49,7 @@ impl Board {
     pub(super) fn sanitize(&mut self) {
         self.max_parallel = self.max_parallel.clamp(1, MAX_PARALLEL_LIMIT);
         for t in self.tasks.iter_mut().filter(|t| t.agent.is_empty()) {
-            t.agent = default_worker_integration().id().to_string();
+            t.agent = registry::default_agent().id().to_string();
         }
     }
 

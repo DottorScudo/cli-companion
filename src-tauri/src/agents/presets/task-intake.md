@@ -65,9 +65,10 @@ and proposes the fixes. The user can discard the review from the proposal.
 
 - **When**: add it when the request produced 2 or more tasks, or a single risky or cross-cutting
   task, or the fix of a hard bug. Do not add it for a trivial change or a single well-defined task.
-- **How**: `kind: "review"`, `model: "opus"`, `depends_on` on **all** the tasks of the goal (in the
-  same proposal or already in the queue), placed last in the proposal, with a title like
-  "Review: <goal>".
+- **How**: `kind: "review"`, `model` the one that the `model` description of `propose_tasks` suggests
+  for design, risky or cross-cutting changes and hard bugs, `depends_on` on **all** the tasks of
+  the goal (in the same proposal or already in the queue), placed last in the proposal, with a
+  title like "Review: <goal>".
 - **Specification**: the same sections, written for the whole goal:
   - **Goal**: the user's request in their own words as much as possible, and the expected result
     end to end.
@@ -112,8 +113,9 @@ that already has an E2E suite.
 
 ## Model and optional fields
 
-- `model`: required, every task has one. `sonnet` for well-defined work; `opus` for design, risky
-  or cross-cutting changes and hard bugs. Ask the user only if the choice is truly ambiguous.
+- `model`: required, every task has one. Use the model names suggested in the `model` description
+  of `propose_tasks`: the one for well-defined work, or the one for design, risky or cross-cutting
+  changes and hard bugs. Ask the user only if the choice is truly ambiguous.
 - `kind`: omit it for normal work. `"review"` only for a goal review (see "Goal review"), never
   for implementation work.
 - `repo`: only in multi-repository workspaces, the repository folder relative to the workspace

@@ -48,7 +48,7 @@ fn with_skills<'a>(integrations: &[&'a dyn AgentIntegration]) -> Vec<(&'a dyn Ag
 
 /// I soli target Windows (sempre per primi), uno per integrazione con il contratto.
 pub fn windows_only() -> Vec<SkillTarget> {
-    windows_targets(&with_skills(registry::all()))
+    windows_targets(&with_skills(&registry::enabled()))
 }
 
 fn windows_targets(integrations: &[(&dyn AgentIntegration, &dyn UserSkills)]) -> Vec<SkillTarget> {
@@ -60,7 +60,7 @@ fn windows_targets(integrations: &[(&dyn AgentIntegration, &dyn UserSkills)]) ->
 
 /// Tutti i target: Windows per primo, poi le distro in uso.
 pub fn all(data_dir: &Path) -> Vec<SkillTarget> {
-    targets_with(data_dir, registry::all(), crate::wsl::installed_distros, crate::wsl::linux_home)
+    targets_with(data_dir, &registry::enabled(), crate::wsl::installed_distros, crate::wsl::linux_home)
 }
 
 /// Distro installate (nell'ordine di `installed`) in cui c'e' il pacchetto

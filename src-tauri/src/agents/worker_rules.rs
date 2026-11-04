@@ -12,13 +12,13 @@ use std::path::Path;
 /// worker. Senza contratto una lista vuota resta vuota e una lista con regole
 /// e' rifiutata: non verrebbero mai applicate.
 pub fn validate_worker_rules(rules: &[String]) -> Result<Vec<String>, ValidationError> {
-    validate_with(registry::default_worker_integration(), rules)
+    validate_with(registry::default_agent(), rules)
 }
 
 /// Forma delle liste di regole dell'integrazione predefinita; `None` se non
 /// applica regole.
 pub fn worker_rule_format() -> Option<RuleFormat> {
-    registry::default_worker_integration().capabilities().worker_permissions.map(|p| p.rule_format())
+    registry::default_agent().capabilities().worker_permissions.map(|p| p.rule_format())
 }
 
 /// File di regole per l'agente `agent_id` del task, nel formato di path del

@@ -1,6 +1,8 @@
-use super::tools::{reviewer_tools, session_tools, settings_properties, worker_tools};
+use super::tools::{
+    model_description, proposed_model_description, reviewer_tools, session_tools, settings_properties, worker_tools,
+};
 use super::*;
-use crate::agents::{worker_rule_format, PermissionMode, RuleFormat};
+use crate::agents::{worker_rule_format, PermissionMode, RuleFormat, TierModels};
 use crate::automation::settings::REASON_MAX;
 use crate::automation::{Method, Role};
 use crate::workspaces::{
@@ -107,6 +109,49 @@ fn size_budget_of_the_model_facing_text() {
         reviewer_instr <= REVIEWER_INSTRUCTIONS_CEILING,
         "reviewer instructions are {reviewer_instr} chars, ceiling {REVIEWER_INSTRUCTIONS_CEILING}"
     );
+}
+
+#[test]
+fn model_descriptions_name_the_models_of_the_worker_agent() {
+    let models = Some(TierModels { standard: "std-model", strong: "big-model" });
+    let optional = model_description(models);
+    assert!(optional.contains("std-model for well-defined work") && optional.contains("big-model for design or risk"));
+    assert!(optional.ends_with("Omit for the workspace default."));
+    let required = proposed_model_description(models);
+    assert!(required.contains("std-model for well-defined work") && required.contains("big-model for design, risky"));
+}
+
+#[test]
+fn model_descriptions_name_no_model_without_a_catalog() {
+    for text in [model_description(None), proposed_model_description(None)] {
+        assert!(text.starts_with("Model for the worker, as the worker agent names it"), "{text}");
+    }
+}
+
+#[test]
+fn model_descriptions_have_no_runs_of_spaces() {
+    let models = Some(TierModels { standard: "std-model", strong: "big-model" });
+    for text in [
+        model_description(models),
+        model_description(None),
+        proposed_model_description(models),
+        proposed_model_description(None),
+    ] {
+        assert!(!text.contains("  "), "{text}");
+    }
+}
+
+#[test]
+fn the_model_fields_of_the_tools_carry_the_worker_agent_names() {
+    let expected = crate::agents::tier_models(crate::agents::registry::default_agent());
+    let model_of = |tools: Vec<Value>, name: &str| {
+        let tool = tools.into_iter().find(|t| t["name"] == name).unwrap();
+        let schema = &tool["inputSchema"]["properties"];
+        let props = if name == "propose_tasks" { &schema["tasks"]["items"]["properties"] } else { schema };
+        props["model"]["description"].as_str().unwrap().to_string()
+    };
+    assert_eq!(model_of(session_tools(), "propose_tasks"), proposed_model_description(expected));
+    assert_eq!(model_of(session_tools(), "update_task"), model_description(expected));
 }
 
 #[test]

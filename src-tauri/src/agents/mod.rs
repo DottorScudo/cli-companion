@@ -14,6 +14,12 @@
 //! toccati; `conformance.rs` verifica da solo ogni integrazione registrata e
 //! `architecture.rs` che il nome di un agente non compaia fuori dalla sua
 //! cartella. Guida completa: `docs/wiki/integrare-un-coding-agent.md`.
+//!
+//! Quali integrazioni sono abilitate e quale e' l'agente predefinito lo sceglie
+//! l'utente (`integrations.json`, vedi `integrations_store.rs`): aggiungere un
+//! agente non cambia nulla in proposito, finche' non lo abilita vale solo la
+//! prima del registro. L'agente di un uso si sceglie sempre con
+//! `registry::resolve_agent`.
 
 #[cfg(test)]
 mod architecture;
@@ -23,16 +29,26 @@ mod commands;
 mod conformance;
 mod contracts;
 mod detection;
+mod enablement;
+mod env_status;
+mod integrations_commands;
+mod integrations_store;
 mod launches;
+mod models;
 mod package;
 pub mod presets;
+mod readiness;
 pub mod registry;
+mod resolve;
 #[cfg(test)]
 pub(crate) mod testing;
 mod worker_rules;
 
 pub use commands::*;
 pub use contracts::*;
+pub use integrations_commands::*;
+pub use integrations_store::load_integrations;
 pub use launches::{builtin_launch_list, BuiltinLaunch};
-pub use registry::{automation_command, default_worker_integration};
+pub use models::{tier_models, TierModels};
+pub use registry::automation_command;
 pub use worker_rules::{validate_worker_rules, worker_permissions_file, worker_rule_format};

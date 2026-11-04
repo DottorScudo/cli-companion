@@ -484,9 +484,13 @@ le servono.
   integrazione a decidere), `package` (`IntegrationPackage`), `hook_events` (`HookEvents`), `session_resume`
   (`SessionResume`), `automation` (`WorkerAutomation`), `worker_permissions` (`WorkerPermissions`), `presets`
   (`PresetLauncher`), `user_skills` (`UserSkills`), `usage_limits` (`UsageLimits`), `session_usage`
-  (`SessionUsageReader`), `input_profile` (`InputProfileSource`).
-- `registry.rs`: il registro `INTEGRATIONS`, l'unico punto in cui il core nomina i singoli agenti; la prima voce è
-  l'agente predefinito dei worker (`default_worker_integration`). `detection.rs` rileva i target (Windows + ogni distro,
+  (`SessionUsageReader`), `input_profile` (`InputProfileSource`), `models` (`ModelCatalog`: modelli consigliati per
+  fascia e regola di validita' del nome; il core sceglie per fascia, non nomina modelli).
+- `registry.rs`: il registro `INTEGRATIONS`, l'unico punto in cui il core nomina i singoli agenti; il registro dice solo quali agenti esistono:
+  quali sono abilitate e quale è il predefinito (worker e preset) lo sceglie l'utente (`integrations.json`:
+  `enablement.rs` regole pure, `integrations_store.rs` persistenza, `resolve.rs` + `registry::resolve_agent` l'unico punto
+  in cui si sceglie l'agente di un uso, `readiness.rs` quanto è pronta una coppia agente × target); finché non sceglie
+  vale solo la prima voce. `detection.rs` rileva i target (Windows + ogni distro,
   escluse `docker-desktop*`); `package.rs` è il ciclo di vita dei pacchetti (lock per agente × target); `launches.rs`
   produce gli avvii integrati (`builtin:<agent_id>`, `builtin:preset:<id>`); `presets.rs` + `presets/*.md` i preset;
   `worker_rules.rs` la validazione delle regole di permesso dei worker tramite il contratto.

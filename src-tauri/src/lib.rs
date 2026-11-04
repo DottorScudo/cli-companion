@@ -55,6 +55,7 @@ pub fn run() {
         .setup(|app| {
             store::install_emitter(app.handle());
             store::legacy::migrate_legacy_data(app);
+            agents::load_integrations(app);
             workspaces::load_from_disk(app);
             launch_settings::load_from_disk(app);
             bots::load_from_disk(app);
@@ -123,6 +124,9 @@ pub fn run() {
             agents::agent_usage_limits,
             agents::agent_session_usage,
             agents::install_agent_plugin,
+            agents::integrations_list,
+            agents::set_integration_enabled,
+            agents::set_default_integration,
             agents::agent_plugins_outdated,
             agents::agent_plugins_update,
             agents::remove_agent_plugin,

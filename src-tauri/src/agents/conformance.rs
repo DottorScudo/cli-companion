@@ -66,6 +66,7 @@ fn core(i: &dyn AgentIntegration) -> Vec<String> {
         (caps.usage_limits.is_some(), Capability::UsageLimits),
         (caps.session_usage.is_some(), Capability::SessionUsage),
         (caps.input_profile.is_some(), Capability::InputProfile),
+        (caps.models.is_some(), Capability::Models),
     ];
     let expected: Vec<_> = present.into_iter().filter_map(|(on, c)| on.then_some(c)).collect();
     if caps.declared() != expected {
@@ -218,6 +219,48 @@ fn input_profile(source: &dyn InputProfileSource) -> Vec<String> {
         }
         if rules[..n].iter().any(|other| other.event == rule.event && other.env_kind == rule.env_kind) {
             v.push(format!("input_profile: regola duplicata {:?}/{:?}", rule.event, rule.env_kind));
+        }
+    }
+    v
+}
+
+/// Nomi che una regola dei modelli deve rifiutare: vuoto e tutto cio' che non e'
+/// sicuro come singolo argomento in PowerShell, cmd e bash.
+const UNSAFE_MODEL_NAMES: [&str; 9] = [
+    "", "a b", "a
+b", "a$b", "a\"b", "a`b", "a;b", "a|b", "a&b",
+];
+
+fn models(i: &dyn AgentIntegration, catalog: &dyn ModelCatalog) -> Vec<String> {
+    let mut v = Vec::new();
+    let suggested = catalog.suggested();
+    for (n, model) in suggested.iter().enumerate() {
+        if suggested[..n].iter().any(|other| other.id == model.id) {
+            v.push(format!("models: id consigliato duplicato: {:?}", model.id));
+        }
+        if model.label.trim().is_empty() {
+            v.push(format!("models: etichetta vuota per {:?}", model.id));
+        }
+        if !catalog.is_valid(model.id) {
+            v.push(format!("models: il modello consigliato {:?} non e' valido per l'agente", model.id));
+        }
+    }
+    if let Some(default) = catalog.default_model().filter(|m| !catalog.is_valid(m)) {
+        v.push(format!("models: il modello predefinito {default:?} non e' valido per l'agente"));
+    }
+    for name in UNSAFE_MODEL_NAMES {
+        if catalog.is_valid(name) {
+            v.push(format!("models: is_valid accetta un nome non sicuro: {name:?}"));
+        }
+    }
+    if let Some(automation) = i.capabilities().automation {
+        for kind in [TargetKind::Windows, TargetKind::Wsl] {
+            for model in suggested {
+                let req = request(crate::automation::BOOTSTRAP_PROMPT, Some(model.id), None);
+                if automation.command(kind, &req).is_none() {
+                    v.push(format!("models: automation rifiuta il modello consigliato {:?} ({kind:?})", model.id));
+                }
+            }
         }
     }
     v
@@ -376,6 +419,9 @@ fn violations(i: &dyn AgentIntegration) -> Vec<String> {
     if let Some(c) = caps.usage_limits {
         v.extend(usage_limits(c));
     }
+    if let Some(c) = caps.models {
+        v.extend(models(i, c));
+    }
     v.into_iter().map(|m| format!("{}: {m}", i.id())).collect()
 }
 
@@ -417,6 +463,13 @@ fn a_resume_template_without_the_session_id_is_reported() {
 }
 
 #[test]
+fn a_model_rule_that_accepts_spaces_is_reported() {
+    let broken = FakeIntegration::full("broken-models").with_flaw(Flaw::ModelValidationAcceptsSpaces);
+    let found = violations(&broken);
+    assert!(found.iter().any(|m| m.contains("models:") && m.contains("\"a b\"")), "{found:?}");
+}
+
+#[test]
 fn identity_and_declaration_problems_are_reported() {
     let found = violations(&FakeIntegration::bare("Bad Id-", "echo $HOME"));
     assert!(found.iter().any(|m| m.contains("id non valido")), "{found:?}");
@@ -433,6 +486,6 @@ fn registry_ids_are_unique_and_the_default_worker_agent_can_automate() {
     unique.sort();
     unique.dedup();
     assert_eq!(unique.len(), ids.len(), "id duplicati: {ids:?}");
-    let default = registry::find(registry::default_worker_integration().id()).expect("agente dei worker registrato");
+    let default = registry::find(registry::default_agent().id()).expect("agente dei worker registrato");
     assert!(default.capabilities().automation.is_some(), "l'agente dei worker deve dichiarare automation");
 }

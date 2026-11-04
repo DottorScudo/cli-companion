@@ -17,6 +17,8 @@ pub enum Flaw {
     AutomationLetsDollarThrough,
     /// Il modello del comando di ripresa non contiene il segnaposto dell'id.
     ResumeTemplateWithoutId,
+    /// La regola dei modelli accetta nomi con spazi.
+    ModelValidationAcceptsSpaces,
 }
 
 #[derive(Debug, Clone)]
@@ -29,12 +31,25 @@ pub struct FakeIntegration {
     pub version: &'static str,
     pub declares: Vec<Capability>,
     pub flaw: Option<Flaw>,
+    /// L'agente risulta presente nel target.
+    pub found: bool,
+    /// Il pacchetto risulta installato (se l'agente e' presente).
+    pub installed: bool,
 }
 
 impl FakeIntegration {
     /// Nessun contratto dichiarato.
     pub fn bare(id: &'static str, interactive: &'static str) -> Self {
-        Self { id, interactive, preset_cmd: "fake-run", version: "1.0-hfake", declares: Vec::new(), flaw: None }
+        Self {
+            id,
+            interactive,
+            preset_cmd: "fake-run",
+            version: "1.0-hfake",
+            declares: Vec::new(),
+            flaw: None,
+            found: false,
+            installed: false,
+        }
     }
 
     /// Dichiara solo il pacchetto, con la versione data.
@@ -60,8 +75,16 @@ impl FakeIntegration {
             Capability::UsageLimits,
             Capability::SessionUsage,
             Capability::InputProfile,
+            Capability::Models,
         ];
         Self { declares, ..Self::bare(id, "fake --yes") }
+    }
+
+    /// Risultati del rilevamento: se l'agente e' presente e se il pacchetto e' installato.
+    pub fn detected(mut self, found: bool, installed: bool) -> Self {
+        self.found = found;
+        self.installed = installed;
+        self
     }
 
     pub fn with_flaw(mut self, flaw: Flaw) -> Self {
@@ -80,7 +103,7 @@ impl AgentIntegration for FakeIntegration {
     }
 
     fn detect(&self, _: &Target) -> Detection {
-        Detection::default()
+        Detection { found: self.found, ..Detection::default() }
     }
 
     fn interactive_command(&self) -> &'static str {
@@ -100,6 +123,7 @@ impl AgentIntegration for FakeIntegration {
             usage_limits: on(Capability::UsageLimits).then_some(self as &dyn UsageLimits),
             session_usage: on(Capability::SessionUsage).then_some(self as &dyn SessionUsageReader),
             input_profile: on(Capability::InputProfile).then_some(self as &dyn InputProfileSource),
+            models: on(Capability::Models).then_some(self as &dyn ModelCatalog),
         }
     }
 }
@@ -121,7 +145,7 @@ impl IntegrationPackage for FakeIntegration {
     }
 
     fn is_installed(&self, _: &Target, _: &Detection) -> bool {
-        false
+        self.installed
     }
 
     fn install(&self, _: &InstallCtx, _: &Target, _: &Detection) -> Result<String, String> {
@@ -283,5 +307,35 @@ impl InputProfileSource for FakeIntegration {
         InputProfile {
             rules: vec![InputRule { event: InputEvent::ImagePaste, env_kind: None, send: "\x1bv".to_string() }],
         }
+    }
+}
+
+/// Modelli dell'agente finto, con nomi che non appartengono a nessun agente reale.
+pub const FAKE_MODEL_SMALL: &str = "fake-small";
+pub const FAKE_MODEL_LARGE: &str = "fake-large";
+const FAKE_MODEL_PREFIX: &str = "fake-";
+
+const FAKE_SUGGESTED: &[SuggestedModel] = &[
+    SuggestedModel { id: FAKE_MODEL_SMALL, label: "Fake small", tier: ModelTier::Standard },
+    SuggestedModel { id: FAKE_MODEL_LARGE, label: "Fake large", tier: ModelTier::Strong },
+];
+
+impl ModelCatalog for FakeIntegration {
+    fn suggested(&self) -> &'static [SuggestedModel] {
+        FAKE_SUGGESTED
+    }
+
+    fn default_model(&self) -> Option<&'static str> {
+        Some(FAKE_MODEL_SMALL)
+    }
+
+    /// Prefisso `fake-` e solo `[a-z0-9-]`, al massimo `MODEL_MAX` byte. Col
+    /// difetto accetta qualunque nome non vuoto, anche con spazi.
+    fn is_valid(&self, model: &str) -> bool {
+        let lenient = self.flaw == Some(Flaw::ModelValidationAcceptsSpaces);
+        (lenient || model.starts_with(FAKE_MODEL_PREFIX))
+            && !model.is_empty()
+            && model.len() <= crate::validate::MODEL_MAX
+            && model.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || (lenient && c == ' '))
     }
 }

@@ -4,7 +4,7 @@
 //! (Intake compreso). Quali metodi spettano a ogni ruolo lo decide la tabella di
 //! `crate::automation::roles`: un test verifica che i tool coincidano.
 
-use crate::agents::{worker_rule_format, PermissionMode, RuleFormat};
+use crate::agents::{registry, tier_models, worker_rule_format, PermissionMode, RuleFormat, TierModels};
 use crate::automation::settings::REASON_MAX;
 use crate::automation::Role;
 use crate::workspaces::{
@@ -24,6 +24,30 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
             "additionalProperties": false,
         },
     })
+}
+
+/// Descrizione del campo `model` di un task. I nomi vengono dall'agente dei worker.
+pub(super) fn model_description(models: Option<TierModels>) -> String {
+    match models {
+        Some(TierModels { standard, strong }) => format!(
+            "Model for the worker (e.g. {standard} for well-defined work, {strong} for design or risk). \
+             Omit for the workspace default."
+        ),
+        None => "Model for the worker, as the worker agent names it. Omit for the workspace default.".to_string(),
+    }
+}
+
+/// Descrizione del campo `model` di `propose_tasks` (li' e' obbligatorio).
+pub(super) fn proposed_model_description(models: Option<TierModels>) -> String {
+    match models {
+        Some(TierModels { standard, strong }) => format!(
+            "Model for the worker: {standard} for well-defined work, {strong} for design, risky changes or hard \
+             bugs."
+        ),
+        None => "Model for the worker, as the worker agent names it: a stronger one for design, risky changes or hard \
+                 bugs."
+            .to_string(),
+    }
 }
 
 /// Campi di un task proposto (`propose_tasks`) o modificato (`update_task`).
@@ -55,7 +79,7 @@ fn task_properties(with_id: bool) -> Value {
         "model": {
             "type": ["string", "null"],
             "pattern": "^[A-Za-z0-9._-]{1,64}$",
-            "description": "Model for the worker (e.g. sonnet for well-defined work, opus for design or risk). Omit for the workspace default."
+            "description": model_description(tier_models(registry::default_agent()))
         },
         "kind": {
             "type": "string",
@@ -82,7 +106,7 @@ fn propose_tasks_tool() -> Value {
     proposed["model"] = json!({
         "type": "string",
         "pattern": "^[A-Za-z0-9._-]{1,64}$",
-        "description": "Model for the worker: sonnet for well-defined work, opus for design, risky changes or hard bugs."
+        "description": proposed_model_description(tier_models(registry::default_agent()))
     });
     tool(
         "propose_tasks",

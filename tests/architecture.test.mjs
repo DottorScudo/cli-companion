@@ -13,7 +13,9 @@ const SRC = path.join(root, "src");
 const WIKI_PAGE = "docs/wiki/integrare-un-coding-agent.md";
 
 /** Integrazioni note. Aggiungendo un agente: una riga qui (e nel test Rust). */
-const INTEGRATIONS = [{ module: "claude_code", id: "claude-code", commands: ["claude", "claude.exe"] }];
+const INTEGRATIONS = [
+  { module: "claude_code", id: "claude-code", commands: ["claude", "claude.exe"], models: ["sonnet", "opus", "haiku"] },
+];
 
 const SOURCE_FILE = /\.(ts|tsx|js|jsx|mjs)$/;
 const TEST_OR_FIXTURE = /(\.test\.|\.spec\.|[\\/](__tests__|__fixtures__|fixtures)[\\/])/;
@@ -132,7 +134,7 @@ function tokenize(source) {
 /** Riferimenti a integrazioni nei token di un file (path relativo a `src/`). */
 function violationsIn(file, tokens, integrations = INTEGRATIONS) {
   const found = [];
-  for (const { module, id, commands } of integrations) {
+  for (const { module, id, commands, models } of integrations) {
     for (const token of tokens) {
       if (token.kind === "ident" && token.text === module) {
         found.push({ file, line: token.line, what: `il modulo \`${module}\`` });
@@ -140,6 +142,12 @@ function violationsIn(file, tokens, integrations = INTEGRATIONS) {
         found.push({ file, line: token.line, what: `la stringa ${JSON.stringify(token.text)} (id \`${id}\`)` });
       } else if (token.kind === "str" && token.text.includes(module)) {
         found.push({ file, line: token.line, what: `la stringa ${JSON.stringify(token.text)} (modulo \`${module}\`)` });
+      } else if (token.kind === "str" && models.some((model) => token.text.toLowerCase().includes(model))) {
+        found.push({
+          file,
+          line: token.line,
+          what: `il modello nella stringa ${JSON.stringify(token.text)} (di \`${id}\`)`,
+        });
       } else if (token.kind === "str" && commands.includes(token.text)) {
         found.push({ file, line: token.line, what: `il comando ${JSON.stringify(token.text)} (di \`${id}\`)` });
       }
@@ -194,6 +202,23 @@ describe("architettura: il frontend non nomina un agente specifico", () => {
     assert.deepEqual(
       found.map((v) => v.what),
       ['la stringa "./claude_code/x" (modulo `claude_code`)', "il modulo `claude_code`"],
+    );
+  });
+
+  it("trova i nomi dei modelli nelle stringhe, senza distinguere le maiuscole", () => {
+    const source = [
+      "// sonnet e opus nei commenti",
+      'const a = "Sonnet";',
+      "const b = `predefinito (es. ${x} claude-OPUS-4)`;",
+      'const c = "predefinito dell’agente";',
+    ].join("\n");
+    const found = violationsIn("a.ts", tokenize(source));
+    assert.deepEqual(
+      found.map((v) => [v.line, v.what]),
+      [
+        [2, 'il modello nella stringa "Sonnet" (di `claude-code`)'],
+        [3, 'il modello nella stringa "claude-OPUS-4)" (di `claude-code`)'],
+      ],
     );
   });
 

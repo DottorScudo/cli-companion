@@ -9,12 +9,13 @@
 //! Operazioni sullo stesso (agente, target) non si sovrappongono: ognuna
 //! rileva e lavora sotto lo stesso lock.
 
-use super::contracts::{AgentIntegration, Detection, InstallCtx, IntegrationPackage};
+use super::contracts::{plugins_dir, AgentIntegration, Detection, InstallCtx, IntegrationPackage};
 use super::detection::list_targets;
 use super::registry;
 use crate::platform::Target;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 use ts_rs::TS;
 
@@ -96,6 +97,28 @@ pub(super) fn remove(ctx: &InstallCtx, agent_id: &str, target_key: &str) -> Resu
     })
 }
 
+/// Versione annotata nella cartella `root` di un pacchetto generato; `None` se
+/// il marcatore manca o e' vuoto (installato prima del marcatore, o non installato).
+pub(super) fn installed_version(root: &Path) -> Option<String> {
+    let version = std::fs::read_to_string(root.join(INSTALLED_MARKER)).ok()?;
+    Some(version.trim().to_string()).filter(|v| !v.is_empty())
+}
+
+/// L'integrazione dichiara un pacchetto e ne esiste una copia installata in
+/// almeno un target (una sottocartella di `agent-plugins/<id>` con il
+/// marcatore). Solo letture di file, nessun processo: serve a capire quali
+/// integrazioni l'utente usava gia'.
+pub(super) fn installed_somewhere(data_dir: &Path, integration: &dyn AgentIntegration) -> bool {
+    if integration.capabilities().package.is_none() {
+        return false;
+    }
+    let Ok(entries) = std::fs::read_dir(plugins_dir(data_dir, integration.id())) else { return false };
+    entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .any(|path| path.is_dir() && installed_version(&path).is_some())
+}
+
 /// Pacchetto installato con una versione diversa da quella che l'app genererebbe ora.
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export)]
@@ -121,7 +144,7 @@ pub(super) fn find_outdated(
     let mut out = Vec::new();
     for integration in integrations {
         let Some(package) = integration.capabilities().package else { continue };
-        let base = super::plugins_dir(&ctx.data_dir, integration.id());
+        let base = plugins_dir(&ctx.data_dir, integration.id());
         let Ok(entries) = std::fs::read_dir(&base) else { continue };
         let mut names: Vec<String> = entries
             .filter_map(Result::ok)
@@ -141,10 +164,7 @@ pub(super) fn find_outdated(
                 }
             };
             let Some(expected) = package.version(ctx, &target) else { continue };
-            let installed = std::fs::read_to_string(base.join(&name).join(INSTALLED_MARKER))
-                .ok()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
+            let installed = installed_version(&base.join(&name));
             if installed.as_deref() != Some(expected.as_str()) {
                 out.push(OutdatedPlugin {
                     agent_id: integration.id().to_string(),
@@ -196,9 +216,9 @@ fn update_one(ctx: &InstallCtx, o: OutdatedPlugin) -> PluginUpdateResult {
     }
 }
 
-/// Reinstalla tutti i pacchetti non aggiornati, in parallelo.
-pub(super) fn update_all(ctx: &InstallCtx) -> Vec<PluginUpdateResult> {
-    let outdated = find_outdated(registry::all(), ctx, &mut list_targets);
+/// Reinstalla i pacchetti non aggiornati delle `integrations`, in parallelo.
+pub(super) fn update_all(integrations: &[&dyn AgentIntegration], ctx: &InstallCtx) -> Vec<PluginUpdateResult> {
+    let outdated = find_outdated(integrations, ctx, &mut list_targets);
     std::thread::scope(|s| {
         let handles: Vec<_> = outdated.into_iter().map(|o| s.spawn(move || update_one(ctx, o))).collect();
         handles.into_iter().filter_map(|h| h.join().ok()).collect()
@@ -252,6 +272,40 @@ mod tests {
         std::fs::remove_dir_all(base.join("Gone")).unwrap();
         let mut never = || -> Vec<Target> { panic!("list_targets non deve essere chiamata") };
         assert_eq!(find_outdated(&[&versioned], &ctx, &mut never).len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn installed_version_reads_a_trimmed_non_empty_marker() {
+        let dir = temp_dir("marker");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(installed_version(&dir), None);
+        std::fs::write(dir.join(INSTALLED_MARKER), " \n").unwrap();
+        assert_eq!(installed_version(&dir), None);
+        std::fs::write(dir.join(INSTALLED_MARKER), "1.0-habc\n").unwrap();
+        assert_eq!(installed_version(&dir).as_deref(), Some("1.0-habc"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn installed_somewhere_needs_a_package_and_a_marker_in_some_target() {
+        let dir = temp_dir("somewhere");
+        let versioned = FakeIntegration::versioned("somewhere", "1.0");
+        let bare = FakeIntegration::bare("somewhere-bare", "bare-cli");
+        assert!(!installed_somewhere(&dir, &versioned));
+        // Cartelle senza marcatore (o con marcatore vuoto) non contano.
+        let base = dir.join("agent-plugins").join("somewhere");
+        std::fs::create_dir_all(base.join("windows")).unwrap();
+        std::fs::create_dir_all(base.join("Ubuntu")).unwrap();
+        std::fs::write(base.join("Ubuntu").join(INSTALLED_MARKER), "").unwrap();
+        assert!(!installed_somewhere(&dir, &versioned));
+        std::fs::write(base.join("windows").join(INSTALLED_MARKER), "1.0").unwrap();
+        assert!(installed_somewhere(&dir, &versioned));
+        // Senza il contratto package non e' mai installata, qualunque cosa ci sia su disco.
+        let bare_base = dir.join("agent-plugins").join("somewhere-bare").join("windows");
+        std::fs::create_dir_all(&bare_base).unwrap();
+        std::fs::write(bare_base.join(INSTALLED_MARKER), "1.0").unwrap();
+        assert!(!installed_somewhere(&dir, &bare));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
