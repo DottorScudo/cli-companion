@@ -94,7 +94,7 @@ export interface E2eConfig {
   timeout_min: number;
 }
 
-/** Messaggi sul canale dedicato di una sessione pty (vedi PtyEvent in pty.rs). */
+/** Messaggi sul canale dedicato di una sessione pty (vedi PtyEvent in pty/mod.rs). */
 export type PtyEvent = { kind: "output"; data: string } | { kind: "exit" };
 
 /** Evento di un coding agent (vedi `NotifyPayload` in agent_notify.rs). */

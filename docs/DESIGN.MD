@@ -24,7 +24,7 @@ e aprirci dentro terminali integrati a tab.
 |  React (WebView) | ------------------> |  Rust (Tauri)    |
 |  - Sidebar       | <-- canali ---------|  - workspaces.rs |
 |  - Tab terminali |  uno per sessione pty|  - wsl.rs        |
-|  - xterm.js      |                      |  - pty.rs        |
+|  - xterm.js      |                      |  - pty/          |
 +------------------+                      +---------+--------+
                                                     |
                                     +---------------+---------------+
@@ -107,11 +107,19 @@ ed eventi Tauri (`emit`/`listen`) per lo stream di output dei terminali.
 - Le chiamate a `wsl.exe` usano `CREATE_NO_WINDOW` (niente flash di console).
 - Comandi esposti: `list_wsl_distros`, `check_wsl_path` (per la verifica live nel form).
 
-### `pty.rs` — sessioni terminale
+### `pty/` — sessioni terminale
 
+- Moduli: `mod.rs` (comandi Tauri), `registry.rs` (tabella delle sessioni e
+  prenotazione degli slot), `spawn.rs` (cartella, comando per target, apertura del
+  PTY), `env.rs` (variabili di sessione e `WSLENV`), `io.rs` (thread di lettura e
+  scrittura), `exit.rs` (chiusura all'uscita), `tests.rs`.
 - Ogni tab del frontend corrisponde a una sessione PTY numerata (`u32`),
-  tenuta in `PtyState { sessions: Arc<Mutex<HashMap<...>>>, next_id }`
-  (limite: 32 sessioni).
+  tenuta in `Registry` (limite: 32 sessioni, un solo PTY per `tab_id`). Limite,
+  unicita' del tab e inserimento avvengono sotto lo stesso lock: `Reservation`
+  prenota lo slot prima dello spawn e lo libera da sola (drop) se lo spawn
+  fallisce; l'indice tab -> sessione rende deterministica `workspace_of_tab`.
+- All'uscita (`RunEvent::Exit`) `close_all_on_exit` impedisce nuove sessioni e
+  termina quelle vive in parallelo, attendendo al massimo 3 s.
 - `pty_spawn(workspace_id, tab_id, cols, rows)` (`tab_id` = chiave UUID del tab,
   validata: ASCII alfanumerico/`-`/`_`, max 64):
   - Windows: `powershell.exe -NoLogo` (o shell custom) con cwd = cartella;
@@ -131,8 +139,9 @@ ed eventi Tauri (`emit`/`listen`) per lo stream di output dei terminali.
   - `cwd` opzionale (usato dalle sessioni automatiche) al posto della cartella del
     workspace, validato come questa (Windows `is_dir`, WSL `wsl_dir_exists`);
   - ricontrolla che la cartella esista al momento dello spawn.
-- `PtySession` tiene il `tab_id`; `pty_write` avvisa `automation::user_input` quando
-  l'input contiene Invio (il worker che aspettava l'utente torna `running`).
+- `pty_write` e' async (non gira sul main thread): accoda i byte e, quando l'input
+  contiene Invio, avvisa `automation::user_input` su un thread bloccante (il worker
+  che aspettava l'utente torna `running`).
 - Un thread di lettura per sessione inoltra i chunk al frontend sul `Channel`
   passato a `pty_spawn` (`{kind:"output",data}`; alla chiusura `{kind:"exit"}`):
   ogni tab riceve solo il proprio output, anche quello prima del ritorno dello spawn.

@@ -137,9 +137,11 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            // Salvataggi di board ancora in coda (coalescenza).
             if let tauri::RunEvent::Exit = event {
+                // Salvataggi di board ancora in coda (coalescenza).
                 automation::flush_on_exit(app);
+                // Nessuna shell resta viva dopo la chiusura della finestra.
+                pty::close_all_on_exit(app);
             }
         });
 }

@@ -15,7 +15,7 @@ const toCamel = (s) => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 function rustCommands() {
   const out = new Map();
   for (const file of [
-    "pty.rs",
+    "pty/mod.rs",
     "workspaces.rs",
     "wsl.rs",
     "updater.rs",
