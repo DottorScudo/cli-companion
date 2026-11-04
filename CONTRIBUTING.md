@@ -19,7 +19,8 @@ Con `tauri dev` attivo, una modifica in `src-tauri/` ricompila e riavvia l'app.
 ## Comandi
 
 La CI (`.github/workflows/ci.yml`) esegue gli stessi controlli, nello stesso ordine, a ogni push su `main` e a
-ogni pull request: lanciali in locale prima di aprirla.
+ogni pull request, tranne la build del frontend e il cambio di versione: la build gira nella pipeline di release
+(`build-windows.yml`, dentro `tauri build`). Lanciali in locale prima di aprire la pull request.
 
 | Cosa | Comando | Note |
 |---|---|---|

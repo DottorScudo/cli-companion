@@ -1,13 +1,12 @@
 # Release su GitHub (repo + CI Windows + updater)
 
-Questa guida copre, nell'ordine: (1) creare il repository GitHub mancante,
-(2) come la CI compila l'eseguibile Windows, (3) come l'updater (firmato) consuma
-le release. Per il dettaglio del meccanismo di update vedi
-[docs/UPDATER.MD](UPDATER.MD).
+Questa guida copre, nell'ordine: (1) come predisporre il repository GitHub per un nuovo
+owner o un fork, (2) come si pubblica una release, (3) come la CI compila l'eseguibile
+Windows, (4) come l'updater (firmato) consuma le release. Per il dettaglio del
+meccanismo di update vedi [docs/UPDATER.MD](UPDATER.MD).
 
 Stato attuale: il repository esiste (`necos98/cli-companion`) e `updater.config.json`
-punta già a esso; le sezioni 1–2 servono solo per rifare il setup da zero (nuovo
-owner o fork).
+punta già a esso; la sezione 1 serve solo a chi riparte da zero (nuovo owner o fork).
 
 ## Prerequisiti
 
@@ -15,65 +14,51 @@ owner o fork).
 - `gh auth login` (o `gh auth status`) con un account che puo' creare repo;
 - in locale: Node LTS + Rust stable (stessi della CI).
 
-## 1. Creare la repo GitHub e pushare
+## 1. Nuovo owner o fork
 
-Esegui da `F:\altre_robe\cli-companion` (PowerShell).
-Sostituisci `OWNER` con il tuo username GitHub (es. `necos98`):
-
-```powershell
-# 1a. (solo se non ancora fatto) inizializza il repo locale e committa
-git init
-git add .
-git commit -m "Initial commit: cli-companion v0.1.0"
-
-# 1b. crea la repo GitHub e collega il remote (nessun push forzato)
-gh repo create OWNER/cli-companion --public --source=. --remote=origin
-
-# 1c. push del branch principale
-git branch -M main
-git push -u origin main
-```
-
-Variante in un solo comando (se il commit locale esiste gia'):
+Tutti i comandi si lanciano dalla root del repository (PowerShell). Sostituisci `OWNER`
+con il tuo username GitHub.
 
 ```powershell
+# Crea la repo sotto il tuo account, collega il remote (nessun push forzato)
+# e pubblica il branch principale.
 gh repo create OWNER/cli-companion --public --source=. --remote=origin --push
 ```
 
 Verifica: `gh repo view OWNER/cli-companion --web`.
 
-## 2. Prima release (attiva l'updater)
-
-ATTENZIONE — ordine importante: `updater.config.json` e' compilato
-**dentro** il binario Rust (`include_str!`), quindi il binario della
-release deve essere compilato DOPO aver impostato il vero owner.
+ATTENZIONE — ordine importante: `updater.config.json` e' compilato **dentro** il
+binario Rust (`include_str!`), quindi il binario della release deve essere
+compilato DOPO aver impostato il vero owner (`"owner": "OWNER", "repo": "cli-companion"`):
 
 ```powershell
-# 2a. imposta il vero owner in updater.config.json
-#     ("owner": "OWNER", "repo": "cli-companion"), poi committa e pusha:
 git add updater.config.json
 git commit -m "updater: set GitHub owner"
 git push
-
-# 2b. allinea la versione (package.json, Cargo.toml e lockfile in un colpo solo) e tagga:
-npm run bump -- 0.1.0
-git add -A
-git commit -m "v0.1.0"
-git tag v0.1.0
-git push origin v0.1.0
 ```
 
-Il push del tag `v0.1.0` fa partire la CI che compila, firma e crea
-automaticamente la Release `v0.1.0` con installer firmato, `latest.json` e checksum.
-Prima della prima release firmata servono i due secret GitHub
-`TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
-(vedi [docs/UPDATER.MD](UPDATER.MD)): la chiave privata non va mai committata.
-Controlla l'avanzamento con `gh run watch` oppure nella tab Actions.
+Servono inoltre i due secret GitHub `TAURI_SIGNING_PRIVATE_KEY` e
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (vedi [docs/UPDATER.MD](UPDATER.MD)): la chiave
+privata non va mai committata.
 
-Release successive: `npm run bump -- X.Y.Z` → commit → push →
-`git tag vX.Y.Z` → `git push origin vX.Y.Z`.
-Il `tag_name` deve corrispondere alla versione nei file (`v` iniziale
-opzionale per l'updater, ma la CI crea la Release solo su tag `v*`).
+## 2. Pubblicare una release
+
+```powershell
+# allinea la versione (package.json, Cargo.toml e lockfile in un colpo solo) e tagga:
+npm run bump -- X.Y.Z
+git add -A
+git commit -m "vX.Y.Z"
+git tag vX.Y.Z
+git push
+git push origin vX.Y.Z
+```
+
+Il push del tag fa partire la CI che compila, firma e crea automaticamente la Release
+con installer firmato, `latest.json` e checksum. Controlla l'avanzamento con
+`gh run watch` oppure nella tab Actions.
+
+Il `tag_name` deve corrispondere alla versione nei file (`v` iniziale opzionale per
+l'updater, ma la CI crea la Release solo su tag `v*`).
 
 ## 3. Cosa fa la CI (`.github/workflows/build-windows.yml`)
 

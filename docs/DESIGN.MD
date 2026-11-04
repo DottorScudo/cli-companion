@@ -102,9 +102,9 @@ test esclusi) sono queste:
 | `agents` | `platform`, `validate`, `wsl`, `net`, `ttl_cache` (+ `launch_settings` nei soli comandi Tauri) | `workspaces`, `board`, `automation`, `ipc` |
 | `workspaces` | `agents` (tipi dei contratti), `validate`, `platform`, `store`, `wsl` (+ `automation` nei soli comandi, per riallineare lo scheduler) | `board`, `ipc`, `pty` |
 | `board` | `workspaces` (`Delivery`, `Workspace`, `SettingsPatch`), `agents` (agente predefinito), `validate`, `store` | `automation`, `ipc`, `pty`, `mcp`, `tauri` |
-| `ipc` | `agents` (solo il contratto `HookEvents`), `platform` | `automation`, `board`, `workspaces` |
+| `ipc` | `agents` (contratto `HookEvents`, tipo `HookEventKind` e ricerca nel registro con `registry::find`), `platform` | `automation`, `board`, `workspaces` |
 | `pty` | `ipc` (nomi delle variabili e `is_valid_tab_id`), `platform`, `wsl`, `workspaces`, `automation` (credenziale di sessione e `user_input`) | `board` |
-| `automation` | `board`, `workspaces`, `agents`, `ipc` (tipi e trait), `platform`, `validate`, `schedule`, `user_skills`, `store`, `awake`, `pty` (solo `workspace_of_tab`, in `TauriHost`) | — |
+| `automation` | `board`, `workspaces`, `agents`, `ipc` (tipi e trait), `platform`, `validate`, `wsl`, `schedule`, `user_skills`, `store`, `awake`, `pty` (solo `workspace_of_tab`, in `TauriHost`) | — |
 | `mcp` | `automation` (`Role`, `lock`, nomi dei metodi), `agents`, `workspaces`, `ipc` (client RPC) | `tauri` |
 
 Le regole che questa tabella racchiude, e come sono garantite:
@@ -1045,7 +1045,7 @@ src/
 - `components/StatusBar.tsx` (26px): "N terminali", "K in attesa di risposta" e, a destra, gli
   ambienti con il plugin installato (`installedAgentsSummary`). `agent_env_status` lancia
   processi: e' chiamato una volta, in background ~1,5 s dopo il ripristino della sessione, e
-  aggiornato dalle Impostazioni dopo installa/rimuovi (`onAgentEnvs`).
+  aggiornato dalle Impostazioni dopo installa/rimuovi (`setAgentEnvs`, in `src/app/actions/settings.ts`).
 - **Tema e brand**: tema dark unico in `src/index.css` (palette `base`, `surface`, `surface-2`,
   `border-strong`, `text-secondary`, `faint` (solo decorativo), `pane-area`, `pane-header`,
   stati `status-running/attention/finished`), font Geist / Geist Mono bundlati (offline),
