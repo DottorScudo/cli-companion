@@ -29,13 +29,14 @@
 //! - `commands`: comandi Tauri invocati dal frontend.
 //! - `roles`: tabella unica dei metodi RPC e dei ruoli che possono chiamarli.
 //! - `state`, `host`, `rpc`: stato Tauri, effetti verso l'esterno, smistamento RPC.
+//! - `agent_probe`: prontezza degli agenti nel target del workspace, in cache.
 //! - `boards`, `worktrees`, `review`, `settings`, `skills`, `e2e`, `auto`:
 //!   operazioni sulle board e funzioni dei singoli ambiti.
 
-use crate::agents::WaitKind;
+use crate::agents::{Readiness, WaitKind};
 use crate::board::{
-    self, build_report, Board, BoardView, FailCause, Outcome, ReportFields, Task, TaskKind, TaskStatus, WorkerActivity,
-    WorkerEnd, WorkerSignal, WorktreeInfo, SUMMARY_MAX,
+    self, build_report, AgentGate, Board, BoardView, FailCause, Outcome, ReportFields, Task, TaskKind, TaskStatus,
+    WorkerActivity, WorkerEnd, WorkerSignal, WorktreeInfo, SUMMARY_MAX,
 };
 use crate::ipc::{is_valid_tab_id, NotifyPayload, RpcRequest, RpcResponse};
 pub(crate) use crate::validate::{clip_chars, req_text};
@@ -47,6 +48,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 
+mod agent_probe;
 mod agent_session;
 mod auth;
 pub mod auto;

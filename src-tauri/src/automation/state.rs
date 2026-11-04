@@ -94,6 +94,9 @@ pub struct AutomationState {
     pub(super) e2e: Arc<e2e::runs::E2eRuns>,
     /// Segreti delle sessioni (un terminale = un segreto): vedi `auth`.
     pub(super) keys: Arc<SessionKeys>,
+    /// Ultima prontezza nota degli agenti, per lo scheduler (vedi
+    /// `agent_probe`). Mutex foglia.
+    pub(super) probes: Arc<agent_probe::AgentProbes>,
 }
 
 impl AutomationState {
@@ -115,7 +118,9 @@ impl AutomationState {
             let mut reg = self.registry();
             let out = f(&mut reg);
             let now = now_millis();
-            reg.flush_boards(now, host.local_minute(now), &|id| host.workspace(id));
+            reg.flush_boards(now, host.local_minute(now), &|id| host.workspace(id), &|ws, agent| {
+                host.agent_readiness(ws, agent)
+            });
             (out, reg.take_effects())
         };
         self.apply_effects(host, effects);
@@ -234,7 +239,7 @@ impl AutomationState {
                         map.insert(ws_id.clone(), rev);
                         host.delete_board(&ws_id);
                     }
-                    let mut view = Board::new(&ws_id).view_with(None, false);
+                    let mut view = Board::new(&ws_id).view_with(None, false, &AgentGate::default());
                     view.rev = rev;
                     host.emit_board(&view);
                 }

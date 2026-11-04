@@ -3,15 +3,17 @@
 //! la riga dell'archivio dei task conclusi. Nessun I/O: lo fa chi possiede la
 //! cartella (`automation`), che crea un `JsonFile` per workspace con `board_store`.
 
-use super::{legacy, Board, Task, MAX_PARALLEL_LIMIT};
+use super::{legacy, legacy_settings, Board, Task, MAX_PARALLEL_LIMIT};
 use crate::agents::registry;
 use crate::store::{Decoded, JsonFile, Migration};
 use serde::Serialize;
 use serde_json::Value;
 
 /// Passi di migrazione della board: la versione corrente e' il loro numero.
-/// Il passo 0 -> 1 porta alla busta il file storico (v0, anche della v0.11).
-static BOARD_MIGRATIONS: [Migration; 1] = [legacy::v0_to_v1];
+/// Il passo 0 -> 1 porta alla busta il file storico (v0, anche della v0.11); il
+/// passo 1 -> 2 sposta nelle proposte di impostazioni i campi dei worker che
+/// ora sono per agente.
+static BOARD_MIGRATIONS: [Migration; 2] = [legacy::v0_to_v1, legacy_settings::v1_to_v2];
 
 /// Versione di una riga dell'archivio dei task conclusi.
 const ARCHIVE_VERSION: u32 = 1;

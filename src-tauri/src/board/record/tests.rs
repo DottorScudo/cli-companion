@@ -3,7 +3,7 @@
 //! uguale, e le combinazioni impossibili dei file si normalizzano.
 
 use super::*;
-use crate::board::{build_report, ReportFields, TaskSpec};
+use crate::board::{build_report, AgentGate, ReportFields, TaskSpec};
 use serde_json::{json, Value};
 
 /// Il vecchio `Task` piatto, com'era prima della macchina a stati (stessi
@@ -284,7 +284,7 @@ fn the_view_json_is_the_task_json_plus_the_new_fields() {
     for (name, task, _) in cases() {
         let mut b = Board::new("w");
         b.tasks.push(task.clone());
-        let view = serde_json::to_value(&b.view_with(None, false).tasks[0]).unwrap();
+        let view = serde_json::to_value(&b.view_with(None, false, &AgentGate::default()).tasks[0]).unwrap();
         let mut wire = serde_json::to_value(&task).unwrap();
         wire["waiting_on"] = json!([]);
         wire["attention"] = json!(task.needs_attention());

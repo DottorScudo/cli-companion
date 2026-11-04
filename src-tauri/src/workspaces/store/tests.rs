@@ -6,6 +6,10 @@ use std::path::PathBuf;
 
 const FILE_NAME: &str = "workspaces.json";
 
+/// Un file scritto prima delle impostazioni per agente (schema 1): un workspace
+/// con modello e regole dei worker, uno senza, uno WSL con repository e avvii.
+const V1: &str = include_str!("../fixtures/workspaces_v1.json");
+
 fn temp_dir(name: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("cc-workspaces-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
@@ -82,10 +86,66 @@ fn an_old_file_without_the_envelope_is_read_migrated_and_rewritten_with_it() {
 
     FILE.save(&dir, &loaded.value).unwrap();
     let raw = read_json(&dir);
-    assert_eq!(raw["schema_version"], 1);
+    assert_eq!(raw["schema_version"], 2);
     let saved = &raw["data"][0];
     assert!(saved.get("auto_orchestrate").is_none() && saved.get("worktree_setup").is_none());
     assert!(saved["launches"][0].get("is_default").is_none());
+    assert_eq!(FILE.load(&dir).value, loaded.value);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_real_v1_file_moves_the_worker_settings_to_the_default_agent() {
+    static FILE: JsonFile<Vec<Workspace>> = workspaces_file();
+    let dir = temp_dir("v1");
+    std::fs::write(dir.join(FILE_NAME), V1).unwrap();
+    let agent = crate::agents::registry::default_agent().id();
+
+    let loaded = FILE.load(&dir);
+    assert!(loaded.warning.is_none(), "{:?}", loaded.warning);
+    let [api, notes, services] = &loaded.value[..] else { panic!("attesi tre workspace") };
+
+    // Modello e regole passano alla voce dell'agente predefinito, il resto resta.
+    assert_eq!(api.worker.model_for(agent), Some("opus"));
+    assert_eq!(
+        api.worker.rules_for(agent),
+        (&["Bash(git:*)".to_string(), "Read".to_string()][..], &["WebFetch".to_string()][..])
+    );
+    assert_eq!(api.worker.permission, crate::agents::PermissionMode::Plan);
+    assert_eq!(api.worker.rules, "Never touch the migrations folder.");
+    assert_eq!((api.agent.as_deref(), api.shell.as_deref(), api.use_schedule), (None, Some("pwsh"), true));
+    assert_eq!(api.launches.len(), 1);
+    assert_eq!(api.default_launch.as_deref(), Some("ln-1793743300000-2"));
+    assert_eq!(api.repos["."].setup, ["npm ci"]);
+
+    // Senza nulla di impostato non nasce nessuna voce.
+    assert!(notes.worker.agents.is_empty());
+
+    assert_eq!(services.worker.model_for(agent), Some("sonnet"));
+    assert_eq!(services.worker.rules_for(agent), (&[][..], &[][..]));
+    assert_eq!((services.distro.as_deref(), services.archived), (Some("Ubuntu"), true));
+    assert_eq!(services.launches.len(), 2);
+    assert_eq!(services.repos["gateway"].container_root.as_deref(), Some("/srv/gateway"));
+    assert_eq!(services.repos["gateway"].cleanup, ["make clean"]);
+    assert_eq!(services.repos["web"].copy_ignored, [".env"]);
+    assert_eq!(services.delivery.merge_method, crate::workspaces::MergeMethod::Rebase);
+
+    // Al salvataggio il file e' allo schema 2, senza i campi storici, e si rilegge uguale.
+    FILE.save(&dir, &loaded.value).unwrap();
+    let raw = read_json(&dir);
+    assert_eq!(raw["schema_version"], 2);
+    let saved = &raw["data"];
+    assert_eq!(saved.as_array().unwrap().len(), 3);
+    for ws in saved.as_array().unwrap() {
+        for legacy in ["worker_model", "worker_allow", "worker_deny"] {
+            assert!(ws.get(legacy).is_none(), "{legacy}");
+        }
+    }
+    assert_eq!(
+        saved[0]["worker_agents"],
+        json!({ agent: {"model": "opus", "allow": ["Bash(git:*)", "Read"], "deny": ["WebFetch"]} })
+    );
+    assert_eq!(saved[1]["worker_agents"], json!({}));
     assert_eq!(FILE.load(&dir).value, loaded.value);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -101,13 +161,12 @@ fn the_written_json_keeps_the_historic_shape() {
         })
         .unwrap();
     let raw = read_json(&dir);
-    assert_eq!(raw["schema_version"], 1);
+    assert_eq!(raw["schema_version"], 2);
     assert_eq!(
         raw["data"],
         json!([{
             "id": "a", "name": "a", "kind": "windows", "path": "C:\\a", "created_at": 0,
-            "launches": [], "worker_permission": "accept-edits", "worker_model": null,
-            "worker_allow": [], "worker_deny": [],
+            "launches": [], "worker_permission": "accept-edits", "worker_agents": {},
             "delivery": {"mode": "commit", "parallel": false, "merge_method": "squash"},
             "use_schedule": false
         }])

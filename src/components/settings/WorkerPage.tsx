@@ -3,8 +3,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { api } from "../../lib/tauri";
 import type { Workspace } from "../../lib/tauri";
-import { useStore } from "../../hooks/useStore";
-import { configStore } from "../../stores/config";
+import { useWorkerAgent } from "../../hooks/useWorkerAgent";
 import {
   WORKER_PERMISSIONS,
   normalizeWorkerPermission,
@@ -30,7 +29,8 @@ interface Props {
 /** Workspace › Worker: permessi, modello, regole e fasce orarie dei worker automatici. */
 export default function WorkerPage({ workspace }: Props) {
   const { run, saving, error } = useWorkspaceOp();
-  const agentProfiles = useStore(configStore, (s) => s.agentProfiles);
+  // Modello e regole sono dell'agente dei worker: quello del workspace o il predefinito globale.
+  const { agentId, profile: agent, settings } = useWorkerAgent(workspace);
 
   // Bozze: seguono il workspace selezionato e il valore salvato.
   const [workerModelDraft, setWorkerModelDraft] = useState("");
@@ -52,21 +52,20 @@ export default function WorkerPage({ workspace }: Props) {
   };
 
   useEffect(() => {
-    setWorkerModelDraft(workspace.worker_model ?? "");
-  }, [workspace.id, workspace.worker_model]);
+    setWorkerModelDraft(settings.model ?? "");
+  }, [workspace.id, agentId, settings.model]);
 
   useEffect(() => {
-    setAllowDraft(rulesToText(workspace.worker_allow));
-    setDenyDraft(rulesToText(workspace.worker_deny));
-  }, [workspace.id, workspace.worker_allow, workspace.worker_deny]);
+    setAllowDraft(rulesToText(settings.allow));
+    setDenyDraft(rulesToText(settings.deny));
+  }, [workspace.id, agentId, settings.allow, settings.deny]);
 
-  // I worker usano l'agente predefinito: i testi sui permessi sono suoi.
-  const agent = agentProfiles.find((p) => p.is_default);
+  // I testi sui permessi sono dell'agente dei worker.
   const guide = agent?.worker_permissions ?? null;
   const permission = normalizeWorkerPermission(workspace.worker_permission);
   const allowRules = useMemo(() => parseWorkerRules(allowDraft), [allowDraft]);
   const denyRules = useMemo(() => parseWorkerRules(denyDraft), [denyDraft]);
-  const rulesChanged = !sameList(allowRules, workspace.worker_allow) || !sameList(denyRules, workspace.worker_deny);
+  const rulesChanged = !sameList(allowRules, settings.allow) || !sameList(denyRules, settings.deny);
 
   return (
     <SettingsPage
@@ -136,8 +135,10 @@ export default function WorkerPage({ workspace }: Props) {
               <Button
                 size="sm"
                 variant="secondary"
-                disabled={saving || !rulesChanged}
-                onClick={() => void run(() => api.setWorkerPermissionRules(workspace.id, allowRules, denyRules))}
+                disabled={saving || !agentId || !rulesChanged}
+                onClick={() =>
+                  agentId && void run(() => api.setWorkerPermissionRules(workspace.id, agentId, allowRules, denyRules))
+                }
               >
                 Salva
               </Button>
@@ -176,10 +177,13 @@ export default function WorkerPage({ workspace }: Props) {
               variant="secondary"
               disabled={
                 saving ||
+                !agentId ||
                 modelError(workerModelDraft) !== null ||
-                sanitizeModel(workerModelDraft) === workspace.worker_model
+                sanitizeModel(workerModelDraft) === settings.model
               }
-              onClick={() => void run(() => api.setWorkerModel(workspace.id, sanitizeModel(workerModelDraft)))}
+              onClick={() =>
+                agentId && void run(() => api.setWorkerModel(workspace.id, agentId, sanitizeModel(workerModelDraft)))
+              }
             >
               Salva
             </Button>

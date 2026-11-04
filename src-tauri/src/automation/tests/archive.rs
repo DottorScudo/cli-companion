@@ -18,7 +18,7 @@ fn board_with_finished(n: usize) -> Board {
 
 fn flush(reg: &mut Registry, h: &FakeHost) -> Vec<Effect> {
     reg.mark_dirty("ws-1");
-    reg.flush_boards(1000, 0, &|id| h.workspace(id));
+    reg.flush_boards(1000, 0, &|id| h.workspace(id), &|_, _| Some(Readiness::Ready));
     reg.take_effects()
 }
 

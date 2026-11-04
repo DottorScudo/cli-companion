@@ -1,11 +1,27 @@
 //! Tool MCP delle impostazioni del workspace e decisione dell'utente.
 
 use super::*;
-use crate::agents::{builtin_launch_list, PermissionMode, RuleFormat};
+use crate::agents::{builtin_launch_list, registry, PermissionMode};
 use crate::automation::settings::{limits_json, settings_proposal_decide, SettingsDecision, REASON_MAX};
-use crate::workspaces::{Launch, MAX_RULES_LEN};
+use crate::workspaces::{AgentWorkerSettings, Launch, MAX_PATCH_AGENTS, MAX_RULES_LEN};
 
 const REASON: &str = "the project needs it";
+
+/// Id dell'agente predefinito: quello dei worker del workspace di prova.
+fn agent_id() -> &'static str {
+    registry::default_agent().id()
+}
+
+/// Impostazioni di un agente (modello e regole di permesso).
+fn agent_settings(model: Option<&str>, allow: &[&str], deny: &[&str]) -> AgentWorkerSettings {
+    let owned = |items: &[&str]| items.iter().map(|s| s.to_string()).collect();
+    AgentWorkerSettings { model: model.map(str::to_string), allow: owned(allow), deny: owned(deny) }
+}
+
+/// Imposta le impostazioni dell'agente predefinito nel workspace "ws-1".
+fn set_agent_settings(h: &FakeHost, settings: AgentWorkerSettings) {
+    h.worker_agents.lock().unwrap().insert(agent_id().to_string(), settings);
+}
 
 fn propose(st: &AutomationState, h: &FakeHost, mut params: Value) -> Result<Value, String> {
     if params.get("reason").is_none() {
@@ -88,11 +104,11 @@ fn get_settings_reports_values_repos_allowed_values_and_limits() {
     let (st, h) = (AutomationState::default(), host_with_repos());
     let mut base = ws("ws-1", "Proj", "windows");
     base.launches = vec![launch("l-1")];
-    base.worker.allow = vec!["Bash(git:*)".into()];
+    base.agent = Some(agent_id().into());
     base.default_launch = Some("l-1".into());
     *h.ws1_base.lock().unwrap() = Some(base);
     *h.worker_rules.lock().unwrap() = "Never push".into();
-    *h.worker_model.lock().unwrap() = Some("opus".into());
+    set_agent_settings(&h, agent_settings(Some("opus"), &["Bash(git:*)"], &[]));
     h.set_delivery(DeliveryMode::Pr, true);
     let id = propose_ok(&st, &h, json!({"use_schedule": true}));
 
@@ -101,10 +117,9 @@ fn get_settings_reports_values_repos_allowed_values_and_limits() {
         out["settings"],
         json!({
             "worker_rules": "Never push",
-            "worker_model": "opus",
+            "agent": agent_id(),
             "worker_permission": "accept-edits",
-            "worker_allow": ["Bash(git:*)"],
-            "worker_deny": [],
+            "worker_agents": {agent_id(): {"model": "opus", "allow": ["Bash(git:*)"], "deny": []}},
             "delivery": {"mode": "pr", "parallel": true, "merge_method": "squash"},
             "use_schedule": false,
             "default_launch": "l-1",
@@ -134,8 +149,7 @@ fn get_settings_reports_values_repos_allowed_values_and_limits() {
     assert_eq!(out["limits"]["reason_chars"], REASON_MAX);
     assert_eq!(out["limits"]["worker_rules_chars"], MAX_RULES_LEN);
     for key in [
-        "permission_rules",
-        "permission_rule_chars",
+        "agents_per_proposal",
         "launches",
         "launch_name_chars",
         "launch_command_chars",
@@ -185,10 +199,13 @@ fn invalid_values_are_rejected_in_english_and_create_nothing() {
     let too_long_rules = "x".repeat(MAX_RULES_LEN + 1);
     let cases = [
         (json!({"worker_rules": too_long_rules}), "worker_rules too long"),
-        (json!({"worker_model": "bad model!"}), "invalid worker_model"),
+        (json!({"worker_agents": {agent_id(): {"model": "bad model!"}}}), "model not accepted by the agent"),
         (json!({"worker_permission": "root"}), "invalid worker_permission"),
-        (json!({"worker_allow": ["not a rule!"]}), "worker_allow: rule"),
-        (json!({"worker_deny": ["Bash("]}), "worker_deny: rule"),
+        (json!({"worker_agents": {agent_id(): {"allow": ["not a rule!"]}}}), "worker_allow: rule"),
+        (json!({"worker_agents": {agent_id(): {"deny": ["Bash("]}}}), "worker_deny: rule"),
+        (json!({"worker_agents": {"nope": {"model": "m"}}}), "worker_agents['nope']: unknown agent: nope"),
+        (json!({"worker_agents": {agent_id(): {}}}), "has no fields"),
+        (json!({"agent": "nope"}), "unknown agent: nope"),
         (json!({"delivery": {}}), "delivery: has no fields"),
         (json!({"delivery": {"mode": "zip"}}), "invalid settings"),
         (json!({"use_schedule": "yes"}), "invalid settings"),
@@ -328,10 +345,9 @@ fn accepting_applies_everything_at_once_and_removes_the_proposal() {
         &h,
         json!({
             "worker_rules": "Never push",
-            "worker_model": "opus",
+            "agent": agent_id(),
             "worker_permission": "plan",
-            "worker_allow": ["Bash(npm test:*)"],
-            "worker_deny": ["Bash(rm:*)"],
+            "worker_agents": {agent_id(): {"model": "opus", "allow": ["Bash(npm test:*)"], "deny": ["Bash(rm:*)"]}},
             "delivery": {"mode": "pr", "parallel": true, "merge_method": "rebase"},
             "use_schedule": true,
             "default_launch": "shell",
@@ -345,11 +361,12 @@ fn accepting_applies_everything_at_once_and_removes_the_proposal() {
     assert_eq!(h.applies(), 1);
     let w = ws1(&h);
     assert_eq!(w.worker.rules, "Never push");
-    assert_eq!(w.worker.model.as_deref(), Some("opus"));
+    assert_eq!(w.agent.as_deref(), Some(agent_id()));
+    assert_eq!(w.worker.model_for(agent_id()), Some("opus"));
     assert_eq!(w.worker.permission, PermissionMode::Plan);
     assert_eq!(
-        (w.worker.allow.clone(), w.worker.deny.clone()),
-        (vec!["Bash(npm test:*)".to_string()], vec!["Bash(rm:*)".to_string()])
+        w.worker.rules_for(agent_id()),
+        (&["Bash(npm test:*)".to_string()][..], &["Bash(rm:*)".to_string()][..])
     );
     assert_eq!(
         (w.delivery.mode, w.delivery.parallel, w.delivery.merge_method),
@@ -476,22 +493,50 @@ fn concurrent_decisions_apply_the_proposal_once() {
 #[test]
 fn null_values_clear_a_field_and_null_repos_are_removed_end_to_end() {
     let (st, h) = (AutomationState::default(), host_with_repos());
-    *h.worker_model.lock().unwrap() = Some("opus".into());
-    let id = propose_ok(&st, &h, json!({"worker_model": null, "repos": {"api": {"base_branch": null}, "old": null}}));
+    set_agent_settings(&h, agent_settings(Some("opus"), &[], &[]));
+    let patch = json!({
+        "agent": null,
+        "worker_agents": {agent_id(): {"model": null}},
+        "repos": {"api": {"base_branch": null}, "old": null}
+    });
+    let id = propose_ok(&st, &h, patch);
     decide(&st, &h, &id, true).unwrap();
     let w = ws1(&h);
-    assert_eq!(w.worker.model, None);
+    assert_eq!(w.agent, None);
+    assert_eq!(w.worker.model_for(agent_id()), None);
+    assert!(w.worker.agents.is_empty(), "an agent entry left empty is removed");
     assert_eq!(w.repos["api"].base_branch, None);
     assert_eq!(w.repos["api"].setup, ["npm ci"], "other fields of the repository stay");
     assert!(!w.repos.contains_key("old"));
 }
 
 #[test]
-fn permission_rule_limits_exist_only_when_the_worker_agent_applies_rules() {
-    let without = limits_json(None);
-    assert!(without.get("permission_rules").is_none() && without.get("permission_rule_chars").is_none());
-    assert_eq!(without["worker_rules_chars"], MAX_RULES_LEN);
-    let format = RuleFormat { max_rules: 7, max_rule_chars: 11, example: "x" };
-    let with = limits_json(Some(format));
-    assert_eq!((with["permission_rules"].as_u64(), with["permission_rule_chars"].as_u64()), (Some(7), Some(11)));
+fn the_limits_do_not_carry_per_agent_rule_limits_any_more() {
+    let limits = limits_json();
+    assert!(limits.get("permission_rules").is_none() && limits.get("permission_rule_chars").is_none());
+    assert_eq!(
+        (limits["worker_rules_chars"].as_u64(), limits["agents_per_proposal"].as_u64()),
+        (Some(MAX_RULES_LEN as u64), Some(MAX_PATCH_AGENTS as u64))
+    );
+}
+
+#[test]
+fn get_settings_lists_the_enabled_agents_with_models_and_rule_format() {
+    let (st, h) = (AutomationState::default(), FakeHost::default());
+    let out = read_settings(&st, &h);
+    let agents = out["agents"].as_array().unwrap();
+    let enabled: Vec<&str> = registry::enabled().iter().map(|a| a.id()).collect();
+    assert_eq!(agents.iter().map(|a| a["id"].as_str().unwrap()).collect::<Vec<_>>(), enabled);
+    let default = agents.iter().find(|a| a["is_default"] == true).expect("one agent is the default");
+    assert_eq!(default["id"], agent_id());
+    assert_eq!(default["name"], registry::default_agent().display_name());
+    let models = default["models"].as_array().unwrap();
+    assert!(
+        !models.is_empty()
+            && models.iter().all(|m| m["id"].is_string() && m["label"].is_string() && m["tier"].is_string())
+    );
+    assert!(default.get("default_model").is_some());
+    let format = &default["rule_format"];
+    assert!(format["max_rules"].as_u64().unwrap() > 0 && format["max_rule_chars"].as_u64().unwrap() > 0);
+    assert!(format["example"].as_str().is_some_and(|e| !e.is_empty()));
 }

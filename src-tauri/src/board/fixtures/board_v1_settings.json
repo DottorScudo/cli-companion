@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "data": {
+    "workspace_id": "ws-1",
+    "max_parallel": 2,
+    "paused": false,
+    "updated_at": 1793784893966,
+    "tasks": [
+      {
+        "id": "task-1",
+        "title": "Sample task task-1",
+        "task": "Sample specification of task-1.",
+        "depends_on": [],
+        "repo": null,
+        "agent": "claude-code",
+        "model": null,
+        "kind": "work",
+        "status": "queued",
+        "worker_status": null,
+        "session": null,
+        "attempts": 0,
+        "worktree": null,
+        "last_report": null,
+        "note": null,
+        "report": null,
+        "created_at": 1793743267309,
+        "updated_at": 1793743267309,
+        "started_at": null,
+        "finished_at": null
+      }
+    ],
+    "settings_proposals": [
+      {
+        "id": "s-1",
+        "source_tab": "tab-1",
+        "created_at": 1793784800000,
+        "reason": "Use a stronger model and tighten the permissions.",
+        "patch": {
+          "worker_rules": "new",
+          "worker_model": "big",
+          "worker_allow": ["Read"],
+          "worker_deny": ["Edit"]
+        }
+      },
+      {
+        "id": "s-2",
+        "source_tab": "tab-1",
+        "created_at": 1793784810000,
+        "reason": "Back to the agent default.",
+        "patch": {
+          "worker_model": null,
+          "worker_allow": []
+        }
+      },
+      {
+        "id": "s-3",
+        "source_tab": "tab-2",
+        "created_at": 1793784820000,
+        "reason": "Schedule only.",
+        "patch": {
+          "use_schedule": true
+        }
+      }
+    ]
+  }
+}

@@ -51,14 +51,18 @@ propose it. This only works in a cli-companion terminal, with the app running.
 
 - `worker_rules`: full text of the workspace rules every worker receives (replaces the current
   text; empty clears it). Keep the existing rules unless the user asks to drop them.
-- `worker_model`: model of the workers; `null` = the agent default.
+- `agent`: worker agent of the workspace (an id from `get_workspace_settings.agents`); `null` = the
+  global default.
+- `worker_agents`: per agent (key = agent id), `model` (`null` = the agent default), `allow` and
+  `deny` permission rules, only the fields you pass change. Models and rule syntax are those of
+  each agent: read them in `get_workspace_settings.agents`.
 - `delivery`: `mode`, `parallel`, `merge_method` (see below).
 - `use_schedule`: whether the queue respects the time windows.
 - `repos`: per repository (key = folder relative to the workspace root, `.` = root; `null`
   removes its configuration): `base_branch`, `container_root`, `copy_ignored`, `setup`, `cleanup`,
   `remove_force`, `e2e` (`command`, `junit`, `timeout_min`; see "E2E suite").
-- Sensitive fields, see the next section: `worker_permission`, `worker_allow`, `worker_deny`,
-  `launches`, `default_launch`, `repos[...].setup`, `repos[...].cleanup`, `repos[...].e2e`.
+- Sensitive fields, see the next section: `worker_permission`, `worker_agents[...].allow`,
+  `worker_agents[...].deny`, `launches`, `default_launch`, `repos[...].setup`, `repos[...].cleanup`, `repos[...].e2e`.
 
 ## E2E suite
 
@@ -97,14 +101,14 @@ effect only with the parallel modes.
 ## Sensitive fields
 
 The app marks these fields to the user as sensitive, because they run commands or widen what the
-workers may do: permissions (`worker_permission`), `worker_allow` / `worker_deny`, the launches,
+workers may do: permissions (`worker_permission`), the `allow` / `deny` rules in `worker_agents`, the launches,
 and the `setup` / `cleanup` commands and the `e2e` command, which the app runs in the repository.
 
 - Propose them only when they are needed for the goal or the user asks for them.
 - Explain the risk in plain words: what the commands will run and where, what a wider permission
   lets a worker do without asking.
 - Never propose the `bypass` permission unless the user explicitly asked for it.
-- Prefer narrow `worker_allow` rules, e.g. `Bash(npm test:*)`, to a wider permission mode.
+- Prefer narrow `allow` rules, e.g. `Bash(npm test:*)`, to a wider permission mode.
 
 ## Language
 

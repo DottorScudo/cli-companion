@@ -8,16 +8,20 @@
 //! Struttura: `model` (task, board e costanti), `state` (stato del ciclo di
 //! vita con i suoi dati), `lifecycle` (le transizioni e la tabella delle azioni:
 //! l'unico posto che scrive lo stato), `record` (formato sul filo del task),
-//! `task` (accessi), `queue` (specifiche, proposte, modifiche e riordino),
+//! `task` (accessi), `agent` (agente di un task), `queue` (specifiche, proposte,
+//! modifiche e riordino),
 //! `cascade` (dipendenze inverse), `scheduler`, `view` (vista per frontend e
 //! MCP), `worker` (stati del worker e tabella degli hook), `persist` (busta e
 //! schema del file, riga dell'archivio), `legacy` (migrazioni dello schema),
 //! `recovery` (recupero dopo un riavvio), `archive` (task conclusi da archiviare).
 
+mod agent;
+mod agent_gate;
 mod archive;
 mod cascade;
 mod e2e;
 mod legacy;
+mod legacy_settings;
 mod lifecycle;
 mod model;
 mod persist;
@@ -38,6 +42,7 @@ mod worker;
 #[cfg(test)]
 mod tests;
 
+pub use agent_gate::{AgentGate, AgentUnavailableView};
 pub use archive::MAX_FINISHED_KEPT;
 pub use cascade::CascadeDelete;
 pub use e2e::{

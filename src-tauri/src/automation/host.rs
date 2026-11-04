@@ -98,6 +98,13 @@ pub trait Host: Clone + Send + 'static {
     /// Applica una patch alle impostazioni del workspace (rivalidata sulla
     /// configurazione attuale, salvata su disco) e ritorna il workspace.
     fn apply_settings(&self, ws_id: &str, patch: &SettingsPatch) -> Result<Workspace, String>;
+    /// Ultima prontezza nota di `agent` nel target di `ws`, SENZA bloccare (sicuro
+    /// sotto il lock del registro). `None`: non nota ancora, un controllo e'
+    /// partito e a fine lavoro l'automazione rivaluta le board.
+    fn agent_readiness(&self, ws: &Workspace, agent: &str) -> Option<Readiness>;
+    /// Prontezza fresca di `agent` nel target di `ws`; aggiorna quella nota.
+    /// BLOCCANTE (lancia processi): mai sotto un lock.
+    fn probe_agent(&self, ws: &Workspace, agent: &str) -> Readiness;
 }
 
 /// Timer di `Host::defer`: un solo thread con coda a priorita' al posto di un
@@ -218,7 +225,7 @@ impl Host for TauriHost {
 
     fn worker_permissions_file(&self, ws: &Workspace, agent: &str) -> Result<Option<String>, String> {
         let data_dir = auto::data_dir(&self.0)?;
-        agents::worker_permissions_file(agent, &data_dir, &ws.id, ws.kind, (&ws.worker.allow, &ws.worker.deny))
+        agents::worker_permissions_file(agent, &data_dir, &ws.id, ws.kind, ws.worker.rules_for(agent))
     }
 
     fn emit_spawn(&self, ev: &SpawnEvent) {
@@ -345,5 +352,13 @@ impl Host for TauriHost {
 
     fn apply_settings(&self, ws_id: &str, patch: &SettingsPatch) -> Result<Workspace, String> {
         crate::workspaces::apply_settings_patch(&self.0, ws_id, patch)
+    }
+
+    fn agent_readiness(&self, ws: &Workspace, agent: &str) -> Option<Readiness> {
+        agent_probe::cached_readiness(&self.0, ws, agent)
+    }
+
+    fn probe_agent(&self, ws: &Workspace, agent: &str) -> Readiness {
+        agent_probe::fresh_readiness(&self.0, ws, agent)
     }
 }

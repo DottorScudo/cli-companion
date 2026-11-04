@@ -16,7 +16,7 @@ fn spec(id: &str, deps: &[&str]) -> TaskSpec {
 
 fn board_with(specs: Vec<TaskSpec>) -> Board {
     let mut b = Board::new("ws-1");
-    b.check_specs(&specs, &HashSet::new()).unwrap();
+    b.check_specs(&specs, &HashSet::new(), None).unwrap();
     b.push_specs(specs, 1);
     b
 }
@@ -118,7 +118,7 @@ fn v011_board_is_normalized_on_load() {
 #[test]
 fn a_current_board_roundtrips() {
     let mut b = board_with(vec![spec("a", &[]), spec("b", &["a"])]);
-    b.add_proposal("p-1".into(), "tab-1", None, vec![spec("c", &[])], 5).unwrap();
+    b.add_proposal("p-1".into(), "tab-1", None, vec![spec("c", &[])], None, 5).unwrap();
     let back = Board::from_json(&serde_json::to_string(&b).unwrap(), 9).unwrap();
     assert_eq!(back.tasks, b.tasks);
     assert_eq!(back.proposals, b.proposals);
@@ -235,23 +235,26 @@ fn check_specs_validates_ids_graph_and_limits() {
     let b = board_with(vec![spec("a", &[]), spec("b", &["a"])]);
     let none = HashSet::new();
     // Dipendenze verso la proposta stessa o task esistenti.
-    assert!(b.check_specs(&[spec("c", &["a", "d"]), spec("d", &[])], &none).is_ok());
+    assert!(b.check_specs(&[spec("c", &["a", "d"]), spec("d", &[])], &none, None).is_ok());
     // Cicli, auto-dipendenze, dipendenze sconosciute, id duplicati.
-    assert!(b.check_specs(&[spec("c", &["d"]), spec("d", &["c"])], &none).unwrap_err().contains("dependency cycle"));
-    assert!(b.check_specs(&[spec("c", &["c"])], &none).unwrap_err().contains("itself"));
-    assert!(b.check_specs(&[spec("c", &["zz"])], &none).unwrap_err().contains("unknown task"));
-    assert!(b.check_specs(&[spec("a", &[])], &none).unwrap_err().contains("duplicate"));
-    assert!(b.check_specs(&[spec("c", &[]), spec("c", &[])], &none).unwrap_err().contains("duplicate"));
-    assert!(b.check_specs(&[], &none).is_err());
+    assert!(b
+        .check_specs(&[spec("c", &["d"]), spec("d", &["c"])], &none, None)
+        .unwrap_err()
+        .contains("dependency cycle"));
+    assert!(b.check_specs(&[spec("c", &["c"])], &none, None).unwrap_err().contains("itself"));
+    assert!(b.check_specs(&[spec("c", &["zz"])], &none, None).unwrap_err().contains("unknown task"));
+    assert!(b.check_specs(&[spec("a", &[])], &none, None).unwrap_err().contains("duplicate"));
+    assert!(b.check_specs(&[spec("c", &[]), spec("c", &[])], &none, None).unwrap_err().contains("duplicate"));
+    assert!(b.check_specs(&[], &none, None).is_err());
     // Id gia' usato da un'altra proposta pendente.
     let reserved: HashSet<&str> = ["x"].into();
-    assert!(b.check_specs(&[spec("x", &[])], &reserved).unwrap_err().contains("pending proposal"));
+    assert!(b.check_specs(&[spec("x", &[])], &reserved, None).unwrap_err().contains("pending proposal"));
     // Limite della board.
     let mut full = Board::new("w");
     for i in 0..MAX_TASKS_PER_BOARD {
         full.tasks.push(Task::from_spec(spec(&format!("t{i}"), &[]), 0));
     }
-    assert!(full.check_specs(&[spec("extra", &[])], &none).unwrap_err().contains("too many unfinished tasks"));
+    assert!(full.check_specs(&[spec("extra", &[])], &none, None).unwrap_err().contains("too many unfinished tasks"));
 }
 
 #[test]
@@ -268,44 +271,44 @@ fn board_limit_counts_only_queued_and_running_tasks() {
     };
     // Storico: done e failed non contano, anche se riempiono la board.
     let history = board_of(&|i| if i % 2 == 0 { TaskStatus::Done } else { TaskStatus::Failed });
-    assert!(history.check_specs(&[spec("extra", &[])], &none).is_ok());
+    assert!(history.check_specs(&[spec("extra", &[])], &none, None).is_ok());
     // Running conta come queued.
     let active = board_of(&|i| if i % 2 == 0 { TaskStatus::Running } else { TaskStatus::Queued });
-    assert!(active.check_specs(&[spec("extra", &[])], &none).unwrap_err().contains("too many unfinished tasks"));
+    assert!(active.check_specs(&[spec("extra", &[])], &none, None).unwrap_err().contains("too many unfinished tasks"));
     // Board mista: 199 attivi + proposta da 2 sfora solo contando gli attivi.
     let mut mixed = board_of(&|i| if i < MAX_TASKS_PER_BOARD - 1 { TaskStatus::Queued } else { TaskStatus::Done });
-    assert!(mixed.check_specs(&[spec("x1", &[])], &none).is_ok());
-    assert!(mixed.check_specs(&[spec("x1", &[]), spec("x2", &[])], &none).unwrap_err().contains("too many"));
+    assert!(mixed.check_specs(&[spec("x1", &[])], &none, None).is_ok());
+    assert!(mixed.check_specs(&[spec("x1", &[]), spec("x2", &[])], &none, None).unwrap_err().contains("too many"));
     // Il limite vale anche per la creazione a mano e per le proposte.
-    assert!(mixed.add_proposal("p-1".into(), "tab-1", None, vec![spec("x1", &[]), spec("x2", &[])], 1).is_err());
-    mixed.create_task(spec("x1", &[]), 1).unwrap();
-    assert!(mixed.create_task(spec("x2", &[]), 2).unwrap_err().contains("too many"));
+    assert!(mixed.add_proposal("p-1".into(), "tab-1", None, vec![spec("x1", &[]), spec("x2", &[])], None, 1).is_err());
+    mixed.create_task(spec("x1", &[]), None, 1).unwrap();
+    assert!(mixed.create_task(spec("x2", &[]), None, 2).unwrap_err().contains("too many"));
 }
 
 #[test]
 fn proposals_accept_discard_and_revalidate() {
     let mut b = board_with(vec![spec("a", &[])]);
-    b.add_proposal("p-1".into(), "tab-1", None, vec![spec("b", &["a"]), spec("c", &["b"])], 5).unwrap();
+    b.add_proposal("p-1".into(), "tab-1", None, vec![spec("b", &["a"]), spec("c", &["b"])], None, 5).unwrap();
     // Un id usato da una proposta pendente non si ripropone (ne' si crea a mano).
-    assert!(b.add_proposal("p-2".into(), "tab-1", None, vec![spec("b", &[])], 6).is_err());
-    assert!(b.create_task(spec("c", &[]), 6).is_err());
+    assert!(b.add_proposal("p-2".into(), "tab-1", None, vec![spec("b", &[])], None, 6).is_err());
+    assert!(b.create_task(spec("c", &[]), None, 6).is_err());
     assert!(b.id_taken("b") && b.id_taken("a") && !b.id_taken("zz"));
-    b.add_proposal("p-2".into(), "tab-2", None, vec![spec("d", &[])], 6).unwrap();
+    b.add_proposal("p-2".into(), "tab-2", None, vec![spec("d", &[])], None, 6).unwrap();
     // Accetta: in fondo alla coda, nell'ordine della proposta.
-    assert_eq!(b.accept_proposal("p-1", 7).unwrap(), ["b", "c"]);
+    assert_eq!(b.accept_proposal("p-1", None, 7).unwrap(), ["b", "c"]);
     assert_eq!(ids(&b), ["a", "b", "c"]);
     assert_eq!(b.proposals.len(), 1);
     assert!(b.tasks.iter().all(|t| t.status() == TaskStatus::Queued && t.agent == "claude-code"));
     // Scarta.
     b.discard_proposal("p-2", 8).unwrap();
     assert!(b.proposals.is_empty());
-    assert!(b.accept_proposal("p-2", 9).unwrap_err().contains("proposal not found"));
+    assert!(b.accept_proposal("p-2", None, 9).unwrap_err().contains("proposal not found"));
     assert!(b.discard_proposal("p-9", 9).is_err());
     // Rivalidazione: un id nel frattempo occupato fa fallire l'accettazione e la proposta resta.
-    b.add_proposal("p-3".into(), "tab-1", None, vec![spec("e", &[])], 10).unwrap();
-    b.create_task(spec("e", &[]), 11).unwrap_err(); // riservato dalla proposta
+    b.add_proposal("p-3".into(), "tab-1", None, vec![spec("e", &[])], None, 10).unwrap();
+    b.create_task(spec("e", &[]), None, 11).unwrap_err(); // riservato dalla proposta
     b.tasks.push(Task::from_spec(spec("e", &[]), 11)); // occupato aggirando i controlli (es. altra via)
-    assert!(b.accept_proposal("p-3", 12).unwrap_err().contains("duplicate"));
+    assert!(b.accept_proposal("p-3", None, 12).unwrap_err().contains("duplicate"));
     assert_eq!(b.proposals.len(), 1);
 }
 
@@ -313,10 +316,10 @@ fn proposals_accept_discard_and_revalidate() {
 fn pending_proposals_are_capped() {
     let mut b = Board::new("w");
     for i in 0..MAX_PENDING_PROPOSALS {
-        b.add_proposal(format!("p-{i}"), "t", None, vec![spec(&format!("t{i}"), &[])], 0).unwrap();
+        b.add_proposal(format!("p-{i}"), "t", None, vec![spec(&format!("t{i}"), &[])], None, 0).unwrap();
     }
     assert!(b
-        .add_proposal("p-x".into(), "t", None, vec![spec("zz", &[])], 0)
+        .add_proposal("p-x".into(), "t", None, vec![spec("zz", &[])], None, 0)
         .unwrap_err()
         .contains("too many pending"));
 }
@@ -411,7 +414,7 @@ fn mark_done_closes_a_failed_task_keeping_the_report_and_unblocking_dependents()
     );
     assert!(t.worktree.is_some(), "worktree e branch restano");
     assert!(b.deps_done(b.task("b").unwrap()));
-    assert!(b.task_view("b").unwrap().waiting_on.is_empty());
+    assert!(b.task_view("b", &AgentGate::default()).unwrap().waiting_on.is_empty());
     // Un secondo "segna come fatto" e' rifiutato; il dipendente ora sbloccato si elimina.
     assert!(b.mark_done("a", 6).is_err());
     b.delete_task("b", 7).unwrap();
@@ -563,7 +566,7 @@ fn cascade_delete_returns_every_removed_worktree() {
 #[test]
 fn update_rules() {
     let mut b = board_with(vec![spec("a", &[]), spec("b", &[])]);
-    b.update_task("b", &json!({"id":"b","title":"New","depends_on":["a"],"model":"opus"}), 2).unwrap();
+    b.update_task("b", &json!({"id":"b","title":"New","depends_on":["a"],"model":"opus"}), None, 2).unwrap();
     let t = b.task("b").unwrap();
     assert_eq!(
         (t.title.as_str(), t.depends_on.as_slice(), t.model.as_deref()),
@@ -571,19 +574,19 @@ fn update_rules() {
     );
     // Cicli e dipendenze sconosciute lasciano la board com'era.
     let before = b.tasks.clone();
-    assert!(b.update_task("a", &json!({"depends_on":["b"]}), 3).unwrap_err().contains("cycle"));
-    assert!(b.update_task("a", &json!({"depends_on":["zz"]}), 3).is_err());
-    assert!(b.update_task("a", &json!({"id":"a"}), 3).unwrap_err().contains("no fields"));
+    assert!(b.update_task("a", &json!({"depends_on":["b"]}), None, 3).unwrap_err().contains("cycle"));
+    assert!(b.update_task("a", &json!({"depends_on":["zz"]}), None, 3).is_err());
+    assert!(b.update_task("a", &json!({"id":"a"}), None, 3).unwrap_err().contains("no fields"));
     assert_eq!(b.tasks, before);
     // Solo queued o failed; il repo non cambia con un worktree.
     set_status(&mut b, "a", TaskStatus::Running);
-    assert!(b.update_task("a", &json!({"title":"x"}), 3).unwrap_err().contains("only queued or failed"));
+    assert!(b.update_task("a", &json!({"title":"x"}), None, 3).unwrap_err().contains("only queued or failed"));
     set_status(&mut b, "a", TaskStatus::Failed);
-    b.update_task("a", &json!({"repo":"api"}), 3).unwrap();
+    b.update_task("a", &json!({"repo":"api"}), None, 3).unwrap();
     b.task_mut("a").unwrap().worktree =
         Some(WorktreeInfo { path: "p".into(), branch: "task/a".into(), base: "main".into(), setup_done: true });
-    assert!(b.update_task("a", &json!({"repo":null}), 3).unwrap_err().contains("worktree"));
-    assert!(b.update_task("a", &json!({"title":"ok"}), 3).is_ok());
+    assert!(b.update_task("a", &json!({"repo":null}), None, 3).unwrap_err().contains("worktree"));
+    assert!(b.update_task("a", &json!({"title":"ok"}), None, 3).is_ok());
 }
 
 // --- scheduler ---
@@ -603,14 +606,14 @@ fn scheduler_serial_runs_one_task_per_repository() {
         (DeliveryMode::LocalMerge, false),
     ] {
         // a (root) e c (api) partono, b aspetta la root.
-        assert_eq!(ids_of(schedule(&b, &open(mode, parallel))), ["a", "c"], "{mode:?}");
+        assert_eq!(ids_of(schedule(&b, &open(mode, parallel), &AgentGate::default())), ["a", "c"], "{mode:?}");
     }
     // Con a in corso la root e' occupata: parte solo c.
     b.start_task("a", 1).unwrap();
-    assert_eq!(schedule(&b, &open(DeliveryMode::Commit, false)), ["c"]);
+    assert_eq!(schedule(&b, &open(DeliveryMode::Commit, false), &AgentGate::default()), ["c"]);
     // Entro max_parallel comunque.
     b.max_parallel = 1;
-    assert!(schedule(&b, &open(DeliveryMode::Commit, false)).is_empty());
+    assert!(schedule(&b, &open(DeliveryMode::Commit, false), &AgentGate::default()).is_empty());
 }
 
 #[test]
@@ -618,48 +621,48 @@ fn scheduler_parallel_worktrees_fill_max_parallel_in_queue_order() {
     let mut b = board_with((0..6).map(|i| spec(&format!("t{i}"), &[])).collect());
     b.max_parallel = 3;
     for mode in [DeliveryMode::Pr, DeliveryMode::LocalMerge] {
-        assert_eq!(schedule(&b, &open(mode, true)), ["t0", "t1", "t2"]);
+        assert_eq!(schedule(&b, &open(mode, true), &AgentGate::default()), ["t0", "t1", "t2"]);
     }
     b.start_task("t0", 1).unwrap();
-    assert_eq!(schedule(&b, &open(DeliveryMode::Pr, true)), ["t1", "t2"]);
+    assert_eq!(schedule(&b, &open(DeliveryMode::Pr, true), &AgentGate::default()), ["t1", "t2"]);
     // L'ordine della coda decide.
     b.task_to_top("t5", 2).unwrap();
-    assert_eq!(schedule(&b, &open(DeliveryMode::Pr, true)), ["t5", "t1"]);
+    assert_eq!(schedule(&b, &open(DeliveryMode::Pr, true), &AgentGate::default()), ["t5", "t1"]);
 }
 
 #[test]
 fn scheduler_respects_dependencies_pause_and_the_gate() {
     let mut b = board_with(vec![spec("a", &[]), spec("b", &["a"]), spec("c", &["a", "b"])]);
     let ctx = open(DeliveryMode::Pr, true);
-    assert_eq!(schedule(&b, &ctx), ["a"]);
+    assert_eq!(schedule(&b, &ctx, &AgentGate::default()), ["a"]);
     // Le dipendenze devono essere done: running o failed non bastano.
     b.start_task("a", 1).unwrap();
-    assert!(schedule(&b, &ctx).is_empty());
+    assert!(schedule(&b, &ctx, &AgentGate::default()).is_empty());
     set_status(&mut b, "a", TaskStatus::Failed);
-    assert!(schedule(&b, &ctx).is_empty());
+    assert!(schedule(&b, &ctx, &AgentGate::default()).is_empty());
     set_status(&mut b, "a", TaskStatus::Done);
-    assert_eq!(schedule(&b, &ctx), ["b"]);
+    assert_eq!(schedule(&b, &ctx, &AgentGate::default()), ["b"]);
     set_status(&mut b, "b", TaskStatus::Done);
-    assert_eq!(schedule(&b, &ctx), ["c"]);
+    assert_eq!(schedule(&b, &ctx, &AgentGate::default()), ["c"]);
     // Pausa e fascia chiusa: niente di nuovo.
     b.paused = true;
-    assert!(schedule(&b, &ctx).is_empty());
+    assert!(schedule(&b, &ctx, &AgentGate::default()).is_empty());
     b.paused = false;
-    assert!(schedule(&b, &SchedCtx { gate_open: false, ..ctx }).is_empty());
+    assert!(schedule(&b, &SchedCtx { gate_open: false, ..ctx }, &AgentGate::default()).is_empty());
     // waiting_on nella vista, solo per i queued.
     let mut b = board_with(vec![spec("a", &[]), spec("b", &["a"])]);
-    let v = b.view_with(None, false);
+    let v = b.view_with(None, false, &AgentGate::default());
     assert_eq!(v.tasks[1].waiting_on, ["a"]);
     assert!(v.tasks[0].waiting_on.is_empty());
     set_status(&mut b, "a", TaskStatus::Done);
-    assert!(b.view_with(None, false).tasks[1].waiting_on.is_empty());
+    assert!(b.view_with(None, false, &AgentGate::default()).tasks[1].waiting_on.is_empty());
 }
 
 #[test]
 fn attention_follows_the_worker_status() {
     let mut b = board_with(vec![spec("a", &[])]);
     b.start_task("a", 1).unwrap();
-    let attention = |b: &Board| b.view_with(None, false).tasks[0].attention;
+    let attention = |b: &Board| b.view_with(None, false, &AgentGate::default()).tasks[0].attention;
     assert!(!attention(&b));
     for (activity, expected) in [
         (WorkerActivity::NeedsInput, true),
@@ -680,7 +683,7 @@ fn view_json_shape_and_list_rows() {
     let mut b = board_with(vec![spec("a", &[]), spec("b", &["a"])]);
     b.start_task("a", 1).unwrap();
     set_live(&mut b, "a", WorkerActivity::Idle);
-    let view = b.view_with(Some(&workspace(delivery(DeliveryMode::Pr, true))), true);
+    let view = b.view_with(Some(&workspace(delivery(DeliveryMode::Pr, true))), true, &AgentGate::default());
     let v = serde_json::to_value(&view).unwrap();
     for k in [
         "workspace_id",

@@ -7,11 +7,11 @@
 use super::boards::{session_workspace, workspace_of};
 use super::rpc::misrouted;
 use super::*;
-use crate::agents::{builtin_launch_list, worker_rule_format, PermissionMode, RuleFormat};
+use crate::agents::{builtin_launch_list, registry, worker_rule_format, AgentIntegration, PermissionMode, RuleFormat};
 use crate::board::SettingsProposal;
 use crate::workspaces::{
-    DeliveryMode, MergeMethod, SettingsPatch, MAX_COMMAND_LEN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_LAUNCHES,
-    MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN,
+    DeliveryMode, MergeMethod, SettingsPatch, MAX_COMMAND_LEN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_AGENTS,
+    MAX_PATCH_LAUNCHES, MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -90,9 +90,10 @@ fn get_settings<H: Host>(st: &AutomationState, host: &H, ws: &Workspace) -> Valu
         .collect();
     let mut out = json!({
         "settings": settings_json(ws),
+        "agents": agents_json(host, ws),
         "repos": repos_json(ws, &detected),
         "allowed": allowed_json(ws),
-        "limits": limits_json(worker_rule_format()),
+        "limits": limits_json(),
         "pending_settings_proposals": pending,
     });
     if let Some(e) = repos_error {
@@ -105,14 +106,42 @@ fn get_settings<H: Host>(st: &AutomationState, host: &H, ws: &Workspace) -> Valu
 fn settings_json(ws: &Workspace) -> Value {
     json!({
         "worker_rules": ws.worker.rules,
-        "worker_model": ws.worker.model,
+        "agent": ws.agent,
         "worker_permission": ws.worker.permission.as_str(),
-        "worker_allow": ws.worker.allow,
-        "worker_deny": ws.worker.deny,
+        "worker_agents": ws.worker.agents,
         "delivery": ws.delivery,
         "use_schedule": ws.use_schedule,
         "default_launch": ws.default_launch,
         "launches": ws.launches,
+    })
+}
+
+/// Gli agenti abilitati, in ordine di registro: ognuno con i modelli e la forma
+/// delle regole di permesso che `worker_agents` accetta per lui, piu' la prontezza
+/// nel target del workspace (puo' lanciare processi: fuori dai lock).
+fn agents_json<H: Host>(host: &H, ws: &Workspace) -> Vec<Value> {
+    let default_id = registry::default_agent().id();
+    registry::enabled().into_iter().map(|agent| agent_json(host, ws, agent, default_id)).collect()
+}
+
+fn agent_json<H: Host>(host: &H, ws: &Workspace, agent: &dyn AgentIntegration, default_id: &str) -> Value {
+    let capabilities = agent.capabilities();
+    json!({
+        "id": agent.id(),
+        "name": agent.display_name(),
+        "is_default": agent.id() == default_id,
+        "models": capabilities.models.map_or(&[][..], |catalog| catalog.suggested()),
+        "default_model": capabilities.models.and_then(|catalog| catalog.default_model()),
+        "rule_format": worker_rule_format(agent.id()).map(rule_format_json),
+        "readiness": host.probe_agent(ws, agent.id()),
+    })
+}
+
+fn rule_format_json(format: RuleFormat) -> Value {
+    json!({
+        "max_rules": format.max_rules,
+        "max_rule_chars": format.max_rule_chars,
+        "example": format.example,
     })
 }
 
@@ -139,8 +168,10 @@ fn allowed_json(ws: &Workspace) -> Value {
     })
 }
 
-pub(super) fn limits_json(rules: Option<RuleFormat>) -> Value {
-    let mut limits = json!({
+/// Limiti delle proposte. Quelli delle regole di permesso dipendono dall'agente
+/// e stanno in `agents[].rule_format`.
+pub(super) fn limits_json() -> Value {
+    json!({
         "reason_chars": REASON_MAX,
         "worker_rules_chars": MAX_RULES_LEN,
         "launches": MAX_PATCH_LAUNCHES,
@@ -149,13 +180,8 @@ pub(super) fn limits_json(rules: Option<RuleFormat>) -> Value {
         "repos_per_proposal": MAX_PATCH_REPOS,
         "repo_commands": MAX_REPO_COMMANDS,
         "repo_command_chars": MAX_REPO_COMMAND_LEN,
-    });
-    // Le regole di permesso esistono solo se l'agente dei worker le applica.
-    if let Some(format) = rules {
-        limits["permission_rules"] = json!(format.max_rules);
-        limits["permission_rule_chars"] = json!(format.max_rule_chars);
-    }
-    limits
+        "agents_per_proposal": MAX_PATCH_AGENTS,
+    })
 }
 
 // ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ import { useCommand } from "./useDetailCommand";
 import { useManagerNow } from "./useManagerNow";
 import { useManagerPrefs } from "./useManagerPrefs";
 import { useWorkspaceRepos } from "./useWorkspaceRepos";
+import { useWorkerAgent } from "../../hooks/useWorkerAgent";
 import { clampToBounds, deliveryLabel } from "../../lib/board";
 import type { BoardView, Task } from "../../lib/board";
 import { repoOptions } from "../../lib/taskForm";
@@ -85,6 +86,7 @@ export default function TasksManager({
   const detected = useWorkspaceRepos(workspace.id);
   const searchRef = useRef<HTMLInputElement>(null);
   const header = useCommand(onBoard);
+  const { settings: workerSettings } = useWorkerAgent(workspace);
 
   const repoChoices = useMemo(() => repoOptions(board?.tasks ?? [], detected), [board?.tasks, detected]);
   const multiRepo = repoChoices.length > 1;
@@ -224,7 +226,7 @@ export default function TasksManager({
             onSelectTask={setSelectedId}
             repos={detected}
             repoConfigs={workspace.repos}
-            defaultModel={workspace.worker_model}
+            defaultModel={workerSettings.model}
             isTabOpen={isTabOpen}
             now={now}
           />

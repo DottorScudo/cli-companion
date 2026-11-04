@@ -70,6 +70,7 @@ pub fn run() {
             workspaces::add_workspace,
             workspaces::rename_workspace,
             workspaces::set_worker_permission,
+            workspaces::set_workspace_agent,
             workspaces::set_worker_model,
             workspaces::set_worker_permission_rules,
             workspaces::set_worker_rules,

@@ -4,6 +4,7 @@ import DetailTaskFields from "./DetailTaskFields";
 import { useCommand } from "./useDetailCommand";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
+import { useWorkerAgent } from "../../hooks/useWorkerAgent";
 import { repoHasE2e, withRepoE2e } from "../../lib/e2e";
 import { sanitizeModel } from "../../lib/model";
 import { api } from "../../lib/tauri";
@@ -76,6 +77,7 @@ export default function NewTaskDialog({
 type FormProps = Omit<NewTaskDialogProps, "open"> & { repos: string[] };
 
 function NewTaskForm({ workspace, board, onBoard, onClose, onOpenIntake, repos, onCreated }: FormProps) {
+  const { settings: workerSettings } = useWorkerAgent(workspace);
   const tasks = board?.tasks ?? [];
   const repoChoices = repoOptions(tasks, repos);
   const multiRepo = isMultiRepo(repoChoices);
@@ -159,7 +161,7 @@ function NewTaskForm({ workspace, board, onBoard, onClose, onOpenIntake, repos, 
         selfId={null}
         repoChoices={repoChoices}
         e2eConfigured={e2eConfigured}
-        modelPlaceholder={workspace.worker_model || "predefinito dei worker"}
+        modelPlaceholder={workerSettings.model || "predefinito dei worker"}
         disabled={busy}
       />
 

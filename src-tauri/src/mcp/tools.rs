@@ -4,12 +4,13 @@
 //! (Intake compreso). Quali metodi spettano a ogni ruolo lo decide la tabella di
 //! `crate::automation::roles`: un test verifica che i tool coincidano.
 
-use crate::agents::{registry, tier_models, worker_rule_format, PermissionMode, RuleFormat, TierModels};
+use crate::agents::{registry, tier_models, PermissionMode, TierModels};
 use crate::automation::settings::REASON_MAX;
 use crate::automation::Role;
 use crate::workspaces::{
-    DeliveryMode, MergeMethod, MAX_COMMAND_LEN, MAX_E2E_TIMEOUT_MIN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_LAUNCHES,
-    MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_REPO_PATH_LEN, MAX_RULES_LEN, MIN_E2E_TIMEOUT_MIN,
+    DeliveryMode, MergeMethod, MAX_COMMAND_LEN, MAX_E2E_TIMEOUT_MIN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_AGENTS,
+    MAX_PATCH_LAUNCHES, MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_REPO_PATH_LEN, MAX_RULES_LEN,
+    MIN_E2E_TIMEOUT_MIN,
 };
 use serde_json::{json, Value};
 
@@ -26,14 +27,15 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
     })
 }
 
-/// Descrizione del campo `model` di un task. I nomi vengono dall'agente dei worker.
+/// Descrizione del campo `model` di un task. I nomi vengono dall'agente del task
+/// (qui quelli del predefinito, come esempio).
 pub(super) fn model_description(models: Option<TierModels>) -> String {
     match models {
         Some(TierModels { standard, strong }) => format!(
-            "Model for the worker (e.g. {standard} for well-defined work, {strong} for design or risk). \
+            "Model of the task's agent (e.g. {standard} for well-defined work, {strong} for design or risk). \
              Omit for the workspace default."
         ),
-        None => "Model for the worker, as the worker agent names it. Omit for the workspace default.".to_string(),
+        None => "Model of the task's agent, as that agent names it. Omit for the workspace default.".to_string(),
     }
 }
 
@@ -41,10 +43,10 @@ pub(super) fn model_description(models: Option<TierModels>) -> String {
 pub(super) fn proposed_model_description(models: Option<TierModels>) -> String {
     match models {
         Some(TierModels { standard, strong }) => format!(
-            "Model for the worker: {standard} for well-defined work, {strong} for design, risky changes or hard \
+            "Model of the task's agent: {standard} for well-defined work, {strong} for design, risky changes or hard \
              bugs."
         ),
-        None => "Model for the worker, as the worker agent names it: a stronger one for design, risky changes or hard \
+        None => "Model of the task's agent, as that agent names it: a stronger one for design, risky changes or hard \
                  bugs."
             .to_string(),
     }
@@ -69,12 +71,16 @@ fn task_properties(with_id: bool) -> Value {
             "type": "array",
             "items": { "type": "string" },
             "maxItems": 50,
-            "description": "Ids that must be done first: tasks of the same proposal or already in the queue. No cycles."
+            "description": "Ids that must be done first (same proposal or queue). No cycles."
         },
         "repo": {
             "type": ["string", "null"],
             "maxLength": 256,
             "description": "Multi-repository workspaces: repository folder relative to the workspace root. Omit or '.' for the root."
+        },
+        "agent": {
+            "type": ["string", "null"],
+            "description": "Agent id from get_workspace_settings.agents (lists its models). Omit for the workspace agent."
         },
         "model": {
             "type": ["string", "null"],
@@ -110,10 +116,9 @@ fn propose_tasks_tool() -> Value {
     });
     tool(
         "propose_tasks",
-        "Propose tasks for the queue of this workspace. The user accepts or discards the proposal in the app; nothing \
-         starts before that and you get no answer: never wait for it. All-or-nothing validation: ids unique (also against \
-         queued tasks and other pending proposals), dependencies on tasks of the proposal or already in the queue, no cycles, \
-         existing repo. Limits: 20 tasks per proposal. Returns {proposal, status: \"pending\"}.",
+        "Propose tasks for this workspace's queue. The user accepts or discards the proposal in the app; nothing \
+         starts before and you get no answer: never wait. All-or-nothing validation: unique ids (also against the queue \
+         and pending proposals), valid dependencies, no cycles, existing repo. Max 20 tasks. Returns {proposal, status: \"pending\"}.",
         json!({
             "tasks": {
                 "type": "array",
@@ -125,7 +130,7 @@ fn propose_tasks_tool() -> Value {
                     "required": ["id", "title", "task", "model"],
                     "additionalProperties": false
                 },
-                "description": "The tasks, in the order they should be queued."
+                "description": "In queue order."
             }
         }),
         &["tasks"],
@@ -135,7 +140,7 @@ fn propose_tasks_tool() -> Value {
 fn get_task_details_tool() -> Value {
     tool(
         "get_task_details",
-        "Full detail of one task: specification, dependencies, status, report (summary, commit, PR link, tests), note, worktree.",
+        "Full detail of one task: specification, dependencies, status, report, note, worktree.",
         json!({ "id": { "type": "string", "description": "Id of the task." } }),
         &["id"],
     )
@@ -148,8 +153,8 @@ pub fn session_tools() -> Vec<Value> {
         propose_tasks_tool(),
         tool(
             "list_tasks",
-            "List the task queue of this workspace: counts per status (queued, running, done, failed), pending proposals and one \
-             compact row per task (id, title, status, kind and verdict for reviews, attention, waiting_on, summary, note). Never waits.",
+            "List the task queue: counts per status, pending proposals and one \
+             compact row per task (id, title, status, kind and verdict for reviews, attention, waiting_on, summary, note).",
             json!({
                 "status": {
                     "type": "array",
@@ -162,8 +167,8 @@ pub fn session_tools() -> Vec<Value> {
         get_task_details_tool(),
         tool(
             "update_task",
-            "Change a queued or failed task; `id` only selects it, omitted fields stay, null clears repo and model. `repo` is \
-             fixed once the task has a worktree. Dependencies are revalidated. Returns the task without its text.",
+            "Change a queued or failed task: omitted fields stay, null clears repo, agent and model. repo is fixed once \
+             the task has a worktree. Returns the task without its text.",
             update,
             &["id"],
         ),
@@ -175,7 +180,7 @@ pub fn session_tools() -> Vec<Value> {
         ),
         tool(
             "save_skill",
-            "Create or update a global user skill, usable in every project (Windows, WSL) as /<name>. The app generates \
+            "Create or update a global user skill, usable in every project as /<name>. The app generates \
              SKILL.md and its frontmatter from your fields. Fails on a hand-written skill with that name. Returns {name, \
              invocation, store_path, synced: [{env, ok, error?}]}.",
             skill_properties(),
@@ -190,8 +195,9 @@ pub fn session_tools() -> Vec<Value> {
         ),
         tool(
             "get_workspace_settings",
-            "Read the workspace settings that propose_settings can change, the repositories with their configuration (null = \
-             none), the allowed values, the limits and the pending settings proposals.",
+            "Read the workspace settings that propose_settings can change, the enabled agents (models, permission rule \
+             syntax, readiness), the repositories with their configuration (null = none), the allowed values, the limits and the \
+             pending settings proposals.",
             json!({}),
             &[],
         ),
@@ -201,32 +207,46 @@ pub fn session_tools() -> Vec<Value> {
              proposal in the app; fields that run commands or widen permissions are shown to the user as sensitive. Nothing \
              changes before the decision and you get NO feedback after it: never wait. All-or-nothing validation. Returns \
              {proposal, status: \"pending\"}.",
-            settings_properties(worker_rule_format()),
+            settings_properties(),
             &["reason"],
         ),
     ]
 }
 
 /// Campi di `propose_settings`; i limiti rispecchiano la validazione di
-/// `crate::workspaces` e del contratto `WorkerPermissions` dell'agente predefinito.
-pub(super) fn settings_properties(rules: Option<RuleFormat>) -> Value {
+/// `crate::workspaces`. Modelli e regole di permesso dipendono dall'agente:
+/// li descrive `get_workspace_settings` in `agents`.
+pub(super) fn settings_properties() -> Value {
     let commands = json!({
         "type": "array",
         "items": { "type": "string", "maxLength": MAX_REPO_COMMAND_LEN },
         "maxItems": MAX_REPO_COMMANDS,
         "description": "Single-line commands in order; replaces the list."
     });
-    let mut props = json!({
+    json!({
         "reason": { "type": "string", "minLength": 1, "maxLength": REASON_MAX, "description": "Why, shown to the user." },
         "worker_rules": {
             "type": "string",
             "maxLength": MAX_RULES_LEN,
             "description": "Full text for the workers; empty clears."
         },
-        "worker_model": {
+        "agent": {
             "type": ["string", "null"],
-            "pattern": "^[A-Za-z0-9._-]{1,64}$",
-            "description": "Null = agent default."
+            "description": "Worker agent of the workspace (id from get_workspace_settings.agents); null = the global default."
+        },
+        "worker_agents": {
+            "type": "object",
+            "maxProperties": MAX_PATCH_AGENTS,
+            "additionalProperties": {
+                "type": "object",
+                "properties": {
+                    "model": { "type": ["string", "null"], "description": "Null = agent default." },
+                    "allow": { "type": "array", "items": { "type": "string" } },
+                    "deny": { "type": "array", "items": { "type": "string" } }
+                },
+                "additionalProperties": false
+            },
+            "description": "Key = agent id. allow/deny replace the list. Models and rule syntax: get_workspace_settings.agents."
         },
         "worker_permission": { "type": "string", "enum": PermissionMode::ALL.map(PermissionMode::as_str) },
         "delivery": {
@@ -286,19 +306,7 @@ pub(super) fn settings_properties(rules: Option<RuleFormat>) -> Value {
             },
             "description": "Key = repository folder ('.' = root); null removes its config."
         }
-    });
-    // Le regole esistono solo se l'agente dei worker le applica.
-    if let Some(format) = rules {
-        let rules = json!({
-            "type": "array",
-            "items": { "type": "string", "maxLength": format.max_rule_chars },
-            "maxItems": format.max_rules,
-            "description": format!("Replaces the list, e.g. {}.", format.example)
-        });
-        props["worker_allow"] = rules.clone();
-        props["worker_deny"] = rules;
-    }
-    props
+    })
 }
 
 /// Campi di `save_skill`; i limiti rispecchiano `user_skills::validate`.

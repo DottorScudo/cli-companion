@@ -2,10 +2,10 @@
 //! lancio e spawn del worker. Gira su un thread dell'host, fuori dal lock.
 
 use super::{git, is_abs, join_path, repo_cfg, repo_dir, task_branch, FetchCache, StartJob, WORKTREES_DIR};
-use crate::agents::AutomationRequest;
+use crate::agents::{registry, AutomationRequest};
 use crate::automation::hooks;
 use crate::automation::*;
-use crate::board::{repo_key, WorktreeInfo};
+use crate::board::{repo_key, Task, WorktreeInfo};
 use crate::validate::valid_branch;
 use crate::workspaces::DeliveryMode;
 
@@ -248,6 +248,21 @@ fn task_base<H: Host>(host: &H, job: &StartJob, dir: &str) -> Result<String, Str
     }
 }
 
+/// Modello del worker: quello del task, poi quello del workspace per l'agente
+/// del task, poi il predefinito dell'agente (`None` = decide l'agente).
+pub(super) fn effective_model<'a>(
+    task: &'a Task,
+    ws: &'a Workspace,
+    agent_default: Option<&'a str>,
+) -> Option<&'a str> {
+    task.model.as_deref().or_else(|| ws.worker.model_for(&task.agent)).or(agent_default)
+}
+
+/// Il modello predefinito che l'agente dichiara nel suo catalogo.
+fn catalog_default_model(agent_id: &str) -> Option<&'static str> {
+    registry::find(agent_id).ok()?.capabilities().models?.default_model()
+}
+
 fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Result<Prepared, String> {
     let (ws, task) = (&job.ws, &job.task);
     let delivery = ws.delivery;
@@ -275,7 +290,7 @@ fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Res
     let req = AutomationRequest {
         bootstrap_prompt: BOOTSTRAP_PROMPT,
         permission_mode: ws.worker.permission,
-        model: task.model.as_deref().or(ws.worker.model.as_deref()),
+        model: effective_model(task, ws, catalog_default_model(&task.agent)),
         permissions_file: permissions_file.as_deref(),
     };
     let command = host.launch_command(&task.agent, ws.kind, &req)?;

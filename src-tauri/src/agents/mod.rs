@@ -49,6 +49,11 @@ pub use contracts::*;
 pub use integrations_commands::*;
 pub use integrations_store::load_integrations;
 pub use launches::{builtin_launch_list, BuiltinLaunch};
-pub use models::{tier_models, TierModels};
+pub use models::{model_is_valid, tier_models, TierModels};
+pub use readiness::{agent_readiness, Readiness};
 pub use registry::automation_command;
+pub use resolve::{AgentUnavailable, AgentUse};
 pub use worker_rules::{validate_worker_rules, worker_permissions_file, worker_rule_format};
+/// Per i test delle scelte con piu' agenti: nucleo puro e stato che prende.
+#[cfg(test)]
+pub(crate) use {enablement::IntegrationsState, resolve::resolve_in};

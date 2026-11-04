@@ -12,6 +12,10 @@ export type NewTaskSpec = { title: string, task: string, depends_on?: Array<stri
  */
 repo?: string | null, 
 /**
+ * `null` o assente = l'agente dei worker del workspace.
+ */
+agent?: string | null, 
+/**
  * `null` o assente = modello dei worker del workspace.
  */
 model?: string | null, 

@@ -7,12 +7,12 @@ use super::model::Workspace;
 use super::repo_config::RepoConfig;
 use super::store::{change, edit, now_millis, WorkspaceStore, WORKSPACE_ID_PREFIX, WORKSPACE_NOT_FOUND};
 use super::validate::{
-    normalize_permission_rules, normalize_rules, normalize_worker_model, parse_worker_permission, repo_config_key,
+    normalize_agent_worker, normalize_rules, normalize_workspace_agent, parse_worker_permission, repo_config_key,
 };
+use super::worker_settings::AgentWorkerSettings;
 use crate::automation::{AutomationState, TauriHost};
 use crate::platform::TargetKind;
 use crate::store::data_dir;
-use crate::validate::RuleList;
 use std::collections::HashSet;
 use tauri::{AppHandle, Manager, State};
 
@@ -122,35 +122,63 @@ pub async fn set_worker_permission(app: AppHandle, id: String, mode: String) -> 
     .await
 }
 
+/// Imposta l'agente dei worker e dei revisori del workspace (`None` o vuoto =
+/// il predefinito globale).
+#[tauri::command]
+pub async fn set_workspace_agent(app: AppHandle, id: String, agent: Option<String>) -> Result<Workspace, String> {
+    crate::blocking(move || {
+        let agent = normalize_workspace_agent(agent)?;
+        change(&app, &id, |ws| ws.agent = agent)
+    })
+    .await
+}
+
+/// Cambia le impostazioni dei worker dell'agente `agent`: `update` modifica la
+/// voce attuale (vuota se non c'e'), il risultato si valida con le regole
+/// dell'agente e si salva; una voce rimasta vuota viene tolta.
+fn edit_agent_worker(
+    app: &AppHandle,
+    id: &str,
+    agent: &str,
+    update: impl FnOnce(&mut AgentWorkerSettings),
+) -> Result<Workspace, String> {
+    edit(app, id, |ws| {
+        let mut settings = ws.worker.for_agent(agent).cloned().unwrap_or_default();
+        update(&mut settings);
+        ws.worker.set_agent(agent, normalize_agent_worker(agent, settings)?);
+        Ok(())
+    })
+}
+
 /// Imposta le regole di permesso pre-approvate (`allow`) e vietate (`deny`)
-/// dei worker Claude Code del workspace (sintassi dei permessi di Claude Code).
+/// dei worker dell'agente `agent`, nella sintassi di quell'agente.
 #[tauri::command]
 pub async fn set_worker_permission_rules(
     app: AppHandle,
     id: String,
+    agent: String,
     allow: Vec<String>,
     deny: Vec<String>,
 ) -> Result<Workspace, String> {
     crate::blocking(move || {
-        let allow = normalize_permission_rules(&allow, RuleList::Allow)?;
-        let deny = normalize_permission_rules(&deny, RuleList::Deny)?;
-        edit(&app, &id, |ws| {
-            ws.worker.allow = allow;
-            ws.worker.deny = deny;
-            Ok(())
+        edit_agent_worker(&app, &id, &agent, |settings| {
+            settings.allow = allow;
+            settings.deny = deny;
         })
     })
     .await
 }
 
-/// Imposta il modello di default dei worker automatici (vuoto = quello dell'agente).
+/// Imposta il modello di default dei worker automatici dell'agente `agent`
+/// (vuoto = quello dell'agente).
 #[tauri::command]
-pub async fn set_worker_model(app: AppHandle, id: String, model: Option<String>) -> Result<Workspace, String> {
-    crate::blocking(move || {
-        let model = normalize_worker_model(model)?;
-        change(&app, &id, |ws| ws.worker.model = model)
-    })
-    .await
+pub async fn set_worker_model(
+    app: AppHandle,
+    id: String,
+    agent: String,
+    model: Option<String>,
+) -> Result<Workspace, String> {
+    crate::blocking(move || edit_agent_worker(&app, &id, &agent, |settings| settings.model = model)).await
 }
 
 /// Regole per i worker del workspace (vuoto = nessuna).

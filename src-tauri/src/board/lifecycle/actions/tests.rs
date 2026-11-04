@@ -75,7 +75,7 @@ fn board_with(status: TaskStatus) -> Board {
     let mut b = Board::new("ws-1");
     for id in ["a", "q"] {
         let spec = TaskSpec { id: id.into(), title: id.into(), task: format!("do {id}"), ..TaskSpec::default() };
-        b.create_task(spec, 1).unwrap();
+        b.create_task(spec, None, 1).unwrap();
     }
     b.task_mut("a").unwrap().set_status(status);
     b
@@ -85,7 +85,7 @@ fn board_with(status: TaskStatus) -> Board {
 fn attempt(status: TaskStatus, op: Op) -> Result<(), String> {
     let mut b = board_with(status);
     match op {
-        Op::Edit => b.update_task("a", &json!({"title": "T"}), 2),
+        Op::Edit => b.update_task("a", &json!({"title": "T"}), None, 2),
         Op::Action(Delete) => b.delete_task("a", 2).map(|_| ()),
         Op::Action(DeleteCascade) => b.delete_with_dependents("a", 2).map(|_| ()),
         Op::Action(Retry) => b.retry_task("a", 2),
@@ -121,7 +121,7 @@ fn every_guard_follows_the_table_and_reports_the_old_error_texts() {
 fn an_unknown_task_is_not_found_whatever_the_operation() {
     let mut b = board_with(TaskStatus::Queued);
     let not_found = "task not found: zz";
-    assert_eq!(b.update_task("zz", &json!({"title": "T"}), 2), Err(not_found.into()));
+    assert_eq!(b.update_task("zz", &json!({"title": "T"}), None, 2), Err(not_found.into()));
     assert_eq!(b.delete_task("zz", 2).map(|_| ()), Err(not_found.into()));
     assert_eq!(b.delete_with_dependents("zz", 2).map(|_| ()), Err(not_found.into()));
     assert_eq!(b.retry_task("zz", 2), Err(not_found.into()));

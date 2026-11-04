@@ -79,7 +79,7 @@ Task:
   "kind": "work",           // work | review (default work, vedi "Task di review"); una review richiede almeno una dipendenza
   "e2e": false,             // true = deve superare gli E2E del repository; omesso se false (vedi "Test E2E")
   "repo": null,             // cartella relativa alla root; null = la root (multi-repo)
-  "agent": "claude-code",
+  "agent": "claude-code",   // sempre valorizzato: risolto alla creazione (agente del task, poi del workspace, poi il predefinito globale) e non cambia con i predefiniti
   "model": null,            // null = modello dei worker del workspace
   "status": "queued",       // queued | running | done | failed
   "worker_status": null,    // starting | running | background | needs_input | idle | ... (come oggi)
@@ -137,7 +137,7 @@ Proposal:
   "created_at": 0,
   "source_task": "review-x", // opzionale: task di review il cui reviewer l'ha proposta (omesso se assente);
                              // in quel caso source_tab è il tab del reviewer
-  "tasks": [ /* TaskSpec: id, title, task, depends_on, repo, model, kind, e2e */ ]
+  "tasks": [ /* TaskSpec: id, title, task, depends_on, repo, agent?, model, kind, e2e */ ]
 }
 ```
 
@@ -412,6 +412,13 @@ Funzione pura dopo ogni modifica (come oggi):
 1. Niente se la board è `paused`, se il workspace è archiviato o se usa le fasce (`use_schedule`) e la
    fascia è chiusa.
 2. Candidati: `queued` con tutte le dipendenze `done`, nell'ordine dell'array.
+   Un task il cui agente non è pronto nel target del workspace (non trovato, pacchetto mancante o
+   vecchio, integrazione disabilitata) non è candidato e non occupa uno slot: non fallisce, resta
+   `queued` e parte da solo appena l'agente è `Ready`. La vista espone `agent_unavailable: { agent,
+   reason }` (reason = `not-found`, `not-installed`, `outdated`, `disabled`; assente se l'agente è
+   pronto o la prontezza si sta ancora controllando). La prontezza è l'ultima nota (rinnovata ogni
+   15 s in background, mai sotto il lock del registro) e si rivaluta a ogni giro del timer e a ogni
+   cambio; `get_workspace_settings` la riporta per agente in `agents[].readiness`.
 3. Slot: in modalità parallela (`pr`/`local_merge` con `parallel`) fino a `max_parallel`
    running nella board; altrimenti **1 running per repository** (chiave `repo`), comunque
    entro `max_parallel`.
@@ -557,7 +564,7 @@ verify the integrated result without changing files; propose fixes with propose_
 finish with complete_task and a verdict.
 
 Sessione (workspace = quello del tab):
-- `propose_tasks { tasks: TaskSpec[] }` — `TaskSpec = { id, title, task, model,
+- `propose_tasks { tasks: TaskSpec[] }` — `TaskSpec = { id, title, task, model, agent?,
   depends_on?, repo?, kind? }` (`model` obbligatorio nelle proposte; `kind` `work` | `review`,
   default `work`; una `review` richiede almeno una dipendenza, controllata a proposta,
   accettazione, creazione manuale e aggiornamento: "task '<id>': a review task needs at least one
@@ -567,19 +574,27 @@ Sessione (workspace = quello del tab):
   proposte, dipendenze verso la proposta stessa o task esistenti, niente cicli, `repo`
   esistente e git se la modalità usa branch). Crea una **proposta** pendente e ritorna
   `{ proposal, status: "pending" }`: "the user will accept or discard it in the app". Non
-  aspetta la decisione.
+  aspetta la decisione. `agent` (id di un agente, da `get_workspace_settings.agents`) è l'agente
+  che esegue il task e `model` è un nome del suo catalogo; assente = quello del workspace (poi il
+  predefinito globale). Lo stesso controllo vale a proposta, accettazione, creazione manuale e
+  aggiornamento: "task '<id>': unknown agent: <id>" (o "<nome> is disabled…", "<nome> does not
+  support automated sessions", "invalid model for <nome>: <modello>"). La proposta tiene
+  `agent` com'è scritto; all'accettazione si risolve con l'agente del workspace di quel momento.
 - `list_tasks { status?: string[] }` → righe compatte `{ id, title, status, kind? (solo
   `review`), e2e? (solo `true`), verdict? (se il report ne ha uno), attention?,
   waiting_on?, summary? (300), note? (200) }` + `counts` + `proposals_pending`.
 - `get_task_details { id }` → task completo (testo, report, worktree).
-- `update_task { id, title?, task?, depends_on?, repo?, model?, kind?, e2e? }` — solo `queued` o
-  `failed`; `repo` solo senza worktree. Ritorna il task senza testo.
+- `update_task { id, title?, task?, depends_on?, repo?, agent?, model?, kind?, e2e? }` — solo `queued` o
+  `failed`; `repo` solo senza worktree. Ritorna il task senza testo. L'agente si ricontrolla
+  solo se il patch contiene `agent` o `model` (`agent: null` = quello del workspace o il
+  predefinito globale, risolto adesso): il titolo di un task il cui agente è stato disabilitato
+  si modifica comunque.
 - `delete_task { id }` — solo `queued`/`failed` e senza dipendenti non `done`.
-- `get_workspace_settings {}` → le impostazioni che `propose_settings` può cambiare, i
+- `get_workspace_settings {}` → le impostazioni che `propose_settings` può cambiare, gli agenti
+  abilitati (`agents`: id, nome, modelli, forma delle regole di permesso), i
   repository con la loro configurazione (`null` = nessuna), i valori ammessi, i limiti e le
   proposte di impostazioni pendenti.
-- `propose_settings { reason, worker_rules?, worker_model?, worker_permission?, worker_allow?,
-  worker_deny?, delivery?, use_schedule?, default_launch?, launches?, repos? }` — cambiano solo i
+- `propose_settings { reason, worker_rules?, agent?, worker_permission?, worker_agents?, delivery?, use_schedule?, default_launch?, launches?, repos? }` — cambiano solo i
   campi passati; liste e `worker_rules` sostituiscono quelle attuali; `delivery` accetta anche
   solo alcuni dei suoi campi (`mode`, `parallel`, `merge_method`); `repos` ha per chiave la
   cartella del repository (`.` = root) e per valore `{ base_branch?, container_root?,
@@ -758,8 +773,8 @@ tutti `done` (nessuna modifica allo scheduler).
   alla board (campo `settings_proposals`, tetto separato da quello delle proposte di task) →
   `board-update`. La vista espone anche i valori **attuali** dei soli campi toccati e l'elenco dei
   campi **sensibili**.
-- Campi sensibili (eseguono comandi o allargano i permessi): `worker_permission`, `worker_allow`,
-  `worker_deny`, `launches`, `default_launch`, `repos[<repo>].setup`, `repos[<repo>].cleanup`,
+- Campi sensibili (eseguono comandi o allargano i permessi): `worker_permission`,
+  `worker_agents[<agente>].allow`, `worker_agents[<agente>].deny`, `launches`, `default_launch`, `repos[<repo>].setup`, `repos[<repo>].cleanup`,
   `repos[<repo>].e2e` (se impostato; toglierlo non è sensibile).
 - UI: card "Proposta di impostazioni" in cima al pannello Task (e nel Tasks Manager): motivazione
   e, per ogni campo, il confronto **prima → dopo** (testi lunghi compressi con "Mostra tutto";
@@ -843,7 +858,7 @@ della conversazione), come faceva l'orchestratore.
 Argomenti camelCase lato JS.
 - `board_get(workspace_id) -> BoardView`
 - `board_set(workspace_id, max_parallel?, paused?) -> BoardView`
-- `task_create(workspace_id, spec: { title, task, depends_on?, repo?, model?, kind? }) -> BoardView`
+- `task_create(workspace_id, spec: { title, task, depends_on?, repo?, agent?, model?, kind? }) -> BoardView`
   (id generato dal titolo: slug ASCII, max 40, suffisso `-2`, `-3`… se occupato; vuoto →
   `task-<n>`). Manuale, senza proposta.
 - `task_update(workspace_id, task_id, patch) -> BoardView` (stesse regole di `update_task`).

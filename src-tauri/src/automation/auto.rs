@@ -89,6 +89,9 @@ pub struct TickEnv<'a> {
     /// Minuti locali del giorno.
     pub minute: u16,
     pub workspaces: &'a [Workspace],
+    /// Prontezza nota degli agenti (non bloccante): i task fermi per un agente
+    /// si rivalutano a ogni giro.
+    pub readiness: &'a boards::ReadinessLookup<'a>,
 }
 
 impl Registry {
@@ -129,6 +132,7 @@ impl Registry {
         }
         let ids: HashSet<&str> = env.workspaces.iter().map(|w| w.id.as_str()).collect();
         self.auto.blocked.retain(|id, _| ids.contains(id.as_str()));
+        self.retain_gates(&ids);
         for ws in env.workspaces {
             let blocked = self.schedule_blocked(ws, env.minute);
             let changed = self.auto.blocked.insert(ws.id.clone(), blocked).is_some_and(|prev| prev != blocked);
@@ -136,6 +140,7 @@ impl Registry {
                 self.mark_dirty(&ws.id);
             }
         }
+        self.recheck_agents(env.workspaces, env.readiness);
         if force {
             self.mark_all_dirty();
         }
@@ -166,7 +171,8 @@ impl AutomationState {
     /// Giro con l'ora locale dell'host. `force` vedi `auto_tick`.
     pub fn reconcile_at<H: Host>(&self, host: &H, now: i64, force: bool) {
         let workspaces = host.workspaces();
-        let env = TickEnv { minute: host.local_minute(now), workspaces: &workspaces };
+        let readiness = |ws: &Workspace, agent: &str| host.agent_readiness(ws, agent);
+        let env = TickEnv { minute: host.local_minute(now), workspaces: &workspaces, readiness: &readiness };
         self.run(host, |r| r.auto_tick(&env, now, force));
     }
 

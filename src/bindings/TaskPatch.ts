@@ -4,6 +4,10 @@ import type { TaskKind } from "./TaskKind";
 /**
  * Argomento di `task_update` come lo invia l'interfaccia (letto da `parse_spec`
  * con la specifica attuale come base): i campi assenti non cambiano e `null`
- * azzera `repo` e `model`.
+ * azzera `repo`, `agent` e `model`.
  */
-export type TaskPatch = { title?: string, task?: string, depends_on?: Array<string>, repo?: string | null, model?: string | null, kind?: TaskKind, e2e?: boolean, };
+export type TaskPatch = { title?: string, task?: string, depends_on?: Array<string>, repo?: string | null, 
+/**
+ * `null` = torna all'agente del workspace (o al predefinito globale).
+ */
+agent?: string | null, model?: string | null, kind?: TaskKind, e2e?: boolean, };

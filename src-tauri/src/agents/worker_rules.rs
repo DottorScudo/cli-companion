@@ -8,17 +8,21 @@ use crate::platform::TargetKind;
 use crate::validate::{ErrorCode, ValidationError};
 use std::path::Path;
 
-/// Valida e normalizza una lista di regole con l'integrazione predefinita dei
-/// worker. Senza contratto una lista vuota resta vuota e una lista con regole
-/// e' rifiutata: non verrebbero mai applicate.
-pub fn validate_worker_rules(rules: &[String]) -> Result<Vec<String>, ValidationError> {
-    validate_with(registry::default_agent(), rules)
+/// Valida e normalizza una lista di regole con il contratto dell'agente
+/// `agent_id`. Senza contratto una lista vuota resta vuota e una lista con
+/// regole e' rifiutata: non verrebbero mai applicate. Un agente non
+/// registrato e' un errore.
+pub fn validate_worker_rules(agent_id: &str, rules: &[String]) -> Result<Vec<String>, ValidationError> {
+    let integration =
+        registry::find(agent_id).map_err(|_| ValidationError::new(ErrorCode::AgentUnknown).value(agent_id))?;
+    validate_with(integration, rules)
 }
 
-/// Forma delle liste di regole dell'integrazione predefinita; `None` se non
-/// applica regole.
-pub fn worker_rule_format() -> Option<RuleFormat> {
-    registry::default_agent().capabilities().worker_permissions.map(|p| p.rule_format())
+/// Forma delle liste di regole dell'agente `agent_id`; `None` se l'agente non
+/// e' registrato o non applica regole.
+pub fn worker_rule_format(agent_id: &str) -> Option<RuleFormat> {
+    let integration = registry::find(agent_id).ok()?;
+    integration.capabilities().worker_permissions.map(|p| p.rule_format())
 }
 
 /// File di regole per l'agente `agent_id` del task, nel formato di path del
@@ -105,7 +109,23 @@ mod tests {
 
     #[test]
     fn the_default_worker_agent_declares_a_rule_format() {
-        let format = worker_rule_format().expect("the default worker agent applies rules");
+        let format = worker_rule_format(registry::default_agent().id()).expect("the default agent applies rules");
         assert!(format.max_rules > 0 && format.max_rule_chars > 0 && !format.example.is_empty());
+    }
+
+    #[test]
+    fn rules_are_validated_per_agent_by_id() {
+        let id = registry::default_agent().id();
+        assert_eq!(validate_worker_rules(id, &rules(&[" Read ", "Read"])), Ok(rules(&["Read"])));
+        let bad = validate_worker_rules(id, &rules(&["bad rule"]));
+        assert_eq!(bad.unwrap_err().code(), ErrorCode::PermissionRuleBadShape);
+    }
+
+    #[test]
+    fn an_unknown_agent_has_no_rule_format_and_rejects_validation() {
+        assert_eq!(worker_rule_format("nope"), None);
+        let err = validate_worker_rules("nope", &[]).unwrap_err();
+        assert_eq!(err.code(), ErrorCode::AgentUnknown);
+        assert_eq!(err.message_en(), "unknown agent: nope");
     }
 }

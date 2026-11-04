@@ -63,7 +63,7 @@ pub(in crate::automation) fn propose_tasks<H: Host>(
     ensure_repos(host, ws, specs.iter().map(|s| s.repo.as_deref()))?;
     check_e2e_configured(ws, &specs)?;
     let now = now_millis();
-    let id = st.run(host, |r| r.propose(&ws.id, tab, source_task, specs, now))?;
+    let id = st.run(host, |r| r.propose(&ws.id, tab, source_task, specs, ws.agent.as_deref(), now))?;
     Ok(json!({
         "proposal": id,
         "status": "pending",

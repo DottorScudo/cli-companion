@@ -1,9 +1,43 @@
 //! Parti pure di `worktrees`: percorsi e interpretazione dell'elenco di git.
 
 use super::reconcile::{parse_worktree_list, ListedWorktree, Reconciler};
+use super::start::effective_model;
 use super::{is_abs, join_path, task_branch};
+use crate::board::{Task, TaskSpec};
 use crate::platform::TargetKind::{Windows, Wsl};
+use crate::workspaces::{AgentWorkerSettings, Workspace};
 use std::sync::Arc;
+
+fn task_of(agent: &str, model: Option<&str>) -> Task {
+    let spec = TaskSpec {
+        id: "a".into(),
+        title: "A".into(),
+        task: "t".into(),
+        model: model.map(str::to_string),
+        ..TaskSpec::default()
+    };
+    let mut task = Task::from_spec(spec, 1);
+    task.agent = agent.to_string();
+    task
+}
+
+fn workspace_with(agent: &str, model: &str) -> Workspace {
+    let mut ws = Workspace::new("ws-1".into(), "p".into(), Windows, "C:\\p".into());
+    ws.worker.set_agent(agent, AgentWorkerSettings { model: Some(model.into()), ..Default::default() });
+    ws
+}
+
+#[test]
+fn the_model_is_the_task_one_then_the_workspace_one_for_its_agent_then_the_agent_default() {
+    let ws = workspace_with("agent-a", "ws-model");
+    let with_all = task_of("agent-a", Some("task-model"));
+    assert_eq!(effective_model(&with_all, &ws, Some("agent-default")), Some("task-model"));
+    let no_task_model = task_of("agent-a", None);
+    assert_eq!(effective_model(&no_task_model, &ws, Some("agent-default")), Some("ws-model"));
+    let other_agent = task_of("agent-b", None);
+    assert_eq!(effective_model(&other_agent, &ws, Some("agent-default")), Some("agent-default"));
+    assert_eq!(effective_model(&other_agent, &ws, None), None);
+}
 
 #[test]
 fn join_path_uses_the_separator_of_the_environment() {

@@ -44,7 +44,7 @@ fn a_saved_board_is_in_the_envelope_and_loads_back() {
     let board = board_of("ws-bf-roundtrip");
     save(&dir, &board).unwrap();
     let raw: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("ws-bf-roundtrip.json")).unwrap()).unwrap();
-    assert_eq!(raw["schema_version"], 1);
+    assert_eq!(raw["schema_version"], 2);
     assert_eq!(raw["data"]["workspace_id"], "ws-bf-roundtrip");
     let loaded = load_all(&dir, NOW);
     assert_eq!(loaded, [board]);
@@ -64,7 +64,7 @@ fn a_file_in_the_format_of_today_is_migrated_and_its_running_task_recovered() {
     // Il primo salvataggio lo porta alla busta.
     save(&dir, &loaded[0]).unwrap();
     let raw: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("ws-bf-v0.json")).unwrap()).unwrap();
-    assert_eq!(raw["schema_version"], 1);
+    assert_eq!(raw["schema_version"], 2);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

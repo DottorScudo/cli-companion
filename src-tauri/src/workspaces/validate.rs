@@ -4,8 +4,11 @@
 //! (`settings_patch`), cosi' le regole sono una sola.
 
 use super::model::Launch;
-use crate::agents::{BuiltinLaunch, PermissionMode};
-use crate::validate::{normalize_repo, valid_model, ErrorCode, RuleList, ValidationError, MODEL_MAX};
+use super::worker_settings::AgentWorkerSettings;
+use crate::agents::{
+    model_is_valid, registry, validate_worker_rules, AgentUnavailable, AgentUse, BuiltinLaunch, PermissionMode,
+};
+use crate::validate::{normalize_repo, ErrorCode, RuleList, ValidationError};
 
 /// Lunghezza massima del nome di un avvio (in caratteri).
 pub const MAX_LAUNCH_NAME_LEN: usize = 80;
@@ -41,18 +44,51 @@ pub fn parse_worker_permission(mode: &str) -> Result<PermissionMode, ValidationE
     PermissionMode::parse(mode.trim()).ok_or_else(|| ValidationError::new(ErrorCode::PermissionInvalid))
 }
 
-/// Modello dei worker: trim, vuoto = quello dell'agente.
-pub fn normalize_worker_model(model: Option<String>) -> Result<Option<String>, ValidationError> {
-    let model = model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
-    if model.as_deref().is_some_and(|m| !valid_model(m)) {
-        return Err(ValidationError::new(ErrorCode::ModelInvalid).max(MODEL_MAX));
-    }
-    Ok(model)
+/// Agente del workspace: trim, vuoto = il predefinito globale. Una scelta deve
+/// essere registrata, abilitata e capace di eseguire i worker.
+pub fn normalize_workspace_agent(agent: Option<String>) -> Result<Option<String>, ValidationError> {
+    let Some(id) = agent.map(|a| a.trim().to_string()).filter(|a| !a.is_empty()) else { return Ok(None) };
+    registry::resolve_agent(Some(&id), None, AgentUse::Worker).map_err(worker_agent_unavailable)?;
+    Ok(Some(id))
 }
 
-/// Valida una lista di regole di permesso; l'errore porta la lista di appartenenza.
-pub fn normalize_permission_rules(rules: &[String], list: RuleList) -> Result<Vec<String>, ValidationError> {
-    crate::agents::validate_worker_rules(rules).map_err(|e| e.in_rules(list))
+/// L'errore da mostrare quando l'agente scelto non puo' eseguire i worker.
+fn worker_agent_unavailable(unavailable: AgentUnavailable) -> ValidationError {
+    match unavailable {
+        AgentUnavailable::Unknown(id) => ValidationError::new(ErrorCode::AgentUnknown).value(id),
+        AgentUnavailable::Disabled { name, .. } => ValidationError::new(ErrorCode::AgentDisabled).value(name),
+        AgentUnavailable::MissingContract { name, .. } => {
+            ValidationError::new(ErrorCode::AgentWithoutAutomation).value(name)
+        }
+    }
+}
+
+/// Impostazioni dei worker di un agente registrato (anche disabilitato: le
+/// sue impostazioni si conservano): modello (trim, vuoto = quello dell'agente)
+/// accettato dall'agente e liste di regole nella sua sintassi. Ogni errore
+/// porta l'id dell'agente.
+pub fn normalize_agent_worker(
+    agent_id: &str,
+    settings: AgentWorkerSettings,
+) -> Result<AgentWorkerSettings, ValidationError> {
+    normalize_agent_settings(agent_id, settings).map_err(|e| e.in_agent(agent_id))
+}
+
+fn normalize_agent_settings(
+    agent_id: &str,
+    settings: AgentWorkerSettings,
+) -> Result<AgentWorkerSettings, ValidationError> {
+    let integration =
+        registry::find(agent_id).map_err(|_| ValidationError::new(ErrorCode::AgentUnknown).value(agent_id))?;
+    let model = settings.model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
+    if let Some(model) = model.as_deref().filter(|m| !model_is_valid(integration, m)) {
+        return Err(ValidationError::new(ErrorCode::ModelNotForAgent).value(model));
+    }
+    Ok(AgentWorkerSettings {
+        model,
+        allow: validate_worker_rules(agent_id, &settings.allow).map_err(|e| e.in_rules(RuleList::Allow))?,
+        deny: validate_worker_rules(agent_id, &settings.deny).map_err(|e| e.in_rules(RuleList::Deny))?,
+    })
 }
 
 /// Trim del comando, troncato a MAX_COMMAND_LEN caratteri (spacing interno
@@ -128,23 +164,69 @@ mod tests {
         assert_eq!(code(parse_worker_permission("root")), ErrorCode::PermissionInvalid);
     }
 
-    #[test]
-    fn worker_model_is_trimmed_and_checked() {
-        assert_eq!(normalize_worker_model(Some("  opus ".into())).unwrap(), Some("opus".to_string()));
-        assert_eq!(normalize_worker_model(Some("  ".into())).unwrap(), None);
-        assert_eq!(normalize_worker_model(None).unwrap(), None);
-        assert_eq!(code(normalize_worker_model(Some("no good!".into()))), ErrorCode::ModelInvalid);
+    fn default_agent_id() -> &'static str {
+        registry::default_agent().id()
+    }
+
+    fn agent_settings(model: Option<&str>, allow: &[&str], deny: &[&str]) -> AgentWorkerSettings {
+        let owned = |items: &[&str]| items.iter().map(|s| s.to_string()).collect();
+        AgentWorkerSettings { model: model.map(str::to_string), allow: owned(allow), deny: owned(deny) }
     }
 
     #[test]
-    fn permission_rules_carry_their_list() {
-        let bad = vec!["bad rule".to_string()];
-        let e = normalize_permission_rules(&bad, RuleList::Allow).unwrap_err();
-        assert!(e.message_it().starts_with("Consentiti: regola"), "{}", e.message_it());
-        assert!(e.message_en().starts_with("worker_allow: rule"), "{}", e.message_en());
-        let e = normalize_permission_rules(&bad, RuleList::Deny).unwrap_err();
-        assert!(e.message_it().starts_with("Vietati: regola"));
-        assert_eq!(normalize_permission_rules(&[" Read ".into()], RuleList::Allow).unwrap(), ["Read"]);
+    fn the_workspace_agent_is_trimmed_and_empty_means_the_global_default() {
+        assert_eq!(normalize_workspace_agent(None), Ok(None));
+        assert_eq!(normalize_workspace_agent(Some("  ".into())), Ok(None));
+        let id = default_agent_id();
+        assert_eq!(normalize_workspace_agent(Some(format!(" {id} "))), Ok(Some(id.to_string())));
+    }
+
+    #[test]
+    fn an_unknown_workspace_agent_is_rejected_with_its_id() {
+        let e = normalize_workspace_agent(Some("nope".into())).unwrap_err();
+        assert_eq!(e.code(), ErrorCode::AgentUnknown);
+        assert_eq!(e.message_en(), "unknown agent: nope");
+        assert_eq!(e.message_it(), "agente sconosciuto: nope");
+    }
+
+    #[test]
+    fn unavailable_agents_map_to_their_codes_with_the_display_name() {
+        let disabled = worker_agent_unavailable(AgentUnavailable::Disabled { id: "x".into(), name: "Fake" });
+        assert_eq!(disabled.code(), ErrorCode::AgentDisabled);
+        assert_eq!(disabled.message_en(), "Fake is disabled: enable it in the integrations settings");
+        let missing = AgentUnavailable::MissingContract { id: "x".into(), name: "Fake", purpose: AgentUse::Worker };
+        let missing = worker_agent_unavailable(missing);
+        assert_eq!(missing.code(), ErrorCode::AgentWithoutAutomation);
+        assert_eq!(missing.message_en(), "Fake does not support automated sessions");
+        assert_eq!(worker_agent_unavailable(AgentUnavailable::Unknown("x".into())).code(), ErrorCode::AgentUnknown);
+    }
+
+    #[test]
+    fn agent_settings_are_trimmed_and_normalized() {
+        let id = default_agent_id();
+        let out = normalize_agent_worker(id, agent_settings(Some("  "), &[" Read ", "", "Read"], &[" WebFetch"]));
+        assert_eq!(out, Ok(agent_settings(None, &["Read"], &["WebFetch"])));
+        let kept = normalize_agent_worker(id, agent_settings(Some(" sonnet "), &[], &[])).unwrap();
+        assert_eq!(kept.model.as_deref(), Some("sonnet"));
+    }
+
+    #[test]
+    fn agent_settings_errors_name_the_agent_and_the_list() {
+        let id = default_agent_id();
+        let prefix = format!("worker_agents['{id}']: ");
+        let e = normalize_agent_worker(id, agent_settings(Some("no good!"), &[], &[])).unwrap_err();
+        assert_eq!(e.code(), ErrorCode::ModelNotForAgent);
+        assert_eq!(e.message_en(), format!("{prefix}model not accepted by the agent: no good!"));
+        let e = normalize_agent_worker(id, agent_settings(None, &["bad rule"], &[])).unwrap_err();
+        assert!(e.message_en().starts_with(&format!("{prefix}worker_allow: rule")), "{}", e.message_en());
+        let e = normalize_agent_worker(id, agent_settings(None, &[], &["bad rule"])).unwrap_err();
+        assert!(e.message_it().starts_with(&format!("{prefix}Vietati: regola")), "{}", e.message_it());
+    }
+
+    #[test]
+    fn agent_settings_need_a_registered_agent() {
+        let e = normalize_agent_worker("nope", AgentWorkerSettings::default()).unwrap_err();
+        assert_eq!(e.message_en(), "worker_agents['nope']: unknown agent: nope");
     }
 
     #[test]

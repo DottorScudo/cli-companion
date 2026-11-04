@@ -9,7 +9,13 @@ export type TaskSpec = { id: string, title: string, task: string, depends_on: Ar
 /**
  * Repository (cartella relativa alla root); `None` = la root.
  */
-repo: string | null, model: string | null, kind: TaskKind, 
+repo: string | null, 
+/**
+ * Agente che esegue il task; `None` = quello del workspace (o il
+ * predefinito globale). Una proposta lo tiene com'e' scritto: si risolve
+ * all'accettazione; un task ha sempre quello risolto alla creazione.
+ */
+agent?: string, model: string | null, kind: TaskKind, 
 /**
  * Il task deve superare gli E2E del repository.
  */

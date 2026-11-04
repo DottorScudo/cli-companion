@@ -10,10 +10,12 @@ use super::*;
 use crate::board::{self, SchedCtx, Task, TaskSpec, TaskView};
 use serde_json::json;
 
+mod agents;
 mod commands;
 mod lifecycle;
 mod session;
 
+pub(super) use agents::ReadinessLookup;
 pub(super) use commands::{board_set, proposal_decide, task_action, task_create, task_move, task_update, workspace_of};
 #[cfg(test)]
 pub(super) use lifecycle::START_TIMEOUT_MS;
@@ -33,14 +35,15 @@ impl Registry {
     /// Vista della board del workspace (vuota se non esiste).
     pub fn board_view(&self, ws: &Workspace, minute: u16) -> BoardView {
         let blocked = self.schedule_blocked(ws, minute);
+        let gate = self.gate_of(&ws.id);
         match self.boards.get(&ws.id) {
-            Some(b) => b.view_with(Some(ws), blocked),
-            None => Board::new(&ws.id).view_with(Some(ws), blocked),
+            Some(b) => b.view_with(Some(ws), blocked, &gate),
+            None => Board::new(&ws.id).view_with(Some(ws), blocked, &gate),
         }
     }
 
     pub fn task_view(&self, ws: &str, id: &str) -> Option<TaskView> {
-        self.boards.get(ws).and_then(|b| b.task_view(id))
+        self.boards.get(ws).and_then(|b| b.task_view(id, &self.gate_of(ws)))
     }
 
     pub(super) fn mark_dirty(&mut self, ws: &str) {
@@ -66,8 +69,14 @@ impl Registry {
         board::id_from_title(title, &|id| board.is_some_and(|b| b.id_taken(id)))
     }
 
-    pub fn create_task(&mut self, ws: &str, spec: TaskSpec, now: i64) -> Result<String, String> {
-        self.edit(ws, |b| b.create_task(spec, now))
+    pub fn create_task(
+        &mut self,
+        ws: &str,
+        spec: TaskSpec,
+        workspace_agent: Option<&str>,
+        now: i64,
+    ) -> Result<String, String> {
+        self.edit(ws, |b| b.create_task(spec, workspace_agent, now))
     }
 
     /// Nuova proposta (dell'Intake o del revisore di `source_task`): ritorna l'id.
@@ -77,11 +86,12 @@ impl Registry {
         source_tab: &str,
         source_task: Option<String>,
         specs: Vec<TaskSpec>,
+        workspace_agent: Option<&str>,
         now: i64,
     ) -> Result<String, String> {
         self.next_proposal += 1;
         let id = format!("p-{now}-{}", self.next_proposal);
-        self.edit(ws, |b| b.add_proposal(id.clone(), source_tab, source_task, specs, now))?;
+        self.edit(ws, |b| b.add_proposal(id.clone(), source_tab, source_task, specs, workspace_agent, now))?;
         Ok(id)
     }
 
@@ -90,12 +100,32 @@ impl Registry {
         self.boards.get(ws).ok_or_else(|| format!("proposal not found: {id}"))?.proposal(id).map(|p| p.tasks.clone())
     }
 
-    pub fn decide_proposal(&mut self, ws: &str, id: &str, accept: bool, now: i64) -> Result<(), String> {
-        self.edit(ws, |b| if accept { b.accept_proposal(id, now).map(|_| ()) } else { b.discard_proposal(id, now) })
+    pub fn decide_proposal(
+        &mut self,
+        ws: &str,
+        id: &str,
+        accept: bool,
+        workspace_agent: Option<&str>,
+        now: i64,
+    ) -> Result<(), String> {
+        self.edit(ws, |b| {
+            if accept {
+                b.accept_proposal(id, workspace_agent, now).map(|_| ())
+            } else {
+                b.discard_proposal(id, now)
+            }
+        })
     }
 
-    pub fn update_task(&mut self, ws: &str, id: &str, patch: &Value, now: i64) -> Result<(), String> {
-        self.edit(ws, |b| b.update_task(id, patch, now))
+    pub fn update_task(
+        &mut self,
+        ws: &str,
+        id: &str,
+        patch: &Value,
+        workspace_agent: Option<&str>,
+        now: i64,
+    ) -> Result<(), String> {
+        self.edit(ws, |b| b.update_task(id, patch, workspace_agent, now))
     }
 
     /// Toglie un task; se aveva un worktree lo fa ripulire.
@@ -185,6 +215,7 @@ impl Registry {
     /// ha piu').
     pub fn remove_board(&mut self, ws: &Workspace) {
         self.cancel_e2e(&ws.id, None);
+        self.gates.remove(&ws.id);
         if let Some(board) = self.boards.remove(&ws.id) {
             self.dirty.retain(|d| *d != ws.id);
             self.next_rev += 1;
@@ -197,24 +228,41 @@ impl Registry {
 
     /// Schedula e pubblica le board modificate. `lookup` risolve i workspace
     /// (senza, nulla parte); `minute`: ora locale di `now`, per il gate delle
-    /// fasce calcolato adesso e non al giro del timer (fino a 30 s fa).
-    pub fn flush_boards(&mut self, now: i64, minute: u16, lookup: &dyn Fn(&str) -> Option<Workspace>) {
+    /// fasce calcolato adesso e non al giro del timer (fino a 30 s fa);
+    /// `readiness`: prontezza nota degli agenti (non bloccante), per il gate degli
+    /// agenti.
+    pub fn flush_boards(
+        &mut self,
+        now: i64,
+        minute: u16,
+        lookup: &dyn Fn(&str) -> Option<Workspace>,
+        readiness: &ReadinessLookup,
+    ) {
         for ws_id in std::mem::take(&mut self.dirty) {
-            self.flush_one(&ws_id, now, minute, lookup);
+            self.flush_one(&ws_id, now, minute, lookup, readiness);
         }
         self.update_awake();
     }
 
-    fn flush_one(&mut self, ws_id: &str, now: i64, minute: u16, lookup: &dyn Fn(&str) -> Option<Workspace>) {
+    fn flush_one(
+        &mut self,
+        ws_id: &str,
+        now: i64,
+        minute: u16,
+        lookup: &dyn Fn(&str) -> Option<Workspace>,
+        readiness: &ReadinessLookup,
+    ) {
         let Some(ws) = lookup(ws_id) else {
+            self.gates.remove(ws_id);
             return self.publish_board(ws_id, None, now, minute);
         };
         // Archiviato: congelato. Fuori fascia (se il workspace le usa): nessun avvio.
         let ctx = SchedCtx { delivery: ws.delivery, gate_open: !ws.archived && !self.schedule_blocked(&ws, minute) };
+        let gate = self.refresh_gate(&ws, readiness);
         let Some(b) = self.boards.get_mut(ws_id) else {
             return;
         };
-        for id in board::schedule(b, &ctx) {
+        for id in board::schedule(b, &ctx, &gate) {
             // Subito `running`: un'altra esecuzione non lo sceglie due volte.
             if b.start_task(&id, now).is_err() {
                 continue;
@@ -230,6 +278,7 @@ impl Registry {
     /// Ogni pubblicazione e' una modifica della vista: nuova revisione.
     fn publish_board(&mut self, ws_id: &str, ws: Option<&Workspace>, now: i64, minute: u16) {
         let blocked = ws.is_some_and(|w| self.schedule_blocked(w, minute));
+        let gate = self.gate_of(ws_id);
         self.next_rev += 1;
         let Some(b) = self.boards.get_mut(ws_id) else {
             return;
@@ -239,7 +288,7 @@ impl Registry {
         // L'archivio prima della board salvata senza quei task: se l'app cade
         // in mezzo restano nel file della board (e nell'archivio, due volte).
         let archived = b.take_archivable();
-        let view = b.view_with(ws, blocked);
+        let view = b.view_with(ws, blocked, &gate);
         let published = Effect::Publish(Box::new(b.clone()), Box::new(view));
         if !archived.is_empty() {
             self.effects.push(Effect::Archive { ws_id: ws_id.to_string(), tasks: archived });

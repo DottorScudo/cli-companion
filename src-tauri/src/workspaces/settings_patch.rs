@@ -16,14 +16,15 @@ use super::model::{Launch, Workspace};
 use super::repo_config::RepoConfig;
 use super::store::{WorkspaceStore, LAUNCH_ID_PREFIX};
 use super::validate::{
-    check_default_launch, normalize_permission_rules, normalize_rules, normalize_worker_model, parse_worker_permission,
+    check_default_launch, normalize_agent_worker, normalize_rules, normalize_workspace_agent, parse_worker_permission,
     repo_config_key, validate_launch,
 };
+use super::worker_settings::AgentWorkerSettings;
 use crate::store::data_dir;
-use crate::validate::{RuleList, ValidationError};
-use normalize::{normalize_delivery, normalize_launches, normalize_repos, replace_launches};
+use crate::validate::ValidationError;
+use normalize::{normalize_delivery, normalize_launches, normalize_repos, normalize_worker_agents, replace_launches};
 use sections::de_double_option;
-pub use sections::{DeliveryPatch, LaunchPatch, RepoPatch};
+pub use sections::{AgentWorkerPatch, DeliveryPatch, LaunchPatch, RepoPatch};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use tauri::{AppHandle, Manager};
@@ -31,6 +32,8 @@ use ts_rs::TS;
 
 /// Massimo di repository in una proposta di impostazioni.
 pub const MAX_PATCH_REPOS: usize = 20;
+/// Massimo di agenti in `worker_agents` di una proposta.
+pub const MAX_PATCH_AGENTS: usize = 10;
 /// Massimo di avvii nella lista proposta.
 pub const MAX_PATCH_LAUNCHES: usize = 30;
 
@@ -48,23 +51,20 @@ pub struct SettingsPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub worker_rules: Option<String>,
-    /// `null` = modello dell'agente.
+    /// Agente dei worker e dei revisori; `null` = il predefinito globale.
     #[serde(deserialize_with = "de_double_option", skip_serializing_if = "Option::is_none")]
     // `Option<Option<T>>` distingue assente da `null`: in TS e' `campo?: T | null`.
     #[ts(as = "Option<String>", optional = nullable)]
-    pub worker_model: Option<Option<String>>,
+    pub agent: Option<Option<String>>,
     /// plan | default | accept-edits | bypass.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub worker_permission: Option<String>,
-    /// Sostituisce l'elenco.
+    /// Modello e regole di permesso per agente (chiave = id dell'integrazione):
+    /// di ogni agente cambiano solo i campi presenti.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub worker_allow: Option<Vec<String>>,
-    /// Sostituisce l'elenco.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub worker_deny: Option<Vec<String>>,
+    pub worker_agents: Option<BTreeMap<String, AgentWorkerPatch>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub delivery: Option<DeliveryPatch>,
@@ -105,22 +105,13 @@ impl SettingsPatch {
         let launches = self.launches.as_deref().map(|l| normalize_launches(l, &ws.launches)).transpose()?;
         Ok(SettingsPatch {
             worker_rules: self.worker_rules.as_deref().map(normalize_rules).transpose()?,
-            worker_model: self.worker_model.clone().map(normalize_worker_model).transpose()?,
+            agent: self.agent.clone().map(normalize_workspace_agent).transpose()?,
             worker_permission: self
                 .worker_permission
                 .as_deref()
                 .map(|m| parse_worker_permission(m).map(|m| m.as_str().to_string()))
                 .transpose()?,
-            worker_allow: self
-                .worker_allow
-                .as_deref()
-                .map(|r| normalize_permission_rules(r, RuleList::Allow))
-                .transpose()?,
-            worker_deny: self
-                .worker_deny
-                .as_deref()
-                .map(|r| normalize_permission_rules(r, RuleList::Deny))
-                .transpose()?,
+            worker_agents: self.worker_agents.as_ref().map(|m| normalize_worker_agents(m, ws)).transpose()?,
             delivery: self.delivery.as_ref().map(|d| normalize_delivery(d, ws)).transpose()?,
             use_schedule: self.use_schedule,
             default_launch: self.normalized_default_launch(ws, launches.as_deref())?,
@@ -160,17 +151,15 @@ impl SettingsPatch {
         if let Some(r) = norm.worker_rules {
             next.worker.rules = r;
         }
-        if let Some(m) = norm.worker_model {
-            next.worker.model = m;
+        if let Some(a) = norm.agent {
+            next.agent = a;
         }
         if let Some(p) = norm.worker_permission {
             next.worker.permission = parse_worker_permission(&p)?;
         }
-        if let Some(a) = norm.worker_allow {
-            next.worker.allow = a;
-        }
-        if let Some(d) = norm.worker_deny {
-            next.worker.deny = d;
+        for (id, patch) in norm.worker_agents.unwrap_or_default() {
+            let base = next.worker.for_agent(&id).cloned().unwrap_or_default();
+            next.worker.set_agent(&id, patch.merge(&base));
         }
         if let Some(d) = norm.delivery {
             next.delivery = d.merge(next.delivery);
@@ -203,10 +192,13 @@ impl SettingsPatch {
     pub fn current(&self, ws: &Workspace) -> SettingsPatch {
         SettingsPatch {
             worker_rules: self.worker_rules.as_ref().map(|_| ws.worker.rules.clone()),
-            worker_model: self.worker_model.as_ref().map(|_| ws.worker.model.clone()),
+            agent: self.agent.as_ref().map(|_| ws.agent.clone()),
             worker_permission: self.worker_permission.as_ref().map(|_| ws.worker.permission.as_str().to_string()),
-            worker_allow: self.worker_allow.as_ref().map(|_| ws.worker.allow.clone()),
-            worker_deny: self.worker_deny.as_ref().map(|_| ws.worker.deny.clone()),
+            worker_agents: self.worker_agents.as_ref().map(|m| {
+                m.iter()
+                    .map(|(id, p)| (id.clone(), p.project(&ws.worker.for_agent(id).cloned().unwrap_or_default())))
+                    .collect()
+            }),
             delivery: self.delivery.as_ref().map(|d| d.project(ws.delivery)),
             use_schedule: self.use_schedule.map(|_| ws.use_schedule),
             default_launch: self.default_launch.as_ref().map(|_| ws.default_launch.clone()),
@@ -226,21 +218,29 @@ impl SettingsPatch {
     }
 
     /// Campi toccati che eseguono comandi o allargano i permessi, per
-    /// l'interfaccia. Ordine: `worker_permission`, `worker_allow`,
-    /// `worker_deny`, `launches`, `default_launch`; poi, per ogni repository
+    /// l'interfaccia. Ordine: `worker_permission`; per ogni agente di
+    /// `worker_agents` (chiavi ordinate) `worker_agents[<id>].allow` e
+    /// `worker_agents[<id>].deny` se presenti; `launches`, `default_launch`;
+    /// poi, per ogni repository
     /// (chiavi ordinate) con patch non nulla, `repos[<chiave>].setup` e
     /// `repos[<chiave>].cleanup` se presenti, e `repos[<chiave>].e2e` se
     /// impostato (es. `repos[.].setup`, `repos[api/web].cleanup`,
     /// `repos[.].e2e`). Le rimozioni non sono sensibili.
     pub fn sensitive(&self) -> Vec<String> {
-        let direct = [
-            ("worker_permission", self.worker_permission.is_some()),
-            ("worker_allow", self.worker_allow.is_some()),
-            ("worker_deny", self.worker_deny.is_some()),
-            ("launches", self.launches.is_some()),
-            ("default_launch", self.default_launch.is_some()),
-        ];
-        let mut out: Vec<String> = direct.iter().filter(|(_, touched)| *touched).map(|(n, _)| n.to_string()).collect();
+        let mut out = Vec::new();
+        if self.worker_permission.is_some() {
+            out.push("worker_permission".to_string());
+        }
+        for (id, patch) in self.worker_agents.iter().flatten() {
+            if patch.allow.is_some() {
+                out.push(format!("worker_agents[{id}].allow"));
+            }
+            if patch.deny.is_some() {
+                out.push(format!("worker_agents[{id}].deny"));
+            }
+        }
+        let direct = [("launches", self.launches.is_some()), ("default_launch", self.default_launch.is_some())];
+        out.extend(direct.iter().filter(|(_, touched)| *touched).map(|(n, _)| n.to_string()));
         for (key, patch) in self.repos.iter().flatten() {
             let Some(p) = patch else { continue };
             if p.setup.is_some() {

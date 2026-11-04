@@ -1,8 +1,8 @@
-//! Le parti di una proposta di impostazioni: avvii, consegna e configurazione
-//! di un repository. Ogni parte sa unirsi al valore attuale e riportare i soli
+//! Le parti di una proposta di impostazioni: avvii, consegna, configurazione
+//! di un repository e impostazioni dei worker di un agente. Ogni parte sa unirsi al valore attuale e riportare i soli
 //! campi toccati.
 
-use super::{Delivery, DeliveryMode, E2eConfig, Launch, MergeMethod, RepoConfig};
+use super::{AgentWorkerSettings, Delivery, DeliveryMode, E2eConfig, Launch, MergeMethod, RepoConfig};
 use crate::validate::ValidationError;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -72,6 +72,49 @@ impl DeliveryPatch {
             mode: self.mode.map(|_| d.mode),
             parallel: self.parallel.map(|_| d.parallel),
             merge_method: self.merge_method.map(|_| d.merge_method),
+        }
+    }
+}
+
+/// Modifica parziale delle impostazioni dei worker di un agente: solo i campi
+/// presenti cambiano (`null` su `model` torna al modello dell'agente).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+#[ts(export)]
+pub struct AgentWorkerPatch {
+    #[serde(default, deserialize_with = "de_double_option", skip_serializing_if = "Option::is_none")]
+    #[ts(as = "Option<String>", optional = nullable)]
+    pub model: Option<Option<String>>,
+    /// Sostituisce l'elenco.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub allow: Option<Vec<String>>,
+    /// Sostituisce l'elenco.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub deny: Option<Vec<String>>,
+}
+
+impl AgentWorkerPatch {
+    pub(super) fn is_empty(&self) -> bool {
+        *self == AgentWorkerPatch::default()
+    }
+
+    /// `base` con i campi della patch sovrapposti (non normalizzato).
+    pub(super) fn merge(&self, base: &AgentWorkerSettings) -> AgentWorkerSettings {
+        AgentWorkerSettings {
+            model: self.model.clone().unwrap_or_else(|| base.model.clone()),
+            allow: self.allow.clone().unwrap_or_else(|| base.allow.clone()),
+            deny: self.deny.clone().unwrap_or_else(|| base.deny.clone()),
+        }
+    }
+
+    /// Gli stessi campi della patch, con i valori di `s`.
+    pub(super) fn project(&self, s: &AgentWorkerSettings) -> AgentWorkerPatch {
+        AgentWorkerPatch {
+            model: self.model.as_ref().map(|_| s.model.clone()),
+            allow: self.allow.as_ref().map(|_| s.allow.clone()),
+            deny: self.deny.as_ref().map(|_| s.deny.clone()),
         }
     }
 }

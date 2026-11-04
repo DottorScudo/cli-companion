@@ -91,6 +91,9 @@ pub struct Registry {
     pub(super) next_proposal: u64,
     /// Fasce orarie e standby (vedi `auto`).
     pub(super) auto: auto::AutoCore,
+    /// Agenti non pronti per workspace, solo se ce n'e' qualcuno (vedi
+    /// `boards::agents`).
+    pub(super) gates: HashMap<String, AgentGate>,
 }
 
 impl Registry {

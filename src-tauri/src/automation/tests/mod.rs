@@ -7,9 +7,10 @@ use super::*;
 use crate::agents::AutomationRequest;
 use crate::platform::TargetKind;
 use crate::schedule::{Schedule, ScheduleState};
-use crate::workspaces::{DeliveryMode, MergeMethod, RepoConfig, SettingsPatch};
+use crate::workspaces::{AgentWorkerSettings, DeliveryMode, MergeMethod, RepoConfig, SettingsPatch};
 use serde_json::json;
 
+mod agent_ready;
 mod archive;
 mod auth;
 mod board_flow;
@@ -25,7 +26,9 @@ mod schedule;
 mod session_end;
 mod settings;
 mod skills;
+mod task_agent;
 mod worker;
+mod worker_model;
 mod worker_state;
 
 /// Tab dell'Intake (una sessione normale del workspace "ws-1").
@@ -74,7 +77,7 @@ struct FakeHost {
     delivery: Arc<Mutex<Delivery>>,
     use_schedule: Arc<Mutex<bool>>,
     archived: Arc<Mutex<bool>>,
-    worker_model: Arc<Mutex<Option<String>>>,
+    worker_agents: Arc<Mutex<std::collections::BTreeMap<String, AgentWorkerSettings>>>,
     worker_rules: Arc<Mutex<String>>,
     repo_cfg: Arc<Mutex<std::collections::BTreeMap<String, RepoConfig>>>,
     /// Branch corrente dei checkout (`rev-parse --abbrev-ref HEAD`).
@@ -109,6 +112,10 @@ struct FakeHost {
     skill_dirs: Arc<Mutex<Vec<SkillDir>>>,
     /// Con `true` `git` e `dir_exists` usano la macchina vera (vedi `reconcile_git`).
     real_git: Arc<std::sync::atomic::AtomicBool>,
+    /// Prontezza forzata per agente (`None` = ancora in controllo); gli altri sono pronti.
+    readiness: Arc<Mutex<HashMap<String, Option<Readiness>>>>,
+    /// Agenti di cui `probe_agent` e' stato chiesto.
+    probed: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakeHost {
@@ -142,7 +149,7 @@ impl FakeHost {
                 let mut w = self.ws1_base.lock().unwrap().clone().unwrap_or_else(|| ws("ws-1", "Proj", "windows"));
                 w.delivery = *self.delivery.lock().unwrap();
                 w.use_schedule = *self.use_schedule.lock().unwrap();
-                w.worker.model = self.worker_model.lock().unwrap().clone();
+                w.worker.agents = self.worker_agents.lock().unwrap().clone();
                 w.worker.rules = self.worker_rules.lock().unwrap().clone();
                 w.archived = *self.archived.lock().unwrap();
                 w.repos = self.repo_cfg.lock().unwrap().clone();
@@ -156,7 +163,7 @@ impl FakeHost {
     fn store_ws1(&self, w: Workspace) {
         *self.delivery.lock().unwrap() = w.delivery;
         *self.use_schedule.lock().unwrap() = w.use_schedule;
-        *self.worker_model.lock().unwrap() = w.worker.model.clone();
+        *self.worker_agents.lock().unwrap() = w.worker.agents.clone();
         *self.worker_rules.lock().unwrap() = w.worker.rules.clone();
         *self.repo_cfg.lock().unwrap() = w.repos.clone();
         *self.ws1_base.lock().unwrap() = Some(w);
@@ -188,6 +195,13 @@ impl FakeHost {
     }
     fn uses_real_git(&self) -> bool {
         self.real_git.load(std::sync::atomic::Ordering::SeqCst)
+    }
+    /// Da ora `agent` risulta in questo stato per lo scheduler.
+    fn set_readiness(&self, agent: &str, state: Option<Readiness>) {
+        self.readiness.lock().unwrap().insert(agent.to_string(), state);
+    }
+    fn probed(&self) -> Vec<String> {
+        self.probed.lock().unwrap().clone()
     }
 }
 
@@ -388,6 +402,13 @@ impl Host for FakeHost {
         })?;
         self.store_ws1(w.clone());
         Ok(w)
+    }
+    fn agent_readiness(&self, _ws: &Workspace, agent: &str) -> Option<Readiness> {
+        self.readiness.lock().unwrap().get(agent).copied().unwrap_or(Some(Readiness::Ready))
+    }
+    fn probe_agent(&self, _ws: &Workspace, agent: &str) -> Readiness {
+        self.probed.lock().unwrap().push(agent.to_string());
+        self.readiness.lock().unwrap().get(agent).copied().flatten().unwrap_or(Readiness::Ready)
     }
 }
 

@@ -1,9 +1,10 @@
-//! Validazione delle sezioni di una proposta (consegna, avvii, repository) con
-//! le stesse regole dei comandi dell'interfaccia.
+//! Validazione delle sezioni di una proposta (consegna, avvii, repository,
+//! agenti dei worker) con le stesse regole dei comandi dell'interfaccia.
 
-use super::sections::{DeliveryPatch, LaunchPatch, RepoPatch};
+use super::sections::{AgentWorkerPatch, DeliveryPatch, LaunchPatch, RepoPatch};
 use super::{
-    clear_default_if_removed, repo_config_key, validate_launch, Launch, Workspace, MAX_PATCH_LAUNCHES, MAX_PATCH_REPOS,
+    clear_default_if_removed, normalize_agent_worker, repo_config_key, validate_launch, Launch, Workspace,
+    MAX_PATCH_AGENTS, MAX_PATCH_LAUNCHES, MAX_PATCH_REPOS,
 };
 use crate::validate::{ErrorCode, ValidationError};
 use std::collections::{BTreeMap, HashSet};
@@ -89,4 +90,26 @@ pub(super) fn normalize_repos(
         out.insert(key, entry);
     }
     Ok(out)
+}
+
+/// Impostazioni dei worker proposte per agente: ogni voce non vuota si unisce
+/// a quella attuale e si valida come nell'interfaccia; ogni errore porta l'id
+/// dell'agente.
+pub(super) fn normalize_worker_agents(
+    map: &BTreeMap<String, AgentWorkerPatch>,
+    ws: &Workspace,
+) -> Result<BTreeMap<String, AgentWorkerPatch>, ValidationError> {
+    if map.len() > MAX_PATCH_AGENTS {
+        return Err(ValidationError::new(ErrorCode::AgentsTooMany).max(MAX_PATCH_AGENTS));
+    }
+    map.iter()
+        .map(|(id, patch)| {
+            if patch.is_empty() {
+                return Err(ValidationError::new(ErrorCode::RepoPatchEmpty).in_agent(id));
+            }
+            let base = ws.worker.for_agent(id).cloned().unwrap_or_default();
+            let merged = normalize_agent_worker(id, patch.merge(&base))?;
+            Ok((id.clone(), patch.project(&merged)))
+        })
+        .collect()
 }

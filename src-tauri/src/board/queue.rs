@@ -2,6 +2,7 @@
 //! riordino. Ogni operazione verifica lo stato del task e non tocca il suo
 //! ciclo di vita (vedi `lifecycle`).
 
+use super::agent::resolve_spec_agent;
 use super::{
     check_review_deps, parse_spec, permits, valid_id, validate_graph, Board, LifecycleError, Op, Proposal, Task,
     TaskAction, TaskSpec, TaskStatus, MAX_PENDING_PROPOSALS, MAX_TASKS_PER_BOARD,
@@ -9,6 +10,14 @@ use super::{
 use crate::validate::clip_chars;
 use serde_json::Value;
 use std::collections::HashSet;
+
+/// Campi del patch che obbligano a ricontrollare l'agente del task: il suo
+/// stesso id o un modello, che deve appartenergli.
+const AGENT_PATCH_KEYS: [&str; 2] = ["agent", "model"];
+
+fn touches_agent(patch: &Value) -> bool {
+    patch.as_object().is_some_and(|o| AGENT_PATCH_KEYS.iter().any(|k| o.contains_key(*k)))
+}
 
 impl Board {
     // --- task nuovi e proposte ---
@@ -20,8 +29,15 @@ impl Board {
 
     /// Verifica i task nuovi contro la board: id validi e unici (anche rispetto
     /// a `reserved`, gli id delle altre proposte pendenti), dipendenze verso la
-    /// proposta o task esistenti, niente cicli, limiti.
-    pub fn check_specs(&self, specs: &[TaskSpec], reserved: &HashSet<&str>) -> Result<(), String> {
+    /// proposta o task esistenti, niente cicli, limiti, agente utilizzabile.
+    /// Ritorna le specifiche con l'agente risolto (`workspace_agent` e' quello
+    /// del workspace): le proposte tengono le originali, i task nuovi queste.
+    pub fn check_specs(
+        &self,
+        specs: &[TaskSpec],
+        reserved: &HashSet<&str>,
+        workspace_agent: Option<&str>,
+    ) -> Result<Vec<TaskSpec>, String> {
         if specs.is_empty() {
             return Err("tasks is empty".to_string());
         }
@@ -31,6 +47,7 @@ impl Board {
             ));
         }
         let mut seen: HashSet<&str> = self.tasks.iter().map(|t| t.id.as_str()).collect();
+        let mut resolved = Vec::with_capacity(specs.len());
         for s in specs {
             if !valid_id(&s.id) {
                 return Err(format!("invalid task id: {}", clip_chars(&s.id, 50)));
@@ -42,10 +59,13 @@ impl Board {
             if !seen.insert(s.id.as_str()) {
                 return Err(format!("duplicate task id: {}", s.id));
             }
+            let agent = resolve_spec_agent(s, workspace_agent)?;
+            resolved.push(TaskSpec { agent: Some(agent), ..s.clone() });
         }
         let mut all = self.tasks.clone();
-        all.extend(specs.iter().cloned().map(|s| Task::from_spec(s, 0)));
-        validate_graph(&all)
+        all.extend(resolved.iter().cloned().map(|s| Task::from_spec(s, 0)));
+        validate_graph(&all)?;
+        Ok(resolved)
     }
 
     fn pending_ids(&self, except: Option<&str>) -> HashSet<&str> {
@@ -61,7 +81,8 @@ impl Board {
         self.task(id).is_some() || self.pending_ids(None).contains(id)
     }
 
-    /// Aggiunge in fondo alla coda task gia' verificati con `check_specs`.
+    /// Aggiunge in fondo alla coda le specifiche ritornate da `check_specs`: il
+    /// task tiene l'agente risolto e non cambia piu' al variare dei predefiniti.
     pub(super) fn push_specs(&mut self, specs: Vec<TaskSpec>, now: i64) -> Vec<String> {
         let ids = specs.iter().map(|s| s.id.clone()).collect();
         self.tasks.extend(specs.into_iter().map(|s| Task::from_spec(s, now)));
@@ -70,18 +91,21 @@ impl Board {
     }
 
     /// Task creato a mano, senza proposta.
-    pub fn create_task(&mut self, spec: TaskSpec, now: i64) -> Result<String, String> {
-        self.check_specs(std::slice::from_ref(&spec), &self.pending_ids(None))?;
-        Ok(self.push_specs(vec![spec], now).remove(0))
+    pub fn create_task(&mut self, spec: TaskSpec, workspace_agent: Option<&str>, now: i64) -> Result<String, String> {
+        let resolved = self.check_specs(std::slice::from_ref(&spec), &self.pending_ids(None), workspace_agent)?;
+        Ok(self.push_specs(resolved, now).remove(0))
     }
 
-    /// Nuova proposta pendente (dell'Intake o di un revisore).
+    /// Nuova proposta pendente (dell'Intake o di un revisore). L'agente si
+    /// verifica ma la proposta tiene le specifiche com'erano: senza agente,
+    /// vale quello del workspace al momento dell'accettazione.
     pub fn add_proposal(
         &mut self,
         id: String,
         source_tab: &str,
         source_task: Option<String>,
         specs: Vec<TaskSpec>,
+        workspace_agent: Option<&str>,
         now: i64,
     ) -> Result<(), String> {
         if self.proposals.len() >= MAX_PENDING_PROPOSALS {
@@ -89,7 +113,7 @@ impl Board {
                 "too many pending proposals (max {MAX_PENDING_PROPOSALS}): wait for the user to accept or discard some"
             ));
         }
-        self.check_specs(&specs, &self.pending_ids(None))?;
+        self.check_specs(&specs, &self.pending_ids(None), workspace_agent)?;
         self.proposals.push(Proposal {
             id,
             source_tab: source_tab.to_string(),
@@ -108,9 +132,14 @@ impl Board {
     /// Accetta una proposta: dopo una nuova validazione i task entrano in
     /// coda, nell'ordine della proposta. Se la validazione fallisce la
     /// proposta resta pendente.
-    pub fn accept_proposal(&mut self, id: &str, now: i64) -> Result<Vec<String>, String> {
+    pub fn accept_proposal(
+        &mut self,
+        id: &str,
+        workspace_agent: Option<&str>,
+        now: i64,
+    ) -> Result<Vec<String>, String> {
         let specs = self.proposal(id)?.tasks.clone();
-        self.check_specs(&specs, &HashSet::new())?;
+        let specs = self.check_specs(&specs, &HashSet::new(), workspace_agent)?;
         self.proposals.retain(|p| p.id != id);
         Ok(self.push_specs(specs, now))
     }
@@ -125,16 +154,29 @@ impl Board {
     // --- modifiche dei task ---
 
     /// Modifica parziale di un task `queued` o `failed` (`patch` = campi di
-    /// `TaskSpec`); `repo` solo senza worktree.
-    pub fn update_task(&mut self, id: &str, patch: &Value, now: i64) -> Result<(), String> {
+    /// `TaskSpec`); `repo` solo senza worktree. L'agente si ricontrolla solo se
+    /// il patch contiene `agent` o `model` (`agent: null` = quello del
+    /// workspace, `workspace_agent`, o il predefinito globale, risolto adesso):
+    /// cosi' il titolo di un task il cui agente e' stato poi disabilitato si
+    /// modifica comunque.
+    pub fn update_task(
+        &mut self,
+        id: &str,
+        patch: &Value,
+        workspace_agent: Option<&str>,
+        now: i64,
+    ) -> Result<(), String> {
         let t = self.require(id, Op::Edit)?;
-        let spec = parse_spec(patch, Some(&TaskSpec::from_task(t)))?;
+        let mut spec = parse_spec(patch, Some(&TaskSpec::from_task(t)))?;
         check_review_deps(&spec)?;
         if patch.as_object().is_some_and(|o| o.keys().all(|k| k == "id")) {
             return Err("no fields to update".to_string());
         }
         if spec.repo != t.repo && t.worktree.is_some() {
             return Err(format!("task '{id}' already has a worktree: its repo cannot be changed"));
+        }
+        if touches_agent(patch) {
+            spec.agent = Some(resolve_spec_agent(&spec, workspace_agent)?);
         }
         let mut all = self.tasks.clone();
         if let Some(slot) = all.iter_mut().find(|x| x.id == id) {
@@ -234,3 +276,6 @@ impl Board {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

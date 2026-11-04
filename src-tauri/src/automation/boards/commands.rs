@@ -47,7 +47,7 @@ pub(in crate::automation) fn task_create<H: Host>(
             spec.id = r.free_id(ws_id, &spec.title);
         }
         check_e2e_configured(&ws, std::slice::from_ref(&spec))?;
-        r.create_task(ws_id, spec, now)
+        r.create_task(ws_id, spec, ws.agent.as_deref(), now)
     })?;
     st.view(host, ws_id)
 }
@@ -67,7 +67,7 @@ pub(super) fn update_checked<H: Host>(
     }
     check_e2e_configured(ws, std::slice::from_ref(&spec))?;
     let now = now_millis();
-    st.run(host, |r| r.update_task(&ws.id, id, patch, now))
+    st.run(host, |r| r.update_task(&ws.id, id, patch, ws.agent.as_deref(), now))
 }
 
 pub(in crate::automation) fn task_update<H: Host>(
@@ -130,6 +130,6 @@ pub(in crate::automation) fn proposal_decide<H: Host>(
         check_e2e_configured(&ws, &specs)?;
     }
     let now = now_millis();
-    st.run(host, |r| r.decide_proposal(ws_id, proposal_id, accept, now))?;
+    st.run(host, |r| r.decide_proposal(ws_id, proposal_id, accept, ws.agent.as_deref(), now))?;
     st.view(host, ws_id)
 }

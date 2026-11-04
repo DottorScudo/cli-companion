@@ -10,6 +10,8 @@ use std::fmt;
 const PLACEHOLDER_MAX: &str = "{max}";
 const PLACEHOLDER_MIN: &str = "{min}";
 const PLACEHOLDER_VALUE: &str = "{value}";
+/// Chiave della proposta sotto cui si collocano gli errori di un agente.
+const AGENT_PREFIX: &str = "worker_agents";
 
 /// Definisce `ErrorCode`, l'elenco `ALL` e i due modelli (italiano, inglese) di
 /// ciascun codice. Un codice senza i due modelli non compila.
@@ -67,6 +69,17 @@ error_codes! {
         "l'agente dei worker non supporta le regole di permesso",
         "the worker agent does not support permission rules"
     ),
+    // Agente dei worker e relative impostazioni.
+    AgentUnknown => ("agente sconosciuto: {value}", "unknown agent: {value}"),
+    AgentDisabled => (
+        "{value} e' disabilitato: abilitalo nelle impostazioni delle integrazioni",
+        "{value} is disabled: enable it in the integrations settings"
+    ),
+    AgentWithoutAutomation => (
+        "{value} non supporta le sessioni automatiche",
+        "{value} does not support automated sessions"
+    ),
+    ModelNotForAgent => ("modello non accettato dall'agente: {value}", "model not accepted by the agent: {value}"),
     PermissionRuleTakesNoArguments => (
         "regola \"{value}\": questo tipo di regola non accetta argomenti",
         "rule \"{value}\": this kind of rule takes no arguments"
@@ -141,6 +154,10 @@ error_codes! {
         "invalid default_launch (use \"shell\", the id of a workspace launch or a builtin launch id)"
     ),
     // Proposte di impostazioni.
+    AgentsTooMany => (
+        "troppi agenti nella proposta (max {max})",
+        "too many agents in worker_agents (max {max})"
+    ),
     DeliveryEmpty => ("delivery: nessun campo da modificare", "delivery: has no fields"),
     LaunchesTooMany => (
         "troppi avvii nella proposta (max {max})",
@@ -186,6 +203,8 @@ impl Scope {
 pub struct ValidationError {
     code: ErrorCode,
     scope: Option<Scope>,
+    /// Agente di `worker_agents` a cui appartiene l'errore.
+    agent: Option<String>,
     max: Option<usize>,
     min: Option<usize>,
     value: Option<String>,
@@ -193,7 +212,7 @@ pub struct ValidationError {
 
 impl ValidationError {
     pub fn new(code: ErrorCode) -> Self {
-        Self { code, scope: None, max: None, min: None, value: None }
+        Self { code, scope: None, agent: None, max: None, min: None, value: None }
     }
 
     /// Limite superiore citato nel messaggio (`{max}`).
@@ -233,6 +252,13 @@ impl ValidationError {
         self.in_scope(Scope::Rules(list))
     }
 
+    /// Colloca l'errore fra le impostazioni di un agente (`worker_agents`),
+    /// davanti all'eventuale lista di regole in cui e' stato trovato.
+    pub fn in_agent(mut self, agent_id: &str) -> Self {
+        self.agent = Some(agent_id.to_string());
+        self
+    }
+
     fn in_scope(mut self, scope: Scope) -> Self {
         self.scope = Some(scope);
         self
@@ -261,10 +287,9 @@ impl ValidationError {
         if let Some(value) = &self.value {
             text = text.replace(PLACEHOLDER_VALUE, value);
         }
-        match &self.scope {
-            Some(scope) => format!("{}{text}", scope.prefix(english)),
-            None => text,
-        }
+        let scope = self.scope.as_ref().map(|scope| scope.prefix(english)).unwrap_or_default();
+        let agent = self.agent.as_ref().map(|id| format!("{AGENT_PREFIX}['{id}']: ")).unwrap_or_default();
+        format!("{agent}{scope}{text}")
     }
 }
 
@@ -334,6 +359,16 @@ mod tests {
         let e = ValidationError::new(ErrorCode::PermissionRulesTooMany).max(100).in_rules(RuleList::Deny);
         assert_eq!(e.message_it(), "Vietati: troppe regole (massimo 100)");
         assert_eq!(e.message_en(), "worker_deny: too many rules (max 100)");
+    }
+
+    #[test]
+    fn the_agent_prefix_goes_before_any_other_scope() {
+        let e =
+            ValidationError::new(ErrorCode::PermissionRulesTooMany).max(100).in_rules(RuleList::Allow).in_agent("x");
+        assert_eq!(e.message_en(), "worker_agents['x']: worker_allow: too many rules (max 100)");
+        assert_eq!(e.message_it(), "worker_agents['x']: Consentiti: troppe regole (massimo 100)");
+        let e = ValidationError::new(ErrorCode::ModelNotForAgent).value("m").in_agent("x");
+        assert_eq!(e.message_en(), "worker_agents['x']: model not accepted by the agent: m");
     }
 
     #[test]

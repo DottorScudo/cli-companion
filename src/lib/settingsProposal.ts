@@ -19,6 +19,7 @@ export const ROOT_REPO_KEY = ".";
 export const EMPTY_TEXT = "(vuoto)";
 export const UNKNOWN_TEXT = "—";
 export const MODEL_DEFAULT_TEXT = "Predefinito dell’agente";
+export const AGENT_DEFAULT_TEXT = "Predefinito globale";
 export const LAUNCH_INHERIT_TEXT = "Eredita dalle impostazioni generali";
 export const LAUNCH_SHELL_TEXT = "Shell vuota";
 export const BRANCH_DEFAULT_TEXT = "Predefinita";
@@ -38,10 +39,11 @@ export const LONG_TEXT_MIN = 120;
 /** Etichette dei campi. */
 const LABEL = {
   worker_rules: "Regole per i worker",
-  worker_model: "Modello dei worker",
+  agent: "Agente dei worker",
   worker_permission: "Permessi dei worker automatici",
-  worker_allow: "Comandi consentiti",
-  worker_deny: "Comandi vietati",
+  model: "Modello dei worker",
+  allow: "Comandi consentiti",
+  deny: "Comandi vietati",
   mode: "Modalità di consegna",
   parallel: "Worker in parallelo (worktree)",
   merge_method: "Metodo di merge",
@@ -93,11 +95,15 @@ export interface RemoveRow {
 
 export type SettingsRow = ValueRow | ListRow | RemoveRow;
 
+/** I campi che allargano i permessi: il tetto e le regole di un agente (`worker_agents[id].allow` / `.deny`). */
+const PERMISSION_FIELD = /^(worker_permission|worker_agents\[.+\]\.(allow|deny))$/;
+
+const isPermissionField = (field: string): boolean => PERMISSION_FIELD.test(field);
+
 /** Nota di un campo sensibile (nome dato dal backend), `null` se non lo è. */
 export function sensitiveNote(field: string, sensitive: readonly string[]): string | null {
   if (!sensitive.includes(field)) return null;
-  const permissions = field === "worker_permission" || field === "worker_allow" || field === "worker_deny";
-  return permissions ? NOTE_WIDENS_PERMISSIONS : NOTE_RUNS_COMMANDS;
+  return isPermissionField(field) ? NOTE_WIDENS_PERMISSIONS : NOTE_RUNS_COMMANDS;
 }
 
 /** Titolo del gruppo di un repository ("." = la root del workspace). */
@@ -236,11 +242,9 @@ function workerRows(ctx: Ctx, patch: SettingsPatch, current: SettingsPatch): Set
     const before = current.worker_rules === undefined ? null : textOrEmpty(current.worker_rules);
     rows.push(valueRow(ctx, "worker_rules", LABEL.worker_rules, before, textOrEmpty(patch.worker_rules)));
   }
-  if (patch.worker_model !== undefined) {
-    const before = current.worker_model === undefined ? null : textOrEmpty(current.worker_model, MODEL_DEFAULT_TEXT);
-    rows.push(
-      valueRow(ctx, "worker_model", LABEL.worker_model, before, textOrEmpty(patch.worker_model, MODEL_DEFAULT_TEXT)),
-    );
+  if (patch.agent !== undefined) {
+    const before = current.agent === undefined ? null : textOrEmpty(current.agent, AGENT_DEFAULT_TEXT);
+    rows.push(valueRow(ctx, "agent", LABEL.agent, before, textOrEmpty(patch.agent, AGENT_DEFAULT_TEXT)));
   }
   if (patch.worker_permission !== undefined) {
     const before = current.worker_permission === undefined ? null : permissionText(current.worker_permission);
@@ -248,11 +252,24 @@ function workerRows(ctx: Ctx, patch: SettingsPatch, current: SettingsPatch): Set
       valueRow(ctx, "worker_permission", LABEL.worker_permission, before, permissionText(patch.worker_permission)),
     );
   }
-  if (patch.worker_allow)
-    rows.push(listRow(ctx, "worker_allow", LABEL.worker_allow, current.worker_allow, patch.worker_allow));
-  if (patch.worker_deny)
-    rows.push(listRow(ctx, "worker_deny", LABEL.worker_deny, current.worker_deny, patch.worker_deny));
   return rows;
+}
+
+/** Modello e regole di ogni agente toccato; l'id dell'agente è nell'etichetta. */
+function agentRows(ctx: Ctx, patch: SettingsPatch, current: SettingsPatch): SettingsRow[] {
+  return Object.entries(patch.worker_agents ?? {}).flatMap(([id, next]) => {
+    const now = current.worker_agents?.[id] ?? {};
+    const field = (name: string) => `worker_agents[${id}].${name}`;
+    const label = (name: keyof typeof LABEL) => `${LABEL[name]} (${id})`;
+    const rows: SettingsRow[] = [];
+    if (next.model !== undefined) {
+      const before = now.model === undefined ? null : textOrEmpty(now.model, MODEL_DEFAULT_TEXT);
+      rows.push(valueRow(ctx, field("model"), label("model"), before, textOrEmpty(next.model, MODEL_DEFAULT_TEXT)));
+    }
+    if (next.allow) rows.push(listRow(ctx, field("allow"), label("allow"), now.allow, next.allow));
+    if (next.deny) rows.push(listRow(ctx, field("deny"), label("deny"), now.deny, next.deny));
+    return rows;
+  });
 }
 
 function deliveryRows(ctx: Ctx, patch: SettingsPatch, current: SettingsPatch): SettingsRow[] {
@@ -373,7 +390,7 @@ function launchNameLookup(patch: SettingsPatch, current: SettingsPatch): (id: st
 }
 
 /**
- * Righe del confronto di una proposta, nell'ordine dei form: worker, consegna,
+ * Righe del confronto di una proposta, nell'ordine dei form: worker, agenti, consegna,
  * fasce orarie e avvii, poi un gruppo per repository (chiavi nell'ordine della
  * patch). Una riga è sensibile se il backend ne ha elencato il campo.
  */
@@ -385,6 +402,7 @@ export function settingsProposalRows(
   const ctx: Ctx = { sensitive, launchName: launchNameLookup(patch, current) };
   return [
     ...workerRows(ctx, patch, current),
+    ...agentRows(ctx, patch, current),
     ...deliveryRows(ctx, patch, current),
     ...launchRows(ctx, patch, current),
     ...allRepoRows(ctx, patch, current),

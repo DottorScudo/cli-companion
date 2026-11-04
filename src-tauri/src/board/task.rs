@@ -7,14 +7,18 @@ use super::{
 use crate::agents::registry;
 
 impl Task {
+    /// Nuovo task. L'agente e' quello di `s.agent`, gia' risolto da `resolve_spec_agent`
+    /// per le operazioni della board; una specifica senza agente (uso diretto,
+    /// nei test) prende il predefinito globale.
     pub fn from_spec(s: TaskSpec, now: i64) -> Task {
+        let agent = s.agent.unwrap_or_else(|| registry::default_agent().id().to_string());
         Task {
             id: s.id,
             title: s.title,
             task: s.task,
             depends_on: s.depends_on,
             repo: s.repo,
-            agent: registry::default_agent().id().to_string(),
+            agent,
             model: s.model,
             kind: s.kind,
             e2e: s.e2e,
@@ -24,11 +28,15 @@ impl Task {
         }
     }
 
+    /// Applica i campi modificati; `s.agent` `None` lascia l'agente del task.
     pub(super) fn apply_spec(&mut self, s: TaskSpec, now: i64) {
         self.title = s.title;
         self.task = s.task;
         self.depends_on = s.depends_on;
         self.repo = s.repo;
+        if let Some(agent) = s.agent {
+            self.agent = agent;
+        }
         self.model = s.model;
         self.kind = s.kind;
         self.e2e = s.e2e;

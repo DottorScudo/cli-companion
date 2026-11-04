@@ -80,9 +80,12 @@ export const api = {
 
   renameWorkspace: (id: string, name: string) => invoke<Workspace>("rename_workspace", { id, name }),
 
-  setWorkerModel: (id: string, model: string | null) => invoke<Workspace>("set_worker_model", { id, model }),
-  setWorkerPermissionRules: (id: string, allow: string[], deny: string[]) =>
-    invoke<Workspace>("set_worker_permission_rules", { id, allow, deny }),
+  /** Agente dei worker del workspace (`null` = il predefinito globale). */
+  setWorkspaceAgent: (id: string, agent: string | null) => invoke<Workspace>("set_workspace_agent", { id, agent }),
+  setWorkerModel: (id: string, agent: string, model: string | null) =>
+    invoke<Workspace>("set_worker_model", { id, agent, model }),
+  setWorkerPermissionRules: (id: string, agent: string, allow: string[], deny: string[]) =>
+    invoke<Workspace>("set_worker_permission_rules", { id, agent, allow, deny }),
   setWorkerPermission: (id: string, mode: PermissionMode) => invoke<Workspace>("set_worker_permission", { id, mode }),
 
   setWorkerRules: (workspaceId: string, rules: string) => invoke<Workspace>("set_worker_rules", { workspaceId, rules }),

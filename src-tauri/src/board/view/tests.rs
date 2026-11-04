@@ -1,7 +1,8 @@
 //! Campi di contesto di `TaskView`: azioni permesse, modificabilita' e cascata.
 
 use super::*;
-use crate::board::{parse_max_parallel, TaskSpec};
+use crate::agents::Readiness;
+use crate::board::{parse_max_parallel, AgentGate, AgentUnavailableView, TaskSpec};
 use serde_json::json;
 use TaskAction::{Delete, DeleteCascade, MarkDone, Retry, Stop, ToTop};
 
@@ -24,7 +25,7 @@ fn board(tasks: &[(&str, &[&str], TaskStatus)]) -> Board {
 }
 
 fn view(b: &Board, id: &str) -> TaskView {
-    b.task_view(id).unwrap()
+    b.task_view(id, &AgentGate::default()).unwrap()
 }
 
 use TaskStatus::{Done, Failed, Queued, Running};
@@ -112,7 +113,7 @@ fn the_view_agrees_with_the_operations_it_advertises() {
         ("f", &[], Failed),
         ("d", &[], Done),
     ]);
-    for v in b.view_with(None, false).tasks {
+    for v in b.view_with(None, false, &AgentGate::default()).tasks {
         let id = v.task.id.as_str();
         let attempt = |action: TaskAction| {
             let mut copy = b.clone();
@@ -160,7 +161,7 @@ fn the_new_fields_have_stable_names_after_the_old_ones() {
 #[test]
 fn the_board_view_publishes_the_limits_the_validation_enforces() {
     let b = board(&[]);
-    let v = serde_json::to_value(b.view_with(None, false)).unwrap();
+    let v = serde_json::to_value(b.view_with(None, false, &AgentGate::default())).unwrap();
     assert_eq!(v["limits"], json!({"max_parallel": {"min": 1, "max": 16}}));
     let bounds = BoardLimits::CURRENT.max_parallel;
     assert!(parse_max_parallel(&json!(bounds.min)).is_ok() && parse_max_parallel(&json!(bounds.max)).is_ok());
@@ -177,8 +178,40 @@ fn a_long_chain_gets_its_views_in_one_pass() {
         let spec = TaskSpec { id: id.clone(), title: id.clone(), task: id, depends_on: deps, ..TaskSpec::default() };
         b.tasks.push(Task::from_spec(spec, 1));
     }
-    let v = b.view_with(None, false);
+    let v = b.view_with(None, false, &AgentGate::default());
     assert_eq!(v.tasks[0].cascade.dependents.len(), n - 1);
     assert_eq!(v.tasks[n - 1].cascade.dependents.len(), 0);
     assert_eq!(v.tasks[n / 2].cascade.dependents.len(), n - n / 2 - 1);
+}
+
+#[test]
+fn a_queued_task_exposes_why_its_agent_is_not_ready() {
+    let b = board(&[("a", &[], Queued), ("r", &[], Running)]);
+    let agent = b.task("a").unwrap().agent.clone();
+    let blocked = AgentGate::build([agent.as_str()], &mut |_| Some(Readiness::NotFound));
+    let v = b.view_with(None, false, &blocked);
+    let reason = AgentUnavailableView { agent: agent.clone(), reason: Readiness::NotFound };
+    assert_eq!(v.tasks[0].agent_unavailable, Some(reason));
+    assert_eq!(v.tasks[1].agent_unavailable, None, "in corso: l'agente e' gia' stato usato");
+    assert_eq!(
+        v.to_list_json(None)["tasks"][0]["agent_unavailable"],
+        json!({"agent": agent, "reason": "not-found"}),
+        "riga compatta di list_tasks"
+    );
+    assert!(v.to_list_json(None)["tasks"][1].get("agent_unavailable").is_none());
+    let json = serde_json::to_value(&v.tasks[0]).unwrap();
+    assert_eq!(json["agent_unavailable"]["reason"], "not-found");
+}
+
+#[test]
+fn no_reason_is_exposed_while_the_agent_is_being_checked_or_is_ready() {
+    let b = board(&[("a", &[], Queued)]);
+    let agent = b.task("a").unwrap().agent.clone();
+    let checking = AgentGate::build([agent.as_str()], &mut |_| None);
+    let ready = AgentGate::build([agent.as_str()], &mut |_| Some(Readiness::Ready));
+    for gate in [&checking, &ready, &AgentGate::default()] {
+        let v = b.view_with(None, false, gate);
+        assert_eq!(v.tasks[0].agent_unavailable, None);
+        assert!(serde_json::to_value(&v.tasks[0]).unwrap().get("agent_unavailable").is_none());
+    }
 }

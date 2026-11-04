@@ -4,15 +4,11 @@
 
 use super::delivery::Delivery;
 use super::repo_config::RepoConfig;
-use crate::agents::PermissionMode;
+use super::worker_settings::WorkerSettings;
 use crate::platform::TargetKind;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use ts_rs::TS;
-
-/// Tetto dei permessi dei worker per i workspace nuovi e per i valori
-/// assenti o illeggibili nel file: mai piu' permissivo del solito.
-pub const DEFAULT_WORKER_PERMISSION: PermissionMode = PermissionMode::AcceptEdits;
 
 /// Avvio personalizzato di un workspace: comando eseguito all'apertura di un
 /// nuovo terminale.
@@ -22,69 +18,6 @@ pub struct Launch {
     pub id: String,
     pub name: String,
     pub command: String,
-}
-
-/// Impostazioni dei worker automatici del workspace. I nomi nel JSON
-/// conservano il prefisso `worker_`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-pub struct WorkerSettings {
-    /// Tetto dei permessi: `"plan"` | `"default"` | `"accept-edits"` | `"bypass"` nel JSON.
-    #[serde(rename = "worker_permission", default = "default_permission", with = "permission_format")]
-    // `permission_format` scrive il testo storico, che e' la forma di `PermissionMode` per ts-rs.
-    #[ts(as = "PermissionMode")]
-    pub permission: PermissionMode,
-    /// Modello di default (None = quello dell'agente); vale quando il task non ne indica uno.
-    #[serde(rename = "worker_model", default)]
-    pub model: Option<String>,
-    /// Regole di permesso pre-approvate nella sintassi dell'agente dei worker, passate
-    /// dal contratto `WorkerPermissions` dell'agente (vedi `agents::worker_rules`).
-    #[serde(rename = "worker_allow", default)]
-    pub allow: Vec<String>,
-    /// Regole di permesso vietate.
-    #[serde(rename = "worker_deny", default)]
-    pub deny: Vec<String>,
-    /// Regole per i worker (test vietati, comandi da non lanciare): `get_task`
-    /// le accoda alle istruzioni di ogni worker.
-    #[serde(rename = "worker_rules", default, skip_serializing_if = "String::is_empty")]
-    pub rules: String,
-}
-
-impl Default for WorkerSettings {
-    fn default() -> Self {
-        Self {
-            permission: DEFAULT_WORKER_PERMISSION,
-            model: None,
-            allow: Vec::new(),
-            deny: Vec::new(),
-            rules: String::new(),
-        }
-    }
-}
-
-fn default_permission() -> PermissionMode {
-    DEFAULT_WORKER_PERMISSION
-}
-
-/// Il permesso nel JSON e' il testo storico; un valore sconosciuto vale il
-/// default (non rende illeggibile l'intero workspace).
-mod permission_format {
-    use super::{PermissionMode, DEFAULT_WORKER_PERMISSION};
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(mode: &PermissionMode, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(mode.as_str())
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<PermissionMode, D::Error> {
-        let raw = String::deserialize(deserializer)?;
-        Ok(PermissionMode::parse(&raw).unwrap_or_else(|| {
-            log::warn!(
-                "permesso dei worker sconosciuto nel file ({raw:?}): uso {}",
-                DEFAULT_WORKER_PERMISSION.as_str()
-            );
-            DEFAULT_WORKER_PERMISSION
-        }))
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -108,6 +41,11 @@ pub struct Workspace {
     /// Avvii personalizzati del workspace (vuoto = solo shell semplice).
     #[serde(default)]
     pub launches: Vec<Launch>,
+    /// Agente dei worker e dei revisori del workspace: `None` = il predefinito
+    /// globale. Vedi `agents::registry::resolve_agent`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub agent: Option<String>,
     /// Impostazioni dei worker automatici.
     #[serde(flatten)]
     pub worker: WorkerSettings,
@@ -147,6 +85,7 @@ impl Workspace {
             shell: None,
             created_at: 0,
             launches: Vec::new(),
+            agent: None,
             worker: WorkerSettings::default(),
             delivery: Delivery::default(),
             use_schedule: false,
@@ -160,6 +99,8 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::PermissionMode;
+    use crate::workspaces::worker_settings::AgentWorkerSettings;
     use serde_json::json;
 
     const MINIMAL: &str = r#"{"id":"ws-1","name":"p","kind":"windows","path":"C:\\p","created_at":1}"#;
@@ -174,7 +115,7 @@ mod tests {
         assert!(ws.launches.is_empty() && ws.repos.is_empty() && !ws.archived && !ws.use_schedule);
         assert_eq!(ws.worker, WorkerSettings::default());
         assert_eq!(ws.worker.permission, PermissionMode::AcceptEdits);
-        assert_eq!(ws.worker.model, None);
+        assert!(ws.agent.is_none() && ws.worker.agents.is_empty());
         assert_eq!(
             ws,
             Workspace {
@@ -191,30 +132,37 @@ mod tests {
         let mut ws = minimal();
         ws.worker = WorkerSettings {
             permission: PermissionMode::Plan,
-            model: Some("opus".into()),
-            allow: vec!["Read".into()],
-            deny: vec!["WebFetch".into()],
             rules: "no tests".into(),
+            agents: BTreeMap::from([(
+                "agent-a".to_string(),
+                AgentWorkerSettings {
+                    model: Some("big".into()),
+                    allow: vec!["Read".into()],
+                    deny: vec!["WebFetch".into()],
+                },
+            )]),
         };
+        ws.agent = Some("agent-a".into());
         let v = serde_json::to_value(&ws).unwrap();
+        assert_eq!(v["agent"], "agent-a");
         assert_eq!(v["worker_permission"], "plan");
-        assert_eq!(v["worker_model"], "opus");
-        assert_eq!(v["worker_allow"], json!(["Read"]));
-        assert_eq!(v["worker_deny"], json!(["WebFetch"]));
+        assert_eq!(v["worker_agents"], json!({"agent-a": {"model": "big", "allow": ["Read"], "deny": ["WebFetch"]}}));
         assert_eq!(v["worker_rules"], "no tests");
+        for legacy in ["worker_model", "worker_allow", "worker_deny"] {
+            assert!(v.get(legacy).is_none(), "{legacy}");
+        }
         assert!(v.get("worker").is_none());
         assert_eq!(serde_json::from_value::<Workspace>(v).unwrap(), ws);
     }
 
     #[test]
-    fn the_default_workspace_serializes_like_before() {
+    fn the_default_workspace_serializes_compactly() {
         let v = serde_json::to_value(minimal()).unwrap();
         assert_eq!(
             v,
             json!({
                 "id": "ws-1", "name": "p", "kind": "windows", "path": "C:\\p", "created_at": 1,
-                "launches": [], "worker_permission": "accept-edits", "worker_model": null,
-                "worker_allow": [], "worker_deny": [],
+                "launches": [], "worker_permission": "accept-edits", "worker_agents": {},
                 "delivery": {"mode": "commit", "parallel": false, "merge_method": "squash"},
                 "use_schedule": false
             })
@@ -244,7 +192,7 @@ mod tests {
         assert!(raw.contains("\"archived\":true"));
         assert!(serde_json::from_str::<Workspace>(&raw).unwrap().archived);
         let plain = serde_json::to_string(&minimal()).unwrap();
-        for absent in ["archived", "repos", "default_launch", "worker_rules", "distro", "shell"] {
+        for absent in ["archived", "repos", "default_launch", "worker_rules", "\"agent\"", "distro", "shell"] {
             assert!(!plain.contains(absent), "{absent}");
         }
     }

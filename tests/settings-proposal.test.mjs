@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  AGENT_DEFAULT_TEXT,
   BRANCH_DEFAULT_TEXT,
   EMPTY_TEXT,
   LAUNCH_INHERIT_TEXT,
@@ -23,16 +24,16 @@ const rows = (patch, current = {}, sensitive = []) => settingsProposalRows({ pat
 const byField = (list, field) => list.find((r) => r.field === field);
 
 describe("settingsProposalRows: valori singoli", () => {
-  it("testo, modello null ed enum con le etichette della UI", () => {
+  it("testo, agente null ed enum con le etichette della UI", () => {
     const r = rows(
-      { worker_rules: "Niente test", worker_model: null, worker_permission: "bypass" },
-      { worker_rules: "", worker_model: "opus", worker_permission: "accept-edits" },
+      { worker_rules: "Niente test", agent: null, worker_permission: "bypass" },
+      { worker_rules: "", agent: "agent-a", worker_permission: "accept-edits" },
     );
     assert.deepEqual(
       r.map((x) => [x.field, x.label, x.before, x.after]),
       [
         ["worker_rules", "Regole per i worker", EMPTY_TEXT, "Niente test"],
-        ["worker_model", "Modello dei worker", "opus", MODEL_DEFAULT_TEXT],
+        ["agent", "Agente dei worker", "agent-a", AGENT_DEFAULT_TEXT],
         [
           "worker_permission",
           "Permessi dei worker automatici",
@@ -73,27 +74,49 @@ describe("settingsProposalRows: valori singoli", () => {
     );
   });
 
+  it("un agente scelto mostra il suo id", () => {
+    const [r] = rows({ agent: "agent-b" }, { agent: null });
+    assert.deepEqual([r.before, r.after, r.sensitive], [AGENT_DEFAULT_TEXT, "agent-b", null]);
+  });
+
   it("patch vuota = nessuna riga", () => {
     assert.deepEqual(rows({}), []);
   });
 });
 
-describe("settingsProposalRows: liste", () => {
-  it("allow/deny diventano righe aggiunte e rimosse", () => {
+describe("settingsProposalRows: agenti dei worker", () => {
+  it("modello e liste di ogni agente, con l'id nell'etichetta", () => {
     const r = rows(
-      { worker_allow: ["Bash(git:*)", "Edit"], worker_deny: [] },
-      { worker_allow: ["Edit", "Bash(rm:*)"], worker_deny: ["WebFetch"] },
+      { worker_agents: { "agent-a": { model: null, allow: ["Bash(git:*)", "Edit"], deny: [] } } },
+      { worker_agents: { "agent-a": { model: "opus", allow: ["Edit", "Bash(rm:*)"], deny: ["WebFetch"] } } },
     );
-    const allow = byField(r, "worker_allow");
+    assert.deepEqual(
+      r.map((x) => [x.field, x.label]),
+      [
+        ["worker_agents[agent-a].model", "Modello dei worker (agent-a)"],
+        ["worker_agents[agent-a].allow", "Comandi consentiti (agent-a)"],
+        ["worker_agents[agent-a].deny", "Comandi vietati (agent-a)"],
+      ],
+    );
+    const [model, allow, deny] = r;
+    assert.deepEqual([model.kind, model.before, model.after], ["value", "opus", MODEL_DEFAULT_TEXT]);
     assert.equal(allow.kind, "list");
     assert.deepEqual(allow.removed, ["Bash(rm:*)"]);
     assert.deepEqual(allow.added, ["Bash(git:*)"]);
-    assert.deepEqual(byField(r, "worker_deny").removed, ["WebFetch"]);
-    assert.deepEqual(byField(r, "worker_deny").added, []);
+    assert.deepEqual([deny.removed, deny.added], [["WebFetch"], []]);
+  });
+
+  it("solo i campi proposti di ogni agente, uno dopo l'altro", () => {
+    const r = rows({ worker_agents: { b: { model: "m" }, a: { deny: ["x"] } } });
+    assert.deepEqual(
+      r.map((x) => x.field),
+      ["worker_agents[b].model", "worker_agents[a].deny"],
+    );
+    assert.equal(r[0].before, null, "workspace non noto");
   });
 
   it("stessa lista in altro ordine = nessuna differenza", () => {
-    const [r] = rows({ worker_allow: ["a", "b"] }, { worker_allow: ["b", "a"] });
+    const [r] = rows({ worker_agents: { a: { allow: ["a", "b"] } } }, { worker_agents: { a: { allow: ["b", "a"] } } });
     assert.deepEqual([r.removed, r.added], [[], []]);
   });
 });
@@ -215,20 +238,31 @@ describe("settingsProposalRows: repository", () => {
 describe("settingsProposalRows: campi sensibili", () => {
   const patch = {
     worker_permission: "bypass",
-    worker_allow: ["Bash"],
+    agent: "agent-a",
+    worker_agents: { "agent-a": { model: "m", allow: ["Bash"], deny: ["Edit"] } },
     worker_rules: "r",
     launches: [{ name: "A", command: "x" }],
     repos: { ".": { setup: ["s"], cleanup: ["c"], base_branch: "b" }, gone: null },
   };
-  const sensitive = ["worker_permission", "worker_allow", "launches", "repos[.].setup", "repos[.].cleanup"];
+  const sensitive = [
+    "worker_permission",
+    "worker_agents[agent-a].allow",
+    "worker_agents[agent-a].deny",
+    "launches",
+    "repos[.].setup",
+    "repos[.].cleanup",
+  ];
 
   it("evidenzia solo i campi elencati dal backend, con la nota giusta", () => {
     const r = rows(patch, {}, sensitive);
     const notes = Object.fromEntries(r.map((x) => [x.field, x.sensitive]));
     assert.deepEqual(notes, {
       worker_rules: null,
+      agent: null,
       worker_permission: NOTE_WIDENS_PERMISSIONS,
-      worker_allow: NOTE_WIDENS_PERMISSIONS,
+      "worker_agents[agent-a].model": null,
+      "worker_agents[agent-a].allow": NOTE_WIDENS_PERMISSIONS,
+      "worker_agents[agent-a].deny": NOTE_WIDENS_PERMISSIONS,
       launches: NOTE_RUNS_COMMANDS,
       "repos[.].base_branch": null,
       "repos[.].setup": NOTE_RUNS_COMMANDS,
@@ -238,7 +272,9 @@ describe("settingsProposalRows: campi sensibili", () => {
   });
 
   it("sensitiveNote", () => {
-    assert.equal(sensitiveNote("worker_deny", ["worker_deny"]), NOTE_WIDENS_PERMISSIONS);
+    assert.equal(sensitiveNote("worker_agents[a-b].deny", ["worker_agents[a-b].deny"]), NOTE_WIDENS_PERMISSIONS);
+    assert.equal(sensitiveNote("worker_permission", ["worker_permission"]), NOTE_WIDENS_PERMISSIONS);
+    assert.equal(sensitiveNote("worker_agents[a].model", ["worker_agents[a].model"]), NOTE_RUNS_COMMANDS);
     assert.equal(sensitiveNote("default_launch", ["default_launch"]), NOTE_RUNS_COMMANDS);
     assert.equal(sensitiveNote("worker_rules", ["worker_permission"]), null);
   });

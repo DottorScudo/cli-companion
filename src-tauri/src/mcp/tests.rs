@@ -1,13 +1,14 @@
 use super::tools::{
-    model_description, proposed_model_description, reviewer_tools, session_tools, settings_properties, worker_tools,
+    model_description, proposed_model_description, reviewer_tools, session_tools, settings_properties, tools_for,
+    worker_tools,
 };
 use super::*;
-use crate::agents::{worker_rule_format, PermissionMode, RuleFormat, TierModels};
+use crate::agents::{PermissionMode, TierModels};
 use crate::automation::settings::REASON_MAX;
 use crate::automation::{Method, Role};
 use crate::workspaces::{
-    DeliveryMode, MergeMethod, MAX_COMMAND_LEN, MAX_E2E_TIMEOUT_MIN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_LAUNCHES,
-    MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN,
+    DeliveryMode, MergeMethod, MAX_COMMAND_LEN, MAX_E2E_TIMEOUT_MIN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_AGENTS,
+    MAX_PATCH_LAUNCHES, MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN,
 };
 use std::collections::HashSet;
 use std::net::TcpListener;
@@ -21,7 +22,9 @@ use std::time::Instant;
 /// their limits and enums, measured 8_604 after trimming every description that was not needed).
 /// 9_000 = 8_700 plus the `kind` field of the tasks in propose_tasks and update_task (measured 8_998).
 /// 9_500 = 9_000 plus the `e2e` flag of the tasks and the `e2e` object of the repo settings (measured 9_477).
-const SESSION_TOOLS_CEILING: usize = 9_500;
+/// 9_700 = 9_500 plus `agent` and the nested `worker_agents` object of propose_settings, which replace the
+/// top-level worker_model/worker_allow/worker_deny (measured 9_699 after trimming every description that was not needed).
+const SESSION_TOOLS_CEILING: usize = 9_700;
 /// 3_050 = 2_600 plus run_e2e and get_e2e_result (measured 3_002).
 const WORKER_TOOLS_CEILING: usize = 3_050;
 /// The reviewer set (measured 4_005, with the `e2e` flag of propose_tasks): its own get_task and complete_task (verdict, findings, tests) plus the shared
@@ -67,11 +70,6 @@ impl Backend for Fake {
         }
         self.reply.clone()
     }
-}
-
-/// Limiti delle regole dell'agente predefinito dei worker.
-fn rule_limits() -> RuleFormat {
-    worker_rule_format().expect("the default worker agent applies permission rules")
 }
 
 fn send(server: &Server, b: &dyn Backend, msg: Value) -> Option<Value> {
@@ -124,7 +122,7 @@ fn model_descriptions_name_the_models_of_the_worker_agent() {
 #[test]
 fn model_descriptions_name_no_model_without_a_catalog() {
     for text in [model_description(None), proposed_model_description(None)] {
-        assert!(text.starts_with("Model for the worker, as the worker agent names it"), "{text}");
+        assert!(text.starts_with("Model of the task's agent, as that agent names it"), "{text}");
     }
 }
 
@@ -268,7 +266,10 @@ fn schemas_match_the_rust_validation() {
     let by = |n: &str| tools.iter().find(|t| t["name"] == n).unwrap().clone();
     let propose = by("propose_tasks");
     let item = &propose["inputSchema"]["properties"]["tasks"]["items"];
-    assert_eq!(keys(&item["properties"]), ["depends_on", "e2e", "id", "kind", "model", "repo", "task", "title"]);
+    assert_eq!(
+        keys(&item["properties"]),
+        ["agent", "depends_on", "e2e", "id", "kind", "model", "repo", "task", "title"]
+    );
     assert_eq!(item["properties"]["kind"]["enum"], json!(["work", "review"]));
     assert_eq!(item["required"], json!(["id", "title", "task", "model"]));
     assert_eq!(item["properties"]["model"]["type"], "string");
@@ -279,7 +280,7 @@ fn schemas_match_the_rust_validation() {
     let upd = by("update_task");
     assert_eq!(
         keys(&upd["inputSchema"]["properties"]),
-        ["depends_on", "e2e", "id", "kind", "model", "repo", "task", "title"]
+        ["agent", "depends_on", "e2e", "id", "kind", "model", "repo", "task", "title"]
     );
     assert_eq!(upd["inputSchema"]["required"], json!(["id"]));
     assert_eq!(upd["inputSchema"]["properties"]["model"]["type"], json!(["string", "null"]));
@@ -309,15 +310,14 @@ fn schemas_match_the_rust_validation() {
     assert_eq!(
         keys(props),
         [
+            "agent",
             "default_launch",
             "delivery",
             "launches",
             "reason",
             "repos",
             "use_schedule",
-            "worker_allow",
-            "worker_deny",
-            "worker_model",
+            "worker_agents",
             "worker_permission",
             "worker_rules"
         ]
@@ -328,10 +328,15 @@ fn schemas_match_the_rust_validation() {
     assert_eq!(props["worker_rules"]["maxLength"], MAX_RULES_LEN);
     assert_eq!(props["worker_permission"]["enum"], json!(["plan", "default", "accept-edits", "bypass"]));
     assert_eq!(props["worker_permission"]["enum"], json!(PermissionMode::ALL.map(PermissionMode::as_str)));
-    for list in ["worker_allow", "worker_deny"] {
-        assert_eq!(props[list]["maxItems"], rule_limits().max_rules, "{list}");
-        assert_eq!(props[list]["items"]["maxLength"], rule_limits().max_rule_chars, "{list}");
-    }
+    assert_eq!(props["agent"]["type"], json!(["string", "null"]));
+    let agents = &props["worker_agents"];
+    assert_eq!(agents["maxProperties"], MAX_PATCH_AGENTS);
+    let per_agent = &agents["additionalProperties"];
+    assert_eq!(keys(&per_agent["properties"]), ["allow", "deny", "model"]);
+    assert_eq!(per_agent["additionalProperties"], false);
+    assert_eq!(per_agent["properties"]["model"]["type"], json!(["string", "null"]));
+    assert_eq!(per_agent["properties"]["allow"]["type"], "array");
+    assert!(agents["description"].as_str().unwrap().contains("get_workspace_settings.agents"));
     let delivery = &props["delivery"];
     assert_eq!(keys(&delivery["properties"]), ["merge_method", "mode", "parallel"]);
     assert_eq!(delivery["additionalProperties"], false);
@@ -662,17 +667,19 @@ fn a_reviewer_cannot_call_the_queue_or_settings_tools() {
 }
 
 #[test]
-fn rule_fields_of_propose_settings_exist_only_when_the_worker_agent_applies_rules() {
-    let without = settings_properties(None);
-    assert!(without.get("worker_allow").is_none() && without.get("worker_deny").is_none());
-    assert!(without.get("worker_permission").is_some());
-    let format = RuleFormat { max_rules: 7, max_rule_chars: 11, example: "my-rule" };
-    let with = settings_properties(Some(format));
-    for list in ["worker_allow", "worker_deny"] {
-        assert_eq!(with[list]["maxItems"], 7, "{list}");
-        assert_eq!(with[list]["items"]["maxLength"], 11, "{list}");
-        assert_eq!(with[list]["description"], "Replaces the list, e.g. my-rule.", "{list}");
+fn propose_settings_has_no_agent_specific_fields_at_the_top_level() {
+    let props = settings_properties();
+    for legacy in ["worker_model", "worker_allow", "worker_deny"] {
+        assert!(props.get(legacy).is_none(), "{legacy}");
     }
+    assert!(props.get("worker_permission").is_some() && props.get("agent").is_some());
+}
+
+#[test]
+fn get_workspace_settings_points_to_the_agents() {
+    let tools = tools_for(Role::Session);
+    let read = tools.iter().find(|t| t["name"] == "get_workspace_settings").unwrap();
+    assert!(read["description"].as_str().unwrap().contains("enabled agents"));
 }
 
 /// Nomi dei tool di una lista, nell'ordine in cui sono definiti.

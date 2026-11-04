@@ -293,10 +293,12 @@ Un workspace è una cartella di lavoro (Windows o distro WSL) con le sue imposta
 (su `store/`, schema versione 1; l'elenco è letto voce per voce, quindi un workspace illeggibile viene escluso e
 riportato senza far perdere gli altri).
 
-- `model.rs`: `Workspace { id, name, kind, path, distro?, shell?, created_at, launches, default_launch?, delivery,
+- `model.rs`: `Workspace { id, name, kind, path, distro?, shell?, created_at, launches, default_launch?, agent?, delivery,
   use_schedule, repos, archived, + WorkerSettings }`. Il JSON è piatto: `WorkerSettings` ci entra con
-  `#[serde(flatten)]` e conserva i nomi `worker_permission`, `worker_model`, `worker_allow`, `worker_deny`,
-  `worker_rules`.
+  `#[serde(flatten)]` e conserva i nomi `worker_permission`, `worker_rules`, `worker_agents`
+  (`worker_settings.rs`).
+  - `agent`: l'agente di worker e revisori del workspace; assente = il predefinito globale
+    (`registry::resolve_agent`).
   - `kind`: `"windows"` o `"wsl"`; `path`: percorso Windows (`C:\...`) o Linux assoluto; `distro` solo per WSL;
     `shell`: override opzionale. `target()` (in `target.rs`) lo traduce in un `platform::Target`.
   - `launches`: `Launch { id, name, command }` (id `ln-<millis>-<n>`), rimossi insieme al workspace.
@@ -306,12 +308,13 @@ riportato senza far perdere gli altri).
   - `worker_permission`: tetto dei permessi dei worker, `"plan" | "default" | "accept-edits" | "bypass"`
     (vocabolario di `agents::PermissionMode`); assente o sconosciuto → `"accept-edits"`, così i vecchi file non
     diventano più permissivi.
-  - `worker_allow` / `worker_deny`: regole di permesso pre-approvate / vietate, nella sintassi dell'agente
+  - `worker_agents[<agente>].allow` / `.deny`: regole di permesso pre-approvate / vietate, nella sintassi dell'agente
     (`Bash(git:*)`, `Edit`, ...), validate dal contratto `WorkerPermissions` (`agents/worker_rules.rs`). All'avvio
     di un worker la risorsa `<app_data>/worker-settings/<workspace_id>.json` viene scritta (solo se cambiata) e il
     comando la riceve con `--settings`. Il rifiuto dell'agente prevale anche in `bypass`; le regole `deny` non sono
     un confine di sicurezza (altre forme di invocazione possono aggirarle): la UI lo avvisa.
-  - `worker_model`: modello di default dei worker, usato quando il task non indica `model`.
+  - `worker_agents[<agente>].model`: modello di default dei worker di quell'agente, usato quando il task non indica
+    `model` (poi vale quello del catalogo dell'agente).
   - `worker_rules`: testo accodato da `get_task` alle istruzioni di ogni worker.
   - `delivery`: `Delivery { mode: pr|local_merge|push|commit (default commit), parallel (default false, solo
     pr/local_merge), merge_method: squash|merge|rebase (default squash) }`.
@@ -330,7 +333,7 @@ riportato senza far perdere gli altri).
   agenti (`propose_settings`), con le stesse funzioni di validazione dei comandi dell'interfaccia.
 - Comandi (`commands.rs`, `launches.rs`, `explorer.rs`): `list_workspaces`, `add_workspace`, `rename_workspace`,
   `reorder_workspaces`, `set_workspace_archived`, `remove_workspace`, `set_worker_permission`,
-  `set_worker_permission_rules`, `set_worker_model`, `set_worker_rules`, `set_delivery`, `set_use_schedule`,
+  `set_workspace_agent`, `set_worker_permission_rules`, `set_worker_model`, `set_worker_rules`, `set_delivery`, `set_use_schedule`,
   `set_repo_config`, `add_launch`, `update_launch`, `remove_launch`, `set_default_launch`,
   `open_workspace_folder` (`explorer.exe`; per WSL il percorso UNC `\\wsl.localhost\<distro>\...`). I comandi
   tornano il `Workspace` aggiornato; quelli che toccano consegna, fasce, archiviazione o rimozione avvisano poi
@@ -742,7 +745,7 @@ Eventi Tauri verso il frontend: `automation-spawn`, `automation-close`, `automat
 `task_move`, `proposal_decide`, `settings_proposal_decide`, `workspace_detect_repos`, `e2e_run_repo`,
 `e2e_last_result`, `e2e_open_report`, `schedule_get`, `schedule_set`, `frontend_ready`. Comando di avvio del worker:
 `agents::automation_command`; permessi = `Workspace.worker_permission`, modello = `task.model`
-poi `worker_model`.
+poi `worker_agents[<agente del task>].model`, poi il predefinito dell'agente.
 
 ### Fasce orarie e standby (`schedule.rs`, `automation/auto.rs`)
 

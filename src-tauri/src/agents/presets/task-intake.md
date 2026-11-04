@@ -116,6 +116,9 @@ that already has an E2E suite.
 - `model`: required, every task has one. Use the model names suggested in the `model` description
   of `propose_tasks`: the one for well-defined work, or the one for design, risky or cross-cutting
   changes and hard bugs. Ask the user only if the choice is truly ambiguous.
+- `agent`: omit it, so the task runs with the worker agent of the workspace. Set it only when the
+  user asks for a specific agent: an id from `get_workspace_settings.agents`, which also lists that
+  agent's models. `model` must then be one of that agent's models.
 - `kind`: omit it for normal work. `"review"` only for a goal review (see "Goal review"), never
   for implementation work.
 - `repo`: only in multi-repository workspaces, the repository folder relative to the workspace

@@ -1,7 +1,7 @@
 //! Scheduler: sceglie i task da avviare. Funzione pura, il contesto
 //! (consegna, fascia oraria) lo fornisce chi chiama.
 
-use super::{repo_key, Board, TaskStatus};
+use super::{repo_key, AgentGate, Board, TaskStatus};
 use crate::workspaces::Delivery;
 use std::collections::HashSet;
 
@@ -18,8 +18,9 @@ pub struct SchedCtx {
 ///
 /// In modalita' parallela (worktree) fino a `max_parallel` running nella
 /// board; altrimenti un solo running per repository, comunque entro
-/// `max_parallel`.
-pub fn schedule(board: &Board, ctx: &SchedCtx) -> Vec<String> {
+/// `max_parallel`. I task il cui agente non e' pronto (`gate`) restano in
+/// coda e non occupano ne' il repository ne' un posto: ne partono altri.
+pub fn schedule(board: &Board, ctx: &SchedCtx, gate: &AgentGate) -> Vec<String> {
     if board.paused || !ctx.gate_open {
         return Vec::new();
     }
@@ -34,6 +35,9 @@ pub fn schedule(board: &Board, ctx: &SchedCtx) -> Vec<String> {
     for t in board.tasks.iter().filter(|t| t.status() == TaskStatus::Queued && board.deps_done(t)) {
         if running + chosen.len() >= board.max_parallel as usize {
             break;
+        }
+        if gate.is_blocked(&t.agent) {
+            continue;
         }
         if !parallel && !busy.insert(repo_key(t.repo.as_deref())) {
             continue;

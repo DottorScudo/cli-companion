@@ -2,6 +2,7 @@
 //! (campi dei task piu' cio' che la UI deriva dalla board) e righe compatte di
 //! `list_tasks`.
 
+use super::agent_gate::{AgentGate, AgentUnavailableView};
 use super::cascade::{CascadeDelete, Waiters};
 use super::{
     permits, Board, Op, Proposal, SettingsProposalView, Task, TaskAction, TaskKind, TaskStatus, MAX_PARALLEL_LIMIT,
@@ -35,6 +36,12 @@ pub struct TaskView {
     pub can_reorder: bool,
     /// Cosa toglierebbe "Elimina con i dipendenti"; vuoto se il task non si puo' eliminare.
     pub cascade: CascadeDelete,
+    /// Il task e' in coda ma il suo agente non e' pronto nel target del
+    /// workspace: parte da solo appena lo diventa. Assente se l'agente e'
+    /// pronto o la sua prontezza si sta ancora controllando.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub agent_unavailable: Option<AgentUnavailableView>,
 }
 
 /// Intervallo ammesso per un valore numerico, estremi inclusi.
@@ -116,6 +123,9 @@ fn compact_row(v: &TaskView) -> Value {
     if t.kind == TaskKind::Review {
         o["kind"] = Value::from(t.kind.as_str());
     }
+    if let Some(u) = &v.agent_unavailable {
+        o["agent_unavailable"] = json!({ "agent": u.agent, "reason": u.reason });
+    }
     if t.e2e {
         o["e2e"] = Value::Bool(true);
     }
@@ -153,7 +163,7 @@ impl TaskView {
 }
 
 impl Board {
-    fn view_of(&self, t: &Task, waiters: &Waiters) -> TaskView {
+    fn view_of(&self, t: &Task, waiters: &Waiters, gate: &AgentGate) -> TaskView {
         let status = t.status();
         let waiting_on = if status == TaskStatus::Queued {
             t.depends_on
@@ -186,17 +196,19 @@ impl Board {
             can_edit: permits(status, Op::Edit),
             can_reorder: permits(status, Op::Reorder),
             cascade,
+            agent_unavailable: gate.unavailable(t),
         }
     }
 
-    pub fn task_view(&self, id: &str) -> Option<TaskView> {
-        self.task(id).map(|t| self.view_of(t, &self.waiters()))
+    pub fn task_view(&self, id: &str, gate: &AgentGate) -> Option<TaskView> {
+        self.task(id).map(|t| self.view_of(t, &self.waiters(), gate))
     }
 
     /// Vista per il frontend; consegna e valori attuali delle impostazioni
     /// proposte vengono dal workspace `ws` (la board non lo conosce; `None` =
-    /// consegna di default e nessun valore attuale), `schedule_blocked` dal gate.
-    pub fn view_with(&self, ws: Option<&Workspace>, schedule_blocked: bool) -> BoardView {
+    /// consegna di default e nessun valore attuale), `schedule_blocked` dal gate
+    /// delle fasce e `gate` dagli agenti non pronti.
+    pub fn view_with(&self, ws: Option<&Workspace>, schedule_blocked: bool, gate: &AgentGate) -> BoardView {
         let waiters = self.waiters();
         BoardView {
             workspace_id: self.workspace_id.clone(),
@@ -205,7 +217,7 @@ impl Board {
             limits: BoardLimits::CURRENT,
             paused: self.paused,
             updated_at: self.updated_at,
-            tasks: self.tasks.iter().map(|t| self.view_of(t, &waiters)).collect(),
+            tasks: self.tasks.iter().map(|t| self.view_of(t, &waiters, gate)).collect(),
             proposals: self.proposals.clone(),
             settings_proposals: self.settings_proposals.iter().map(|p| p.view(ws)).collect(),
             schedule_blocked,

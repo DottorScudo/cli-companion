@@ -26,6 +26,12 @@ pub struct TaskSpec {
     pub depends_on: Vec<String>,
     /// Repository (cartella relativa alla root); `None` = la root.
     pub repo: Option<String>,
+    /// Agente che esegue il task; `None` = quello del workspace (o il
+    /// predefinito globale). Una proposta lo tiene com'e' scritto: si risolve
+    /// all'accettazione; un task ha sempre quello risolto alla creazione.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub agent: Option<String>,
     pub model: Option<String>,
     pub kind: TaskKind,
     /// Il task deve superare gli E2E del repository.
@@ -50,6 +56,10 @@ pub struct NewTaskSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
     pub repo: Option<String>,
+    /// `null` o assente = l'agente dei worker del workspace.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub agent: Option<String>,
     /// `null` o assente = modello dei worker del workspace.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
@@ -66,7 +76,7 @@ pub struct NewTaskSpec {
 
 /// Argomento di `task_update` come lo invia l'interfaccia (letto da `parse_spec`
 /// con la specifica attuale come base): i campi assenti non cambiano e `null`
-/// azzera `repo` e `model`.
+/// azzera `repo`, `agent` e `model`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, TS)]
 #[ts(export)]
 pub struct TaskPatch {
@@ -82,6 +92,10 @@ pub struct TaskPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
     pub repo: Option<String>,
+    /// `null` = torna all'agente del workspace (o al predefinito globale).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub agent: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
     pub model: Option<String>,
@@ -93,7 +107,7 @@ pub struct TaskPatch {
     pub e2e: Option<bool>,
 }
 
-const SPEC_KEYS: [&str; 8] = ["id", "title", "task", "depends_on", "repo", "model", "kind", "e2e"];
+const SPEC_KEYS: [&str; 9] = ["id", "title", "task", "depends_on", "repo", "agent", "model", "kind", "e2e"];
 
 impl TaskSpec {
     pub fn from_task(t: &Task) -> TaskSpec {
@@ -103,6 +117,7 @@ impl TaskSpec {
             task: t.task.clone(),
             depends_on: t.depends_on.clone(),
             repo: t.repo.clone(),
+            agent: Some(t.agent.clone()),
             model: t.model.clone(),
             kind: t.kind,
             e2e: t.e2e,
@@ -205,6 +220,15 @@ pub fn parse_spec(v: &Value, base: Option<&TaskSpec>) -> Result<TaskSpec, String
         Some(Value::String(s)) => normalize_repo(s)?,
         Some(_) => return Err("repo must be a string".to_string()),
     };
+    // Solo la forma di un id: se l'agente esiste e si puo' usare lo decide `agent::resolve_spec_agent`.
+    let agent = match obj.get("agent") {
+        None => base.and_then(|b| b.agent.clone()),
+        Some(Value::Null) => None,
+        Some(Value::String(a)) if a.trim().is_empty() => None,
+        Some(Value::String(a)) if valid_id(a.trim()) => Some(a.trim().to_string()),
+        Some(Value::String(a)) => return Err(format!("invalid agent id: {}", clip_chars(a, 50))),
+        Some(_) => return Err("agent must be a string".to_string()),
+    };
     let model = match obj.get("model") {
         None => base.and_then(|b| b.model.clone()),
         Some(Value::Null) => None,
@@ -228,7 +252,7 @@ pub fn parse_spec(v: &Value, base: Option<&TaskSpec>) -> Result<TaskSpec, String
         Some(Value::Bool(b)) => *b,
         Some(_) => return Err("e2e must be a boolean".to_string()),
     };
-    Ok(TaskSpec { id, title, task, depends_on, repo, model, kind, e2e })
+    Ok(TaskSpec { id, title, task, depends_on, repo, agent, model, kind, e2e })
 }
 
 /// Parametri di `propose_tasks`: `{ tasks: [TaskSpec] }`, ogni task con id.
@@ -357,24 +381,28 @@ mod tests {
             task: "do it".into(),
             depends_on: Some(vec!["a".into()]),
             repo: Some("api".into()),
+            agent: Some("agent-a".into()),
             model: Some("opus".into()),
             kind: Some(TaskKind::Review),
             e2e: Some(true),
         };
         let spec = parse_spec(&serde_json::to_value(&new).unwrap(), None).unwrap();
         assert_eq!((spec.title.as_str(), spec.kind, spec.e2e), ("T", TaskKind::Review, true));
+        assert_eq!(spec.agent.as_deref(), Some("agent-a"));
 
         let patch = TaskPatch {
             title: Some("U".into()),
             task: Some("again".into()),
             depends_on: Some(vec![]),
             repo: Some("web".into()),
+            agent: Some("agent-b".into()),
             model: Some("sonnet".into()),
             kind: Some(TaskKind::Work),
             e2e: Some(false),
         };
         let updated = parse_spec(&serde_json::to_value(&patch).unwrap(), Some(&spec)).unwrap();
         assert_eq!((updated.title.as_str(), updated.repo.as_deref(), updated.kind), ("U", Some("web"), TaskKind::Work));
+        assert_eq!(updated.agent.as_deref(), Some("agent-b"));
         assert_eq!(serde_json::to_value(TaskPatch::default()).unwrap(), json!({}));
     }
 }

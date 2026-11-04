@@ -2,6 +2,7 @@
 //! pacchetto installato e aggiornato. La classificazione e' pura; il
 //! sondaggio (processi) passa da una cache di breve durata.
 
+use super::commands::install_ctx;
 use super::contracts::{AgentIntegration, InstallCtx};
 use super::env_status::{status_for, AgentEnvStatus};
 use super::package::installed_version;
@@ -11,6 +12,7 @@ use crate::ttl_cache::TtlCache;
 use serde::Serialize;
 use std::sync::OnceLock;
 use std::time::Duration;
+use tauri::AppHandle;
 use ts_rs::TS;
 
 /// Validita' dei sondaggi: abbastanza per non rifare i processi a ogni
@@ -114,6 +116,35 @@ fn readiness_with(enabled: bool, integration: &dyn AgentIntegration, target: &Ta
 /// cache e' scaduto): fuori dal main thread.
 pub fn readiness(integration: &dyn AgentIntegration, target: &Target, ctx: &InstallCtx) -> Readiness {
     readiness_with(registry::is_enabled(integration.id()), integration, target, ctx)
+}
+
+/// Prontezza dell'agente `agent_id` nel target, come la vede chi non ha le
+/// integrazioni in mano (l'automazione, che conosce solo l'id salvato in un
+/// task). Un id fuori dal registro non e' abilitato: `Disabled`. Se il
+/// contesto di installazione non si ricava (exe o cartella dati illeggibili)
+/// l'errore va nel log e la prontezza si decide dal solo rilevamento, senza
+/// controllare il pacchetto: come prima che esistesse questo controllo.
+/// Puo' lanciare processi (sondaggio in cache scaduto): fuori dal main thread
+/// e mai sotto un lock.
+pub fn agent_readiness(app: &AppHandle, agent_id: &str, target: &Target) -> Readiness {
+    let Ok(integration) = registry::find(agent_id) else {
+        return Readiness::Disabled;
+    };
+    match install_ctx(app) {
+        Ok(ctx) => readiness(integration, target, &ctx),
+        Err(e) => {
+            log::error!("prontezza di {agent_id}: contesto di installazione non disponibile: {e}");
+            detected_only(integration, target)
+        }
+    }
+}
+
+/// Prontezza senza il controllo del pacchetto (serve un contesto che manca).
+fn detected_only(integration: &dyn AgentIntegration, target: &Target) -> Readiness {
+    if !registry::is_enabled(integration.id()) {
+        return Readiness::Disabled;
+    }
+    classify(true, false, &EnvProbe { status: status_for(integration, target), outdated: false })
 }
 
 #[cfg(test)]

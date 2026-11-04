@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "data": [
+    {
+      "id": "ws-1793743267309-1",
+      "name": "api",
+      "kind": "windows",
+      "path": "C:\\work\\api",
+      "created_at": 1793743267309,
+      "shell": "pwsh",
+      "launches": [
+        {"id": "ln-1793743300000-2", "name": "Dev server", "command": "npm run dev"}
+      ],
+      "worker_permission": "plan",
+      "worker_model": "opus",
+      "worker_allow": ["Bash(git:*)", "Read"],
+      "worker_deny": ["WebFetch"],
+      "worker_rules": "Never touch the migrations folder.",
+      "delivery": {"mode": "pr", "parallel": true, "merge_method": "squash"},
+      "use_schedule": true,
+      "default_launch": "ln-1793743300000-2",
+      "repos": {
+        ".": {"base_branch": "main", "setup": ["npm ci"]}
+      }
+    },
+    {
+      "id": "ws-1793743267309-3",
+      "name": "notes",
+      "kind": "windows",
+      "path": "C:\\work\\notes",
+      "created_at": 1793743268000,
+      "launches": [],
+      "worker_permission": "accept-edits",
+      "worker_model": null,
+      "worker_allow": [],
+      "worker_deny": [],
+      "delivery": {"mode": "commit", "parallel": false, "merge_method": "squash"},
+      "use_schedule": false
+    },
+    {
+      "id": "ws-1793743267309-4",
+      "name": "services",
+      "kind": "wsl",
+      "distro": "Ubuntu",
+      "path": "/home/me/services",
+      "created_at": 1793743269000,
+      "launches": [
+        {"id": "ln-1793743400000-5", "name": "Tests", "command": "cargo test"},
+        {"id": "ln-1793743400000-6", "name": "Shell", "command": "bash"}
+      ],
+      "worker_permission": "default",
+      "worker_model": "sonnet",
+      "worker_allow": [],
+      "worker_deny": [],
+      "delivery": {"mode": "local_merge", "parallel": false, "merge_method": "rebase"},
+      "use_schedule": false,
+      "repos": {
+        "gateway": {"base_branch": "develop", "container_root": "/srv/gateway", "setup": ["make deps"], "cleanup": ["make clean"]},
+        "web": {"copy_ignored": [".env"], "remove_force": true}
+      },
+      "archived": true
+    }
+  ]
+}

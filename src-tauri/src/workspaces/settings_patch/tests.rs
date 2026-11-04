@@ -1,12 +1,24 @@
 use super::super::{MAX_LAUNCH_NAME_LEN, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN};
 use super::*;
-use crate::agents::{worker_rule_format, PermissionMode, RuleFormat};
+use crate::agents::{registry, worker_rule_format, PermissionMode, RuleFormat};
 use crate::validate::ErrorCode;
 use serde_json::json;
 
+mod agents;
+
+/// Id dell'agente predefinito: quello dei worker dei workspace di prova.
+fn agent_id() -> &'static str {
+    registry::default_agent().id()
+}
+
 /// Limiti delle regole dell'agente predefinito dei worker.
 fn rule_limits() -> RuleFormat {
-    worker_rule_format().expect("the default worker agent applies permission rules")
+    worker_rule_format(agent_id()).expect("the default worker agent applies permission rules")
+}
+
+/// Proposta che cambia una sola voce di `worker_agents` dell'agente predefinito.
+fn agent_patch(fields: serde_json::Value) -> serde_json::Value {
+    json!({"worker_agents": {agent_id(): fields}})
 }
 
 fn ws() -> Workspace {
@@ -36,22 +48,27 @@ fn apply(p: &SettingsPatch, w: &mut Workspace) -> Result<(), ValidationError> {
 
 #[test]
 fn parse_distinguishes_absent_from_null() {
-    let p =
-        patch(json!({"worker_model": null, "default_launch": null, "repos": {"a": null, "b": {"base_branch": null}}}));
-    assert_eq!(p.worker_model, Some(None));
+    let p = patch(json!({"agent": null, "default_launch": null, "repos": {"a": null, "b": {"base_branch": null}}}));
+    assert_eq!(p.agent, Some(None));
     assert_eq!(p.default_launch, Some(None));
     assert_eq!(p.worker_rules, None);
     let repos = p.repos.unwrap();
     assert_eq!(repos["a"], None);
     assert_eq!(repos["b"].as_ref().unwrap().base_branch, Some(None));
     assert_eq!(repos["b"].as_ref().unwrap().container_root, None);
-    let p = patch(json!({"worker_model": "opus"}));
-    assert_eq!(p.worker_model, Some(Some("opus".to_string())));
+    let p = patch(json!({"agent": "x", "worker_agents": {"x": {"model": null, "allow": []}}}));
+    assert_eq!(p.agent, Some(Some("x".to_string())));
+    let entry = &p.worker_agents.unwrap()["x"];
+    assert_eq!((entry.model.clone(), entry.allow.clone(), entry.deny.clone()), (Some(None), Some(vec![]), None));
 }
 
 #[test]
 fn parse_roundtrips_absent_and_null() {
-    let v = json!({"worker_model": null, "repos": {"a": null, "b": {"base_branch": null}}});
+    let v = json!({
+        "agent": null,
+        "worker_agents": {"x": {"model": null, "deny": ["a"]}},
+        "repos": {"a": null, "b": {"base_branch": null}}
+    });
     assert_eq!(serde_json::to_value(patch(v.clone())).unwrap(), v);
 }
 
@@ -66,6 +83,10 @@ fn parse_rejects_unknown_fields_and_non_objects() {
     let e = SettingsPatch::parse(&json!({"theme": "dark"})).unwrap_err();
     assert!(e.starts_with("invalid settings: ") && e.contains("theme"), "{e}");
     assert!(SettingsPatch::parse(&json!({"repos": {"a": {"nope": 1}}})).is_err());
+    assert!(SettingsPatch::parse(&json!({"worker_agents": {"a": {"nope": 1}}})).is_err());
+    for legacy in ["worker_model", "worker_allow", "worker_deny"] {
+        assert!(SettingsPatch::parse(&json!({ legacy: null })).is_err(), "{legacy}");
+    }
     assert!(SettingsPatch::parse(&json!({"delivery": {"nope": 1}})).is_err());
     assert!(SettingsPatch::parse(&json!({"launches": [{"name": "a", "command": "b", "x": 1}]})).is_err());
     for v in [json!([]), json!("x"), json!(null), json!(3)] {
@@ -89,10 +110,13 @@ fn normalized_cleans_values() {
     w.launches = vec![launch("l1")];
     let p = patch(json!({
         "worker_rules": "  no tests  ",
-        "worker_model": "  ",
+        "agent": format!(" {} ", agent_id()),
         "worker_permission": " accept-edits ",
-        "worker_allow": [" Bash(git:*) ", "", "Bash(git:*)", "Read"],
-        "worker_deny": ["WebFetch"],
+        "worker_agents": agent_patch(json!({
+            "model": "  ",
+            "allow": [" Bash(git:*) ", "", "Bash(git:*)", "Read"],
+            "deny": ["WebFetch"]
+        }))["worker_agents"],
         "delivery": {"mode": "commit", "parallel": true},
         "use_schedule": true,
         "default_launch": " l1 ",
@@ -101,10 +125,12 @@ fn normalized_cleans_values() {
     }));
     let n = p.normalized(&w).unwrap();
     assert_eq!(n.worker_rules.as_deref(), Some("no tests"));
-    assert_eq!(n.worker_model, Some(None));
+    assert_eq!(n.agent, Some(Some(agent_id().to_string())));
     assert_eq!(n.worker_permission.as_deref(), Some("accept-edits"));
-    assert_eq!(n.worker_allow, Some(vec!["Bash(git:*)".to_string(), "Read".to_string()]));
-    assert_eq!(n.worker_deny, Some(vec!["WebFetch".to_string()]));
+    let entry = &n.worker_agents.unwrap()[agent_id()];
+    assert_eq!(entry.model, Some(None));
+    assert_eq!(entry.allow, Some(vec!["Bash(git:*)".to_string(), "Read".to_string()]));
+    assert_eq!(entry.deny, Some(vec!["WebFetch".to_string()]));
     // `parallel` non ha senso senza branch: scartato.
     assert_eq!(
         n.delivery,
@@ -142,17 +168,20 @@ fn invalid_values_fail_with_the_english_texts_for_the_model() {
     let cases = [
         (json!({"worker_rules": "x".repeat(MAX_RULES_LEN + 1)}), "worker_rules"),
         (json!({"worker_rules": "a\u{1}b"}), "worker_rules"),
-        (json!({"worker_model": "no good!"}), "worker_model"),
+        (agent_patch(json!({"model": "no good!"})), "model not accepted by the agent: no good!"),
         (json!({"worker_permission": "root"}), "worker_permission"),
-        (json!({"worker_allow": ["bad rule"]}), "worker_allow: rule \"bad rule\""),
-        (json!({"worker_allow": ["a\nb"]}), "worker_allow: rule"),
+        (agent_patch(json!({"allow": ["bad rule"]})), "worker_allow: rule \"bad rule\""),
+        (agent_patch(json!({"allow": ["a\nb"]})), "worker_allow: rule"),
         (
-            json!({"worker_deny": ["mcp__srv__tool(x)"]}),
+            agent_patch(json!({"deny": ["mcp__srv__tool(x)"]})),
             "worker_deny: rule \"mcp__srv__tool(x)\": this kind of rule takes no arguments",
         ),
-        (json!({"worker_deny": [format!("Bash({})", "a".repeat(rule_limits().max_rule_chars))]}), "worker_deny: rule"),
         (
-            json!({"worker_allow": (0..=rule_limits().max_rules).map(|i| format!("R{i}")).collect::<Vec<_>>()}),
+            agent_patch(json!({"deny": [format!("Bash({})", "a".repeat(rule_limits().max_rule_chars))]})),
+            "worker_deny: rule",
+        ),
+        (
+            agent_patch(json!({"allow": (0..=rule_limits().max_rules).map(|i| format!("R{i}")).collect::<Vec<_>>()})),
             "worker_allow: too many rules",
         ),
         (json!({"delivery": {}}), "delivery"),
@@ -210,7 +239,9 @@ fn every_rejection_has_a_distinct_italian_and_english_text() {
     for v in [
         json!({"worker_rules": "a\u{1}b"}),
         json!({"worker_permission": "root"}),
-        json!({"worker_allow": ["bad rule"]}),
+        agent_patch(json!({"allow": ["bad rule"]})),
+        agent_patch(json!({})),
+        json!({"agent": "nope"}),
         json!({"launches": [{"name": "", "command": "c"}]}),
         json!({"repos": {"x": {"base_branch": "no good"}}}),
         json!({"repos": {"x": {}}}),
@@ -249,20 +280,25 @@ fn errors_carry_a_code_and_the_place_where_they_happened() {
 fn rule_errors_name_their_list_and_keep_limits() {
     let w = ws();
     let too_long = format!("Bash({})", "a".repeat(rule_limits().max_rule_chars));
-    let err = patch(json!({"worker_deny": [too_long]})).normalized(&w).unwrap_err();
+    let prefix = format!("worker_agents['{}']: ", agent_id());
+    let err = patch(agent_patch(json!({"deny": [too_long]}))).normalized(&w).unwrap_err();
     assert_eq!(err.code(), ErrorCode::PermissionRuleTooLong);
-    assert!(err.message_en().starts_with("worker_deny: rule \"Bash(aaa"), "{}", err.message_en());
+    assert!(err.message_en().starts_with(&format!("{prefix}worker_deny: rule \"Bash(aaa")), "{}", err.message_en());
     let max_rule_chars = rule_limits().max_rule_chars;
     assert!(err.message_en().ends_with(&format!("longer than {max_rule_chars} characters")));
-    assert!(err.message_it().starts_with("Vietati: regola \"Bash(aaa"), "{}", err.message_it());
-    let err = patch(json!({"worker_allow": ["a b"]})).normalized(&w).unwrap_err();
-    assert_eq!(err.message_en(), "worker_allow: rule \"a b\": not a valid rule for the worker agent");
-    assert_eq!(err.message_it(), "Consentiti: regola \"a b\": forma non valida per l'agente dei worker");
+    assert!(err.message_it().starts_with(&format!("{prefix}Vietati: regola \"Bash(aaa")), "{}", err.message_it());
+    let err = patch(agent_patch(json!({"allow": ["a b"]}))).normalized(&w).unwrap_err();
+    assert_eq!(err.message_en(), format!("{prefix}worker_allow: rule \"a b\": not a valid rule for the worker agent"));
+    assert_eq!(
+        err.message_it(),
+        format!("{prefix}Consentiti: regola \"a b\": forma non valida per l'agente dei worker")
+    );
     let many: Vec<String> = (0..=rule_limits().max_rules).map(|i| format!("R{i}")).collect();
-    let err = patch(json!({"worker_deny": many})).normalized(&w).unwrap_err();
+    let err = patch(agent_patch(json!({"deny": many}))).normalized(&w).unwrap_err();
     let max_rules = rule_limits().max_rules;
-    assert_eq!(err.message_en(), format!("worker_deny: too many rules (max {max_rules})"));
+    assert_eq!(err.message_en(), format!("{prefix}worker_deny: too many rules (max {max_rules})"));
 }
+
 #[test]
 fn default_launch_is_checked_against_launches_after_the_patch() {
     let mut w = ws();
@@ -300,10 +336,9 @@ fn apply_changes_everything_at_once() {
     w.repos.insert("old".into(), RepoConfig::default());
     let p = patch(json!({
         "worker_rules": "rules",
-        "worker_model": "opus",
+        "agent": agent_id(),
         "worker_permission": "plan",
-        "worker_allow": ["Read"],
-        "worker_deny": ["WebFetch"],
+        "worker_agents": agent_patch(json!({"model": "opus", "allow": ["Read"], "deny": ["WebFetch"]}))["worker_agents"],
         "delivery": {"mode": "local_merge", "parallel": true},
         "use_schedule": true,
         "launches": [{"name": "fresh", "command": "c"}, {"id": "l1", "name": "renamed", "command": "x"}],
@@ -311,12 +346,10 @@ fn apply_changes_everything_at_once() {
     }));
     apply(&p, &mut w).unwrap();
     assert_eq!(w.worker.rules, "rules");
-    assert_eq!(w.worker.model.as_deref(), Some("opus"));
+    assert_eq!(w.agent.as_deref(), Some(agent_id()));
+    assert_eq!(w.worker.model_for(agent_id()), Some("opus"));
     assert_eq!(w.worker.permission, PermissionMode::Plan);
-    assert_eq!(
-        (w.worker.allow.as_slice(), w.worker.deny.as_slice()),
-        (&["Read".to_string()][..], &["WebFetch".to_string()][..])
-    );
+    assert_eq!(w.worker.rules_for(agent_id()), (&["Read".to_string()][..], &["WebFetch".to_string()][..]));
     assert_eq!(
         w.delivery,
         Delivery { mode: DeliveryMode::LocalMerge, parallel: true, merge_method: MergeMethod::Squash }
@@ -389,8 +422,11 @@ fn apply_repo_null_values_clear_or_remove() {
 fn current_reports_only_touched_fields() {
     let mut w = ws();
     w.worker.rules = "old".into();
-    w.worker.model = Some("sonnet".into());
-    w.worker.allow = vec!["Read".into()];
+    w.agent = Some(agent_id().into());
+    w.worker.set_agent(
+        agent_id(),
+        AgentWorkerSettings { model: Some("sonnet".into()), allow: vec!["Read".into()], deny: Vec::new() },
+    );
     w.launches = vec![launch("l1")];
     w.default_launch = Some("l1".into());
     w.delivery = Delivery { mode: DeliveryMode::Pr, parallel: true, merge_method: MergeMethod::Merge };
@@ -401,8 +437,8 @@ fn current_reports_only_touched_fields() {
     w.repos.insert("gone".into(), RepoConfig { cleanup: vec!["c".into()], remove_force: true, ..Default::default() });
     let p = patch(json!({
         "worker_rules": "new",
-        "worker_model": null,
-        "worker_allow": ["Bash"],
+        "agent": null,
+        "worker_agents": agent_patch(json!({"model": null, "allow": ["Bash"]}))["worker_agents"],
         "delivery": {"mode": "commit"},
         "default_launch": null,
         "launches": [],
@@ -412,8 +448,12 @@ fn current_reports_only_touched_fields() {
     .unwrap();
     let cur = p.current(&w);
     assert_eq!(cur.worker_rules.as_deref(), Some("old"));
-    assert_eq!(cur.worker_model, Some(Some("sonnet".to_string())));
-    assert_eq!(cur.worker_allow, Some(vec!["Read".to_string()]));
+    assert_eq!(cur.agent, Some(Some(agent_id().to_string())));
+    let entry = &cur.worker_agents.unwrap()[agent_id()];
+    assert_eq!(
+        (entry.model.clone(), entry.allow.clone(), entry.deny.clone()),
+        (Some(Some("sonnet".to_string())), Some(vec!["Read".to_string()]), None)
+    );
     assert_eq!(cur.delivery, Some(DeliveryPatch { mode: Some(DeliveryMode::Pr), ..Default::default() }));
     assert_eq!(cur.default_launch, Some(Some("l1".to_string())));
     assert_eq!(
@@ -421,7 +461,7 @@ fn current_reports_only_touched_fields() {
         Some(vec![LaunchPatch { id: Some("l1".into()), name: "name l1".into(), command: "cmd l1".into() }])
     );
     // Campi non toccati: assenti.
-    assert!(cur.worker_deny.is_none() && cur.worker_permission.is_none() && cur.use_schedule.is_none());
+    assert!(cur.worker_permission.is_none() && cur.use_schedule.is_none());
     let repos = cur.repos.unwrap();
     assert_eq!(repos["api"], Some(RepoPatch { setup: Some(vec!["a".to_string()]), ..Default::default() }));
     assert_eq!(repos["fresh"], None);
@@ -441,10 +481,9 @@ fn current_reports_only_touched_fields() {
 fn sensitive_lists_commands_and_permissions_in_order() {
     let all = patch(json!({
         "worker_rules": "r",
-        "worker_model": "m",
+        "agent": "x",
         "worker_permission": "bypass",
-        "worker_allow": [],
-        "worker_deny": [],
+        "worker_agents": {"b": {"deny": []}, "a": {"model": "m", "allow": [], "deny": []}, "c": {"model": null}},
         "delivery": {"mode": "push"},
         "use_schedule": true,
         "default_launch": null,
@@ -455,8 +494,9 @@ fn sensitive_lists_commands_and_permissions_in_order() {
         all.sensitive(),
         [
             "worker_permission",
-            "worker_allow",
-            "worker_deny",
+            "worker_agents[a].allow",
+            "worker_agents[a].deny",
+            "worker_agents[b].deny",
             "launches",
             "default_launch",
             "repos[.].setup",
@@ -470,7 +510,8 @@ fn sensitive_lists_commands_and_permissions_in_order() {
 fn sensitive_is_empty_for_harmless_patches() {
     let p = patch(json!({
         "worker_rules": "r",
-        "worker_model": null,
+        "agent": null,
+        "worker_agents": {"a": {"model": "m"}},
         "delivery": {"parallel": true},
         "use_schedule": false,
         "repos": {"a": null, "b": {"base_branch": "x", "container_root": "/srv", "copy_ignored": [".env"], "remove_force": true}}
