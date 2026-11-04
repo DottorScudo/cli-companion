@@ -891,6 +891,11 @@ testo in memoria, senza I/O. `JsonStore<T>` tiene il dato in memoria come stato 
 - **Log**: `logging.rs` configura `tauri-plugin-log`, registrato per primo. File
   `cli-companion.log` nella cartella dei log dell'app (`LogDir`), rotazione a 1 MB con 5 file
   conservati; livello `Info` in release e `Debug` in debug (che scrive anche su stdout).
+- **Tempi dell'avvio** (`startup.rs`): righe `startup: <passo> at +N ms` dall'inizio di `run`
+  per ogni passo del setup, inizio e fine di ogni caricamento della pagina e `frontend_ready`
+  (sessione ripristinata). La finestra di config nasce prima del setup, che gira sul main thread:
+  lavoro lento li' ritarda il primo paint. Lo sfondo della finestra (`backgroundColor` in
+  `tauri.conf.json`) e' il colore del tema, cosi' durante il caricamento non c'e' un flash bianco.
 - **Migrazione dai vecchi identifier** (`store/legacy.rs`): al primo avvio la cartella dati di
   `com.jmagarelli.cli-companion` viene copiata per intero se quella nuova non esiste, e
   `workspaces.json` di `com.jmagarelli.muse-companion` se manca; le cartelle vecchie restano

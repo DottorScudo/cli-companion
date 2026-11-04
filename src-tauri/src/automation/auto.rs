@@ -65,6 +65,7 @@ static FRONTEND_READY: ReadySignal = ReadySignal::new();
 /// puo' partire (e con lui i primi `automation-spawn`). Idempotente.
 #[tauri::command]
 pub fn frontend_ready() {
+    crate::startup::mark("frontend ready (session restored)");
     FRONTEND_READY.signal();
 }
 

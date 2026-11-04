@@ -175,6 +175,26 @@ fn an_orphan_branch_with_unmerged_commits_is_never_forced_even_in_pr_mode() {
 }
 
 #[test]
+fn an_unmerged_branch_of_a_done_task_is_kept_once_and_not_retried_after_a_restart() {
+    let Some(repo) = TempRepo::create("unmerged-done") else { return };
+    let (st, h, worker) = started(&repo, DeliveryMode::LocalMerge);
+    commit_in(&repo.worktree("a"), "work that was never merged");
+    finish(&st, &h, &worker, "completed");
+    let after_crash = restarted(&h);
+
+    let first = after_crash.reconcile_worktrees(&h);
+    after_crash.flush_pending_saves(&h);
+    let after_restart = restarted(&h);
+    let second = after_restart.reconcile_worktrees(&h);
+
+    assert_eq!(first.queued, ["ws-1/a"], "{first:?}");
+    assert!(!repo.worktree("a").exists(), "la cartella si rimuove");
+    assert_eq!(repo.branches(), ["task/a"], "il branch con commit non uniti resta");
+    assert!(task(&after_restart, &h, "a")["worktree"].is_null(), "la pulizia e' salvata");
+    assert!(second.queued.is_empty() && second.warnings.is_empty(), "nessun nuovo tentativo: {second:?}");
+}
+
+#[test]
 fn a_worktree_folder_deleted_by_hand_is_pruned_with_its_branch() {
     let Some(repo) = TempRepo::create("gone") else { return };
     let (st, h, worker) = started(&repo, DeliveryMode::LocalMerge);

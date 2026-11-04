@@ -12,6 +12,7 @@ mod platform;
 mod pty;
 pub mod schedule;
 mod session;
+mod startup;
 pub mod store;
 mod toast;
 mod ttl_cache;
@@ -39,6 +40,7 @@ where
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    startup::begin();
     tauri::Builder::default()
         .plugin(logging::plugin())
         .plugin(tauri_plugin_opener::init())
@@ -53,18 +55,22 @@ pub fn run() {
         .manage(bots::new_store())
         .manage(AutomationState::default())
         .setup(|app| {
+            startup::mark("setup started");
             store::install_emitter(app.handle());
-            store::legacy::migrate_legacy_data(app);
-            agents::load_integrations(app);
-            workspaces::load_from_disk(app);
-            launch_settings::load_from_disk(app);
-            bots::load_from_disk(app);
-            automation::load_boards(app);
-            automation::auto::init(app);
+            startup::timed("legacy data migrated", || store::legacy::migrate_legacy_data(app));
+            startup::timed("integrations loaded", || agents::load_integrations(app));
+            startup::timed("workspaces loaded", || workspaces::load_from_disk(app));
+            startup::timed("launch settings loaded", || launch_settings::load_from_disk(app));
+            startup::timed("bots loaded", || bots::load_from_disk(app));
+            startup::timed("boards loaded", || automation::load_boards(app));
+            startup::timed("automation started", || automation::auto::init(app));
             automation::skills::restore_in_background(automation::TauriHost(app.handle().clone()));
-            ipc::start_listener(app.handle(), std::sync::Arc::new(automation::IpcBridge(app.handle().clone())));
+            startup::timed("ipc listener started", || {
+                ipc::start_listener(app.handle(), std::sync::Arc::new(automation::IpcBridge(app.handle().clone())))
+            });
             Ok(())
         })
+        .on_page_load(|_, payload| startup::page_load(payload.event(), payload.url().as_str()))
         .invoke_handler(tauri::generate_handler![
             workspaces::list_workspaces,
             workspaces::add_workspace,
