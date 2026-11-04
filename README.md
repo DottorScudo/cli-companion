@@ -31,6 +31,10 @@ cargo test            # da src-tauri/
 La CI (`.github/workflows/ci.yml`) esegue tutti questi controlli (Node >= 24) a ogni push su `main` e a ogni pull request:
 lancia gli stessi comandi in locale prima di aprire la PR.
 
+Per contribuire (lingua del progetto, dove va il codice, come aggiungere un comando Tauri, uno store, un contratto o
+l'integrazione di un coding agent) vedi [CONTRIBUTING.md](CONTRIBUTING.md); l'architettura è in
+[docs/DESIGN.MD](docs/DESIGN.MD) e il Tasks Manager in [docs/BOARD.MD](docs/BOARD.MD).
+
 ## Versioni
 
 La versione vive in `package.json` e in `src-tauri/Cargo.toml` (`tauri.conf.json`

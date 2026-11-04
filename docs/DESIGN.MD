@@ -1,7 +1,12 @@
 # cli-companion — Design
 
-App desktop (Windows) per gestire cartelle di lavoro ("workspace") locali e WSL2
-e aprirci dentro terminali integrati a tab.
+App desktop (Windows) per gestire cartelle di lavoro ("workspace") locali e WSL2,
+aprirci dentro terminali integrati a tab e far lavorare dei coding agent su una coda di task.
+
+Documenti collegati: [BOARD.MD](BOARD.MD) (contratto del Tasks Manager: board, consegna, strumenti MCP,
+E2E), [RELEASE.MD](RELEASE.MD), [UPDATER.MD](UPDATER.MD), la guida
+[wiki/integrare-un-coding-agent.md](wiki/integrare-un-coding-agent.md) e, per chi sviluppa sul
+progetto, [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Stack
 
@@ -10,31 +15,41 @@ e aprirci dentro terminali integrati a tab.
   **Tailwind CSS v4** (tema dark in `src/index.css`, alias `@/` -> `src/`).
   Nota storica: la prima versione usava gluestack-ui v1 + react-native-web,
   rimossi perché incompatibili con il dev server Vite 8 (sorgenti .jsx/.tsx
-  grezzi non pre-bundlati -> schermata bianca). Vedi `tests/no-gluestack.test.mjs`.
+  grezzi non pre-bundlati -> schermata bianca). Lo vieta la regola ESLint `no-restricted-imports`
+  (`eslint.config.js`).
 - Terminali: **xterm.js** (`@xterm/xterm` + `@xterm/addon-fit`) nel frontend,
   **portable-pty** (ConPTY su Windows) nel backend
-- Persistenza: **JSON** nella app-data dir di Tauri. `launch_settings.json`, `bots.json` e `schedule.json` passano da `store/` (busta `{schema_version, data}`, migrazioni, backup datati); `workspaces.json`, `session.json` e `boards/<workspace_id>.json` hanno ancora la persistenza propria (`workspaces.json` e le board passeranno a `store/` in seguito)
+- Persistenza: **JSON** nella app-data dir di Tauri. Tutti i file strutturati (`workspaces.json`,
+  `launch_settings.json`, `bots.json`, `schedule.json`, `boards/<workspace_id>.json`) passano da `store/`
+  (busta `{schema_version, data}`, migrazioni, backup datati, avvisi). Fanno eccezione `session.json` e
+  `scrollback/<tab_id>.txt` (blob del frontend, `session.rs`) e l'archivio dei task conclusi
+  (`boards/archive/<workspace_id>.jsonl`, una riga per task), scritti con `write_atomic` / in coda al file.
 - Log: **tauri-plugin-log** (file nella cartella dei log dell'app, vedi `store/` più sotto)
 - Board dei task: **React Flow** (`@xyflow/react`) + **dagre** (`@dagrejs/dagre`) per il layout a grafo
+- Contratto Rust ↔ TypeScript: **ts-rs** (vedi "Tipi TypeScript generati")
 
 ## Architettura
 
 ```text
-+------------------+  invoke (comandi)   +------------------+
-|  React (WebView) | ------------------> |  Rust (Tauri)    |
-|  - Sidebar       | <-- canali ---------|  - workspaces.rs |
-|  - Tab terminali |  uno per sessione pty|  - wsl.rs        |
-|  - xterm.js      |                      |  - pty/          |
-+------------------+                      +---------+--------+
-                                                    |
-                                    +---------------+---------------+
-                                    |                               |
-                              ConPTY: powershell/cmd          wsl.exe -d <distro>
-                              cwd = cartella                  --cd <linux-path>
++----------------------+  invoke (comandi)    +---------------------------+
+|  React (WebView)     | -------------------> |  Rust (Tauri)             |
+|  - stores (stato)    | <-- Channel<PtyEvent>|  - workspaces/  board/    |
+|  - app/ (azioni)     |     uno per sessione |  - automation/  agents/   |
+|  - hooks/ componenti |     pty              |  - pty/  ipc/  store/     |
+|  - xterm.js          | <-- eventi (emit) ---|  - platform/  validate    |
++----------------------+                      +-------------+-------------+
+                                                            |
+                                          +-----------------+-----------------+
+                                          |                                   |
+                                  ConPTY: powershell/cmd              wsl.exe -d <distro>
+                                  cwd = cartella                      --cd <linux-path>
 ```
 
-Frontend e backend comunicano solo via comandi Tauri (`invoke`) per le azioni
-ed eventi Tauri (`emit`/`listen`) per lo stream di output dei terminali.
+Frontend e backend comunicano solo via comandi Tauri (`invoke`) per le azioni, un `Channel` per lo
+stream di output di ogni terminale ed eventi Tauri (`emit`/`listen`) per il resto (`board-update`,
+`agent-event`, `automation-*`, `store-warning`, ...; l'elenco tipizzato è `TauriEvents` in
+`src/lib/tauri.ts`). Lo stesso eseguibile fa anche da client degli hook dei coding agent
+(`cli-companion --notify`) e da server MCP (`cli-companion --mcp`): vedi `ipc/` e `mcp`.
 
 ### Tipi TypeScript generati (ts-rs)
 
@@ -52,127 +67,315 @@ committati in `src/bindings/` (un file per tipo, cartella piatta). Non si modifi
 - I file generati sono esclusi da Prettier (`.prettierignore`) e da ESLint, e hanno `eol=lf`
   (`.gitattributes`).
 - I moduli di `src/lib` importano i bindings **solo** con `import type`: l'import sparisce alla
-  compilazione e i moduli restano importabili da `node --test` senza passare da un bundler.
+  compilazione e i moduli restano importabili da `node --test` senza passare da un bundler
+  (lo verifica `tests/bindings.test.mjs`, insieme al divieto di copie scritte a mano di un DTO).
+- `src/lib/tauri.ts` riesporta i bindings con i nomi usati dall'interfaccia e contiene l'oggetto `api`,
+  un wrapper tipizzato per ogni comando (`invoke<T>("nome_comando", { chiaviCamelCase })`).
+  `tests/tauri-args.test.mjs` confronta gli argomenti di ogni comando registrato in `lib.rs` con le chiavi
+  inviate da `api`.
 
-## Backend (`src-tauri/src/`)
+## Mappa dei moduli del backend (`src-tauri/src/`)
 
-### `workspaces.rs` — store JSON + CRUD
+Il crate è una libreria (`cli_companion_lib`, `lib.rs`) più un binario sottile (`main.rs`) che, prima di
+avviare la GUI, smista i rami da riga di comando: `--help`, `--version`, `--notify <evento> [agente]`
+(client degli hook, `ipc::run_notify`), `--mcp` (server MCP su stdio, `mcp::run_stdio`) e
+`--check-update` (`updater`). Ogni ramo esce senza aprire finestre.
 
-- `Workspace { id, name, kind, path, distro?, shell?, created_at, launches, default_launch?, worker_permission, worker_model?, delivery, use_schedule }`
-  - `kind`: `"windows"` o `"wsl"`
-  - `path`: percorso Windows (`C:\...`) oppure percorso Linux assoluto (`/...`)
-  - `distro`: solo per WSL; `shell`: override opzionale
-  - `launches`: `Launch { id, name, command }` (`#[serde(default)]`,
-    id `ln-<millis>-<n>`), salvati dentro `workspaces.json`; rimossi insieme al
-    workspace. Il vecchio `is_default` si legge solo per la migrazione.
-  - `default_launch`: avvio predefinito del workspace. Assente = eredita il
-    predefinito globale (`launch_settings.json`, solo integrati); `"shell"` =
-    shell vuota; altrimenti l'id di un avvio del workspace o di un integrato
-    (`builtin:<agent_id>`, `builtin:preset:<id>` per ogni preset, da `agents::builtin_launches`).
-    Al caricamento `migrate_default` converte il vecchio `is_default` e `builtin:orchestrator` in `builtin:preset:task-intake` (stessa migrazione per `default_launch` di `launch_settings.json`).
-  - `worker_permission`: tetto dei permessi dei worker automatici, `"plan" | "default" |
-    "accept-edits" | "bypass"` (vocabolario di `agents::PermissionMode`);
-    `#[serde(default)]` -> `"accept-edits"`, cosi' i vecchi `workspaces.json` non diventano
-    piu' permissivi.
-  - `worker_allow` / `worker_deny`: `Vec<String>` (serde default), pre-approved / forbidden
-    Claude Code permission rules for workers (`Bash(git:*)`, `Edit`, ...), set with
-    `set_worker_permission_rules(id, allow, deny)`; validated by `worker_permissions::validate_rules`
-    (trimmed, max 100 rules of 300 chars, shape `Name` or `Name(...)`, no control chars,
-    no parentheses on `mcp__` names). At launch of a Claude Code worker (`Host::worker_settings_path`) `{"permissions":{"allow":[..],"deny":[..]}}` is written
-    (only if changed) to `<app_data>/worker-settings/<workspace_id>.json` and the command gets
-    `--settings "<path>"` (before `--allowedTools`, which is variadic; `/mnt/<d>/...` for WSL;
-    paths with `" $ ` % !` are refused because the line is typed into PowerShell, cmd or
-    bash). Claude Code merges these with its other settings; deny always wins, even in
-    bypass. Caveats shown in the UI: a prefix rule such as `Bash(docker exec:*)` allows any
-    command starting that way; deny rules are not a security boundary (other invocation
-    forms can bypass them).
-  - `worker_model`: `Option<String>`, modello di default dei worker automatici, usato quando
-    il task non indica `model`; assente = quello dell'agente (`#[serde(default)]`).
-  - `delivery`: `Delivery { mode: pr|local_merge|push|commit (default commit), parallel (default
-    false, solo pr/local_merge), merge_method: squash|merge|rebase (default squash) }`; comando
-    `set_delivery(id, delivery)` (normalizza `parallel`) e riallineamento dello scheduler.
-  - `use_schedule`: bool, i task partono solo nelle fasce orarie; `set_use_schedule(id, value)`.
-  - `repos`: `RepoConfig` per repository (branch base, file da copiare, setup e pulizia dei worktree,
-    `e2e` opzionale: `E2eConfig { command, junit, timeout_min }` in `workspaces/e2e.rs`; vedi
-    BOARD.MD, "Test E2E").
-  - Migrazioni al caricamento (`parse_workspaces`, sul JSON): `auto_orchestrate.enabled` ->
-    `use_schedule`; `worktree_setup` -> `repos["."].setup` se vuoto; i due campi spariscono.
-- Stato condiviso `WorkspaceStore` (in memoria + salvataggio su ogni modifica).
-- File: `<app_data>/workspaces.json`. Se corrotto, backup in `.json.bak` e riparto vuoto.
-- Comandi: `list_workspaces`, `add_workspace`, `rename_workspace`, `remove_workspace`,
-  `set_worker_permission(id, mode)` (valida il valore, ritorna il `Workspace`),
-  `set_worker_model(id, model)` (trim, vuoto = nessuno, validato con `valid_model`),
-  `set_delivery(id, delivery)`, `set_use_schedule(id, value)`,
-  `add_launch`, `update_launch`, `remove_launch` (ritornano il `Workspace`
-  aggiornato; nome 1-80 caratteri, comando 1-1000, trim come `src/lib/launch.ts`),
-  `open_workspace_folder` (`explorer.exe`; per WSL il percorso UNC
-  `\\wsl.localhost\<distro>\...`; l'exit code di explorer è ignorato).
-- `add_workspace` valida tutto prima di salvare:
-  - Windows: il path deve esistere ed essere una cartella;
-  - WSL: distro non vuota, path assoluto (accetta anche `C:\...` o `\\wsl$\...`
-    convertendoli), cartella esistente nella distro (via `wsl test -d`);
-  - niente duplicati a parità di `kind + path + distro`;
-  - nome vuoto -> usa l'ultimo segmento del percorso.
+### Livelli e dipendenze
 
-### `wsl.rs` — interop WSL2
+```text
+ 5  lib.rs · main.rs      composizione: plugin, stati gestiti, `setup`, comandi, rami da riga di comando
+ 4  automation   mcp      orchestrazione dei worker (registro, scheduler, git, E2E) / shim MCP verso l'app
+ 3  pty          ipc      canali con terminali e agenti
+ 2  board        workspaces     dominio: coda dei task (pura) / cartelle di lavoro e loro impostazioni
+ 1  agents                integrazioni dei coding agent: contratti + registro + `claude_code/`
+ 0  platform  validate  store  wsl  net  ttl_cache  schedule  logging  ...   fondamenta
+```
 
-- `installed_distros()`: esegue `wsl.exe -l -q` e parsifica l'output.
-  Nota: `wsl.exe` scrive in **UTF-16LE con BOM**, quindi la decodifica gestisce
-  UTF-16LE/BE e UTF-8, con filtro difensivo su righe spurie.
-- `wsl_dir_exists(distro, path)`: `wsl.exe -d <distro> -- test -d <path>`.
-- `windows_to_wsl_path()`: `C:\a\b` -> `/mnt/c/a/b`,
-  `\\wsl$\Distro\home\u` -> `/home/u`.
-- Le chiamate a `wsl.exe` usano `CREATE_NO_WINDOW` (niente flash di console).
-- Comandi esposti: `list_wsl_distros`, `check_wsl_path` (per la verifica live nel form).
+I numeri non descrivono ogni `use`, ma l'ordine in cui conviene pensare ai moduli: una freccia verso
+l'alto è l'eccezione e va giustificata. Le dipendenze reali (imports `crate::…` del codice di produzione,
+test esclusi) sono queste:
+
+| Modulo | Dipende da | Non dipende da |
+|---|---|---|
+| `platform`, `validate`, `store` | nessun altro modulo dell'app (`store` solo da Tauri per `AppHandle` e dagli eventi) | tutto il resto |
+| `agents` | `platform`, `validate`, `wsl`, `net`, `ttl_cache` (+ `launch_settings` nei soli comandi Tauri) | `workspaces`, `board`, `automation`, `ipc` |
+| `workspaces` | `agents` (tipi dei contratti), `validate`, `platform`, `store`, `wsl` (+ `automation` nei soli comandi, per riallineare lo scheduler) | `board`, `ipc`, `pty` |
+| `board` | `workspaces` (`Delivery`, `Workspace`, `SettingsPatch`), `agents` (agente predefinito), `validate`, `store` | `automation`, `ipc`, `pty`, `mcp`, `tauri` |
+| `ipc` | `agents` (solo il contratto `HookEvents`), `platform` | `automation`, `board`, `workspaces` |
+| `pty` | `ipc` (nomi delle variabili e `is_valid_tab_id`), `platform`, `wsl`, `workspaces`, `automation` (credenziale di sessione e `user_input`) | `board` |
+| `automation` | `board`, `workspaces`, `agents`, `ipc` (tipi e trait), `platform`, `validate`, `schedule`, `user_skills`, `store`, `awake`, `pty` (solo `workspace_of_tab`, in `TauriHost`) | — |
+| `mcp` | `automation` (`Role`, `lock`, nomi dei metodi), `agents`, `workspaces`, `ipc` (client RPC) | `tauri` |
+
+Le regole che questa tabella racchiude, e come sono garantite:
+
+1. **Il core non nomina un coding agent.** Fuori da `agents/<integrazione>/` un agente si raggiunge solo
+   dai contratti (`agents/contracts/`) e dal registro (`agents/registry.rs`, l'unico punto che lo nomina).
+   Lo impongono `agents/architecture.rs` (Rust) e `tests/architecture.test.mjs` (`src/`): vedi
+   [wiki/integrare-un-coding-agent.md](wiki/integrare-un-coding-agent.md).
+2. **`board` non dipende da `automation`.** `board/` è pura: nessun file importa `tauri`, `AppHandle`,
+   `automation` o `ipc`; tipi, validazione, operazioni sulla coda, scheduler e vista, con il tempo
+   passato dal chiamante. È `automation` che la possiede, la salva su disco (`automation/board_files.rs`)
+   e ne esegue gli effetti. Oggi nessun test lo impone: è una proprietà del codice da mantenere.
+3. **`ipc` delega tramite trait.** Il canale non sa cosa fa il core degli eventi: riceve un `IpcHandler`
+   (`authenticate`, `probe_credential`, `rpc`, `hook_event`) e `automation::IpcBridge` lo implementa
+   (`ipc::start_listener(app, Arc::new(IpcBridge(..)))` in `lib.rs`). Il formato dello stdin degli hook
+   è il contratto `HookEvents` dell'integrazione. Allo stesso modo `automation` parla con l'esterno solo
+   attraverso il trait `Host` (`TauriHost` in produzione, un host finto nei test) e `mcp` attraverso il
+   trait `Backend`.
+4. **Parti pure.** Hanno tempo e I/O iniettati e si provano senza finestra: `board/`, `automation::Registry`
+   (`registry.rs`, `boards.rs`, `worker.rs`), `schedule.rs` (logica), `ipc/gate.rs`, `ipc/wire.rs`,
+   `pty/env.rs` (`env_vars`, `merge_wslenv`), `user_skills`, `validate/`, `workspaces/settings_patch` e
+   `workspaces/validate`.
+5. **Input validato al confine.** Ogni valore che finisce in una riga di comando (branch, modello,
+   repository, regole, nomi) passa da `validate/` o dal modulo che lo possiede; i messaggi sono errori
+   tipizzati (`ValidationError`), in italiano per l'interfaccia e in inglese per gli strumenti letti dal
+   modello.
+
+Cicli che esistono davvero (e perché): `workspaces/commands.rs` e `pty/mod.rs` chiamano `AutomationState`
+perché cambiare consegna, fasce o archiviazione di un workspace, o aprire una shell, riguarda anche
+lo scheduler e i segreti di sessione; `automation::TauriHost` chiede a `pty` il workspace di un tab.
+Restano confinati ai comandi Tauri e all'host reale; la logica pura non li attraversa.
+
+### Dove sta cosa
+
+| Modulo | Responsabilità |
+|---|---|
+| `platform/` | `Target` (Windows o distro WSL) e `TargetKind`; costruzione dei comandi per target (`cmd /c`, `wsl.exe`, finestra nascosta); `output_with_timeout` (output limitato a 8 MiB per stream); conversioni di path Windows/WSL |
+| `wsl.rs`, `wsl/home.rs` | ciò che è davvero WSL: distro installate, esistenza di una cartella, `$HOME` della distro |
+| `validate/` | predicati sui valori che finiscono in comandi esterni (`valid_branch`, `valid_model`, `normalize_repo`), `ValidationError` con codici stabili e messaggi bilingui |
+| `store/` | persistenza JSON comune: busta versionata, migrazioni, backup, avvisi (`StoreWarning`), `write_atomic` |
+| `workspaces/` | il `Workspace` (target, avvii, impostazioni dei worker, consegna, repository, archiviazione), il suo store in memoria e `workspaces.json`, i comandi Tauri, le patch di impostazioni proposte dagli agenti |
+| `agents/` | contratti (`contracts/`), registro, rilevamento, pacchetti/plugin, preset, regole dei worker; `claude_code/` è l'unica integrazione |
+| `board/` | la coda dei task di un workspace: modello, ciclo di vita, scheduler, vista, formato su disco, recupero, archivio (pura) |
+| `automation/` | registro di worker e board, scheduler a timer, avvio e pulizia dei worktree, E2E, RPC dei tool MCP, autenticazione per sessione, salvataggio delle board |
+| `pty/` | una shell per tab in un PTY, con output su un `Channel` |
+| `ipc/` | listener TCP locale, client `--notify`, protocollo delle righe JSON, cancello degli eventi |
+| `mcp.rs`, `mcp/` | server MCP su stdio (`--mcp`): inoltra le `tools/call` come RPC all'app |
+| `session.rs` | `session.json` e `scrollback/` |
+| `schedule.rs`, `awake.rs` | fasce orarie (logica pura + `schedule.json`) e blocco dello standby |
+| `launch_settings.rs`, `bots.rs` | impostazioni globali degli avvii e nomi/avatar dei bot (su `store/`) |
+| `user_skills.rs`, `user_skills/` | skill globali dell'utente: archivio e sincronizzazione nelle cartelle degli agenti |
+| `toast.rs`, `updater.rs`, `net.rs`, `ttl_cache.rs`, `logging.rs` | toast cliccabile (Windows), controllo aggiornamenti da CLI, client HTTP via `curl`, cache con scadenza, log su file |
+
+## Flussi principali
+
+### Avvio
+
+1. `main.rs` esce subito per i rami da riga di comando; altrimenti `run()` (`lib.rs`) costruisce
+   l'app: prima il plugin di log (`logging::plugin()`), poi opener, dialog, clipboard, notification,
+   updater, process, e gli stati gestiti (`WorkspaceStore`, `PtyState`, store delle impostazioni degli avvii e dei bot,
+   `AutomationState`).
+2. `setup`, in quest'ordine: `store::install_emitter` (da qui un avviso dello store diventa un evento
+   `store-warning`), `store::legacy::migrate_legacy_data` (copia dei vecchi identifier), caricamento di
+   `workspaces.json`, `launch_settings.json`, `bots.json`, delle board (`automation::load_boards`: migra i file
+   vecchi e fa fallire come interrotti i task `running`), `automation::auto::init` (carica `schedule.json` e
+   lancia il thread del timer, che aspetta `frontend_ready`), il ripristino in background delle skill utente
+   e infine `ipc::start_listener` (apre il socket in modo sincrono: la porta è nota prima del primo terminale).
+3. Il frontend (`App.tsx`) avvia gli hook di fondo: `useInitialData` legge workspace, profili degli agenti, avvii
+   integrati e impostazioni; `useBoardsSync` carica le board e ascolta `board-update`; `useSessionPersistence`
+   ripristina i tab quando workspace e profili sono pronti; `useAppEvents` registra i listener degli eventi.
+4. Quando sessione ripristinata e listener sono pronti, `useFrontendReady` chiama `frontend_ready`. Solo allora
+   il timer di `automation::auto` fa il primo giro (con un tetto di 30 s se il frontend non risponde): rivaluta
+   tutte le board (i task in coda ripartono) e riallinea le worktree con le board; da lì ogni 30 s. Così i primi
+   `automation-spawn` trovano i listener già registrati.
+5. All'uscita (`RunEvent::Exit`) si annullano le esecuzioni E2E, si salvano le board con un salvataggio ancora in
+   coda (`automation::flush_on_exit`) e si chiudono tutti i terminali (`pty::close_all_on_exit`).
+
+### Sessione di terminale
+
+1. La UI crea il tab (`app/actions/tabs.ts`: chiave UUID = `tab_id`, bot, gruppo del layout) e monta un
+   `TerminalView`, che chiama `pty_spawn(workspace_id, tab_id, cols, rows, cwd?, channel)`.
+2. `pty_spawn` (async, lavoro su `crate::blocking`) valida il `tab_id` (`ipc::is_valid_tab_id`), risolve il
+   workspace e il suo `Target`, **prenota** lo slot nel `Registry` (al massimo 32 sessioni, un solo PTY per tab,
+   sotto lo stesso lock), controlla la cartella di partenza, chiede ad `AutomationState` il **segreto di sessione**,
+   costruisce il comando (`session_command`: PowerShell/shell custom su Windows, `wsl.exe -d <distro> --cd <path>`
+   su WSL, con `CLI_COMPANION_SESSION`, `CLI_COMPANION_TOKEN`, `CLI_COMPANION_PORT`, `TERM`, `COLORTERM` e, su
+   WSL, `WSLENV`) e apre il PTY. Se un passo fallisce, la prenotazione e la credenziale si liberano da sole (drop).
+3. Un thread legge il PTY e inoltra i chunk (decodifica UTF-8 incrementale) sul `Channel`; un altro scrive i byte
+   accodati da `pty_write`. Un Invio scritto nel terminale di un worker in attesa avvisa l'automazione
+   (`automation::user_input`).
+4. Alla fine del flusso (shell uscita o `pty_close`) la sessione esce dalla tabella, il figlio viene atteso, la
+   credenziale viene revocata e il canale riceve `exit`; il frontend chiude il tab.
+
+### Hook → evento
+
+1. Un coding agent esegue il suo hook, che lancia `cli-companion --notify <evento> <agente>` (nel plugin generato
+   da `agents/<integrazione>/package`). Il processo eredita da quella shell `CLI_COMPANION_SESSION`,
+   `CLI_COMPANION_TOKEN` e `CLI_COMPANION_PORT`.
+2. `ipc::run_notify` (`ipc/client.rs`): se l'evento non è noto, o manca il `tab_id`, esce con 0 senza fare nulla;
+   altrimenti legge lo stdin dell'hook (tetto 1 MB), lo fa normalizzare dal contratto `HookEvents` dell'agente e
+   spedisce una riga JSON a `127.0.0.1:<porta>` con il segreto del tab.
+3. Il listener (`ipc/server.rs`, al massimo 32 connessioni) passa la riga al **cancello** (`ipc/gate.rs`, puro):
+   senza `tab_id` valido e senza il segreto di quel tab (`IpcHandler::authenticate`) l'evento è scartato; un
+   `permission-request` diventa `needs-input` e i duplicati vengono eliminati.
+4. L'evento ammesso va al core (`IpcHandler::hook_event` → `automation::on_hook_event` → `Registry::on_hook`), che
+   aggiorna il worker del tab (attività, Stop bloccato, fine sessione) e può rispondere con un motivo di blocco.
+   La risposta è una riga `{}` o `{"block":"…"}`: solo `--notify finished` la legge e, se c'è `block`, stampa su
+   stdout la riga che l'agente si aspetta (`HookEvents::stop_block_output`) così che il turno prosegua.
+5. Dopo che il core ha elaborato l'hook, il server emette l'evento Tauri `agent-event` verso il frontend, se può
+   arrivarci (`forwards_to_frontend`: non uno `finished` bloccato o con lavoro in background); il segreto è già stato
+   tolto dal cancello. Lì `app/events.ts` (`onAgentEvent`) aggiorna lo stato del tab in
+   `tabRuntime`, suona e, a finestra senza focus, mostra la notifica di sistema.
+
+### Task: dalla proposta alla consegna
+
+1. **Proposta.** In un tab normale l'Intake (un preset del plugin) chiama il tool MCP `propose_tasks`. Il server MCP
+   (`--mcp`) inoltra la chiamata come RPC (`ipc::rpc_call`) col segreto del tab; `ipc/server.rs` la autentica,
+   `automation::rpc::dispatch` risolve il ruolo del chiamante (`automation/roles.rs`) e verifica che il metodo gli
+   sia consentito; `automation/boards.rs` valida le specifiche con `board::parse_proposal` e aggiunge una `Proposal`
+   alla board. Ogni modifica della board produce `Effect::Publish`: evento `board-update` e salvataggio coalescente.
+2. **Accettazione.** L'utente sceglie dalla UI (`proposal_decide`): le specifiche vengono rivalidate ed entrano in
+   coda come `queued`.
+3. **Scheduler.** Dopo ogni modifica (e a ogni giro del timer) `board::schedule` (pura) sceglie i task avviabili:
+   coda non in pausa, fascia aperta, dipendenze `done`, slot libero. Ogni scelto passa a `running` e il registro
+   emette `Effect::StartTask`.
+4. **Avvio.** Fuori dal lock (`automation/worktrees.rs`, thread dell'host): base del branch, `git fetch`, worktree
+   `task/<id>` in `<repo>/.worktrees/<id>` (solo con consegna a worktree), file da copiare e comandi `setup` del
+   repository, poi `emit_spawn` (`automation-spawn`) con il comando di avvio costruito dal contratto
+   `WorkerAutomation` dell'agente. Un guardiano (`watchdog`) fallisce gli avvii bloccati dopo 5 minuti.
+5. **Lavoro.** Il frontend apre il tab del worker in secondo piano (`app/events.ts`, `onAutomationSpawn`) e quel tab
+   fa `pty_spawn` come ogni altro. Il worker chiama `get_task` (istruzioni, ambiente e passi di consegna
+   generati da `board/texts.rs`), lavora, consegna secondo la modalità del workspace e chiama `complete_task`. Gli
+   hook ne tengono aggiornato lo stato (`running`, `needs_input`, `idle`, ...).
+6. **Esito.** `complete_task` costruisce il `TaskReport` (con il diffstat calcolato dall'app e, per i task marcati E2E,
+   il blocco sull'ultima esecuzione) e porta il task a `done` o `failed`. Dopo 1,5 s il registro emette
+   `automation-close`; chiuso il tab, dopo 2 s parte la pulizia (`cleanup` del repository, `git worktree remove`,
+   cancellazione del branch). Un `failed` conserva worktree e branch per il "Riprova".
+7. **Dopo.** I task conclusi oltre i 200 più recenti escono dalla board nell'archivio `.jsonl`; a ogni avvio e ogni 5
+   minuti il riallineamento delle worktree ripulisce ciò che la pulizia normale ha perso. Gli stati e le transizioni sono
+   in [BOARD.MD](BOARD.MD), "Ciclo di vita".
+
+### Persistenza e migrazioni
+
+1. Ogni file strutturato è descritto da un `JsonFile<T>` statico (nome, catena di migrazioni, controllo semantico
+   opzionale `validated`, lettura voce per voce opzionale `decoded_with`); `JsonFile::named` ne crea uno il cui nome è
+   noto solo a runtime (una board per workspace). Lo stato in memoria sta in un `JsonStore<T>` gestito da Tauri
+   (`workspaces/store.rs`, `launch_settings.rs`, `bots.rs`) oppure, per le board, nel `Registry` di `automation`.
+2. Al caricamento: file assente → default; file senza busta → versione 0; si applicano i passi `steps[versione..]`
+   (funzioni pure `Value -> Value`), poi la deserializzazione, `decoded_with` (le voci illeggibili si escludono e il file
+   originale va in backup) e `validated`. Dopo la lettura le board applicano anche `Board::sanitize` e
+   `recover_after_restart` (che non è una migrazione: si esegue a ogni caricamento).
+3. Un file corrotto, non migrabile o scritto da una versione più recente non viene mai cancellato né sovrascritto:
+   va in `<nome>.bak-<AAAAMMGG-OOMMSSmmm>` (ultimi 5) e produce uno `StoreWarning` (log, comando `store_warnings`,
+   evento `store-warning`, avviso nel frontend). Un file illeggibile resta dov'è e i suoi salvataggi sono rifiutati.
+4. Al salvataggio: `write_atomic` (file temporaneo, `sync_all`, rename con ripetizioni su Windows). Le board salvano al
+   massimo una volta al secondo per workspace; l'archivio dei task usciti si scrive **prima** della board che non li
+   contiene più.
+5. Aggiungere una migrazione = aggiungere un passo in coda alla catena del file (la versione è il numero dei passi) e
+   un test sul passo. Nessun passo si modifica dopo il rilascio. Dettagli del formato in "`store/`".
+
+## Backend: i moduli
+
+Le sezioni seguenti descrivono ciascun modulo. I contratti con il frontend (comandi, eventi, DTO) sono
+dettagliati qui o, per la coda dei task, in [BOARD.MD](BOARD.MD).
+
+### `platform/`, `wsl.rs`, `validate/` — fondamenta
+
+- `platform/` è l'unico posto che conosce `cmd /c`, `wsl.exe` e il flag di finestra nascosta
+  (`CREATE_NO_WINDOW`). `Target { Windows, Wsl { distro } }` costruisce i comandi (`command`, `git_command`) e li
+  esegue (`run`, `run_timeout`, con `output_with_timeout`: i flussi sono letti da thread dedicati e limitati a
+  8 MiB ciascuno). `TargetKind` (`"windows"` / `"wsl"`) è la famiglia, persistita nei workspace e vista dal
+  frontend. Le conversioni di path (`windows_to_wsl_path`: `C:\a\b` → `/mnt/c/a/b`, `\\wsl$\Distro\home\u` →
+  `/home/u`; `wsl_to_windows_path`) stanno in `paths.rs`.
+- `wsl.rs`: `installed_distros()` esegue `wsl.exe -l -q` (l'output è **UTF-16LE con BOM**: la decodifica gestisce
+  anche UTF-16BE e UTF-8, con filtro difensivo sulle righe spurie), `wsl_dir_exists` / `ensure_wsl_dir` verificano
+  una cartella nella distro, `wsl/home.rs` risolve `$HOME` (una volta per processo). Comandi Tauri:
+  `list_wsl_distros`, `check_wsl_path` (verifica live del form di aggiunta).
+- `validate/`: predicati puri e `ValidationError` (vedi regola 5 della mappa). Un `ErrorCode` porta nella stessa riga
+  della tabella il modello italiano e quello inglese: un codice senza i due messaggi non compila.
+- `net.rs` (HTTP via un sottoprocesso `curl`, senza un crate di rete in più) e `ttl_cache.rs` (cache con scadenza per
+  risultati di processi lenti, come il rilevamento degli agenti) sono helper condivisi.
+
+### `workspaces/` — i workspace
+
+Un workspace è una cartella di lavoro (Windows o distro WSL) con le sue impostazioni. File: `<app_data>/workspaces.json`
+(su `store/`, schema versione 1; l'elenco è letto voce per voce, quindi un workspace illeggibile viene escluso e
+riportato senza far perdere gli altri).
+
+- `model.rs`: `Workspace { id, name, kind, path, distro?, shell?, created_at, launches, default_launch?, delivery,
+  use_schedule, repos, archived, + WorkerSettings }`. Il JSON è piatto: `WorkerSettings` ci entra con
+  `#[serde(flatten)]` e conserva i nomi `worker_permission`, `worker_model`, `worker_allow`, `worker_deny`,
+  `worker_rules`.
+  - `kind`: `"windows"` o `"wsl"`; `path`: percorso Windows (`C:\...`) o Linux assoluto; `distro` solo per WSL;
+    `shell`: override opzionale. `target()` (in `target.rs`) lo traduce in un `platform::Target`.
+  - `launches`: `Launch { id, name, command }` (id `ln-<millis>-<n>`), rimossi insieme al workspace.
+  - `default_launch`: assente = eredita il predefinito globale (`launch_settings.json`, solo integrati); `"shell"` =
+    shell vuota; altrimenti l'id di un avvio del workspace o di un integrato (`builtin:<agent_id>`,
+    `builtin:preset:<id>` per ogni preset, da `agents::builtin_launches`).
+  - `worker_permission`: tetto dei permessi dei worker, `"plan" | "default" | "accept-edits" | "bypass"`
+    (vocabolario di `agents::PermissionMode`); assente o sconosciuto → `"accept-edits"`, così i vecchi file non
+    diventano più permissivi.
+  - `worker_allow` / `worker_deny`: regole di permesso pre-approvate / vietate, nella sintassi dell'agente
+    (`Bash(git:*)`, `Edit`, ...), validate dal contratto `WorkerPermissions` (`agents/worker_rules.rs`). All'avvio
+    di un worker la risorsa `<app_data>/worker-settings/<workspace_id>.json` viene scritta (solo se cambiata) e il
+    comando la riceve con `--settings`. Il rifiuto dell'agente prevale anche in `bypass`; le regole `deny` non sono
+    un confine di sicurezza (altre forme di invocazione possono aggirarle): la UI lo avvisa.
+  - `worker_model`: modello di default dei worker, usato quando il task non indica `model`.
+  - `worker_rules`: testo accodato da `get_task` alle istruzioni di ogni worker.
+  - `delivery`: `Delivery { mode: pr|local_merge|push|commit (default commit), parallel (default false, solo
+    pr/local_merge), merge_method: squash|merge|rebase (default squash) }`.
+  - `use_schedule`: i task partono solo nelle fasce orarie.
+  - `repos`: `RepoConfig` per repository (branch base, file da copiare, setup e pulizia dei worktree, `e2e`
+    opzionale: `E2eConfig { command, junit, timeout_min }` in `workspaces/e2e.rs`; vedi BOARD.MD, "Test E2E").
+  - `archived`: workspace congelato; la board non avvia task e quelli in corso tornano in coda.
+- `migrations.rs`: passo 0 → 1 (`migrate_v0`) sul JSON: porta alla busta il formato storico e converte
+  `auto_orchestrate.enabled` → `use_schedule`, `worktree_setup` → `repos["."].setup` (se vuoto), il vecchio
+  `is_default` degli avvii → `default_launch` e `builtin:orchestrator` → `builtin:preset:task-intake`; i campi
+  vecchi spariscono.
+- `store.rs`: `WorkspaceStore` (un `JsonStore<Vec<Workspace>>`). Ogni modifica passa da `update` / `modify`: si
+  applica a una copia, si salva e solo poi si pubblica.
+- `validate.rs`, `delivery.rs`, `repo_config.rs`, `e2e.rs`: validazione e normalizzazione dei valori (errori
+  tipizzati). `settings_patch.rs` (+ `settings_patch/`) applica in modo tutto-o-niente le modifiche proposte dagli
+  agenti (`propose_settings`), con le stesse funzioni di validazione dei comandi dell'interfaccia.
+- Comandi (`commands.rs`, `launches.rs`, `explorer.rs`): `list_workspaces`, `add_workspace`, `rename_workspace`,
+  `reorder_workspaces`, `set_workspace_archived`, `remove_workspace`, `set_worker_permission`,
+  `set_worker_permission_rules`, `set_worker_model`, `set_worker_rules`, `set_delivery`, `set_use_schedule`,
+  `set_repo_config`, `add_launch`, `update_launch`, `remove_launch`, `set_default_launch`,
+  `open_workspace_folder` (`explorer.exe`; per WSL il percorso UNC `\\wsl.localhost\<distro>\...`). I comandi
+  tornano il `Workspace` aggiornato; quelli che toccano consegna, fasce, archiviazione o rimozione avvisano poi
+  `AutomationState`, fuori dal lock dei workspace (lo scheduler li rilegge).
+- `add_workspace` valida tutto prima di salvare: Windows, il path deve esistere ed essere una cartella; WSL, distro
+  non vuota, path assoluto (accetta anche `C:\...` o `\\wsl$\...` convertendoli) e cartella esistente nella distro;
+  niente duplicati a parità di `kind + path + distro`; nome vuoto → ultimo segmento del percorso.
 
 ### `pty/` — sessioni terminale
 
-- Moduli: `mod.rs` (comandi Tauri), `registry.rs` (tabella delle sessioni e
-  prenotazione degli slot), `spawn.rs` (cartella, comando per target, apertura del
-  PTY), `env.rs` (variabili di sessione e `WSLENV`), `io.rs` (thread di lettura e
-  scrittura), `exit.rs` (chiusura all'uscita), `tests.rs`.
-- Ogni tab del frontend corrisponde a una sessione PTY numerata (`u32`),
-  tenuta in `Registry` (limite: 32 sessioni, un solo PTY per `tab_id`). Limite,
-  unicita' del tab e inserimento avvengono sotto lo stesso lock: `Reservation`
-  prenota lo slot prima dello spawn e lo libera da sola (drop) se lo spawn
-  fallisce; l'indice tab -> sessione rende deterministica `workspace_of_tab`.
-- All'uscita (`RunEvent::Exit`) `close_all_on_exit` impedisce nuove sessioni e
-  termina quelle vive in parallelo, attendendo al massimo 3 s.
-- `pty_spawn(workspace_id, tab_id, cols, rows)` (`tab_id` = chiave UUID del tab,
-  validata: ASCII alfanumerico/`-`/`_`, max 64):
-  - Windows: `powershell.exe -NoLogo` (o shell custom) con cwd = cartella;
-  - WSL: `wsl.exe -d <distro> --cd <path> [-e <shell>]`;
-  - entrambi i rami impostano `TERM=xterm-256color` + `COLORTERM=truecolor`
-    (senza questi hint molti CLI disabilitano i colori perché l'app GUI
-    non ne eredita alcuno); niente `FORCE_COLOR`, per rispettare
-    `NO_COLOR`/`--no-color`;
-  - entrambi i rami impostano `CLI_COMPANION_SESSION=<tab_id>`: gli hook degli
-    agenti ereditano la variabile e cosi' l'evento si lega al tab. Su WSL si
-    aggiunge `CLI_COMPANION_SESSION/u` a `WSLENV` (valore del processo padre
-    preservato, senza duplicati: `merge_wslenv`) perche' la variabile attraversi
-    il confine verso la distro e, via interop, torni all'exe Windows dell'hook;
-  - impostano anche `CLI_COMPANION_TOKEN` (il segreto della sessione, emesso da `AutomationState::issue_credential` e revocato quando la shell finisce),
-    propagato su WSL con `/u` nello stesso `WSLENV` (`merge_wslenv` accetta piu'
-    variabili): serve a `--notify` e `--mcp` per autenticarsi sul socket;
-  - impostano `CLI_COMPANION_PORT` (porta del listener, `ipc::listening_port()`) se il listener
-    e' in ascolto, anch'essa propagata con `/u`; senza listener la variabile ereditata viene rimossa;
-  - `cwd` opzionale (usato dalle sessioni automatiche) al posto della cartella del
-    workspace, validato come questa (Windows `is_dir`, WSL `wsl_dir_exists`);
-  - ricontrolla che la cartella esista al momento dello spawn.
-- `pty_write` e' async (non gira sul main thread): accoda i byte e, quando l'input
-  contiene Invio, avvisa `automation::user_input` su un thread bloccante (il worker
-  che aspettava l'utente torna `running`).
-- Un thread di lettura per sessione inoltra i chunk al frontend sul `Channel`
-  passato a `pty_spawn` (`{kind:"output",data}`; alla chiusura `{kind:"exit"}`):
-  ogni tab riceve solo il proprio output, anche quello prima del ritorno dello spawn.
-- Decodifica UTF-8 **incrementale**: i chunk possono spezzare un carattere
-  multibyte, quindi i byte incompleti restano in coda fino al chunk dopo
-  (niente `�` su accenti/box-drawing).
-- Comandi: `pty_spawn`, `pty_write`, `pty_resize`, `pty_close`.
-  `pty_close` uccide il processo figlio; il thread di lettura invia comunque
-  `exit`, così frontend e backend non divergono.
+- Moduli: `mod.rs` (comandi Tauri), `registry.rs` (tabella delle sessioni e prenotazione degli slot), `spawn.rs`
+  (cartella, comando per target, apertura del PTY), `env.rs` (variabili di sessione e `WSLENV`, puro), `io.rs`
+  (thread di lettura e scrittura), `exit.rs` (chiusura all'uscita), `tests.rs`.
+- Ogni tab del frontend corrisponde a una sessione PTY numerata (`u32`) tenuta in `Registry` (limite: 32 sessioni,
+  un solo PTY per `tab_id`). Limite, unicità del tab e inserimento avvengono sotto lo stesso lock: `Reservation`
+  prenota lo slot prima dello spawn e lo libera da sola (drop) se lo spawn fallisce; l'indice tab → sessione rende
+  deterministica `workspace_of_tab`.
+- All'uscita (`RunEvent::Exit`) `close_all_on_exit` impedisce nuove sessioni e termina quelle vive in parallelo,
+  attendendo al massimo 3 s.
+- `pty_spawn(workspace_id, tab_id, cols, rows, cwd?, on_event)` (`tab_id` = chiave UUID del tab, validata: ASCII
+  alfanumerico/`-`/`_`, max 64):
+  - Windows: `powershell.exe` (o la shell custom del workspace; per PowerShell/pwsh con `-NoLogo -NoExit -Command`
+    e un piccolo hook che aggiorna il titolo del terminale) con cwd = cartella; WSL: `wsl.exe -d <distro> --cd <path>
+    [-e <shell>]`;
+  - `env_vars` (pura) imposta per entrambi `TERM=xterm-256color` + `COLORTERM=truecolor` (senza questi hint molti CLI
+    disabilitano i colori; niente `FORCE_COLOR`, per rispettare `NO_COLOR`), `CLI_COMPANION_SESSION=<tab_id>` (gli
+    hook degli agenti ereditano la variabile e così l'evento si lega al tab), `CLI_COMPANION_TOKEN` (il segreto
+    della sessione, emesso da `AutomationState::issue_credential` e revocato quando la shell finisce) e
+    `CLI_COMPANION_PORT` (porta del listener, se in ascolto; senza listener la variabile ereditata viene rimossa);
+  - su WSL le stesse variabili si aggiungono a `WSLENV` con il suffisso `/u` (`merge_wslenv`: il valore del processo
+    padre è preservato, senza duplicati) perché attraversino il confine verso la distro e, via interop, tornino
+    all'exe Windows dell'hook. `env_vars` riceve il `WSLENV` ereditato come argomento: i test non dipendono dalla
+    shell da cui girano;
+  - `cwd` opzionale (usato dalle sessioni automatiche) al posto della cartella del workspace, validato come questa
+    (Windows `is_dir`, WSL `wsl_dir_exists`); la cartella si ricontrolla allo spawn.
+- `pty_write` è async (non gira sul main thread): accoda i byte e, quando l'input contiene Invio, avvisa
+  `automation::user_input` su un thread bloccante (il worker che aspettava l'utente torna `running`).
+- Un thread di lettura per sessione inoltra i chunk al `Channel<PtyEvent>` passato a `pty_spawn` (`{kind:"output",
+  data}`; alla chiusura `{kind:"exit"}`): ogni tab riceve solo il proprio output, anche quello prima del ritorno
+  dello spawn. La decodifica UTF-8 è **incrementale**: i byte incompleti di un carattere multibyte restano in coda
+  fino al chunk dopo (niente `�` su accenti/box-drawing).
+- Comandi: `pty_spawn`, `pty_write`, `pty_resize`, `pty_close`. `pty_close` uccide il processo figlio; il thread di
+  lettura invia comunque `exit`, così frontend e backend non divergono.
 
-### `ipc/` — canale di notifica degli agenti (niente semaforo)
+### `ipc/` — canale di notifica degli agenti
 
 Modulo generico: non sa nulla di Claude Code. Il formato dello stdin degli hook e della
 decisione di blocco e' il contratto `HookEvents` dell'integrazione (`agents/contracts/hook_events.rs`,
@@ -266,27 +469,44 @@ implementato in `agents/claude_code/hook_events.rs`); cosa farne lo decide il co
 
 ### `agents/` — plugin dei coding agent
 
-- `mod.rs`: solo dichiarazioni e riesportazioni. `contracts/` ha un file per contratto
-  (`AgentIntegration` + `Capabilities`, `IntegrationPackage`, `WorkerAutomation`,
-  `PresetLauncher`, `UsageLimits`, `SessionUsageReader`, `InputProfileSource`, ...);
-  `registry.rs` il registro `INTEGRATIONS`; `detection.rs` il rilevamento dei target
-  (Windows + ogni distro, escluse `docker-desktop*`); `package.rs` il ciclo di vita dei
-  pacchetti (lock per agente x target); `commands.rs` i comandi Tauri `agent_env_status`
-  (sonda in parallelo ogni coppia agente x target), `install_agent_plugin(agent_id, env_key)`,
-  `remove_agent_plugin(agent_id, env_key)`.
-- Guida completa, con OpenCode come esempio: [wiki/integrare-un-coding-agent.md](wiki/integrare-un-coding-agent.md). Il test `agents/architecture.rs` (e `tests/architecture.test.mjs` per `src/`) impedisce al core di nominare un agente specifico.
-- Aggiungere un agente: una cartella `agents/<nome>/` che implementa `AgentIntegration` +
-  i contratti dichiarati in `capabilities()` + una riga in `registry.rs`. La UI
-  (Impostazioni -> Coding agent) raggruppa per agente
-  da sola.
+Il core non sa come funziona un agente: offre dei **contratti** (uno per capacità) e ogni integrazione implementa quelli che
+le servono.
+
+- `mod.rs`: dichiarazioni e riesportazioni (e la documentazione su come aggiungere un agente). `contracts/` ha un file per
+  contratto: `integration` (`AgentIntegration`: id, nome, rilevamento, comando interattivo, `capabilities()`), `capabilities`
+  (`Capabilities`: un campo `Option<&dyn …>` per ogni contratto, senza `Default`, quindi un nuovo contratto obbliga ogni
+  integrazione a decidere), `package` (`IntegrationPackage`), `hook_events` (`HookEvents`), `session_resume`
+  (`SessionResume`), `automation` (`WorkerAutomation`), `worker_permissions` (`WorkerPermissions`), `presets`
+  (`PresetLauncher`), `user_skills` (`UserSkills`), `usage_limits` (`UsageLimits`), `session_usage`
+  (`SessionUsageReader`), `input_profile` (`InputProfileSource`).
+- `registry.rs`: il registro `INTEGRATIONS`, l'unico punto in cui il core nomina i singoli agenti; la prima voce è
+  l'agente predefinito dei worker (`default_worker_integration`). `detection.rs` rileva i target (Windows + ogni distro,
+  escluse `docker-desktop*`); `package.rs` è il ciclo di vita dei pacchetti (lock per agente × target); `launches.rs`
+  produce gli avvii integrati (`builtin:<agent_id>`, `builtin:preset:<id>`); `presets.rs` + `presets/*.md` i preset;
+  `worker_rules.rs` la validazione delle regole di permesso dei worker tramite il contratto.
+- `commands.rs`: comandi Tauri generici, che non nominano nessun agente: `agent_env_status` (sonda in parallelo ogni
+  coppia agente × target), `agent_profiles`, `agent_usage_limits`, `agent_session_usage`, `install_agent_plugin(agent_id,
+  env_key)`, `remove_agent_plugin(agent_id, env_key)`, `agent_plugins_outdated`, `agent_plugins_update`, `builtin_launches`.
+- Test: `architecture.rs` (il core non nomina un agente: vedi la mappa dei moduli), `conformance.rs` (verifica da solo
+  ogni integrazione registrata e ogni contratto dichiarato), `testing.rs` (supporti).
+- Guida completa, con OpenCode come esempio: [wiki/integrare-un-coding-agent.md](wiki/integrare-un-coding-agent.md).
+- Aggiungere un agente: una cartella `agents/<nome>/` che implementa `AgentIntegration` + i contratti dichiarati in
+  `capabilities()` + una riga in `registry.rs` (e una nei due test architetturali). La UI (Impostazioni → Coding agent)
+  raggruppa per agente da sola.
+- Preset: `Preset { id, name, skill }` in `presets.rs`, con lo SKILL.md in inglese incluso con `include_str!`. Oggi tre
+  (`task-intake`, `skill-wizard`, `project-setup`, descritti sotto e in [BOARD.MD](BOARD.MD)); aggiungere un preset =
+  una voce in `PRESETS` + un file md. Il pacchetto di ogni integrazione che dichiara `presets` ne spedisce le skill e
+  l'app espone una voce rapida per ognuna.
 - Automazione (facoltativa): `WorkerAutomation::command(env_kind, &AutomationRequest)
   -> Option<String>` costruisce il comando da digitare nel tab per
-  avviare una sessione automatica. `AutomationRequest { bootstrap_prompt,
-  permission_mode: PermissionMode (Default | AcceptEdits | Plan | Bypass), model }`.
+  avviare una sessione automatica; ritorna `None` se la richiesta non è rappresentabile in modo sicuro (tutto ciò che
+  finisce in una riga di comando è non fidato). `AutomationRequest { bootstrap_prompt,
+  permission_mode: PermissionMode (Default | AcceptEdits | Plan | Bypass), model, permissions_file }`.
   Helper pubblico `automation_command(agent_id, env_kind, req)`.
-  Claude Code: `claude "<bootstrap>" --permission-mode <m> --allowedTools
+  Claude Code: `claude "<bootstrap>" --permission-mode <m> [--settings "<file>"] --allowedTools
   mcp__plugin_cli-companion-notify_cli-companion [--model <m>]` (prompt prima dei flag:
-  `--allowedTools` e' variadico; la regola senza nome tool abilita tutti i tool del server,
+  `--allowedTools` e' variadico, quindi `--settings` lo precede; il file è quello delle regole allow/deny del workspace,
+  accettato solo se il percorso è sicuro per la shell; la regola senza nome tool abilita tutti i tool del server,
   necessario perche' `acceptEdits` non approva i tool MCP). `bypassPermissions` al primo
   avvio interattivo mostra un dialogo di conferma (salta con
   `skipDangerousModePermissionPrompt: true` in `~/.claude/settings.json`).
@@ -299,7 +519,7 @@ implementato in `agents/claude_code/hook_events.rs`); cosa farne lo decide il co
   la sequenza. L'agente del tab e' `tabAgentId`: stato del plugin (`session-start`..
   `session-end`), altrimenti il primo token del comando di avvio/ripristino
   (`claude`/`claude.exe`). `TerminalView` riceve la sequenza gia' risolta
-  (`imagePasteSeq`, via ref) e la invia al posto di `` quando gli appunti non
+  (`imagePasteSeq`, via ref) e la invia al posto di `Ctrl+V` quando gli appunti non
   hanno testo; senza regola il comportamento resta invariato.
 - `claude_code/` (un file per contratto):
   - rilevamento: Windows `cmd /c claude --version`; WSL: path assoluto via
@@ -311,7 +531,7 @@ implementato in `agents/claude_code/hook_events.rs`); cosa farne lo decide il co
     `cli-companion-notify`), hook in forma exec (`command` = exe corrente con slash
     dritti, o `/mnt/c/...` su WSL; `args` = `["--notify", evento, "claude-code"]`,
     `timeout` 10): `SessionStart` -> `session-start`, `Stop` -> `finished`,
-    `Notification` (matcher `permission_prompt|idle_prompt|elicitation_dialog`) ->
+    `SessionEnd` -> `session-end`, `Notification` (matcher `permission_prompt|idle_prompt|elicitation_dialog`) ->
     `needs-input`. `PermissionRequest` (no matcher, no output, exit 0: it never decides, the
     normal dialog still shows) -> `permission-request`: stdin `tool_name` + `tool_input` are
     summarised (Bash command / file path / URL, max 200 chars) into
@@ -341,6 +561,39 @@ implementato in `agents/claude_code/hook_events.rs`); cosa farne lo decide il co
   - stato installato: `claude plugin list --json` contiene `id` ==
     `cli-companion-notify@cli-companion-local` (array o oggetto con `plugins`).
   - rimozione: `plugin uninstall` + `marketplace remove` + cartella generata.
+
+### `board/` — modello, ciclo di vita e scheduler della coda
+
+Parte **pura**: nessun I/O, nessun `AppHandle`, tempo iniettato. Ogni workspace ha una `Board` (coda di `Task` con
+dipendenze, proposte di task e di impostazioni pendenti); l'integrazione con worker, git e disco sta in `automation/`.
+Il contratto con il frontend e con i tool MCP è [BOARD.MD](BOARD.MD). File:
+
+| File | Contenuto |
+|---|---|
+| `model.rs` | `Board`, `Task`, `Proposal`, `TaskStatus` (`queued|running|done|failed`), `WorktreeInfo`, costanti (limiti, note standard) |
+| `state.rs` | `TaskState`: `Queued`, `Running(Run)` con fase `Preparing` (l'app prepara worktree e setup, nessun worker) o `Live` (il tab del worker e la sua attività), `Done(Finished)`, `Failed { finished, cause }` |
+| `lifecycle.rs`, `lifecycle/` | **l'unico posto che scrive lo stato del task**: `TaskEvent` applicato con `Task::apply`; `actions.rs` ha la tabella `permits(stato, operazione)` e `TaskAction`; `ops.rs` i metodi di `Board` (ferma, riprova, segna come fatto, archiviazione del workspace) |
+| `queue.rs`, `cascade.rs` | specifiche, proposte (accetta/scarta), modifica, riordino, eliminazione anche a cascata (indice delle dipendenze inverse) |
+| `spec.rs` | `TaskSpec`/`TaskPatch`, id (anche generati dal titolo), repository, grafo delle dipendenze, parsing di proposte e limiti |
+| `scheduler.rs` | `schedule(board, ctx)`: quali task avviare adesso (funzione pura) |
+| `view.rs` | `BoardView` / `TaskView` per il frontend (`waiting_on`, `attention`, `allowed_actions`, `can_edit`, `can_reorder`, `cascade`, `limits`) e righe compatte di `list_tasks` |
+| `worker.rs` | `WorkerStatus`/`WorkerActivity`/`WorkerEnd` e la tabella di transizione pura applicata agli hook |
+| `report.rs`, `review.rs`, `e2e.rs` | `TaskReport`, task di review (verdetto, task rivisti), tipi E2E e `check_gate` (il blocco della consegna) |
+| `settings.rs` | proposte di impostazioni (`SettingsProposal`) |
+| `texts.rs`, `prompts/*.md` | istruzioni, ambiente e passi di consegna dati al worker; standard di ingegneria e istruzioni del reviewer (inglese, `include_str!`) |
+| `persist.rs`, `legacy.rs`, `recovery.rs`, `archive.rs` | formato su disco (busta, migrazioni, riga dell'archivio), migrazione dei file v0.11, recupero dopo un riavvio, selezione dei task da archiviare |
+
+- **Scheduler.** `schedule` non fa nulla con la coda in pausa o con il gate chiuso (workspace archiviato, oppure con
+  fasce attive e fuori fascia); sceglie i `queued` con tutte le dipendenze `done`, nell'ordine dell'array. In modalità
+  parallela (`pr`/`local_merge` con `parallel`) fino a `max_parallel` running, altrimenti uno per repository, comunque
+  entro `max_parallel`.
+- **Azioni.** `permits` è la sola tabella di cosa si può fare a un task per stato; la usano le guardie delle operazioni,
+  i messaggi di errore e `allowed_actions` della vista (BOARD.MD, "Azioni consentite").
+- **Persistenza.** `<app_data>/boards/<workspace_id>.json` su `store/` (`board_store`, una `JsonFile` per workspace;
+  `BOARD_MIGRATIONS`, oggi un passo: `v0_to_v1`). Al caricamento `Board::from_json` migra, applica `sanitize` (limiti di
+  `max_parallel`, un agente per ogni task) e `recover_after_restart` (i `running` diventano `failed`). Archivio dei
+  conclusi: `MAX_FINISHED_KEPT` = 200, i più vecchi vanno in `boards/archive/<workspace_id>.jsonl`. Il tutto è
+  descritto in BOARD.MD ("File su disco" e "Archivio dei task conclusi").
 
 ### `automation/` — Task Manager: coda, scheduler e worker
 
@@ -387,13 +640,27 @@ dati, consegna, scheduler, tool, UI): [BOARD.MD](BOARD.MD). Struttura a strati, 
   fuori dal lock. **Ordine dei lock**: il mutex di `E2eRuns` è una **foglia**: non si prende con
   `AutomationState::inner` in mano e sotto di esso non si prende nessun altro lock; l'attesa di
   `get_e2e_result` avviene fuori dal mutex, su una `Condvar` per esecuzione.
-- `rpc.rs`: `dispatch` smista per ruolo. Worker: `get_task`, `complete_task`, `run_e2e`,
-  `get_e2e_result` (anche il reviewer). Sessione normale
-  (qualunque altro tab di cli-companion, workspace = quello del tab): `propose_tasks`,
-  `list_tasks`, `get_task_details`, `update_task`, `delete_task`, `get_workspace_settings`,
-  `propose_settings` (`settings.rs`: patch validata in `workspaces/settings_patch.rs`, proposte
-  in `board/settings.rs`). `whoami` non e' un tool:
-  e' l'handshake con cui il server MCP sceglie i tool.
+- `rpc.rs`: `dispatch` autentica la richiesta (id del tab + segreto), risolve il ruolo del chiamante e smista
+  i metodi che la tabella di `roles.rs` gli consente (`Method::roles`, un `match` esaustivo: aggiungere un metodo
+  obbliga a decidere chi lo può chiamare):
+
+  | Metodo | Worker | Reviewer | Sessione |
+  |---|:-:|:-:|:-:|
+  | `whoami` (handshake, non è un tool) | sì | sì | sì |
+  | `get_task`, `complete_task`, `run_e2e`, `get_e2e_result` | sì | sì | no |
+  | `propose_tasks`, `get_task_details` | no | sì | sì |
+  | `list_tasks`, `update_task`, `delete_task` | no | no | sì |
+  | `get_workspace_settings`, `propose_settings` | no | no | sì |
+  | `save_skill`, `list_skills`, `delete_skill` | no | no | sì |
+
+  Il ruolo viene dal tab: il worker di un task `work` è `worker`, quello di un task `review` è `reviewer`, ogni altro
+  tab di cli-companion (Intake compreso, workspace = quello del tab) è `session`. Un tab di un workspace archiviato è
+  congelato. `settings.rs`: patch validata in `workspaces/settings_patch.rs`, proposte in `board/settings.rs`.
+  `review.rs` ha ciò che il revisore legge in `get_task`; `skills.rs` i tool delle skill utente (la logica su file è in
+  `user_skills`).
+- `board_files.rs`: le board su disco (`<app data>/boards/<workspace>.json`) e il loro archivio `.jsonl`; un
+  `JsonFile` per workspace che vive per tutta l'esecuzione, così la protezione contro la riscrittura di un file
+  illeggibile vale anche per i salvataggi successivi.
 - `auto.rs`: fasce orarie e standby (sotto).
 - `agent_session.rs`: legame worker <-> sessione dell'agente e riapertura dopo un
   `session-end` (sotto).
@@ -459,21 +726,10 @@ si perde (crash, chiusura dell'app) la rifa il riallineamento delle worktree (BO
 Eventi Tauri verso il frontend: `automation-spawn`, `automation-close`, `automation-update`,
 `board-update`, `task-notify`, `schedule-state`. Comandi: `automation_tab_closed`,
 `automation_sessions`, `board_get`, `board_set`, `task_create`, `task_update`, `task_action`,
-`task_move`, `proposal_decide`, `settings_proposal_decide`, `workspace_detect_repos`. Comando di avvio del worker:
+`task_move`, `proposal_decide`, `settings_proposal_decide`, `workspace_detect_repos`, `e2e_run_repo`,
+`e2e_last_result`, `e2e_open_report`, `schedule_get`, `schedule_set`, `frontend_ready`. Comando di avvio del worker:
 `agents::automation_command`; permessi = `Workspace.worker_permission`, modello = `task.model`
 poi `worker_model`.
-
-### `board.rs` — modello, validazione e scheduler della coda
-
-Parte **pura** (nessun I/O, tempo iniettato), con i sottomoduli `board/spec.rs` (`TaskSpec`,
-id, repository, grafo delle dipendenze, id generati dal titolo), `board/report.rs` (report di
-`complete_task`), `board/texts.rs` (istruzioni, ambiente e consegna per modalita'). Contiene
-`Board`, `Task` (stati `queued|running|done|failed`), `Proposal`, `BoardView`, la normalizzazione
-dei file della v0.11 (sul JSON, al caricamento), le operazioni sulla coda (accetta/scarta,
-modifica, elimina, riprova, riordina) e `schedule`: in modalita' parallela (`pr`/`local_merge`
-con `parallel`) fino a `max_parallel` running, altrimenti un running per repository; l'ordine
-dell'array e' l'ordine della coda. Persistenza: `<app_data>/boards/<workspace_id>.json`
-(`write_atomic`); al riavvio i `running` diventano `failed`.
 
 ### Fasce orarie e standby (`schedule.rs`, `automation/auto.rs`)
 
@@ -487,39 +743,36 @@ il flag attivo l'app impedisce lo standby (Windows `SetThreadExecutionState`, th
 finche' c'e' un task `running` in un workspace non archiviato. Comandi: `schedule_get`,
 `schedule_set`.
 
-### `mcp.rs` — server MCP stdio (`cli-companion --mcp`)
+### `mcp.rs`, `mcp/` — server MCP stdio (`cli-companion --mcp`)
 
-- Ramo con early-return in `main.rs` come `--notify`. JSON-RPC 2.0 newline-delimited su
-  stdin/stdout: `initialize`, `notifications/initialized`, `ping`, `tools/list`,
-  `tools/call`; metodo ignoto con id -> errore -32601. Niente altro su stdout.
-- E' uno **shim**: ogni `tools/call` apre una connessione TCP a `127.0.0.1:<porta>` (`CLI_COMPANION_PORT`, default 17421)
-  (`ipc::rpc_call`), invia la riga RPC con `CLI_COMPANION_TOKEN` e
-  `CLI_COMPANION_SESSION` dall'ambiente e restituisce il risultato come testo JSON
-  (errore RPC -> `isError: true`). Read timeout 30 s.
-- Il ruolo si risolve con `whoami` e decide i tool esposti: worker (`get_task`,
-  `complete_task`) o sessione normale (`propose_tasks`, `list_tasks`, `get_task_details`,
-  `update_task`, `delete_task`, `get_workspace_settings`, `propose_settings`). Le definizioni sono in `mcp/tools.rs`.
-  Senza variabili o con l'app non raggiungibile la lista tool e' vuota.
-- Logica pura (`handle_message` con `trait Backend`), testata con un backend finto.
-
-### `session.rs` — persistenza della sessione
-
-File nella cartella dati dell'app, scritti con `write_atomic`:
-- `session.json`: blob JSON opaco (lo schema è del frontend, campo `version`),
-  tetto 2 MB. Comandi `load_session` / `save_session`.
-- `scrollback/<tab_id>.txt`: cronologia serializzata di un terminale, tetto 4 MB.
-  `save_scrollback`, `load_scrollback`, `delete_scrollback`; il `tab_id` è validato
-  con `ipc::is_valid_tab_id` (stesso charset del `CLI_COMPANION_SESSION`).
-  `prune_scrollback(keep)` elimina i file dei tab non elencati (chiamato dopo il ripristino).
+- Ramo con early-return in `main.rs` come `--notify`. JSON-RPC 2.0 newline-delimited su stdin/stdout: `initialize`,
+  `notifications/initialized`, `ping`, `tools/list`, `tools/call`; metodo ignoto con id → errore -32601. Su stdout passano
+  solo messaggi MCP (una riga JSON ciascuno).
+- È uno **shim**: ogni `tools/call` apre una connessione TCP a `127.0.0.1:<porta>` (`CLI_COMPANION_PORT`, default 17421;
+  `ipc::rpc_call`), invia la riga RPC con `CLI_COMPANION_TOKEN` e `CLI_COMPANION_SESSION` dall'ambiente e restituisce il
+  risultato come testo JSON (errore RPC → `isError: true`). Read timeout 30 s (`RPC_TIMEOUT`).
+- Il ruolo si risolve con la RPC `whoami` e decide i tool esposti (`worker`, `reviewer`, `session`: tabella unica in
+  `automation/roles.rs`, che un test confronta con le definizioni di `mcp/tools.rs`). Senza le variabili d'ambiente la lista
+  è vuota, così il plugin non fa rumore fuori da cli-companion.
+- **Handshake non bloccante.** `initialize` e `tools/list` non aspettano `whoami` oltre `ROLE_TIMEOUT` (3 s): Claude Code dà
+  poco tempo all'avvio di un server. Se il ruolo non arriva, il server risponde con la lista vuota e un thread
+  (`mcp/retry.rs`) riprova `whoami` con intervallo crescente (da 1 s fino a 10 s, per 5 minuti al massimo); appena riesce
+  manda `notifications/tools/list_changed` e i tool compaiono. Lo stato condiviso fra ciclo di stdin e thread è in
+  `mcp/state.rs`, il ciclo di vita in `mcp/session.rs`.
+- Logica pura (`handle_line` con `trait Backend`), con orologio e attesa iniettabili (`Clock`): i test non dormono né
+  aprono socket.
 
 ### `store/` — persistenza JSON comune
 
-Componente unico per i file di impostazioni (oggi `launch_settings.json`, `bots.json`,
-`schedule.json`; `workspaces.json` e le board non sono ancora sullo store, ci passeranno in
-seguito). Un file e' descritto da un `JsonFile<T>` statico (nome + catena di migrazioni, e
-opzionalmente `.validated(check)`); `JsonStore<T>` lo tiene in memoria come stato Tauri
-(`get`, `load`, `update`). Un file e' una unita' di codice per responsabilita': `atomic`,
-`backup`, `envelope`, `file`, `json_store`, `legacy`, `migrate`, `warnings`.
+Componente unico per tutti i file strutturati dell'app: `workspaces.json`, `launch_settings.json`,
+`bots.json`, `schedule.json` e una board per workspace (`boards/<workspace_id>.json`). Un file e'
+descritto da un `JsonFile<T>` statico (nome + catena di migrazioni, e opzionalmente
+`.validated(check)` per il controllo semantico e `.decoded_with(f)` per leggere un elenco voce per
+voce); `JsonFile::named` ne crea uno il cui nome e' noto solo a runtime (una istanza per file, con
+il proprio blocco delle scritture) e `JsonFile::parse` applica busta, migrazioni e validazione a un
+testo in memoria, senza I/O. `JsonStore<T>` tiene il dato in memoria come stato Tauri (`get`,
+`load`, `update`). Un file e' una unita' di codice per responsabilita': `atomic`, `backup`,
+`envelope`, `file`, `json_store`, `legacy`, `migrate`, `warnings`.
 
 - **Formato**: `{ "schema_version": N, "data": ... }`, JSON indentato. Un file senza busta
   (cioe' qualunque JSON che non abbia ESATTAMENTE le chiavi `schema_version` intero non
@@ -541,7 +794,9 @@ opzionalmente `.validated(check)`); `JsonStore<T>` lo tiene in memoria come stat
   quel file sono rifiutati con un errore esplicito finche' non si sistema e si riavvia l'app.
   Lo stesso vale se nemmeno il rename in backup riesce.
 - **Avvisi**: ogni anomalia produce uno `StoreWarning { file, kind (corrupt | newer_version |
-  unreadable), message, backup, at }`, scritto nel log, conservato in memoria (ultimi 100) e
+  unreadable | partially_read), message, backup, at }` (`partially_read`: alcune voci di un elenco
+  erano inutilizzabili e sono state escluse, le altre caricate, il file originale copiato in un
+  backup), scritto nel log, conservato in memoria (ultimi 100) e
   letto dal frontend con il comando `store_warnings`; l'evento Tauri `store-warning` lo
   notifica appena viene prodotto.
 - **`write_atomic`**: file temporaneo unico, `write_all` + `sync_all`, poi rename; il
@@ -578,29 +833,103 @@ il nome deve essere nella pool (senza maiuscole; si salva con l'ortografia della
 formato `#rrggbb`. Le immagini dei nomi che escono dalla pool sono eliminate da
 `set_bot_settings` e `reset_bot_names`.
 
+### Altri moduli
+
+- `session.rs`: file nella cartella dati dell'app, scritti con `write_atomic`.
+  - `session.json`: blob JSON opaco (lo schema è del frontend, campo `version`), tetto 2 MB. Comandi `load_session` /
+    `save_session`.
+  - `scrollback/<tab_id>.txt`: cronologia serializzata di un terminale, tetto 4 MB. `save_scrollback`,
+    `load_scrollback`, `delete_scrollback`; il `tab_id` è validato con `ipc::is_valid_tab_id`.
+    `prune_scrollback(keep)` elimina i file dei tab non elencati (chiamato dopo il ripristino).
+- `launch_settings.rs`: avvio predefinito globale dei nuovi terminali (solo integrati) e flag `show_usage`; stesso schema
+  di `bots.rs` (un `JsonFile` statico + un `JsonStore` gestito da Tauri). Comandi `get_launch_settings`,
+  `set_global_default_launch`, `set_show_usage`.
+- `user_skills.rs` (+ `user_skills/`): logica pura sulle skill globali dell'utente (`<app data>/user-skills/<nome>/`,
+  sincronizzate in `<skills dir>/<nome>/` con il marcatore `.cli-companion-managed`; una cartella senza marcatore è scritta a
+  mano e non viene mai sovrascritta né cancellata). Le destinazioni sono quelle dichiarate dal contratto `UserSkills`
+  delle integrazioni (Windows e distro WSL). Errori in inglese perché li legge il modello via RPC. Il ripristino all'avvio
+  gira in un thread (`automation::skills::restore_in_background`).
+- `awake.rs`: blocco dello standby (Windows `SetThreadExecutionState` su un thread dedicato).
+- `updater.rs`: solo `--check-update` da riga di comando; l'aggiornamento vero lo fa la GUI con `tauri-plugin-updater`
+  (vedi [UPDATER.MD](UPDATER.MD)).
+- `logging.rs`: vedi "`store/`", voce Log.
+
 ### `lib.rs`
 
-Registra i plugin (`log` per primo, poi `opener`, `dialog`, `clipboard-manager`, `notification`), gli stati condivisi, il caricamento
-dello store in `setup` e tutti i comandi. Capability minime in
-`capabilities/default.json` (`core:default`, `core:window:allow-destroy` per la chiusura dopo il salvataggio, `opener:default`, `notification:default`, `dialog:allow-open`, clipboard).
+Registra i plugin (`log` per primo, poi `opener`, `dialog`, `clipboard-manager`, `notification`, `updater`, `process`), gli
+stati condivisi, il caricamento in `setup` (vedi "Avvio") e tutti i comandi in un solo `generate_handler!`. Contiene
+anche `blocking`: esegue lavoro bloccante (processi esterni, rete, filesystem) con `spawn_blocking`, perché i comandi
+Tauri sincroni girano sul main thread e uno lento congelerebbe la finestra; i comandi che toccano processi o disco sono
+`async` e passano da lì. Capability minime in `capabilities/default.json`: i comandi dell'app non richiedono permessi,
+ci sono solo quelli dei plugin e della finestra (`core:window:allow-destroy` per la chiusura dopo il salvataggio, i
+permessi di titolo senza decorazioni, `opener:default`, `notification:default`, `dialog:allow-open`, clipboard, `updater`,
+`process:allow-restart`).
 
 ## Frontend (`src/`)
 
-- `lib/tauri.ts`: tipi (`Workspace`, eventi PTY) e wrapper `api` sopra `invoke`/`listen`.
-- **Convenzione hook**: gli hook React condivisi dall'app stanno in `src/hooks/`, quelli di una feature accanto ai componenti della feature (es. `components/tasks/useTaskPanelCollapsed.ts`); `src/lib/` contiene solo logica pura / moduli non React.
+### Struttura e convenzioni
+
+```text
+src/
+  App.tsx            composizione: avvia gli hook di fondo e dispone le aree (titlebar, sidebar, workbench, statusbar)
+  stores/            stato dell'app: un archivio per tema + transizioni pure (testate da node --test)
+  app/               azioni e gestori degli eventi del backend: funzioni di modulo che leggono gli archivi con getState()
+  hooks/             hook condivisi: useStore/useStores, useTauriEvent, caricamento iniziale, sessione, scorciatoie, ...
+  lib/               logica pura e senza React: wrapper di Tauri (tauri.ts), archivio generico (store.ts), errori, layout, ...
+  components/        componenti React; gli hook di una feature stanno accanto ai suoi componenti
+  bindings/          tipi generati dal Rust (ts-rs): non si modificano a mano
+```
+
+- **Archivi** (`lib/store.ts`, `stores/*.ts`). `createStore(initial)` è un archivio osservabile minimale
+  (`getState`, `set`, `update`, `subscribe`; nessuna notifica se lo stato non cambia per `Object.is`). Ogni file di
+  `stores/` ha lo stato, le **transizioni pure** (`(stato, argomenti) => stato`, che ritornano lo stesso stato se non
+  cambia nulla, così l'archivio non notifica) e una factory che le lega a un archivio (`workspacesStore`, `tabsStore`,
+  `runtimeStore`, `layoutStore`, `boardsStore`, `configStore`, `uiStore`, `usageStore`, `paneDragStore`).
+  L'identità dei tab (`tabs.ts`) è separata dal loro stato volatile (`tabRuntime.ts`: titolo OSC, stato dell'agente,
+  metadati del worker, busy), così un titolo che cambia non ridisegna ciò che dipende solo dall'elenco dei tab.
+  `selectors.ts` ha le derivazioni pure condivise (etichette, stati aggregati, tab della barra del titolo), `view.ts`
+  cosa è mostrato al posto dei terminali e `session.ts` la parte pura della persistenza.
+- **Lettura nei componenti** (`hooks/useStore.ts`). `useStore(store, selector?, isEqual?)` usa
+  `useSyncExternalStore`: il componente si ridisegna solo quando la selezione cambia (`shallowEqual` per array e oggetti
+  piccoli); `useStores` deriva un valore da più archivi mantenendo stabile il riferimento. Nessun componente tiene copie
+  dello stato.
+- **Azioni** (`app/actions/*.ts`, `app/events.ts`, `app/boards.ts`, `app/usage.ts`, `app/lifecycle.ts`,
+  `app/sessionSaver.ts`). Funzioni di modulo (quindi con riferimento stabile) che leggono con `getState()`, chiamano
+  `api` e aggiornano gli archivi: aprire/chiudere un tab (`tabs.ts`), spostare i pannelli (`panes.ts`), cambiare vista
+  (`view.ts`), le impostazioni (`settings.ts`), i workspace (`workspaces.ts`).
+- **Eventi del backend** (`hooks/useTauriEvent.ts`). `useTauriEvent(evento, handler)` ascolta per tutta la vita del
+  componente con `listen` di Tauri; l'handler sta in un ref (cambia a ogni render senza riregistrare il listener) e
+  `startSubscription` (`lib/subscription.ts`) garantisce che un cleanup arrivato prima della risoluzione della promessa
+  non lasci un listener orfano. Nomi e payload sono in `TauriEvents` (`lib/tauri.ts`). Gli eventi dei coding agent e
+  dell'automazione li registra una volta sola `hooks/useAppEvents.ts` con i gestori di `app/events.ts`.
+- **Errori** (`lib/errors.ts`). Un errore non si ignora: `report(ambito, err, { notify? })` lo scrive sempre nel log e,
+  con `notify: true`, lo mostra come avviso (`lib/notices.ts` → `components/NoticeCenter.tsx`), con l'ambito in italiano
+  ("caricamento degli avvii integrati"). Un errore davvero ignorabile si dichiara con `ignoreError("motivo")`, che
+  richiede il motivo e lo lascia nel log di debug. I comandi Tauri rifiutano con stringhe: `errorMessage` le normalizza.
+- **Convenzione hook**: gli hook React condivisi dall'app stanno in `src/hooks/`, quelli di una feature accanto ai
+  componenti della feature (es. `components/tasks/useTaskPanelCollapsed.ts`); `src/lib/` contiene solo logica pura / moduli
+  non React.
+- **Moduli importabili dai test.** `lib/` e `stores/` sono zero-dipendenze (nessun import di React, Tauri o CSS) e
+  importano con l'estensione `.ts` e solo `import type` dai bindings: `node --test tests/*.test.mjs` li carica
+  direttamente con il type-stripping di Node, senza bundler. Le funzioni che toccano l'ambiente (clock, random,
+  `localStorage`) lo ricevono come argomento o lo avvolgono in try/catch (`lib/browserStorage.ts`).
+
+### Funzionalità e componenti
+
 - **Bot** (`lib/bots.ts`, zero-dep, `tests/bots.test.mjs`): `pickBotName(pool, taken)`
   sceglie a caso un nome non usato dai tab aperti (pool esaurita: suffisso numerico,
   "Bolt 2"; pool vuota: "Bot 1"...); `botLook(name)` ricava l'aspetto dell'avatar da un
   hash stabile del nome (colore, testa, antenna, occhi, accessorio) e `botPixels(look)`
   lo disegna su una griglia 12x12; `assignRestoredNames` assegna i nomi dei tab
-  ripristinati (il secondo con lo stesso nome ne riceve uno nuovo). `Tab.bot` è assegnato
-  alla creazione di ogni tab (shell, Claude, Intake, worker `automation-spawn`) anche a
-  funzione spenta, e si libera alla chiusura. `components/BotAvatar.tsx` è l'SVG
+  ripristinati (il secondo con lo stesso nome ne riceve uno nuovo). Il campo `bot` di
+  `TabEntry` (`stores/tabs.ts`) è assegnato all'apertura di ogni tab (shell, Claude, Intake,
+  worker `automation-spawn`) anche a funzione spenta, e si libera alla chiusura. `components/BotAvatar.tsx` è l'SVG
   `crispEdges` scalabile (riusabile più grande); avatar e nome compaiono, solo con
   `enabled`, in `PaneHeader`, nella lista terminali della `Sidebar` e in
-  `PanelRunningCard` (`botOf(tab)` da `App`). Pagina Impostazioni › Generale › Bot
+  `PanelRunningCard` (`botOf(tab)` da `components/workbench/TaskPanelArea.tsx`, che li legge dagli
+  archivi). Pagina Impostazioni › Generale › Bot
   (`settings/BotsPage.tsx`): interruttore, elenco con rimozione, aggiunta, ripristino
-  con conferma; ogni modifica è salvata subito e risale ad `App` (`onBotSettingsChange`).
+  con conferma; ogni modifica è salvata subito e scritta in `configStore` (`app/actions/settings.ts`).
   **Immagini dei bot**: l'utente associa un'immagine a un nome della pool e il bot con
   quel nome la usa come corpo. `lib/botImage.ts` (zero-dep, `tests/bot-image.test.mjs`) è
   la pipeline di pixelazione, pura: ritaglio dei margini trasparenti, adattamento in
@@ -608,8 +937,8 @@ dello store in `setup` e tutti i comandi. Capability minime in
   colore dominante; decodifica del file (`createImageBitmap`, pre-scala a 512 px) ed
   esportazione PNG stanno nello strato canvas `settings/pixelateFile.ts`. `botImageOf(settings,
   name)` risolve l'immagine di un bot ("Bolt 2" usa quella di "Bolt") e `botImageHref`
-  ne fa l'URL `data:`. `App` costruisce `botImageFor(name)` (con cache, stesso oggetto
-  finché le impostazioni non cambiano) e la passa come prop `botImage` accanto a `bot`:
+  ne fa l'URL `data:`. `botImageResolver(bots)` (`stores/config.ts`, con cache: stesso oggetto
+  finché le impostazioni non cambiano) è il risolutore che i componenti passano come prop `botImage` accanto a `bot`:
   `TerminalView` → `PaneHeader`, `SidebarTerminal`, `botImageOf(tab)` dei pannelli Task →
   `PanelRunningCard`, `OfficeSession.botImage` → `OfficeRoom` → `OfficeBot` → `BotSprite`.
   `BotAvatar` disegna l'immagine in un'`<image>` 12x12 (`contain`, `image-rendering:
@@ -623,7 +952,7 @@ dello store in `setup` e tutti i comandi. Capability minime in
   `tests/office.test.mjs`; `components/office/`): una stanza per workspace (nell'ordine della
   Sidebar), un bot per ogni tab aperto. La logica pura copre la mappatura dell'attivita'
   (working / idle / attention / background / completed / failed), le scrivanie stabili
-  (`assignDesks`; la mappa la tiene `App` con `useStableDesks(tabs)`, su tutti i tab anche ad
+  (`assignDesks`; la mappa la tiene `Workbench` con `useStableDesks(tabs)`, su tutti i tab anche ad
   Ufficio chiuso, quindi le scrivanie restano le stesse tra le aperture e si azzerano solo al
   riavvio dell'app), le stanze, la geometria (`roomLayout`: mobili, scrivanie, spot, aree
   di chiacchiera, server), la pianificazione dell'idle con `random` e orologio iniettati
@@ -633,7 +962,7 @@ dello store in `setup` e tutti i comandi. Capability minime in
   Tasks Manager (z-20), montato solo mentre e' aperto (i `TerminalView` non si toccano; pannello
   e griglia sono `inert` come col manager e l'`.xterm` col focus viene sfocato). L'unico timer
   e' un `setInterval` da 1 s in `useIdleGoals`, attivo solo ad Ufficio aperto, senza movimento
-  ridotto e con almeno un bot in idle; le mete vivono li' (mai in `App`). Niente
+  ridotto e con almeno un bot in idle; le mete vivono li' (mai in un archivio). Niente
   `requestAnimationFrame`: i bot si spostano con una transizione CSS su left/top (durata =
   distanza / velocita') e posa e camminata sono animazioni CSS (`office.css`, spente con
   `prefers-reduced-motion`). Ctrl+Maiusc+O (`useOfficeShortcut`, fase di cattura come
@@ -641,10 +970,6 @@ dello store in `setup` e tutti i comandi. Capability minime in
   nulla con un dialogo aperto o con i bot spenti (che lo chiudono). Il click su un bot chiama
   `focusTerminal`; anche il click su un terminale della Sidebar, una notifica o l'apertura del
   Tasks Manager lo chiudono.
-- `App.tsx`: layout barra del titolo + sidebar + area pannelli + barra di stato; stato globale
-  (`workspaces`, `tabs`, `layout`, dialog). `tabs` è nell'ordine di creazione
-  (ordine di render); gruppi, pannello attivo, ordine nella griglia e maximize
-  vivono in `layout` (`lib/layout.ts`).
 - `lib/layout.ts`: funzioni pure zero-dep, testate da `tests/layout.test.mjs`.
   `gridRects(n)` = griglia automatica (cols = ceil(sqrt n), rows = ceil(n/cols), ultima
   riga incompleta allargata a tutta larghezza, rettangoli in %), `reorderIds`,
@@ -677,7 +1002,9 @@ dello store in `setup` e tutti i comandi. Capability minime in
   gruppo, maximize e ripristino cambiano solo lo stile (rettangolo in % /
   `display: none`), mai l'albero DOM: smontare un `TerminalView` chiude il pty. `active`
   = visibile (gruppo attivo e non nascosto da un maximize), `focused` = riceve la tastiera.
-- **Persistenza** (`lib/session.ts`, zero-dep, `tests/session.test.mjs`): schema
+- **Persistenza** (`lib/session.ts`, zero-dep, `tests/session.test.mjs`; la parte pura del salvataggio e del
+  ripristino dei tab è in `stores/session.ts`, il debounce in `app/sessionSaver.ts`, il collegamento al backend e
+  alla chiusura della finestra in `hooks/useSessionPersistence.ts`): schema
   `{ version: 1, activeWorkspaceId, groups: [{ workspaceId, order, activeTabId,
   maximizedTabId }], tabs: [{ tabId, workspaceId, launchId?, command, title?, agentId?,
   agentSessionId?, botName? }] }` (`botName` opzionale, nessun bump di versione). Salvataggio con debounce di 500 ms a ogni modifica e alla
@@ -698,10 +1025,10 @@ dello store in `setup` e tutti i comandi. Capability minime in
   arancio se serve una risposta; scroll orizzontale in overflow) e i pulsanti
   minimizza / massimizza-ripristina / chiudi (46px, chiudi rosso). Le zone libere sono
   `data-tauri-drag-region` (trascina; doppio clic = massimizza); i controlli no.
-  Chiudi usa `close()`, quindi passa dall'`onCloseRequested` di `App.tsx` (salva sessione
-  e scrollback), mai `destroy()` diretto. Capability: `core:window:allow-{minimize,
+  Chiudi usa `close()`, quindi passa dall'`onCloseRequested` registrato da
+  `hooks/useSessionPersistence.ts` (`flushBeforeExit`: salva sessione e scrollback), mai `destroy()` diretto. Capability: `core:window:allow-{minimize,
   toggle-maximize,close,start-dragging,is-maximized}`.
-- `components/Sidebar.tsx` (260px): intestazione "WORKSPACE" + "+" (aggiungi workspace);
+- `components/sidebar/Sidebar.tsx` (260px; `AppSidebar.tsx` la monta): intestazione "WORKSPACE" + "+" (aggiungi workspace);
   riga = chip ambiente (`WIN`/`WSL`), nome, percorso mono. Le righe non attive sono
   compatte (al passaggio del mouse: "+" nuovo terminale, cartella, menu "⋯"); il
   workspace selezionato e' una card con l'elenco dei suoi terminali (stato, etichetta,
@@ -732,7 +1059,7 @@ dello store in `setup` e tutti i comandi. Capability minime in
   badge, stato, versione e Installa/Reinstalla/Rimuovi; "Prova notifica" e log).
 - `lib/agents.ts`: logica pura zero-dep (stato per env, raggruppamento, macchina a
   stati dell'agente per tab, testi delle notifiche), testata da
-  `tests/agents.test.mjs`. Stato per tab in `App.tsx` (`Tab.agent`, chiave = `tab_id`):
+  `tests/agents.test.mjs`. Stato per tab in `stores/tabRuntime.ts` (campo `agent`, chiave = `tab_id`, aggiornato da `app/events.ts`):
   `session-start` marca il tab come agente (idle) e salva `agentSessionId`; Invio
   -> running; `finished` -> ✓; `needs-input` -> ❗; qualsiasi input lo toglie. Per
   i tab agente sostituisce il pallino busy/idle. Gli eventi con `tab_id` senza
@@ -740,26 +1067,28 @@ dello store in `setup` e tutti i comandi. Capability minime in
   (`playDing`, `playAttention`); a finestra senza focus anche una notifica di
   sistema (`systemNotify.ts`, `tauri-plugin-notification`).
 - **Sessioni automatiche** (`lib/automation.ts`, zero-dep, `tests/automation.test.mjs`):
-  etichette/colori di stato, tooltip, filtro dei tab automatici. `App.tsx` ascolta
+  etichette/colori di stato, tooltip, filtro dei tab automatici. `app/events.ts` gestisce
   `automation-spawn` (apre il tab con `startCommand` = comando di avvio, `cwd` e
-  `Tab.automation` con padre/titolo/stato; usa `openTabBackground` di `layout.ts`, che
+  `automation` in `tabRuntime` con titolo/stato; usa `openTabBackground` di `layout.ts`, che
   aggiunge il pannello al gruppo del workspace senza cambiare gruppo attivo né focus),
   `automation-close` (stesso percorso di `closeTab`) e `automation-update` (stato e
   ultimo report); alla chiusura di un tab automatico chiama `automation_tab_closed`.
   All'avvio `automation_sessions()` riallinea lo stato. `PaneHeader` mostra il badge AUTO
   (INTAKE per i tab avviati da un preset) e la parola di stato. I tab automatici sono esclusi dal salvataggio di sessione e
   scrollback e non vengono ripristinati.
-- **Tasks Manager** (`components/tasks/`, `lib/board.ts`, `lib/boardLayout.ts`, `hooks/useBoards.ts`):
+- **Tasks Manager** (`components/tasks/`, `lib/board.ts`, `lib/boardLayout.ts`, `hooks/useBoards.ts`, `stores/boards.ts`):
   `lib/board.ts` (zero-dep, testato) ha i tipi del contratto (`BoardView`, `Task`, `Proposal`,
   `Delivery`), i quattro stati (+ "Richiede attenzione") con etichette e colori, selettori, ricerca/filtri,
-  formati di durata e consegna, `mergeBoard` per `rev`. `useBoards` (in `App.tsx`) carica `board_get`,
-  ascolta `board-update` e `task-notify` (notifica di sistema); i componenti chiamano `api` e passano la
-  `BoardView` restituita a `storeBoard`. `TaskPanel` / `GlobalTaskPanel` stanno a sinistra della griglia
+  formati di durata e consegna, `mergeBoard` per `rev`. `useBoardsSync` (montato da `App`) carica `board_get`
+  e ascolta `board-update`, `useTaskNotify` ascolta `task-notify` (notifica di sistema); i componenti chiamano `api` e
+  passano la `BoardView` restituita a `storeBoard` (`app/boards.ts`, che scrive in `boardsStore`: una `rev` più vecchia
+  non sostituisce quella nota). Le azioni sui task mostrano i pulsanti da `allowed_actions`, `can_edit` e `can_reorder`
+  della vista: il frontend non ha una tabella delle transizioni propria. `TaskPanel` / `GlobalTaskPanel` stanno a sinistra della griglia
   dei terminali (compresso/espanso per workspace in localStorage, `lib/taskPanelPrefs.ts`); `TasksManager`
   (Ctrl+Maiusc+B o pulsante "Tasks" della sidebar) copre pannello e griglia: i `TerminalView` restano
   montati (regola del DOM sopra); la Vista Ufficio (z-30) sta sopra di lui, e aprire il manager con
   l'Ufficio aperto chiude l'Ufficio. `DependencyGraph` = React Flow (`@xyflow/react`) + auto-layout con
-  `@dagrejs/dagre` (`boardLayout.ts`). "Task Intake" (`openIntake` in `App.tsx`) apre un nuovo tab del
+  `@dagrejs/dagre` (`boardLayout.ts`). "Task Intake" (`openIntake` in `app/actions/tabs.ts`) apre un nuovo tab del
   preset `builtin:preset:task-intake` a ogni richiesta (più chat in parallelo); `PaneHeader` mostra il badge INTAKE (il `launchId` del
   tab è già persistito nella sessione). Dettagli in [BOARD.MD](BOARD.MD).
 - `components/ui/dropdown-menu.tsx`: wrapper shadcn di Radix, usato dal menu
@@ -786,19 +1115,22 @@ dello store in `setup` e tutti i comandi. Capability minime in
 
 ## Scelte e limiti noti
 
-- Solo Windows + WSL per ora: il codice WSL/PTY è Windows-first
-  (`wsl.exe`, ConPTY via portable-pty).
-- Le board sono file JSON per workspace (`boards/`), come lo store dei workspace.
-- Lo schedule e' un file a parte (`schedule.json`): le fasce sono globali, ogni workspace
-  sceglie se rispettarle (`use_schedule`).
-- JSON invece di SQLite: adeguato per poche centinaia di workspace; lo store
-  è isolato in `workspaces.rs`, migrabile in futuro.
-- Nessuna autenticazione/cifratura: i path sono dati locali non sensibili.
-- Bundle JS ~1,2 MB (React, xterm.js, React Flow): accettabile per app desktop,
-  valutabile code-splitting se cresce.
+- Solo Windows + WSL per ora: il codice WSL/PTY è Windows-first (`wsl.exe`, ConPTY via portable-pty).
+- Le board sono file JSON per workspace (`boards/`), come l'elenco dei workspace, sullo stesso `store/`; i task conclusi
+  oltre i 200 più recenti passano a un archivio `.jsonl` che l'app non rilegge.
+- Lo schedule è un file a parte (`schedule.json`): le fasce sono globali, ogni workspace sceglie se rispettarle
+  (`use_schedule`).
+- JSON invece di SQLite: adeguato per poche centinaia di workspace; la persistenza è isolata in `store/` e in chi lo usa
+  (`workspaces/store.rs`, `board/persist.rs`), quindi migrabile in futuro.
+- Nessuna cifratura dei dati: i path sono dati locali non sensibili. Il canale locale degli hook e dell'MCP è invece
+  autenticato per sessione (segreto casuale per terminale, `automation/auth.rs`) e ascolta solo su `127.0.0.1`.
+- Downgrade non supportato: un file con busta letto da una versione precedente viene messo da parte come corrotto (vedi
+  "`store/`").
+- Bundle JS ~1,2 MB (React, xterm.js, React Flow): accettabile per app desktop, valutabile code-splitting se cresce.
 
 ## Comandi utili
 
 - `npm run tauri dev` — avvio app in sviluppo
 - `npm run build` — typecheck + build frontend
 - `cargo check` (in `src-tauri/`) — typecheck backend
+- Tutti gli altri (lint, format, typecheck, test, bindings, bump) sono elencati in [CONTRIBUTING.md](../CONTRIBUTING.md).

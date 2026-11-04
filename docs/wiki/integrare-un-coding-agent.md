@@ -505,8 +505,8 @@ guida.
 - [ ] Nessuna stringa dell'utente interpolata in una shell: prompt, modello e
       path validati, input degli hook parsato con tolleranza.
 - [ ] `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
-      `env -u WSLENV cargo test` (con `WSLENV` impostato un test di `pty` fallisce
-      a prescindere), `npm run lint`, `npm run typecheck`, `npm test`.
+      `cargo test`, `npm run lint`, `npm run typecheck`, `npm test` (vedi
+      [CONTRIBUTING.md](../../CONTRIBUTING.md) per i comandi e la nota su `WSLENV`).
 - [ ] Verifica manuale della procedura (punto 9) fatta su un'installazione reale.
 - [ ] `docs/DESIGN.MD` aggiornato.
 

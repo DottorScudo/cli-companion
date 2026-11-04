@@ -12,6 +12,11 @@ attori che non parlano tra loro.
 Principio: semplicità. Niente owner, niente coda di eventi, niente risveglio,
 niente integrazione esterna. Un task finito è già consegnato.
 
+Dove sta il codice: il modello, il ciclo di vita, lo scheduler e la vista sono nel modulo puro `board/`; lo
+stato dei worker, l'esecuzione degli effetti (git, worktree, E2E, salvataggio) e le RPC dei tool MCP sono in
+`automation/`; le impostazioni di consegna e dei repository in `workspaces/`. La mappa dei moduli e i flussi
+(avvio, hook → evento, task dalla proposta alla consegna) sono in [DESIGN.MD](DESIGN.MD).
+
 Riferimento visivo approvato (mockup): artifact "Tasks Manager mockup" (viste terminali + pannello, Kanban, Lista, Globale); i sorgenti del mockup non sono nel repository.
 
 Lingua: tutto ciò che legge il modello (skill dei preset, descrizioni dei tool MCP,
@@ -147,6 +152,14 @@ Limiti: 200 task per board, 20 task per proposta, 20 proposte pendenti per board
 | `done` | **Fatto** | consegnato. Terminale. Sblocca i dipendenti. |
 | `failed` | **Fallito** | `note`/`report.summary` dicono perché. "Riprova" lo rimette in coda. |
 
+Gli stati stanno in un'enum (`TaskState`, `board/state.rs`) che porta i dati validi solo in quello
+stato, e si cambiano soltanto con una transizione (`TaskEvent` applicato da `Task::apply`,
+`board/lifecycle.rs`): nessun altro codice scrive stato, tentativi, nota e ultimo report. `running` ha due
+fasi: **in preparazione** (l'app crea worktree ed esegue il setup, il task ha `worker_status: starting`
+e nessuna `session`; un battito di vita lo tiene d'occhio il guardiano degli avvii) e **col worker vivo**
+(`session` = il tab, `worker_status` dagli hook). Un evento che riguarda un tentativo o una sessione
+che non sono più quelli del task è rifiutato (`Stale`) e non cambia niente.
+
 `BoardView` = board + per task: `waiting_on: string[]` (dipendenze non `done`, solo per
 `queued`), `attention: bool`, `allowed_actions`, `can_edit`, `can_reorder` e `cascade` (vedi "Azioni consentite"); + `rev` monotona (come oggi), `schedule_blocked: bool` (fascia
 chiusa per un workspace che usa le fasce), `delivery` del workspace (comodità per la UI) e `limits: { max_parallel: { min, max } }`
@@ -239,9 +252,13 @@ task in coda al file (la cartella e il file si creano alla prima volta):
 ```
 
 L'archivio viene scritto prima del salvataggio della board senza quei task (`Effect::Archive`
-prima di `Effect::Publish`, applicato da `Host::archive_tasks`). Se la scrittura fallisce l'errore
-va nel log con gli id dei task e la board si salva comunque. L'archivio non si legge più dall'app;
-si cancella insieme alla board (`delete_board`, rimozione del workspace).
+prima di `Effect::Publish`, applicato da `Host::archive_tasks`): se l'app cade in mezzo, i task
+restano nel file della board e, per una riga, anche nell'archivio. Se la scrittura dell'archivio
+fallisce, l'errore va nel log con gli id dei task e i task **non si perdono**: tornano in fondo alla
+board in memoria e nel file che il `Publish` successivo salva (la vista inviata al frontend resta
+quella senza di loro), e la prossima modifica vera li archivia di nuovo
+(`Registry::restore_unarchived`). L'archivio non si legge più dall'app; si cancella insieme alla
+board (`delete_board`, rimozione del workspace).
 
 ## Consegna (impostazione del workspace)
 
@@ -392,7 +409,7 @@ specifiche del progetto e non allentano mai le regole di sicurezza.
 
 Funzione pura dopo ogni modifica (come oggi):
 
-1. Niente se la board è `paused` o se il workspace usa le fasce (`use_schedule`) e la
+1. Niente se la board è `paused`, se il workspace è archiviato o se usa le fasce (`use_schedule`) e la
    fascia è chiusa.
 2. Candidati: `queued` con tutte le dipendenze `done`, nell'ordine dell'array.
 3. Slot: in modalità parallela (`pr`/`local_merge` con `parallel`) fino a `max_parallel`
@@ -411,6 +428,8 @@ queued --scheduler--> running --complete_task completed--> done (pulizia worktre
                          |--tab chiuso / agente uscito senza report--> failed (note)
                          |--avvio fallito (git, setup, precondizione)--> failed (note)
                          \--utente: Ferma--> failed (note "stopped by the user", tab chiuso)
+                         \--workspace archiviato--> queued (note "interrupted: the workspace was archived";
+                                                    i worker si staccano, le esecuzioni E2E si annullano)
 failed (session-end, tab aperto) --complete_task dello stesso worker--> done | failed (note "reopened: ...")
 failed --utente: Riprova--> queued (in fondo alla coda; worktree e branch si riusano)
 queued|failed --utente/Intake: Elimina--> rimosso (solo senza dipendenti non done)
@@ -442,12 +461,54 @@ esecuzioni in corso; archiviare o rimuovere il workspace annulla quelle di tutto
 - Notifiche di sistema (in italiano): quando un task entra in `attention` ("<titolo>
   richiede attenzione") o in `failed` ("<titolo> è fallito"). Niente notifica per `done`.
 
+## Autenticazione delle sessioni e ruoli
+
+Le chiamate dei tool MCP e gli eventi degli hook arrivano da processi figli di un terminale, sullo stesso
+socket locale (`127.0.0.1`). Perché un processo non possa spacciarsi per un'altra sessione ogni terminale ha
+un **segreto suo**:
+
+- **Emissione.** All'apertura del terminale (`pty_spawn`) `AutomationState::issue_credential` genera 32 byte dal
+  generatore casuale del sistema (`getrandom`), 64 caratteri esadecimali, legati all'id del tab. Il segreto
+  arriva alla shell in `CLI_COMPANION_TOKEN` (su WSL anche in `WSLENV`, con `/u`) insieme a
+  `CLI_COMPANION_SESSION` (l'id del tab) e `CLI_COMPANION_PORT`. Riaprire un tab con lo stesso id sostituisce il
+  segreto: il vecchio non vale più.
+- **Verifica.** `--notify` e il server MCP lo rimandano nella riga JSON (`token`, `session`). Un evento hook senza
+  `tab_id` valido e senza il segreto **di quel tab** è scartato dal cancello di `ipc` (non arriva né al core né
+  al frontend, e il segreto non esce mai dal backend). Una RPC (`{"rpc":1,"token","session","method","params"}`) passa da
+  `automation::auth::authenticate`: versione del protocollo, id del tab valido, segreto uguale (confronto a tempo
+  costante). Id non valido, sessione sconosciuta e segreto sbagliato danno **lo stesso errore** (`invalid session
+  credentials`): niente oracolo per chi prova a indovinare.
+- **Revoca.** La credenziale vive quanto il flusso di output della shell: quando la shell esce o il terminale si
+  chiude viene revocata (alla chiusura in ritardo di una vecchia credenziale, quella del tab riaperto con lo
+  stesso id resta valida). Il segreto non compare mai nei log né in un `Debug`.
+- **Self-test.** "Prova notifica" (`test_agent_notify`) usa una credenziale di prova usa e getta
+  (`probe-<casuale>`), non quella di un terminale.
+
+Il **ruolo** del chiamante lo decide l'app, non il chiamante: viene dal tab (`Role::of_worker`). Il worker di un task
+`work` è `worker`, quello di un task `review` è `reviewer`, ogni altro tab di cli-companion (Intake compreso) è
+`session`. La tabella unica dei metodi consentiti a ogni ruolo è `Method::roles` in `automation/roles.rs`
+(un `match` esaustivo: aggiungere un metodo obbliga a decidere chi lo chiama); `rpc::dispatch` la usa per il
+controllo di accesso e il server MCP per scegliere i tool, e un test verifica che coincidano. Un metodo non consentito
+risponde "`<metodo>` is reserved for automated sessions" (a una sessione) o "`<metodo>` is not available to
+automated sessions" (a un worker); un tab di un workspace archiviato risponde "workspace is archived" a tutto.
+
+| Metodo | `worker` | `reviewer` | `session` |
+|---|:-:|:-:|:-:|
+| `whoami` (handshake del server MCP, non è un tool) | sì | sì | sì |
+| `get_task`, `complete_task`, `run_e2e`, `get_e2e_result` | sì | sì | no |
+| `propose_tasks`, `get_task_details` | no | sì | sì |
+| `list_tasks`, `update_task`, `delete_task` | no | no | sì |
+| `get_workspace_settings`, `propose_settings` | no | no | sì |
+| `save_skill`, `list_skills`, `delete_skill` | no | no | sì |
+
 ## Tool MCP
 
 Il server MCP sceglie il ruolo con la RPC interna `whoami` (non è un tool) ed espone tool diversi in base al tab: **worker** (`role: "worker"`, tab registrato come worker di
 un task `work`), **reviewer** (`role: "reviewer"`, worker di un task `review`) oppure **sessione**
 (`role: "session"`, qualunque altro tab di cli-companion: Intake o terminale
-normale). Fuori da cli-companion nessun tool. Descrizioni ed errori in inglese.
+normale). Fuori da cli-companion nessun tool. Se l'app non risponde a `whoami` entro 3 s l'handshake
+non si blocca: la lista è vuota, il server riprova in background e, appena riceve il ruolo, avvisa il client
+(`notifications/tools/list_changed`) e i tool compaiono. Descrizioni ed errori in inglese.
 Le istruzioni del server MCP (inglese) dicono: you may propose tasks for this workspace's
 queue with propose_tasks and read and propose changes to the workspace settings with
 get_workspace_settings and propose_settings; the user approves them in the app; never wait for workers.
@@ -526,6 +587,8 @@ Sessione (workspace = quello del tab):
   timeout_min? }` al posto dell'attuale, `null` lo toglie) oppure `null` per toglierne la
   configurazione. Validazione tutto-o-niente; ritorna `{ proposal, status: "pending" }` e non
   aspetta la decisione (vedi "Proposte di impostazioni").
+- `save_skill`, `list_skills`, `delete_skill` — le skill globali dell'utente (preset `skill-wizard`); non
+  appartengono a un workspace e sono vietate ai worker (vedi "Autenticazione delle sessioni e ruoli").
 
 ## Test E2E
 
@@ -810,6 +873,12 @@ Argomenti camelCase lato JS.
   (vedi "Proposte di impostazioni").
 - `set_delivery`, `set_use_schedule` (workspace), `schedule_get`/`schedule_set` (invariati).
 - `workspace_detect_repos(workspace_id)` invariato.
+- `automation_tab_closed(tab_id)`: il frontend ha chiuso un tab automatico (utente, app o shell uscita); il
+  backend chiude il worker e, se il task è concluso, avvia la pulizia. `automation_sessions() ->
+  AutomationTabInfo[]`: i worker con il tab aperto, per ricostruire lo stato dopo un ricaricamento.
+  `frontend_ready()`: sessione ripristinata e listener registrati; il timer dell'automazione parte da qui
+  (vedi DESIGN.MD, "Avvio"). `set_workspace_archived(workspace_id, archived)` (workspace): archiviato = congelato,
+  la board non avvia task e i `running` tornano `queued` (vedi "Ciclo di vita").
 - Eventi: `board-update` (BoardView), `automation-update` (stato dei tab worker),
   `automation-spawn` (apre il tab del worker: `role` non c'è più, `parent_tab_id` vuoto),
   `schedule-state`, `e2e-update` (`{ workspace_id, repo, run: E2eRun }`: l'esecuzione manuale di
