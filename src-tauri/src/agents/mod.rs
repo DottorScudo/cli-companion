@@ -7,11 +7,16 @@
 //!    `AgentIntegration` (id, nome, rilevamento, comando interattivo) e i
 //!    contratti che le servono, dichiarati TUTTI (presenti o `None`) in
 //!    `capabilities()` (vedi `claude_code/`);
-//! 2. una riga in `INTEGRATIONS` di `registry.rs`.
+//! 2. una riga in `INTEGRATIONS` di `registry.rs` e una in quello di
+//!    `architecture.rs`.
 //!
 //! Comandi Tauri e UI (Impostazioni -> Coding agent) sono generici e non vanno
-//! toccati; `conformance.rs` verifica da solo ogni integrazione registrata.
+//! toccati; `conformance.rs` verifica da solo ogni integrazione registrata e
+//! `architecture.rs` che il nome di un agente non compaia fuori dalla sua
+//! cartella. Guida completa: `docs/wiki/integrare-un-coding-agent.md`.
 
+#[cfg(test)]
+mod architecture;
 mod claude_code;
 mod commands;
 #[cfg(test)]

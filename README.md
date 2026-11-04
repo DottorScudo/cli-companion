@@ -49,6 +49,7 @@ La versione corrente è quella dell'ultimo tag git `v*`.
   `latest.json` e chiavi di firma.
 - [docs/DESIGN.MD](docs/DESIGN.MD) — note di design del progetto.
 - [docs/BOARD.MD](docs/BOARD.MD) — il Tasks Manager: coda di task, consegna, scheduler, fasce orarie, tool MCP.
+- [docs/wiki/integrare-un-coding-agent.md](docs/wiki/integrare-un-coding-agent.md) — come integrare un nuovo coding agent (contratti, procedura, esempio OpenCode).
 
 Notifiche dopo un aggiornamento: dalla v0.9.2 l'identifier è `cli-companion` e
 Windows recapita i toast solo se il collegamento nel menu Start ha lo stesso
@@ -131,7 +132,8 @@ in una sottocartella `agent-plugins` della cartella dati dell'app (`%APPDATA%`) 
 mano: usa “Rimuovi”. “Prova notifica” verifica il canale. Gli agenti avviati
 fuori da cli-companion vengono ignorati.
 
-Aggiungere un nuovo agente: il core non sa come funziona un agente, offre dei
+Aggiungere un nuovo agente (guida completa, con OpenCode come esempio:
+[docs/wiki/integrare-un-coding-agent.md](docs/wiki/integrare-un-coding-agent.md)): il core non sa come funziona un agente, offre dei
 contratti (`src-tauri/src/agents/contracts/`, uno per capacità) e ogni integrazione
 implementa quelli che le servono. Crea la cartella `src-tauri/src/agents/<nome>/`
 (modello: `claude_code/`) con una struct che implementa `AgentIntegration` (id,

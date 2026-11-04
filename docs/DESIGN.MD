@@ -256,6 +256,7 @@ implementato in `agents/claude_code/hook_events.rs`); cosa farne lo decide il co
   pacchetti (lock per agente x target); `commands.rs` i comandi Tauri `agent_env_status`
   (sonda in parallelo ogni coppia agente x target), `install_agent_plugin(agent_id, env_key)`,
   `remove_agent_plugin(agent_id, env_key)`.
+- Guida completa, con OpenCode come esempio: [wiki/integrare-un-coding-agent.md](wiki/integrare-un-coding-agent.md). Il test `agents/architecture.rs` (e `tests/architecture.test.mjs` per `src/`) impedisce al core di nominare un agente specifico.
 - Aggiungere un agente: una cartella `agents/<nome>/` che implementa `AgentIntegration` +
   i contratti dichiarati in `capabilities()` + una riga in `registry.rs`. La UI
   (Impostazioni -> Coding agent) raggruppa per agente
