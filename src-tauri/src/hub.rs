@@ -1,10 +1,12 @@
 //! Agents HUB: modalita' opzionale, spenta di default, con un canale per
 //! workspace piu' il Generale e, dentro ogni canale, thread di messaggi.
 //! Porta l'impostazione globale, il modello dati, la persistenza, i comandi
-//! Tauri, l'evento `hub-update` e gli eventi della board nei thread; bot e UI
-//! arrivano dopo. Documentazione: docs/HUB.MD.
+//! Tauri, l'evento `hub-update`, gli eventi della board nei thread e la
+//! configurazione dei segretari (provider, lingua, sessioni, elenco, API key nel
+//! portachiavi); il motore dei segretari arriva dopo. Documentazione: docs/HUB.MD.
 //!
-//! Dipendenze: `store` (persistenza), `board` (`valid_id` per gli id dei task e
+//! Dipendenze: `store` (persistenza), `secrets` (portachiavi), `bots` (validazione
+//! delle immagini), `board` (`valid_id` per gli id dei task e
 //! `BoardView` per gli eventi della board), `validate`; i comandi leggono
 //! `WorkspaceStore` per sapere se il canale di un workspace esiste. `board` non
 //! dipende da `hub`; `automation` lo raggiunge solo dall'host reale
@@ -21,10 +23,13 @@
 //! - `waiting`: se un thread aspetta l'utente, calcolato dagli eventi;
 //! - `files`: i file `threads/<canale>.json`;
 //! - `state`: i thread in memoria (caricamento pigro), stato gestito da Tauri;
-//! - `settings`: `hub_settings.json` e i suoi comandi;
+//! - `settings`: `hub_settings.json` (interruttore, provider, lingua, sessioni,
+//!   segretari) e i suoi comandi;
+//! - `api_key`: la API key del provider nel portachiavi del sistema;
 //! - `commands`: i comandi dei thread e l'evento;
 //! - `events`: gli eventi della board nei thread (diff, instradamento, `HubFeed`).
 
+mod api_key;
 mod channel;
 pub mod commands;
 mod events;
@@ -36,6 +41,7 @@ mod text;
 mod threads;
 mod waiting;
 
+pub use api_key::ApiKey;
 pub use events::{BoardSource, HubFeed};
 pub use settings::{load_from_disk, new_store as new_settings_store};
 pub use state::HubState;

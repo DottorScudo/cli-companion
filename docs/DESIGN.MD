@@ -90,7 +90,7 @@ avviare la GUI, smista i rami da riga di comando: `--help`, `--version`, `--noti
  3  pty          ipc      canali con terminali e agenti
  2  board  workspaces  hub     dominio: coda dei task (pura) / cartelle di lavoro / thread dell'Agents HUB
  1  agents                integrazioni dei coding agent: contratti + registro + `claude_code/`
- 0  platform  validate  store  wsl  net  ttl_cache  schedule  logging  ...   fondamenta
+ 0  platform  validate  store  secrets  wsl  net  ttl_cache  schedule  logging  ...   fondamenta
 ```
 
 I numeri non descrivono ogni `use`, ma l'ordine in cui conviene pensare ai moduli: una freccia verso
@@ -99,7 +99,7 @@ test esclusi) sono queste:
 
 | Modulo | Dipende da | Non dipende da |
 |---|---|---|
-| `platform`, `validate`, `store` | nessun altro modulo dell'app (`store` solo da Tauri per `AppHandle` e dagli eventi) | tutto il resto |
+| `platform`, `validate`, `store`, `secrets` | nessun altro modulo dell'app (`store` solo da Tauri per `AppHandle` e dagli eventi; `secrets` solo dal crate `keyring`) | tutto il resto |
 | `agents` | `platform`, `validate`, `wsl`, `net`, `ttl_cache` (+ `launch_settings` nei soli comandi Tauri) | `workspaces`, `board`, `automation`, `ipc` |
 | `workspaces` | `agents` (tipi dei contratti), `validate`, `platform`, `store`, `wsl` (+ `automation` nei soli comandi, per riallineare lo scheduler) | `board`, `ipc`, `pty` |
 | `board` | `workspaces` (`Delivery`, `Workspace`, `SettingsPatch`), `agents` (agente predefinito), `validate`, `store` | `automation`, `ipc`, `pty`, `mcp`, `tauri` |
@@ -107,7 +107,7 @@ test esclusi) sono queste:
 | `pty` | `ipc` (nomi delle variabili e `is_valid_tab_id`), `platform`, `wsl`, `workspaces`, `automation` (credenziale di sessione e `user_input`) | `board` |
 | `automation` | `board`, `workspaces`, `agents`, `ipc` (tipi e trait), `platform`, `validate`, `wsl`, `schedule`, `user_skills`, `store`, `awake`, `pty` (solo `workspace_of_tab`, in `TauriHost`), `hub` (solo `board_published`, in `TauriHost`; `lib.rs` registra `board_views` come sorgente di `hub::set_board_source`) | — |
 | `mcp` | `automation` (`Role`, `lock`, nomi dei metodi), `agents`, `workspaces`, `ipc` (client RPC) | `tauri` |
-| `hub` | `store`, `board` (`valid_id` e `BoardView` per gli eventi della board), `validate` (+ `workspaces` nei comandi e negli eventi della board, per sapere se il canale di un workspace esiste; le viste correnti delle board all'accensione arrivano da una sorgente `BoardSource` registrata da `lib.rs`) | `automation`, `agents`, `ipc`, `pty`, `mcp` |
+| `hub` | `store`, `secrets` (API key del provider nel portachiavi), `bots` (validazione delle immagini dei segretari), `board` (`valid_id` e `BoardView` per gli eventi della board), `validate` (+ `workspaces` nei comandi e negli eventi della board, per sapere se il canale di un workspace esiste, anche nei canali di un segretario; le viste correnti delle board all'accensione arrivano da una sorgente `BoardSource` registrata da `lib.rs`) | `automation`, `agents`, `ipc`, `pty`, `mcp` |
 
 Le regole che questa tabella racchiude, e come sono garantite:
 
@@ -166,7 +166,8 @@ emette `board-update` né salva file.
 | `session.rs` | `session.json` e `scrollback/` |
 | `schedule.rs`, `awake.rs` | fasce orarie (logica pura + `schedule.json`) e blocco dello standby |
 | `launch_settings.rs`, `bots.rs` | impostazioni globali degli avvii e nomi/avatar dei bot (su `store/`) |
-| `hub.rs`, `hub/` | Agents HUB (spento di default): impostazione globale, canali, thread e messaggi su `store/`, comandi ed evento `hub-update`, eventi della board nei thread |
+| `hub.rs`, `hub/` | Agents HUB (spento di default): impostazioni globali (provider del modello, lingua, sessioni, segretari), canali, thread e messaggi su `store/`, comandi ed evento `hub-update`, eventi della board nei thread |
+| `secrets.rs` | segreti nel portachiavi del sistema operativo (crate `keyring`) dietro il trait `SecretStore`; un finto in memoria per i test |
 | `user_skills.rs`, `user_skills/` | skill globali dell'utente: archivio e sincronizzazione nelle cartelle degli agenti |
 | `toast.rs`, `updater.rs`, `net.rs`, `ttl_cache.rs`, `logging.rs` | toast cliccabile (Windows), controllo aggiornamenti da CLI, client HTTP via `curl`, cache con scadenza, log su file |
 
@@ -177,7 +178,7 @@ emette `board-update` né salva file.
 1. `main.rs` esce subito per i rami da riga di comando; altrimenti `run()` (`lib.rs`) costruisce
    l'app: prima il plugin di log (`logging::plugin()`), poi opener, dialog, clipboard, notification,
    updater, process, e gli stati gestiti (`WorkspaceStore`, `PtyState`, store delle impostazioni degli avvii, dei bot e
-   dell'HUB, `HubState`, `AutomationState`).
+   dell'HUB, `hub::ApiKey` sul portachiavi del sistema, `HubState`, `AutomationState`).
 2. `setup`, in quest'ordine: `store::install_emitter` (da qui un avviso dello store diventa un evento
    `store-warning`), `store::legacy::migrate_legacy_data` (copia dei vecchi identifier), caricamento di
    `workspaces.json`, `launch_settings.json`, `bots.json`, `hub_settings.json` (i thread dell'HUB no: si leggono alla
@@ -987,17 +988,23 @@ formato `#rrggbb`. Le immagini dei nomi che escono dalla pool sono eliminate da
 
 ### `hub/` — Agents HUB
 
-Modalità opzionale, spenta di default (`hub_settings.json`, `{ enabled }`): un canale per workspace più il
+Modalità opzionale, spenta di default (`hub_settings.json`: `enabled`, `provider`, `language`, `session`,
+`secretaries`): un canale per workspace più il
 Generale, e in ogni canale thread di messaggi. Spenta, non crea file e non cambia nulla nel resto dell'app. Un
 file per responsabilità: `channel` (`general` o l'id di un workspace, stringa semplice sul filo), `model` (DTO
 con prefisso `Hub` nei bindings), `text` (validazione, messaggi in italiano), `threads` (operazioni pure e
 limiti; `threads/lifecycle.rs` per chiusura, collegamenti e ricerca del thread di un task o di una proposta),
 `waiting` (`waiting_user` calcolato dagli eventi), `files` (`threads/<canale>.json` su `store/`), `state`
-(`HubState`: caricamento pigro, un `JsonFile` vivo per canale), `settings`, `commands` ed `events` (eventi della
+(`HubState`: caricamento pigro, un `JsonFile` vivo per canale), `settings` (con `settings/`: `provider`, `language`,
+`session`, `secretary`, `secretaries` puri, `tolerant` per leggere i valori di una versione futura senza perdere il
+file, `commands`), `api_key` (la API key del provider nel portachiavi, tramite `secrets::SecretStore`; il frontend
+ne vede solo la presenza), `commands` ed `events` (eventi della
 board nei thread: istantanea compatta, diff e instradamento puri, `HubFeed` con un thread dedicato che riceve le
 viste da `Host::board_published` e scrive fuori dai lock della board; all'accensione fissa come base le viste
 correnti di tutte le board, chieste alla sorgente registrata da `lib.rs`). Comandi
-`hub_get_settings`, `hub_set_enabled`, `hub_list_threads`, `hub_get_thread`, `hub_create_thread`, `hub_send`;
+`hub_get_settings`, `hub_set_enabled`, `hub_set_provider`, `hub_set_api_key`, `hub_clear_api_key`,
+`hub_set_language`, `hub_set_session`, `hub_create_secretary`, `hub_update_secretary`, `hub_delete_secretary`,
+`hub_set_secretary_image`, `hub_remove_secretary_image`, `hub_list_threads`, `hub_get_thread`, `hub_create_thread`, `hub_send`;
 evento `hub-update` (riassunto del thread toccato). La rimozione di un workspace cancella il suo file dei thread
 (`hub::forget_workspace`, chiamato da `remove_workspace` dopo la board) e l'istantanea della sua board. Modello, file, limiti e scelte:
 [HUB.MD](HUB.MD).

@@ -1,5 +1,6 @@
-//! Validazione dell'immagine di un bot: il frontend non e' fidato, quindi
-//! si controllano dimensione, firma PNG, intestazione IHDR e colore.
+//! Validazione dell'immagine di un bot (e di un segretario dell'HUB): il
+//! frontend non e' fidato, quindi si controllano dimensione, firma PNG,
+//! intestazione IHDR e colore.
 
 use super::BotImage;
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -27,7 +28,7 @@ const fn encoded_max_len() -> usize {
 }
 
 /// Valida PNG (base64) e colore; restituisce l'immagine in forma canonica.
-pub(super) fn validate_image(png: &str, color: &str) -> Result<BotImage, String> {
+pub(crate) fn validate_image(png: &str, color: &str) -> Result<BotImage, String> {
     let png = png.trim();
     if png.len() > encoded_max_len() {
         return Err(too_big());

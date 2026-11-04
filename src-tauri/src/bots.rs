@@ -7,6 +7,8 @@
 
 mod image;
 
+pub(crate) use image::validate_image;
+
 use crate::store::{adopt_envelope, data_dir, JsonFile, JsonStore};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -125,7 +127,7 @@ pub async fn set_bot_settings(app: AppHandle, enabled: bool, names: Vec<String>)
 #[tauri::command]
 pub async fn set_bot_image(app: AppHandle, name: String, png: String, color: String) -> Result<BotSettings, String> {
     crate::blocking(move || {
-        let img = image::validate_image(&png, &color)?;
+        let img = validate_image(&png, &color)?;
         update(&app, |s| {
             let pool =
                 pool_name(&s.names, &name).cloned().ok_or_else(|| format!("il nome “{name}” non è nell'elenco"))?;

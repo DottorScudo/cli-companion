@@ -10,8 +10,13 @@ import type { BuiltinLaunch } from "../bindings/BuiltinLaunch.ts";
 import type { Delivery } from "../bindings/Delivery.ts";
 import type { E2eEvent as E2eUpdateEvent } from "../bindings/E2eEvent.ts";
 import type { HubEvent } from "../bindings/HubEvent.ts";
+import type { HubLanguage } from "../bindings/HubLanguage.ts";
 import type { HubMessage } from "../bindings/HubMessage.ts";
+import type { HubSecretary } from "../bindings/HubSecretary.ts";
+import type { HubSecretaryChannels } from "../bindings/HubSecretaryChannels.ts";
+import type { HubSecretaryTool } from "../bindings/HubSecretaryTool.ts";
 import type { HubSettings } from "../bindings/HubSettings.ts";
+import type { HubSettingsView } from "../bindings/HubSettingsView.ts";
 import type { HubThread } from "../bindings/HubThread.ts";
 import type { HubThreadSummary } from "../bindings/HubThreadSummary.ts";
 import type { IntegrationEnv } from "../bindings/IntegrationEnv.ts";
@@ -47,8 +52,13 @@ export type {
   BuiltinLaunch,
   Delivery,
   HubEvent,
+  HubLanguage,
   HubMessage,
+  HubSecretary,
+  HubSecretaryChannels,
+  HubSecretaryTool,
   HubSettings,
+  HubSettingsView,
   HubThread,
   HubThreadSummary,
   IntegrationEnv,
@@ -182,9 +192,44 @@ export const api = {
   removeBotImage: (name: string) => invoke<BotSettings>("remove_bot_image", { name }),
 
   // Agents HUB (backend: src-tauri/src/hub). `channel` = "general" o l'id di un workspace.
-  hubGetSettings: () => invoke<HubSettings>("hub_get_settings"),
+  // Le impostazioni si leggono e scrivono anche con l'HUB spento; ogni comando
+  // ritorna quelle salvate con la sola presenza della API key (mai la chiave).
+  hubGetSettings: () => invoke<HubSettingsView>("hub_get_settings"),
 
-  hubSetEnabled: (enabled: boolean) => invoke<HubSettings>("hub_set_enabled", { enabled }),
+  hubSetEnabled: (enabled: boolean) => invoke<HubSettingsView>("hub_set_enabled", { enabled }),
+
+  /** Endpoint compatibile OpenAI e modello; stringhe vuote = non configurato. */
+  hubSetProvider: (baseUrl: string, model: string) => invoke<HubSettingsView>("hub_set_provider", { baseUrl, model }),
+
+  /** Salva la API key nel portachiavi del sistema. */
+  hubSetApiKey: (key: string) => invoke<HubSettingsView>("hub_set_api_key", { key }),
+
+  hubClearApiKey: () => invoke<HubSettingsView>("hub_clear_api_key"),
+
+  hubSetLanguage: (language: HubLanguage) => invoke<HubSettingsView>("hub_set_language", { language }),
+
+  hubSetSession: (idleMinutes: number, maxSteps: number) =>
+    invoke<HubSettingsView>("hub_set_session", { idleMinutes, maxSteps }),
+
+  /** `channels` null = tutti i canali; altrimenti "general" o id di workspace. */
+  hubCreateSecretary: (name: string, systemPrompt: string, tools: HubSecretaryTool[], channels: string[] | null) =>
+    invoke<HubSettingsView>("hub_create_secretary", { name, systemPrompt, tools, channels }),
+
+  /** Sostituisce i campi del segretario `name` (anche il nome); l'immagine resta. */
+  hubUpdateSecretary: (
+    name: string,
+    newName: string,
+    systemPrompt: string,
+    tools: HubSecretaryTool[],
+    channels: string[] | null,
+  ) => invoke<HubSettingsView>("hub_update_secretary", { name, newName, systemPrompt, tools, channels }),
+
+  hubDeleteSecretary: (name: string) => invoke<HubSettingsView>("hub_delete_secretary", { name }),
+
+  hubSetSecretaryImage: (name: string, png: string, color: string) =>
+    invoke<HubSettingsView>("hub_set_secretary_image", { name, png, color }),
+
+  hubRemoveSecretaryImage: (name: string) => invoke<HubSettingsView>("hub_remove_secretary_image", { name }),
 
   hubListThreads: (channel: string) => invoke<HubThreadSummary[]>("hub_list_threads", { channel }),
 

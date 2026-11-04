@@ -3,17 +3,19 @@
 L'**Agents HUB** è una modalità opzionale di cli-companion: uno spazio stile Slack con un **canale per
 workspace** più un canale **Generale**, e dentro ogni canale dei **thread** di messaggi. Nel backend ci sono
 l'interruttore globale, il modello dati, la persistenza, i comandi Tauri, l'evento verso il frontend e gli
-**eventi della board** nei thread (vedi "Eventi della board"); nel frontend la vista (vedi "Interfaccia"). Non ci
-sono ancora bot né modelli.
+**eventi della board** nei thread (vedi "Eventi della board") e la **configurazione dei segretari** (provider del
+modello, lingua, sessioni, elenco dei segretari, API key: vedi "Segretari e provider"); nel frontend la vista (vedi
+"Interfaccia"). Il motore che fa parlare i segretari e la loro interfaccia arrivano dopo.
 
 Il codice sta in `src-tauri/src/hub.rs` e `src-tauri/src/hub/`. Le dipendenze e il posto del modulo nella mappa
 sono in [DESIGN.MD](DESIGN.MD), "`hub/`".
 
 ## Interruttore
 
-`hub_settings.json` nella cartella dati dell'app: `{ "enabled": false }` di default, nella busta di `store/`
+`hub_settings.json` nella cartella dati dell'app: `enabled` è `false` di default, nella busta di `store/`
 (`{schema_version, data}`, prima versione con `adopt_envelope`). La struttura ha `#[serde(default)]`: i campi
-della tappa 2 (provider, bot) si aggiungono senza migrazione.
+della tappa 2 (`provider`, `language`, `session`, `secretaries`, vedi "Segretari e provider") si sono aggiunti
+senza migrazione e un file della tappa 1 (`{ "enabled": true }`) si legge senza perdere `enabled`.
 
 Con l'HUB **spento** (default):
 
@@ -22,7 +24,63 @@ Con l'HUB **spento** (default):
   impostazioni.»;
 - le letture (`hub_list_threads`, `hub_get_thread`) funzionano e non creano file;
 - gli eventi della board non si registrano: nessuna istantanea in memoria, nessuna scrittura;
-- board, task e il resto dell'app non cambiano. Rispegnerlo non tocca i thread su disco.
+- board, task e il resto dell'app non cambiano. Rispegnerlo non tocca i thread su disco;
+- le impostazioni (provider, API key, lingua, sessioni, segretari) si leggono e si scrivono comunque: la pagina
+  delle impostazioni le mostra anche a HUB spento.
+
+## Segretari e provider
+
+I **segretari** sono bot con un nome che l'utente sveglia con `@nome` in un thread e che parlano con un modello
+tramite un endpoint compatibile OpenAI. Qui c'è solo la **configurazione** (codice in `hub/settings/` e
+`hub/api_key.rs`); il motore che li fa parlare legge questi dati. Tutto è in `hub_settings.json` tranne la API key.
+
+| Campo | Default | Regole |
+|---|---|---|
+| `provider.base_url` | `""` | un solo endpoint per tutta l'app: `http://` o `https://` (es. `http://127.0.0.1:8080/v1` per llama-server, `http://127.0.0.1:11434/v1` per Ollama), un host, porta facoltativa 1..65535, niente credenziali (`user@`), frammento, spazi o caratteri di controllo, al massimo 2048 caratteri; i `/` finali si tolgono. Vuoto = non configurato |
+| `provider.model` | `""` | al massimo 128 caratteri dopo il trim, niente caratteri di controllo. Vuoto = non configurato |
+| `language` | `it` | lingua delle risposte dei segretari: `it`, `en`, `es`, `fr`, `de` (`HubLanguage`). Il motore aggiunge al system prompt "Always reply to the user in Italian" (nome inglese da `Language::english_name`); i messaggi evento restano in italiano |
+| `session.idle_minutes` | 20 | 1..240: minuti di inattività dopo cui la conversazione interna di un segretario si chiude |
+| `session.max_steps` | 8 | 1..20: passi di tool calling al massimo per risveglio |
+| `secretaries` | `[]` | al massimo 20 |
+
+Il provider è configurato (`Provider::is_configured`) quando indirizzo e modello ci sono entrambi; i due campi
+si possono salvare anche uno alla volta.
+
+**Segretario** (`HubSecretary`):
+
+| Campo | Regole |
+|---|---|
+| `name` | handle della menzione: trim e minuscolo, poi 1..24 caratteri tra `a-z`, `0-9` e `-`, senza `-` iniziale o finale; unico |
+| `image` | facoltativa, `{ png, color }` come le immagini dei bot (`bots::validate_image`: PNG base64, al massimo 64×64 pixel e 32 KB, colore `#rrggbb`) |
+| `system_prompt` | testo libero letto dal modello (di solito in inglese), al massimo 8000 caratteri, a capo e tabulazioni ammessi. Vuoto = segretario **non configurato**: esiste ma il motore non lo fa rispondere (`Secretary::is_configured`) |
+| `tools` | tool del motore che può usare (`HubSecretaryTool`): `board_status`, `thread_read`, `post_message`; senza ripetizioni, nell'ordine canonico. Il limite vero di cosa fa sta qui, non nel prompt |
+| `channels` | `{ "mode": "all" }` (Generale e ogni workspace, anche quelli futuri) oppure `{ "mode": "only", "channels": [...] }` con `general` o id di workspace esistenti (`hub/channel.rs`), da 1 a 200, senza ripetizioni |
+
+**Nomi riservati.** I nomi dei segretari non devono mai diventare nomi delle sessioni dei terminali (`@mario` non
+può essere un terminale): il frontend li legge da `hub_get_settings` e li esclude dalla pool di `bots.rs` quando
+sceglie il nome di una sessione. `bots.json` non cambia.
+
+**Compatibilità in lettura.** `hub_settings.json` non deve finire in un backup per un valore che questa versione
+non conosce (`hub/settings/tolerant.rs`): una lingua sconosciuta vale `it`, un tool sconosciuto (l'enum crescerà
+con `open_plan_task`, `decide_proposal`, `relay_answer`, `ask_user`) si salta, una forma di `channels`
+sconosciuta vale "nessun canale" (mai più permessi di quelli scelti), un segretario illeggibile si salta; il resto
+del file resta. Ogni elemento saltato lascia un avviso nel log. Al salvataggio successivo i valori saltati non
+vengono riscritti.
+
+### API key
+
+La API key del provider sta nel **portachiavi del sistema operativo** (Credential Manager su Windows, Keychain su
+macOS, Secret Service su Linux), servizio `cli-companion`, conto `hub-provider-api-key`, con il crate `keyring`
+(4.x, sola feature `v1`, MIT/Apache-2.0). L'accesso passa dal trait `secrets::SecretStore` (`OsKeyring` in
+produzione, `MemorySecrets` nei test): un altro backend non tocca l'HUB.
+
+- Non finisce mai nei file JSON, nel log né nei DTO: il frontend riceve solo `api_key_set: bool` (`HubSettingsView`)
+  e la chiave si legge solo nel backend (`ApiKey::read`, per il client del modello). Gli errori del portachiavi
+  descrivono il guasto senza citarne il contenuto.
+- Validazione: trim, 1..1024 caratteri ASCII visibili (finisce in un'intestazione HTTP).
+- La presenza si chiede al portachiavi la prima volta e poi resta in memoria, aggiornata da `hub_set_api_key` e
+  `hub_clear_api_key`. Se il portachiavi non risponde, `api_key_set` vale `false` (errore nel log) e le
+  impostazioni restano leggibili.
 
 ## Modello dati
 
@@ -142,14 +200,26 @@ Validano gli argomenti per primi e fanno l'I/O in `crate::blocking`. Wrapper nel
 
 | Comando | Argomenti | Ritorna |
 |---|---|---|
-| `hub_get_settings` | — | `HubSettings` |
-| `hub_set_enabled` | `enabled` | `HubSettings` salvate (come `bots`: niente evento); spegnere butta le istantanee delle board |
+| `hub_get_settings` | — | `HubSettingsView` (`HubSettings` + `api_key_set`) |
+| `hub_set_enabled` | `enabled` | `HubSettingsView` salvate (come `bots`: niente evento); spegnere butta le istantanee delle board |
+| `hub_set_provider` | `base_url`, `model` | `HubSettingsView` |
+| `hub_set_api_key` | `key` | `HubSettingsView` (la chiave va nel portachiavi) |
+| `hub_clear_api_key` | — | `HubSettingsView`; nessun errore se non c'era |
+| `hub_set_language` | `language` | `HubSettingsView` |
+| `hub_set_session` | `idle_minutes`, `max_steps` | `HubSettingsView` |
+| `hub_create_secretary` | `name`, `system_prompt`, `tools`, `channels` (`null` = tutti) | `HubSettingsView`; nuovo segretario in fondo, senza immagine |
+| `hub_update_secretary` | `name`, `new_name`, `system_prompt`, `tools`, `channels` | `HubSettingsView`; sostituisce i campi, l'immagine resta; rinomina rifiutata se `new_name` è di un altro segretario |
+| `hub_delete_secretary` | `name` | `HubSettingsView` |
+| `hub_set_secretary_image` | `name`, `png`, `color` | `HubSettingsView` |
+| `hub_remove_secretary_image` | `name` | `HubSettingsView` |
 | `hub_list_threads` | `channel` | `HubThreadSummary[]`, dal più recente |
 | `hub_get_thread` | `channel`, `thread_id` | `HubThread` con i messaggi |
 | `hub_create_thread` | `channel`, `title` | `HubThread` (thread libero dell'utente) |
 | `hub_send` | `channel`, `thread_id`, `body`, `reply_to?` | `HubMessage` dell'utente |
 
-Con l'HUB spento `hub_create_thread` e `hub_send` sono rifiutati. Un canale di un workspace che non esiste
+Con l'HUB spento `hub_create_thread` e `hub_send` sono rifiutati; i comandi delle impostazioni funzionano sempre.
+Gli errori di validazione sono in italiano (li legge l'utente) e un comando che fallisce non cambia nulla; un
+segretario che non c'è risponde «segretario non trovato». Un canale di un workspace che non esiste
 risponde «canale non trovato: il workspace non esiste più».
 
 ## Evento

@@ -12,6 +12,7 @@ mod net;
 mod platform;
 mod pty;
 pub mod schedule;
+mod secrets;
 mod session;
 mod startup;
 pub mod store;
@@ -55,6 +56,7 @@ pub fn run() {
         .manage(launch_settings::new_store())
         .manage(bots::new_store())
         .manage(hub::new_settings_store())
+        .manage(hub::ApiKey::new(Box::new(secrets::OsKeyring)))
         .manage(hub::HubState::default())
         .manage(hub::HubFeed::default())
         .manage(AutomationState::default())
@@ -106,8 +108,18 @@ pub fn run() {
             bots::reset_bot_names,
             bots::set_bot_image,
             bots::remove_bot_image,
-            hub::settings::hub_get_settings,
-            hub::settings::hub_set_enabled,
+            hub::settings::commands::hub_get_settings,
+            hub::settings::commands::hub_set_enabled,
+            hub::settings::commands::hub_set_provider,
+            hub::settings::commands::hub_set_api_key,
+            hub::settings::commands::hub_clear_api_key,
+            hub::settings::commands::hub_set_language,
+            hub::settings::commands::hub_set_session,
+            hub::settings::commands::hub_create_secretary,
+            hub::settings::commands::hub_update_secretary,
+            hub::settings::commands::hub_delete_secretary,
+            hub::settings::commands::hub_set_secretary_image,
+            hub::settings::commands::hub_remove_secretary_image,
             hub::commands::hub_list_threads,
             hub::commands::hub_get_thread,
             hub::commands::hub_create_thread,
