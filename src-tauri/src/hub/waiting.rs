@@ -16,6 +16,17 @@ pub fn waiting_user(messages: &[Message]) -> bool {
     last.values().any(|kind| kind.waits_for_user())
 }
 
+/// L'ultimo evento del soggetto aspetta ancora l'utente (per esempio una
+/// proposta non ancora decisa).
+pub fn subject_waiting(messages: &[Message], subject: Subject<'_>) -> bool {
+    messages
+        .iter()
+        .rev()
+        .filter_map(|m| m.event.as_ref())
+        .find(|e| e.subject() == Some(subject))
+        .is_some_and(|e| e.kind.waits_for_user())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -76,6 +87,18 @@ mod tests {
         let other_still_failed =
             [event(HubEventKind::TaskFailed, Some("a"), None), event(HubEventKind::TaskDone, Some("b"), None)];
         assert!(waiting_user(&other_still_failed));
+    }
+
+    #[test]
+    fn a_single_subject_waits_until_its_last_event_says_otherwise() {
+        let p1 = Subject::Proposal("p-1");
+        let pending = [event(HubEventKind::ProposalCreated, Some("plan"), Some("p-1"))];
+        assert!(subject_waiting(&pending, p1));
+        assert!(!subject_waiting(&pending, Subject::Proposal("p-2")));
+        assert!(!subject_waiting(&pending, Subject::Task("plan")), "il task_id di una proposta non e' il soggetto");
+        let decided = [pending[0].clone(), event(HubEventKind::ProposalRejected, None, Some("p-1"))];
+        assert!(!subject_waiting(&decided, p1));
+        assert!(!subject_waiting(&[], p1));
     }
 
     #[test]

@@ -17,9 +17,10 @@ pub const SYSTEM_PROMPT_MAX: usize = 8000;
 pub const CHANNELS_MAX: usize = 200;
 
 /// Un tool del motore che il segretario puo' usare: il limite vero di cosa fa
-/// sta qui, non nel prompt. L'enum crescera' (`open_plan_task`,
-/// `decide_proposal`, `relay_answer`, `ask_user`): un tool sconosciuto letto
-/// dal file si salta (`tolerant::known_items`) senza perdere il resto.
+/// sta qui, non nel prompt. L'enum crescera' (`relay_answer`, `ask_user`): un
+/// tool sconosciuto letto dal file si salta (`tolerant::known_items`) senza
+/// perdere il resto. Un tool nuovo non si aggiunge da solo ai segretari
+/// esistenti: lo sceglie l'utente.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, rename = "HubSecretaryTool")]
@@ -30,11 +31,16 @@ pub enum SecretaryTool {
     ThreadRead,
     /// Scrive un messaggio nel thread.
     PostMessage,
+    /// Apre un task di pianificazione nel workspace del canale, collegato al thread.
+    OpenPlanTask,
+    /// Accetta o scarta la proposta a cui l'utente sta rispondendo.
+    DecideProposal,
 }
 
 impl SecretaryTool {
     /// Tutti i tool, nell'ordine canonico in cui si salvano.
-    pub const ALL: [SecretaryTool; 3] = [Self::BoardStatus, Self::ThreadRead, Self::PostMessage];
+    pub const ALL: [SecretaryTool; 5] =
+        [Self::BoardStatus, Self::ThreadRead, Self::PostMessage, Self::OpenPlanTask, Self::DecideProposal];
 
     /// Nome sul filo e su disco.
     pub fn code(self) -> &'static str {
@@ -42,6 +48,8 @@ impl SecretaryTool {
             Self::BoardStatus => "board_status",
             Self::ThreadRead => "thread_read",
             Self::PostMessage => "post_message",
+            Self::OpenPlanTask => "open_plan_task",
+            Self::DecideProposal => "decide_proposal",
         }
     }
 
@@ -260,6 +268,15 @@ mod tests {
     }
 
     #[test]
+    fn the_planning_tools_are_chosen_like_the_others() {
+        let d = draft("m", "", &["decide_proposal", "open_plan_task"], None).unwrap();
+        assert_eq!(d.tools, vec![SecretaryTool::OpenPlanTask, SecretaryTool::DecideProposal]);
+        // Un segretario salvato prima dei nuovi tool non li riceve da solo.
+        let s: Secretary = serde_json::from_str(r#"{"name":"mario","tools":["board_status"]}"#).unwrap();
+        assert!(!s.may_use(SecretaryTool::OpenPlanTask) && !s.may_use(SecretaryTool::DecideProposal));
+    }
+
+    #[test]
     fn tools_are_deduplicated_in_canonical_order() {
         let d = draft("m", "", &["post_message", "board_status", "post_message"], None).unwrap();
         assert_eq!(d.tools, vec![SecretaryTool::BoardStatus, SecretaryTool::PostMessage]);
@@ -270,7 +287,7 @@ mod tests {
 
     #[test]
     fn unknown_tools_are_rejected_from_the_frontend() {
-        assert!(draft("m", "", &["open_plan_task"], None).is_err());
+        assert!(draft("m", "", &["relay_answer"], None).is_err());
         assert!(draft("m", "", &["Board_Status"], None).is_err());
     }
 

@@ -2,13 +2,23 @@
 //! workspace, raggruppati per obiettivo:
 //!
 //! - una proposta apre un thread (titolo dal primo task, "+N"), accettata ne
-//!   collega i task, scartata lo chiude;
+//!   collega i task, scartata lo chiude. La proposta di un pianificatore il cui
+//!   task `plan` e' gia' in un thread (aperto da un segretario) va in quel
+//!   thread, non in uno nuovo;
 //! - un task creato a mano apre il suo thread;
 //! - gli eventi di un task vanno nel thread a cui e' collegato; se non ce n'e'
 //!   uno (task gia' esistente all'accensione dell'HUB) lo si crea al primo
 //!   evento, tranne per un task eliminato (nessun thread solo per dirlo);
 //! - un thread i cui task sono tutti conclusi (`done` o spariti) si chiude
 //!   con un messaggio finale; un evento successivo di un suo task lo riapre.
+//!   I task `plan` non bastano a chiuderlo e una proposta pendente lo tiene aperto.
+//!
+//! Nei thread con un titolare (`Thread::owner`) alcuni eventi lo svegliano
+//! (`EventWake`): proposta pronta, pianificazione conclusa senza proposta,
+//! task fallito o in attenzione, tutti i task conclusi. Avvio e completamento
+//! di un singolo task restano solo messaggi: un risveglio costa una chiamata al
+//! modello. Al massimo un risveglio per thread a ogni passo, sull'ultimo
+//! evento che lo chiede (il contesto del risveglio porta anche i precedenti).
 //!
 //! Tempo e id li passa il chiamante. Un evento che non si puo' riportare
 //! finisce nel log e non ferma gli altri.
@@ -16,14 +26,30 @@
 use super::diff::{BoardEvent, TaskChange};
 use super::snapshot::{BoardSnapshot, ProposalSnap, TaskSnap};
 use super::texts::{self, thread_title, PROPOSAL_REJECTED, THREAD_CONCLUDED};
-use crate::board::TaskStatus;
+use crate::board::{TaskKind, TaskStatus};
 use crate::hub::channel::Channel;
-use crate::hub::model::{Author, HubEvent, HubEventKind, ThreadState, ThreadSummary};
+use crate::hub::model::{Author, HubEvent, HubEventKind, Thread, ThreadState, ThreadSummary};
 use crate::hub::state::{MESSAGE_ID_PREFIX, THREAD_ID_PREFIX};
 use crate::hub::threads::{summary, ChannelThreads, NewMessage};
 
-/// Applica `events` (ricavati dalla board `board`) ai thread del canale e
-/// ritorna i riassunti dei thread toccati, nell'ordine del primo tocco.
+/// Un segretario titolare da svegliare per un evento della board: il suo
+/// turno parte dal messaggio `trigger` del thread.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventWake {
+    pub thread_id: String,
+    pub secretary: String,
+    pub trigger: String,
+}
+
+/// L'esito di un passo: i thread toccati (nell'ordine del primo tocco) e i
+/// titolari da svegliare.
+#[derive(Debug, Default)]
+pub struct Routed {
+    pub touched: Vec<ThreadSummary>,
+    pub wakes: Vec<EventWake>,
+}
+
+/// Applica `events` (ricavati dalla board `board`) ai thread del canale.
 pub fn route(
     list: &mut ChannelThreads,
     channel: &Channel,
@@ -31,15 +57,16 @@ pub fn route(
     events: &[BoardEvent],
     now: i64,
     next_id: &mut dyn FnMut(&'static str) -> String,
-) -> Vec<ThreadSummary> {
-    let mut router = Router { list, channel, board, now, next_id, touched: Vec::new() };
+) -> Routed {
+    let mut router = Router { list, channel, board, now, next_id, touched: Vec::new(), wakes: Vec::new() };
     for event in events {
         if let Err(e) = router.apply(event) {
             log::warn!("hub {}: evento della board su {} non riportato: {e}", board.workspace_id, subject(event));
         }
     }
     router.close_concluded();
-    router.touched.iter().filter_map(|id| router.list.thread(id)).map(summary).collect()
+    let touched = router.touched.iter().filter_map(|id| router.list.thread(id)).map(summary).collect();
+    Routed { touched, wakes: router.wakes }
 }
 
 struct Router<'a> {
@@ -50,6 +77,8 @@ struct Router<'a> {
     next_id: &'a mut dyn FnMut(&'static str) -> String,
     /// Thread modificati, senza duplicati.
     touched: Vec<String>,
+    /// Al massimo uno per thread.
+    wakes: Vec<EventWake>,
 }
 
 impl Router<'_> {
@@ -65,12 +94,31 @@ impl Router<'_> {
     fn proposal_created(&mut self, p: &ProposalSnap) -> Result<(), String> {
         let thread = match self.thread_of_proposal(&p.id) {
             Some(id) => id,
-            None => self.new_thread(thread_title(p.tasks.iter().map(|t| t.title.as_str())), |list, id, now| {
-                list.link_proposal(id, &p.id, now).map(drop)
-            })?,
+            None => match self.plan_thread(p) {
+                Some(id) => {
+                    self.list.link_proposal(&id, &p.id, self.now)?;
+                    id
+                }
+                None => self.new_thread(thread_title(p.tasks.iter().map(|t| t.title.as_str())), |list, id, now| {
+                    list.link_proposal(id, &p.id, now).map(drop)
+                })?,
+            },
         };
-        let event = self.proposal_event(HubEventKind::ProposalCreated, &p.id);
-        self.post(&thread, texts::proposal_created(p), Some(event))
+        let event =
+            HubEvent { task_id: p.source_task.clone(), ..self.proposal_event(HubEventKind::ProposalCreated, &p.id) };
+        let message = self.post(&thread, texts::proposal_created(p), Some(event))?;
+        self.wake_owner(&thread, message);
+        Ok(())
+    }
+
+    /// Il thread del task `plan` da cui viene la proposta, se ne ha uno: la
+    /// proposta del pianificatore torna nel thread che ha chiesto il piano.
+    fn plan_thread(&self, p: &ProposalSnap) -> Option<String> {
+        let source = p.source_task.as_deref()?;
+        if self.board.task(source)?.kind != TaskKind::Plan {
+            return None;
+        }
+        self.thread_of_task(source)
     }
 
     /// Una proposta che non ha un thread (pendente gia' prima dell'accensione)
@@ -92,7 +140,7 @@ impl Router<'_> {
         self.list.link_tasks(&thread, &free, self.now)?;
         self.reopen(&thread)?;
         let event = self.proposal_event(HubEventKind::ProposalAccepted, proposal_id);
-        self.post(&thread, texts::proposal_accepted(task_ids.len()), Some(event))
+        self.post(&thread, texts::proposal_accepted(task_ids.len()), Some(event)).map(drop)
     }
 
     fn proposal_rejected(&mut self, proposal_id: &str) -> Result<(), String> {
@@ -117,28 +165,72 @@ impl Router<'_> {
         if change != TaskChange::Deleted {
             self.reopen(&thread)?;
         }
+        let unanswered_plan =
+            change == TaskChange::Done && task.kind == TaskKind::Plan && !self.proposed(&thread, task);
+        let body = if unanswered_plan { texts::plan_without_proposal(task) } else { texts::task(change, task) };
         let event = self.task_hub_event(change, task);
-        self.post(&thread, texts::task(change, task), Some(event))
+        let message = self.post(&thread, body, Some(event))?;
+        if unanswered_plan || matches!(change, TaskChange::Failed | TaskChange::Attention) {
+            self.wake_owner(&thread, message);
+        }
+        Ok(())
+    }
+
+    /// Il task `plan` ha fatto una proposta: e' nella board o e' gia' stata
+    /// riportata nel thread (decisa prima della fine del piano).
+    fn proposed(&self, thread: &str, plan: &TaskSnap) -> bool {
+        let source = Some(plan.id.as_str());
+        self.board.proposals.iter().any(|p| p.source_task.as_deref() == source)
+            || self.list.thread(thread).is_some_and(|t| {
+                t.messages
+                    .iter()
+                    .filter_map(|m| m.event.as_ref())
+                    .any(|e| e.kind == HubEventKind::ProposalCreated && e.task_id.as_deref() == source)
+            })
     }
 
     /// Chiude, con un messaggio finale, i thread toccati e aperti i cui task
-    /// sono tutti conclusi: `done` o spariti dalla board (eliminati o archiviati).
+    /// sono tutti conclusi (vedi `concluded`); il titolare si sveglia per
+    /// riassumere.
     fn close_concluded(&mut self) {
         for id in self.touched.clone() {
-            let concluded = self.list.thread(&id).is_some_and(|t| {
-                t.state == ThreadState::Open
-                    && !t.task_ids.is_empty()
-                    && t.task_ids.iter().all(|task| self.board.task(task).is_none_or(|s| s.status == TaskStatus::Done))
-            });
-            if !concluded {
+            if !self.list.thread(&id).is_some_and(|t| self.concluded(t)) {
                 continue;
             }
-            let closed = self
-                .post(&id, THREAD_CONCLUDED.to_string(), None)
-                .and_then(|()| self.list.set_state(&id, ThreadState::Closed, self.now).map(|_| ()));
-            if let Err(e) = closed {
-                log::warn!("hub {}: thread {id} non chiuso: {e}", self.board.workspace_id);
+            let closed = self.post(&id, THREAD_CONCLUDED.to_string(), None).and_then(|message| {
+                self.list.set_state(&id, ThreadState::Closed, self.now)?;
+                Ok(message)
+            });
+            match closed {
+                Ok(message) => self.wake_owner(&id, message),
+                Err(e) => log::warn!("hub {}: thread {id} non chiuso: {e}", self.board.workspace_id),
             }
+        }
+    }
+
+    /// Thread aperto, senza una proposta pendente, con almeno un task che non
+    /// e' un `plan` (un piano da solo non e' un obiettivo concluso: aspetta la
+    /// proposta o le risposte) e tutti i suoi task nella board `done`. Un task
+    /// sparito dalla board (eliminato o archiviato) conta come concluso.
+    fn concluded(&self, thread: &Thread) -> bool {
+        let pending = thread.proposal_id.as_deref().is_some_and(|p| self.board.proposals.iter().any(|q| q.id == p));
+        let tasks: Vec<Option<&TaskSnap>> = thread.task_ids.iter().map(|id| self.board.task(id)).collect();
+        thread.state == ThreadState::Open
+            && !pending
+            && tasks.iter().any(|t| t.is_none_or(|t| t.kind != TaskKind::Plan))
+            && tasks.iter().all(|t| t.is_none_or(|t| t.status == TaskStatus::Done))
+    }
+
+    /// Il titolare del thread, se ne ha uno, si sveglia dal messaggio
+    /// `trigger`; un risveglio gia' chiesto nello stesso passo parte
+    /// dall'ultimo evento.
+    fn wake_owner(&mut self, thread: &str, trigger: String) {
+        let Some(secretary) = self.list.thread(thread).and_then(|t| t.owner.clone()) else {
+            return;
+        };
+        match self.wakes.iter_mut().find(|w| w.thread_id == thread) {
+            Some(wake) => (wake.secretary, wake.trigger) = (secretary, trigger),
+            None => self.wakes.push(EventWake { thread_id: thread.to_string(), secretary, trigger }),
         }
     }
 
@@ -171,12 +263,13 @@ impl Router<'_> {
         self.list.set_state(thread, ThreadState::Open, self.now).map(|_| ())
     }
 
-    fn post(&mut self, thread: &str, body: String, event: Option<HubEvent>) -> Result<(), String> {
-        let new =
-            NewMessage { id: (self.next_id)(MESSAGE_ID_PREFIX), author: Author::System, body, reply_to: None, event };
+    /// Scrive il messaggio di sistema e ritorna il suo id.
+    fn post(&mut self, thread: &str, body: String, event: Option<HubEvent>) -> Result<String, String> {
+        let id = (self.next_id)(MESSAGE_ID_PREFIX);
+        let new = NewMessage { id: id.clone(), author: Author::System, body, reply_to: None, event };
         self.list.add_message(thread, new, self.now)?;
         self.touch(thread);
-        Ok(())
+        Ok(id)
     }
 
     fn touch(&mut self, thread: &str) {

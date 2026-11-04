@@ -19,3 +19,4 @@ mod snapshot;
 mod texts;
 
 pub use feed::{BoardSource, HubFeed};
+pub use route::EventWake;

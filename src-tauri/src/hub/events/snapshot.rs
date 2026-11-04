@@ -36,6 +36,9 @@ pub struct ProposedTask {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProposalSnap {
     pub id: String,
+    /// Il task che l'ha proposta (il `plan` del pianificatore o la review del
+    /// revisore); assente per le proposte dell'Intake.
+    pub source_task: Option<String>,
     pub tasks: Vec<ProposedTask>,
 }
 
@@ -82,6 +85,7 @@ fn task_snap(v: &TaskView) -> TaskSnap {
 fn proposal_snap(p: &Proposal) -> ProposalSnap {
     ProposalSnap {
         id: p.id.clone(),
+        source_task: p.source_task.clone(),
         tasks: p
             .tasks
             .iter()
@@ -127,6 +131,7 @@ mod tests {
             snap.proposals,
             [ProposalSnap {
                 id: "p-1".to_string(),
+                source_task: None,
                 tasks: vec![ProposedTask { id: "a".to_string(), title: "Nuovo".to_string() }]
             }]
         );

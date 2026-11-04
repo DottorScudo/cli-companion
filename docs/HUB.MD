@@ -6,7 +6,9 @@ l'interruttore globale, il modello dati, la persistenza, i comandi Tauri, l'even
 **eventi della board** nei thread (vedi "Eventi della board") e la **configurazione dei segretari** (provider del
 modello, lingua, sessioni, elenco dei segretari, API key: vedi "Segretari e provider"); nel frontend la vista (vedi
 "Interfaccia"), le **impostazioni dei segretari** e la loro presenza nella conversazione (menzioni, "sta scrivendo",
-chi è sveglio) e il **motore dei segretari**, che li fa rispondere nei thread (vedi "Motore dei segretari").
+chi è sveglio) e il **motore dei segretari**, che li fa rispondere nei thread (vedi "Motore dei segretari"), aprire
+task di pianificazione e decidere le proposte quando l'utente risponde al loro evento (vedi "Pianificazione dal
+thread").
 
 Il codice sta in `src-tauri/src/hub.rs` e `src-tauri/src/hub/`. Le dipendenze e il posto del modulo nella mappa
 sono in [DESIGN.MD](DESIGN.MD), "`hub/`".
@@ -54,7 +56,7 @@ si possono salvare anche uno alla volta.
 | `name` | handle della menzione: trim e minuscolo, poi 1..24 caratteri tra `a-z`, `0-9` e `-`, senza `-` iniziale o finale; unico |
 | `image` | facoltativa, `{ png, color }` come le immagini dei bot (`bots::validate_image`: PNG base64, al massimo 64×64 pixel e 32 KB, colore `#rrggbb`) |
 | `system_prompt` | testo libero letto dal modello (di solito in inglese), al massimo 8000 caratteri, a capo e tabulazioni ammessi. Vuoto = segretario **non configurato**: esiste ma il motore non lo fa rispondere (`Secretary::is_configured`) |
-| `tools` | tool del motore che può usare (`HubSecretaryTool`): `board_status`, `thread_read`, `post_message`; senza ripetizioni, nell'ordine canonico. Il limite vero di cosa fa sta qui, non nel prompt |
+| `tools` | tool del motore che può usare (`HubSecretaryTool`): `board_status`, `thread_read`, `post_message`, `open_plan_task`, `decide_proposal`; senza ripetizioni, nell'ordine canonico. Il limite vero di cosa fa sta qui, non nel prompt. Un tool nuovo non si aggiunge da solo ai segretari esistenti: lo sceglie l'utente |
 | `channels` | `{ "mode": "all" }` (Generale e ogni workspace, anche quelli futuri) oppure `{ "mode": "only", "channels": [...] }` con `general` o id di workspace esistenti (`hub/channel.rs`), da 1 a 200, senza ripetizioni |
 
 **Nomi riservati.** I nomi dei segretari non devono mai diventare nomi delle sessioni dei terminali (`@mario` non
@@ -64,7 +66,7 @@ sessione (`pickBotName` in `src/lib/bots.ts`; la pool di `bots.rs` e `bots.json`
 
 **Compatibilità in lettura.** `hub_settings.json` non deve finire in un backup per un valore che questa versione
 non conosce (`hub/settings/tolerant.rs`): una lingua sconosciuta vale `it`, un tool sconosciuto (l'enum crescerà
-con `open_plan_task`, `decide_proposal`, `relay_answer`, `ask_user`) si salta, una forma di `channels`
+con `relay_answer`, `ask_user`) si salta, una forma di `channels`
 sconosciuta vale "nessun canale" (mai più permessi di quelli scelti), un segretario illeggibile si salta; il resto
 del file resta. Ogni elemento saltato lascia un avviso nel log. Al salvataggio successivo i valori saltati non
 vengono riscritti.
@@ -101,7 +103,8 @@ al massimo 128 caratteri). In Rust è `enum Channel { General, Workspace(String)
 | `title` | 1..120 caratteri, una riga |
 | `state` | `open` \| `closed` |
 | `task_ids` | task collegati (un task appartiene a un solo thread), al massimo 200 |
-| `proposal_id` | proposta collegata (una proposta appartiene a un solo thread) |
+| `proposal_id` | proposta collegata (una proposta appartiene a un solo thread); un thread di pianificazione tiene l'ultima |
+| `owner` | segretario **titolare** del thread: quello che vi ha aperto l'ultimo task di pianificazione (`open_plan_task`), `null` altrimenti. Alcuni eventi della board lo svegliano (vedi "Risvegli da evento"). Resta finché un altro segretario apre una pianificazione nel thread; non va confuso con il titolare della *sessione* ("Menzioni e risveglio"), che dura quanto la sessione. Facoltativo nei file scritti prima (`#[serde(default)]`) |
 | `created_at`, `updated_at` | millisecondi Unix |
 | `summary` | riassunto del thread (al massimo 10 righe, 1500 caratteri), scritto da un segretario alla chiusura della sua sessione; `null` finché nessuna sessione si è chiusa. Aggiornarlo non cambia `updated_at`. Facoltativo nei file scritti prima (`#[serde(default)]`) |
 | `messages` | in ordine di arrivo |
@@ -122,6 +125,8 @@ resta uno solo. L'elenco (`hub_list_threads`) restituisce i riassunti, senza i m
   `task_attention`, `task_deleted`, `proposal_created`, `proposal_accepted`, `proposal_rejected`), `workspace`
   (id del workspace della board), `task_id`, `proposal_id`, `status` (stato del task nella board), `summary`
   (riassunto del report), `verdict` (`passed` | `issues`, esito di una review), `note` (nota dell'app sul task).
+  In `proposal_created` `task_id` è il task che ha fatto la proposta (il `plan` del pianificatore o la review),
+  se c'è: il soggetto resta la proposta.
   Ogni evento deve nominare il suo soggetto: `task_id` per gli eventi dei task, `proposal_id` per quelli delle
   proposte. `workspace` deve essere l'id di un workspace (non `general`); `summary` e `note` al massimo 8000
   caratteri. Nuovi tipi e campi si aggiungono come varianti e campi facoltativi (compatibile in lettura).
@@ -191,6 +196,7 @@ id: tempo e id li passa il chiamante. La usano i comandi e gli eventi della boar
 | Chiudere / riaprire | `set_state(thread_id, ThreadState::Closed \| Open, now)` |
 | Collegare task | `link_tasks(thread_id, task_ids, now)` (tutto o niente) |
 | Collegare una proposta | `link_proposal(thread_id, proposal_id, now)` |
+| Rendere titolare un segretario | `set_owner(thread_id, name, now)` |
 | Thread di un task / di una proposta | `thread_of_task(task_id)`, `thread_of_proposal(proposal_id)` |
 | Elenco | `summaries()` |
 
@@ -445,7 +451,10 @@ eliminato.
 Sui thread del canale del workspace, con tempo e id passati dal chiamante:
 
 - **proposta comparsa** → nuovo thread intitolato col primo task (`"<titolo> +N"` se più d'uno), `proposal_id`
-  impostato, messaggio con l'elenco dei task (i primi 20, poi "… e altri N");
+  impostato, messaggio con l'elenco dei task (i primi 20, poi "… e altri N"). Fa eccezione la proposta di un
+  **pianificatore** (`source_task` = un task `plan`) il cui piano è già in un thread (aperto da un segretario con
+  `open_plan_task`): va in **quel** thread, che riceve il `proposal_id`. Le proposte dell'Intake e dei revisori
+  continuano ad aprire un thread proprio;
 - **proposta accettata** → stesso thread (creato ora se la proposta era pendente già prima dell'accensione), task
   collegati, «Proposta accettata: N task in coda.»; **scartata** → «Proposta scartata.» e thread chiuso (nessun
   thread se non ne aveva uno);
@@ -453,8 +462,15 @@ Sui thread del canale del workspace, con tempo e id passati dal chiamante:
 - **eventi di un task** → il thread a cui è collegato; se non ce n'è uno (task già esistente all'accensione) lo
   si crea al primo evento. Un task eliminato senza thread non ne crea uno;
 - un evento di un task (non l'eliminazione) **riapre** il suo thread se era chiuso;
+- un task `plan` concluso senza aver fatto una proposta (né sulla board né già riportata nel thread) scrive
+  «Pianificazione conclusa senza proposta: <titolo>» con il riassunto, che contiene le domande del pianificatore;
 - alla fine del passo, un thread toccato e aperto i cui task collegati sono tutti `done` o spariti dalla board si
-  **chiude** con «Tutti i task sono conclusi: thread chiuso.» (messaggio di sistema senza `event`).
+  **chiude** con «Tutti i task sono conclusi: thread chiuso.» (messaggio di sistema senza `event`). Serve almeno un
+  task che non sia un `plan` (un piano da solo aspetta la proposta o le risposte) e nessuna proposta del thread
+  ancora pendente.
+
+Nei thread con un **titolare** l'instradamento restituisce anche i risvegli (`EventWake`: thread, segretario,
+messaggio da cui parte il turno), vedi "Risvegli da evento".
 
 Testi (`events/texts.rs`): «Task creato: <titolo>», «Task avviato: <titolo>», «Task completato: <titolo>» (con il
 riassunto sulla riga dopo), «Revisione completata: <titolo> (esito: superata | problemi trovati)», «Task fallito:
@@ -483,16 +499,18 @@ una skill di Claude Code o OpenCode e non passa da MCP. Codice in `hub/engine/`.
 | `output.rs` | board e thread in JSON compatto per il modello |
 | `context.rs` | system prompt, messaggio di apertura di un turno, richiesta e pulizia del riassunto |
 | `mentions.rs` | le menzioni `@nome` |
+| `planning.rs` | `open_plan_task` (testo del task `plan`, collegamento, titolare) e `decide_proposal` (a quale proposta si lega e la decisione), generici sulla board |
 | `sessions.rs` | sessioni, titolare, code dei thread, scadenze (puro, tempo passato dal chiamante) |
 | `turn.rs` | il ciclo di tool calling, la compattazione della conversazione, il riassunto |
 | `texts.rs` | i messaggi di sistema in italiano |
 | `runtime.rs` | lo stato Tauri `SecretaryEngine`, gli esecutori delle code e lo schedulatore delle scadenze |
 | `jobs.rs` | i lavori di una coda (turno, riassunto) sull'app |
-| `host.rs` | gli effetti reali: thread, board, portachiavi |
+| `host.rs` | gli effetti reali: thread, board (viste e `BoardActions`), portachiavi |
 | `status.rs` | `HubSecretaryStatus`, l'evento `hub-secretary-status` e il comando `hub_secretary_status` |
 
-La logica (menzioni, sessioni, ciclo, contesto, tool) è pura o generica sui trait `ChatModel` e `TurnHost`: i test
-usano un modello finto (`engine/fake.rs`) che risponde con sequenze scritte a mano e un host finto, senza rete.
+La logica (menzioni, sessioni, ciclo, contesto, tool) è pura o generica sui trait `ChatModel`, `TurnHost` e
+`ProposalBoard`: i test usano un modello finto (`engine/fake.rs`) che risponde con sequenze scritte a mano, un host
+finto e una board finta (`engine/fixtures.rs`), senza rete.
 
 ### Menzioni e risveglio
 
@@ -500,7 +518,7 @@ usano un modello finto (`engine/fake.rs`) che risponde con sequenze scritte a ma
 (`Sessions::route`, puro):
 
 - solo i messaggi dell'utente svegliano qualcuno: quelli dei bot e di sistema mai (niente catene bot-bot); gli
-  eventi della board non svegliano ancora nessuno;
+  eventi della board svegliano solo il titolare del thread, con le regole di "Risvegli da evento";
 - una menzione è `@` a inizio testo o dopo un carattere che non può stare in un nome (`posta@mario.it` non lo è),
   seguita dal nome (lettere, cifre, `-`; il `-` finale non conta; minuscolo); un token che prosegue con altri
   caratteri di parola (`@màrio`, `@mario_1`) non è una menzione. Una menzione di un nome che non è un segretario si
@@ -512,6 +530,34 @@ usano un modello finto (`engine/fake.rs`) che risponde con sequenze scritte a ma
 - un messaggio **senza menzioni di segretari** va al **titolare** del thread: il segretario con la sessione attiva
   più recente in quel thread (che sia ancora configurato e ammesso). Senza sessioni attive non sveglia nessuno e
   resta come nota. Un messaggio che menziona solo segretari non svegliabili non passa al titolare.
+
+### Risvegli da evento
+
+Un secondo motivo di risveglio, oltre al messaggio dell'utente. Nei thread con un **titolare** (`owner`, il segretario
+che vi ha aperto la pianificazione) questi eventi della board lo svegliano (`events/route.rs`):
+
+| Evento | Messaggio da cui parte il turno |
+|---|---|
+| proposta pronta | «Nuova proposta: …» |
+| pianificazione conclusa senza proposta | «Pianificazione conclusa senza proposta: …» (il riassunto porta le domande) |
+| task fallito | «Task fallito: …» |
+| task in attenzione | «Il task richiede attenzione: …» |
+| tutti i task del thread conclusi | «Tutti i task sono conclusi: thread chiuso.» |
+
+**Assunzione** (per contenere i costi: ogni risveglio è una chiamata al modello): avvio e completamento di un singolo
+task, accettazione e scarto di una proposta (li ha decisi l'utente) e eliminazione di un task restano solo messaggi a
+template. Al massimo un risveglio per thread a ogni passo della board, dall'ultimo evento che lo chiede (il contesto
+porta anche i precedenti). Un thread senza titolare riceve solo i messaggi.
+
+Dopo aver salvato i thread (e rilasciato il loro lock) il thread degli eventi chiama `SecretaryEngine::on_events`, che
+accoda il turno (`Sessions::route_event`) se il titolare è ancora configurato e ammesso nel canale; altrimenti nulla
+(riga nel log). Il turno parte con una **sessione nuova** che si apre dall'evento: il primo messaggio porta i dati del
+thread, gli ultimi messaggi, l'evento in JSON e le indicazioni per il titolare (in inglese: raccontare in poche righe;
+una proposta si presenta e si chiede all'utente di usare «Rispondi» sul suo messaggio; le domande del pianificatore si
+pongono all'utente; un fallimento si spiega; la fine si riassume). Se il titolare ha già una sessione aperta sul thread
+l'evento diventa il suo turno successivo, con la conversazione che ha già (due sessioni dello stesso segretario sullo
+stesso thread non esistono). Un turno svegliato da un evento **non può mai** usare `decide_proposal`. Da quel momento il
+titolare ha una sessione attiva: la risposta dell'utente senza menzione («sì, accetta») va a lui come sempre.
 
 ### Code dei thread
 
@@ -583,17 +629,70 @@ tool ha il suo esito).
 
 Schema JSON e descrizione (in inglese: li legge il modello) sono scritti in `tools.rs` accanto alla struttura degli
 argomenti in cui si validano (`#[serde(deny_unknown_fields)]`); un test verifica che le proprietà dello schema e i
-campi della struttura coincidano. Gli argomenti vuoti valgono `{}`. Nessun tool scrive sulla board in questa tappa.
+campi della struttura coincidano. Gli argomenti vuoti valgono `{}`. Solo `open_plan_task` e `decide_proposal`
+scrivono sulla board (vedi "Pianificazione dal thread").
 
 | Tool | Argomenti | Effetto |
 |---|---|---|
 | `board_status` | `workspace?` (id di un workspace) | la board del workspace del canale, o di quello indicato se il segretario ha quel canale: conteggi per stato, task con `id`, `title`, `status`, `attention`, `waiting_on`, riassunto del report (300 caratteri) e nota (200), proposte pendenti (`BoardView::to_list_json`); al massimo 40 task, poi `omitted_tasks`. Nel Generale senza `workspace` l'errore elenca i workspace leggibili |
 | `thread_read` | — | titolo, canale, stato, task e proposta collegati, riassunto e ultimi 20 messaggi (autore, ora UTC, testo tagliato a 1000 caratteri, dati dell'evento senza i campi vuoti), più `older_messages` |
 | `post_message` | `body` (1..8000 caratteri) | un messaggio intermedio del segretario nel thread; la risposta finale è comunque il testo del modello |
+| `open_plan_task` | `goal` (1..4000 caratteri, ripulito dai caratteri di controllo) | crea un task `plan` in coda nel workspace del canale, collegato al thread, e rende il segretario titolare; esito `{ task_id, title, status }`. Nel Generale è un errore per il modello: deve chiedere all'utente il progetto |
+| `decide_proposal` | `accept` (bool), **nessun id** | accetta o scarta la proposta dell'evento a cui risponde il messaggio dell'utente; esito `{ proposal, decision, tasks_queued }` |
 
 Il segretario non vede mai la API key né file del disco: i tool leggono solo board (dalla sorgente delle viste che
-`lib.rs` registra con `automation::board_views`) e thread. Nessun lock dei thread o della board è tenuto durante
+`lib.rs` registra con `automation::board_views`) e thread, e agiscono sulla board solo con le azioni che `lib.rs`
+registra (`hub::set_board_actions`). Nessun lock dei thread o della board è tenuto durante
 una chiamata al modello: i tool prendono i lock solo per leggere o scrivere, fuori dal main thread.
+
+### Pianificazione dal thread
+
+Il flusso della tappa 3: «@giorgio aggiungi X al progetto» → Giorgio chiama `open_plan_task` → un coding agent
+pianifica → la proposta torna nello stesso thread come evento e sveglia Giorgio, che la presenta → l'utente usa
+«Rispondi» sull'evento e scrive in libero («sì, accetta», «no, lascia stare») → Giorgio chiama `decide_proposal` →
+gli eventi dei task svegliano Giorgio, che riassume. Codice in `engine/planning.rs` (puro), `engine/host.rs` (effetti)
+e `hub/actions.rs`.
+
+**Azioni sulla board.** `hub` non dipende da `automation`: `lib.rs` registra `hub::BoardActions` (puntatori a
+funzione, come `BoardSource`) con `automation::queue_hub_plan_task` (crea il task `plan`) e
+`automation::decide_hub_proposal` (lo stesso `proposal_decide` dei pulsanti Accetta/Scarta del pannello Task, con la
+stessa validazione). Senza registrazione i tool rispondono al modello «The board cannot be changed right now.».
+
+**`open_plan_task { goal }`.**
+
+- Solo nel canale di un workspace; nel Generale l'errore chiede al modello di domandare all'utente il progetto.
+- Titolo: la prima riga del goal, al massimo 72 caratteri (la board ne ammette 80), «Plan» se non resta nulla.
+- Testo (inglese, lo legge il pianificatore, che non vede altro): la richiesta dell'utente **citata testualmente**
+  (il messaggio del turno; in un risveglio da evento, l'ultimo messaggio dell'utente), il goal, il riassunto del thread
+  e gli ultimi 10 messaggi prima del turno (autore e testo, 1000 caratteri ciascuno).
+- Modello del pianificatore: la fascia `strong` dell'agente del workspace, cioè `opus` con Claude Code (vedi
+  [BOARD.MD](BOARD.MD), "Task di pianificazione"): pianificare è il ragionamento più difficile e si fa una volta per
+  obiettivo, mentre il core non nomina modelli. Se l'agente non dichiara le fasce vale il modello dei worker del
+  workspace. Repository: la radice.
+- Il task si collega al thread (`link_tasks`) e il segretario ne diventa il **titolare** (`set_owner`). Creazione e
+  collegamento avvengono **sotto il lock dei thread**: il thread degli eventi della board, che aspetta lo stesso lock,
+  trova il task già collegato e ne scrive gli eventi («Task creato: …») in questo thread invece di aprirne uno. Il lock
+  dura la creazione (qualche comando git), mai una chiamata al modello; l'automazione non prende mai il lock dei
+  thread. Un thread con già 200 task non ne crea altri.
+- Le domande del pianificatore (pianificazione conclusa senza proposta) le pone il titolare svegliato dall'evento;
+  quando l'utente risponde, il segretario può aprire un **nuovo** `open_plan_task` con il goal originale, le domande
+  e le risposte (la descrizione del tool lo chiede; anche il testo del piano porta i messaggi recenti con le
+  domande). Non c'è ancora `ask_user` (tappa 4).
+
+**`decide_proposal { accept }`.** La decisione resta dell'utente e la garanzia è nel codice, non nel modello:
+
+- non prende un id: il motore, all'inizio del turno, lega il turno alla proposta dell'evento a cui il messaggio
+  dell'utente risponde (`planning::proposal_target`). Deve essere un turno svegliato da un **messaggio dell'utente**
+  con `reply_to` su un messaggio `proposal_created` dello stesso thread e dello stesso workspace, la cui proposta è
+  ancora in attesa nel thread (l'ultimo evento della proposta è `proposal_created`);
+- all'esecuzione la proposta deve essere ancora pendente sulla board; poi la decide con la validazione della board;
+- altrimenti (nessun `reply_to` sulla proposta, risveglio da evento, proposta già decisa) è rifiutato con un errore
+  per il modello, che deve dire all'utente di usare «Rispondi» sul messaggio della proposta;
+- il primo messaggio del turno lo ricorda al modello quando c'è una proposta da decidere, e la descrizione del tool
+  gli chiede di domandare invece di decidere se l'intenzione non è chiara;
+- il messaggio nel thread («Proposta accettata: N task in coda.» / «Proposta scartata.») lo scrivono gli eventi della
+  board, come per i pulsanti; accettata, i task si collegano al thread (la proposta è sua). I pulsanti del pannello
+  Task restano.
 
 ### Client del modello
 

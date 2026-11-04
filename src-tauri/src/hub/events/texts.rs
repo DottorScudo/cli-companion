@@ -52,6 +52,12 @@ pub fn task(change: TaskChange, task: &TaskSnap) -> String {
     }
 }
 
+/// Un task `plan` concluso senza proposta: il riassunto porta le domande del
+/// pianificatore per l'utente.
+pub fn plan_without_proposal(task: &TaskSnap) -> String {
+    with_detail(format!("Pianificazione conclusa senza proposta: {}", task.title), task.summary.as_deref())
+}
+
 fn done_headline(task: &TaskSnap) -> String {
     match (task.kind, task.verdict) {
         (TaskKind::Review, Some(verdict)) => {
@@ -109,5 +115,10 @@ mod tests {
         (t.kind, t.verdict) = (TaskKind::Review, Some(Verdict::Passed));
         assert_eq!(super::task(TaskChange::Done, &t), "Revisione completata: Task a (esito: superata)\nfatto");
         assert_eq!(super::task(TaskChange::Deleted, &t), "Task eliminato: Task a");
+        t.summary = Some("Questions for the user:\n1. Quale database?".to_string());
+        assert_eq!(
+            plan_without_proposal(&t),
+            "Pianificazione conclusa senza proposta: Task a\nQuestions for the user:\n1. Quale database?"
+        );
     }
 }

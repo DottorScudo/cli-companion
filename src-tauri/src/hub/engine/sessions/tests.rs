@@ -17,14 +17,18 @@ fn team() -> Vec<Secretary> {
 }
 
 fn reply(name: &str, trigger: &str) -> Job {
-    Job::Reply { secretary: name.into(), trigger: trigger.into() }
+    Job::Reply { secretary: name.into(), trigger: trigger.into(), cause: WakeCause::Message }
+}
+
+fn event_reply(name: &str, trigger: &str) -> Job {
+    Job::Reply { secretary: name.into(), trigger: trigger.into(), cause: WakeCause::BoardEvent }
 }
 
 /// Esegue un turno finto: prende il lavoro e chiude il turno con una
 /// conversazione di un messaggio.
 fn finish_job(s: &mut Sessions, now: i64) -> Option<Job> {
     let job = s.next_job(&key())?;
-    if let Job::Reply { secretary, trigger } = &job {
+    if let Job::Reply { secretary, trigger, .. } = &job {
         let mut turn = s.begin_turn(&key(), secretary).unwrap();
         turn.conversation.push(ChatMessage::User(trigger.clone()));
         turn.last_seen = Some(trigger.clone());
@@ -218,5 +222,39 @@ fn closing_without_summary_forgetting_and_clearing() {
     assert_eq!(s.awake(IDLE).len(), 1);
     assert_eq!(s.next_job(&key()), None);
     s.clear();
+    assert!(s.is_empty());
+}
+
+#[test]
+fn a_board_event_wakes_the_owner_with_a_new_session() {
+    let mut s = Sessions::default();
+    let r = s.route_event(&key(), "giorgio", "e1", &team(), IDLE, 5);
+    assert_eq!(r, Routing { woken: vec!["giorgio".into()], notices: vec![], start_lane: true });
+    assert_eq!(s.next_job(&key()), Some(event_reply("giorgio", "e1")));
+    let awake = s.awake(IDLE);
+    assert_eq!((awake.len(), awake[0].secretary.as_str(), awake[0].expires_at), (1, "giorgio", IDLE + 5));
+    // Ora e' il titolare: un messaggio senza menzione va a lui.
+    s.job_done(&key());
+    assert_eq!(s.route(&key(), &user("m2", "sì, accetta"), &team(), IDLE, 6).woken, ["giorgio"]);
+}
+
+#[test]
+fn a_board_event_reaches_the_open_session_of_the_owner() {
+    let mut s = Sessions::default();
+    s.route(&key(), &user("m1", "@giorgio aggiungi X"), &team(), IDLE, 0);
+    finish_job(&mut s, 1);
+    let r = s.route_event(&key(), "giorgio", "e1", &team(), IDLE, 2);
+    assert_eq!(r.woken, ["giorgio"]);
+    assert_eq!(s.open_count(), 1, "la stessa sessione, non una seconda");
+    assert_eq!(s.next_job(&key()), Some(event_reply("giorgio", "e1")));
+    assert!(s.begin_turn(&key(), "giorgio").unwrap().last_seen.is_some(), "conversazione della sessione");
+}
+
+#[test]
+fn a_board_event_does_not_wake_an_owner_who_can_no_longer_answer() {
+    let mut s = Sessions::default();
+    for name in ["anna", "luca", "nessuno"] {
+        assert_eq!(s.route_event(&key(), name, "e1", &team(), IDLE, 0), Routing::default(), "{name}");
+    }
     assert!(s.is_empty());
 }

@@ -81,6 +81,17 @@ impl ChannelThreads {
         Ok(thread)
     }
 
+    /// Rende il segretario `owner` titolare del thread (sostituisce il precedente).
+    pub fn set_owner(&mut self, thread_id: &str, owner: &str, now: i64) -> Result<&Thread, String> {
+        let owner = text::bot_name(owner)?;
+        let thread = self.thread_mut(thread_id)?;
+        if thread.owner.as_deref() != Some(owner.as_str()) {
+            thread.owner = Some(owner);
+            thread.updated_at = now;
+        }
+        Ok(thread)
+    }
+
     fn prune_closed(&mut self, keep: &str) {
         let mut closed: Vec<(i64, String)> = self
             .threads

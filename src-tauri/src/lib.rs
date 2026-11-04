@@ -59,6 +59,7 @@ pub fn run() {
         .manage(hub::ApiKey::new(Box::new(secrets::OsKeyring)))
         .manage(hub::HubState::default())
         .manage(hub::HubFeed::default())
+        .manage(hub::HubBoardActions::default())
         .manage(hub::SecretaryEngine::default())
         .manage(AutomationState::default())
         .setup(|app| {
@@ -75,6 +76,16 @@ pub fn run() {
             // `hub` non dipende da `automation`: la base delle board all'accensione
             // dell'HUB arriva da questa sorgente.
             hub::set_board_source(app.handle(), automation::board_views);
+            // Allo stesso modo le azioni dei segretari sulla board.
+            hub::set_board_actions(
+                app.handle(),
+                hub::BoardActions {
+                    create_plan: |app, ws_id, plan| {
+                        automation::queue_hub_plan_task(app, ws_id, &plan.title, &plan.task)
+                    },
+                    decide_proposal: automation::decide_hub_proposal,
+                },
+            );
             automation::skills::restore_in_background(automation::TauriHost(app.handle().clone()));
             startup::timed("ipc listener started", || {
                 ipc::start_listener(app.handle(), std::sync::Arc::new(automation::IpcBridge(app.handle().clone())))

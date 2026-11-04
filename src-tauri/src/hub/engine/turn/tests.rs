@@ -1,16 +1,33 @@
 use super::*;
 use crate::hub::engine::fake::{call, calls, text, FakeModel};
-use crate::hub::engine::fixtures::secretary;
+use crate::hub::engine::fixtures::{secretary, FakeBoard, WS};
+use crate::hub::engine::planning::{self, ProposalBoard, ProposalRef};
 use crate::hub::settings::SecretaryTool;
 use std::sync::Mutex;
 use tauri::async_runtime::block_on;
 
-/// Host finto: board e thread fissi, registra messaggi e avvisi.
+/// Host finto: board e thread fissi, registra messaggi, avvisi e piani;
+/// `decide_proposal` passa dalla regola vera (`planning::decide`) su una board
+/// finta, con la proposta che il turno puo' decidere.
 #[derive(Default)]
 struct FakeHost {
     posted: Mutex<Vec<String>>,
     notices: Mutex<Vec<String>>,
     boards: Mutex<Vec<Option<String>>>,
+    plans: Mutex<Vec<String>>,
+    proposal: Option<ProposalRef>,
+    board: FakeBoard,
+}
+
+impl FakeHost {
+    /// Il turno risponde alla proposta pendente `p-1` (2 task).
+    fn replying_to_proposal() -> Self {
+        Self {
+            proposal: Some(ProposalRef { workspace: WS.into(), proposal_id: "p-1".into() }),
+            board: FakeBoard::with_pending(WS, "p-1", 2),
+            ..Self::default()
+        }
+    }
 }
 
 impl TurnHost for FakeHost {
@@ -31,8 +48,26 @@ impl TurnHost for FakeHost {
         Ok(())
     }
 
+    async fn open_plan_task(&self, goal: String) -> Result<Value, String> {
+        self.plans.lock().unwrap().push(goal);
+        Ok(json!({ "task_id": "plan-login", "status": "queued" }))
+    }
+
+    async fn decide_proposal(&self, accept: bool) -> Result<Value, String> {
+        planning::decide(&self.board, self.proposal.as_ref(), accept)
+    }
+
     async fn notice(&self, text: String) {
         self.notices.lock().unwrap().push(text);
+    }
+}
+
+/// L'esito del tool restituito al modello nella richiesta `request`.
+fn tool_result(model: &FakeModel, request: usize) -> String {
+    let requests = model.requests();
+    match requests[request].messages.last() {
+        Some(ChatMessage::Tool { content, .. }) => content.clone(),
+        other => panic!("nessun esito di tool: {other:?}"),
     }
 }
 
@@ -56,7 +91,7 @@ fn a_text_reply_ends_the_turn() {
     let requests = model.requests();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].system, "system");
-    assert_eq!(requests[0].tools, ["board_status", "thread_read", "post_message"]);
+    assert_eq!(requests[0].tools, ["board_status", "thread_read", "post_message", "open_plan_task", "decide_proposal"]);
 }
 
 #[test]
@@ -120,6 +155,87 @@ fn invalid_arguments_and_tool_errors_return_an_error_to_the_model() {
         matches!(&messages[2], ChatMessage::Tool { content, .. } if content.contains("Invalid arguments for `post_message`"))
     );
     assert!(matches!(&messages[3], ChatMessage::Tool { content, .. } if content.contains("not found")));
+}
+
+#[test]
+fn a_clear_yes_in_reply_to_the_proposal_accepts_it() {
+    let model = FakeModel::new(vec![
+        calls(vec![call("c1", "decide_proposal", r#"{"accept":true}"#)]),
+        text("Fatto: 2 task in coda."),
+    ]);
+    let host = FakeHost::replying_to_proposal();
+    let (end, _) = run(&model, &host, &secretary("giorgio"), 8);
+    assert_eq!(end, TurnEnd::Reply("Fatto: 2 task in coda.".into()));
+    assert_eq!(*host.board.decisions.lock().unwrap(), [(WS.to_string(), "p-1".to_string(), true)]);
+    let result: Value = serde_json::from_str(&tool_result(&model, 1)).unwrap();
+    assert_eq!(result, json!({ "proposal": "p-1", "decision": "accepted", "tasks_queued": 2 }));
+}
+
+#[test]
+fn a_no_in_reply_to_the_proposal_rejects_it() {
+    let model = FakeModel::new(vec![
+        calls(vec![call("c1", "decide_proposal", r#"{"accept":false}"#)]),
+        text("Proposta scartata."),
+    ]);
+    let host = FakeHost::replying_to_proposal();
+    run(&model, &host, &secretary("giorgio"), 8);
+    assert_eq!(*host.board.decisions.lock().unwrap(), [(WS.to_string(), "p-1".to_string(), false)]);
+}
+
+#[test]
+fn an_ambiguous_reply_gets_a_question_and_no_decision() {
+    let model = FakeModel::new(vec![text("Vuoi che accetti la proposta o che la scarti?")]);
+    let host = FakeHost::replying_to_proposal();
+    let (end, _) = run(&model, &host, &secretary("giorgio"), 8);
+    assert!(matches!(end, TurnEnd::Reply(q) if q.ends_with('?')));
+    assert!(host.board.decisions.lock().unwrap().is_empty());
+    assert_eq!(host.board.pending_tasks(WS, "p-1"), Some(2));
+}
+
+#[test]
+fn deciding_without_a_reply_to_the_proposal_is_refused() {
+    // Nessuna proposta per il turno: un messaggio senza reply_to sulla
+    // proposta, o un risveglio da evento della board.
+    let model = FakeModel::new(vec![
+        calls(vec![call("c1", "decide_proposal", r#"{"accept":true}"#)]),
+        text("Rispondi al messaggio della proposta per decidere."),
+    ]);
+    let host = FakeHost { board: FakeBoard::with_pending(WS, "p-1", 2), ..FakeHost::default() };
+    let (end, _) = run(&model, &host, &secretary("giorgio"), 8);
+    assert!(matches!(end, TurnEnd::Reply(_)));
+    assert!(host.board.decisions.lock().unwrap().is_empty());
+    assert!(tool_result(&model, 1).contains("decide_proposal works only when"), "{}", tool_result(&model, 1));
+    assert!(host.notices.lock().unwrap().is_empty(), "un errore d'esecuzione, non un tool rifiutato");
+}
+
+#[test]
+fn a_secretary_without_the_planning_tools_cannot_use_them() {
+    let mut s = secretary("mario");
+    s.tools = vec![SecretaryTool::BoardStatus, SecretaryTool::ThreadRead, SecretaryTool::PostMessage];
+    let model = FakeModel::new(vec![
+        calls(vec![
+            call("c1", "decide_proposal", r#"{"accept":true}"#),
+            call("c2", "open_plan_task", r#"{"goal":"Add a login page"}"#),
+        ]),
+        text("Non posso."),
+    ]);
+    let host = FakeHost::replying_to_proposal();
+    run(&model, &host, &s, 8);
+    assert!(host.board.decisions.lock().unwrap().is_empty() && host.plans.lock().unwrap().is_empty());
+    assert_eq!(host.notices.lock().unwrap().len(), 2);
+    assert_eq!(model.requests()[0].tools, ["board_status", "thread_read", "post_message"]);
+}
+
+#[test]
+fn open_plan_task_hands_the_goal_to_the_host() {
+    let model = FakeModel::new(vec![
+        calls(vec![call("c1", "open_plan_task", r#"{"goal":"Add a login page with email and password"}"#)]),
+        text("Ho aperto la pianificazione: ti scrivo quando c'è la proposta."),
+    ]);
+    let host = FakeHost::default();
+    run(&model, &host, &secretary("giorgio"), 8);
+    assert_eq!(*host.plans.lock().unwrap(), ["Add a login page with email and password"]);
+    assert!(tool_result(&model, 1).contains("plan-login"));
 }
 
 #[test]

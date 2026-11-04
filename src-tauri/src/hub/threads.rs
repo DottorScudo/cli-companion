@@ -65,6 +65,7 @@ impl ChannelThreads {
             state: ThreadState::Open,
             task_ids: Vec::new(),
             proposal_id: None,
+            owner: None,
             created_at: now,
             updated_at: now,
             summary: None,
@@ -176,6 +177,8 @@ fn validate_event(event: &HubEvent) -> Result<(), String> {
 }
 
 mod lifecycle;
+
+pub use lifecycle::TASKS_PER_THREAD_MAX;
 
 #[cfg(test)]
 mod tests;

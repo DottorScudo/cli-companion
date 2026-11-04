@@ -10,6 +10,14 @@
 //! - senza menzioni di segretari esistenti, il messaggio va al titolare: il
 //!   segretario con la sessione attiva piu' recente nel thread, se c'e'.
 //!
+//! Risvegli da evento (`route_event`): alcuni eventi della board svegliano il
+//! segretario titolare del thread (`Thread::owner`, quello che ha aperto la
+//! pianificazione; vedi `events::route`). Senza una sessione aperta ne parte
+//! una nuova dall'evento; con una sessione aperta l'evento e' il suo turno
+//! successivo (ha gia' il contesto, e due sessioni dello stesso segretario sullo
+//! stesso thread non possono esistere). Un turno svegliato da un evento non puo'
+//! decidere una proposta (`WakeCause`).
+//!
 //! Ogni thread ha una coda (`Lane`) di lavori eseguiti uno alla volta, nello
 //! stesso ordine: un messaggio che arriva mentre un segretario lavora aspetta
 //! il suo turno. Il riassunto di una sessione scaduta passa dalla stessa coda,
@@ -45,11 +53,20 @@ struct Session {
     last_seen: Option<String>,
 }
 
+/// Che cosa ha svegliato un turno.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WakeCause {
+    /// Un messaggio dell'utente (menzione o titolare della sessione).
+    Message,
+    /// Un evento della board nel thread del segretario titolare.
+    BoardEvent,
+}
+
 /// Un lavoro della coda di un thread.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Job {
-    /// Un turno del segretario per il messaggio `trigger`.
-    Reply { secretary: String, trigger: String },
+    /// Un turno del segretario per il messaggio `trigger` del thread.
+    Reply { secretary: String, trigger: String, cause: WakeCause },
     /// Il riassunto del thread dalla conversazione di una sessione chiusa.
     Summarize { secretary: String, conversation: Vec<ChatMessage> },
 }
@@ -155,13 +172,46 @@ impl Sessions {
                 routing.woken.push(secretary.name.clone());
             }
         }
+        self.enqueue(key, &mut routing, &message.id, WakeCause::Message, idle, now);
+        routing
+    }
+
+    /// Un evento della board (il messaggio `trigger`) sveglia il titolare
+    /// `secretary` del thread, se puo' ancora rispondere nel canale: una
+    /// sessione nuova, o il turno successivo di quella aperta.
+    pub fn route_event(
+        &mut self,
+        key: &ThreadKey,
+        secretary: &str,
+        trigger: &str,
+        secretaries: &[Secretary],
+        idle: i64,
+        now: i64,
+    ) -> Routing {
+        let mut routing = Routing::default();
+        if usable(secretaries, secretary, &key.channel).is_some() {
+            routing.woken.push(secretary.to_string());
+        }
+        self.enqueue(key, &mut routing, trigger, WakeCause::BoardEvent, idle, now);
+        routing
+    }
+
+    /// Apre o rinnova le sessioni dei segretari svegliati e accoda i loro turni.
+    fn enqueue(
+        &mut self,
+        key: &ThreadKey,
+        routing: &mut Routing,
+        trigger: &str,
+        cause: WakeCause,
+        idle: i64,
+        now: i64,
+    ) {
         for name in &routing.woken {
             self.touch(key, name, idle, now);
-            let job = Job::Reply { secretary: name.clone(), trigger: message.id.clone() };
+            let job = Job::Reply { secretary: name.clone(), trigger: trigger.to_string(), cause };
             self.lanes.entry(key.clone()).or_default().queue.push_back(job);
         }
         routing.start_lane = !routing.woken.is_empty() && self.claim_lane(key);
-        routing
     }
 
     /// Il titolare del thread: la sessione attiva piu' recente di un

@@ -14,9 +14,12 @@
 //! all'accensione `hub` riceve da `lib.rs` una sorgente delle viste
 //! (`set_board_source`, con `automation::board_views`), senza dipendere da
 //! `automation`. Il motore dei segretari (`engine`) chiama il modello con
-//! `async-openai` e legge le board dalla stessa sorgente.
+//! `async-openai` e legge le board dalla stessa sorgente; per agire sulla board
+//! (task di pianificazione, decisione di una proposta) usa le azioni che
+//! `lib.rs` registra allo stesso modo (`set_board_actions`).
 //!
 //! Un file per responsabilita':
+//! - `actions`: le azioni sulla board registrate da `lib.rs`;
 //! - `channel`: il canale (`general` o l'id di un workspace);
 //! - `model`: i DTO (thread, messaggi, autori, eventi, riassunti);
 //! - `text`: validazione e pulizia di titoli, testi e id;
@@ -32,6 +35,7 @@
 //! - `events`: gli eventi della board nei thread (diff, instradamento, `HubFeed`);
 //! - `engine`: il motore dei segretari (menzioni, sessioni, tool calling).
 
+mod actions;
 mod api_key;
 mod append;
 mod channel;
@@ -46,6 +50,7 @@ mod text;
 mod threads;
 mod waiting;
 
+pub use actions::{BoardActions, HubBoardActions};
 pub use api_key::ApiKey;
 pub use engine::SecretaryEngine;
 pub use events::{BoardSource, HubFeed};
@@ -60,6 +65,13 @@ use tauri::{AppHandle, Manager};
 /// `automation::board_views`: cosi' `hub` non dipende da `automation`.
 pub fn set_board_source(app: &AppHandle, source: BoardSource) {
     app.state::<HubFeed>().set_source(source);
+}
+
+/// Registra le azioni dell'HUB sulla board (task di pianificazione, decisione
+/// di una proposta), usate dai tool dei segretari. Le registra `lib.rs` con le
+/// funzioni di `automation`, come la sorgente delle viste.
+pub fn set_board_actions(app: &AppHandle, actions: BoardActions) {
+    app.state::<HubBoardActions>().set(actions);
 }
 
 /// Una vista della board e' stata appena pubblicata (revisione nuova). Con

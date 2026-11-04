@@ -168,6 +168,12 @@ pub struct Thread {
     pub task_ids: Vec<String>,
     #[serde(default)]
     pub proposal_id: Option<String>,
+    /// Il segretario titolare del thread: quello che vi ha aperto l'ultimo task
+    /// di pianificazione (`open_plan_task`). Alcuni eventi della board lo
+    /// svegliano (vedi `events::route`). Assente nei thread senza
+    /// pianificazione e nei file scritti prima.
+    #[serde(default)]
+    pub owner: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
     /// Riassunto del thread scritto da un segretario alla chiusura della sua

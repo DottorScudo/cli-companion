@@ -6,9 +6,10 @@
 //! L'esecuzione e' in `turn` (attraverso `TurnHost`).
 
 use super::chat::{ToolCall, ToolSpec};
+use super::planning::GOAL_MAX;
 use crate::hub::channel::Channel;
 use crate::hub::settings::{Secretary, SecretaryTool};
-use crate::hub::text::{self, BODY_MAX};
+use crate::hub::text::{self, clean_text, BODY_MAX};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -26,6 +27,12 @@ pub enum Invocation {
     ThreadRead,
     PostMessage {
         body: String,
+    },
+    OpenPlanTask {
+        goal: String,
+    },
+    DecideProposal {
+        accept: bool,
     },
 }
 
@@ -99,6 +106,48 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
                 "additionalProperties": false
             }),
         },
+        SecretaryTool::OpenPlanTask => ToolSpec {
+            name: tool.code(),
+            description: "Open a planning task in this channel's workspace: a coding agent reads the code, writes \
+                the specifications and comes back in this thread with a proposal of tasks, or with questions for the \
+                user. Use it when the user asks for new work (a feature, a fix, a change), not for status questions. \
+                You become the owner of this thread: the proposal, the planner's questions, failed tasks, tasks that \
+                need attention and the end of all tasks will wake you up. It fails in the General channel: ask the \
+                user which project the work is for. If a previous plan ended with questions, put the original goal, \
+                the questions and the user's answers in `goal`.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "goal": {
+                        "type": "string",
+                        "description": "What the user wants, in English, complete and self-contained. The planner \
+                            also receives the user's message verbatim, the thread summary and the latest messages.",
+                        "minLength": 1,
+                        "maxLength": GOAL_MAX
+                    }
+                },
+                "required": ["goal"],
+                "additionalProperties": false
+            }),
+        },
+        SecretaryTool::DecideProposal => ToolSpec {
+            name: tool.code(),
+            description: "Accept or reject the pending task proposal that the user's message replies to. Call it \
+                only when the user clearly says what to do with it (for example \"yes, accept\" or \"no, drop it\"); \
+                if the intent is not clear, ask the user instead. There is no id: it works only when the message \
+                that woke you up is the user's reply to the proposal event.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "accept": {
+                        "type": "boolean",
+                        "description": "true to accept the proposal and queue its tasks, false to reject it."
+                    }
+                },
+                "required": ["accept"],
+                "additionalProperties": false
+            }),
+        },
     }
 }
 
@@ -117,6 +166,18 @@ struct ThreadReadArgs {}
 #[serde(deny_unknown_fields)]
 struct PostMessageArgs {
     body: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OpenPlanTaskArgs {
+    goal: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DecideProposalArgs {
+    accept: bool,
 }
 
 /// Valida la chiamata: il tool deve essere nella lista del segretario e gli
@@ -148,6 +209,18 @@ pub fn parse(call: &ToolCall, secretary: &Secretary) -> Result<Invocation, ToolR
             let body = text::body(&args.body)
                 .map_err(|_| invalid(format!("`body` must be 1 to {BODY_MAX} characters of plain text")))?;
             Ok(Invocation::PostMessage { body })
+        }
+        SecretaryTool::OpenPlanTask => {
+            let args: OpenPlanTaskArgs = arguments(&call.arguments).map_err(invalid)?;
+            let goal = clean_text(args.goal.trim(), GOAL_MAX + 1);
+            if goal.is_empty() || goal.chars().count() > GOAL_MAX {
+                return Err(invalid(format!("`goal` must be 1 to {GOAL_MAX} characters of plain text")));
+            }
+            Ok(Invocation::OpenPlanTask { goal })
+        }
+        SecretaryTool::DecideProposal => {
+            let args: DecideProposalArgs = arguments(&call.arguments).map_err(invalid)?;
+            Ok(Invocation::DecideProposal { accept: args.accept })
         }
     }
 }
@@ -236,6 +309,8 @@ mod tests {
             ("board_status", json!({"workspace": "ws-1"})),
             ("thread_read", json!({})),
             ("post_message", json!({"body": "x"})),
+            ("open_plan_task", json!({"goal": "Add a dark theme"})),
+            ("decide_proposal", json!({"accept": true})),
         ];
         for (name, sample) in samples {
             let tool = SecretaryTool::ALL.into_iter().find(|t| t.code() == name).unwrap();
@@ -286,6 +361,39 @@ mod tests {
         }
         let long = json!({ "body": "a".repeat(BODY_MAX + 1) }).to_string();
         assert!(parse(&call("post_message", &long), &s).is_err());
+    }
+
+    #[test]
+    fn the_planning_tools_validate_their_arguments() {
+        let s = secretary(&SecretaryTool::ALL);
+        assert_eq!(
+            parse(&call("open_plan_task", r#"{"goal":"  Add X to the app\u0007 "}"#), &s),
+            Ok(Invocation::OpenPlanTask { goal: "Add X to the app".into() })
+        );
+        assert_eq!(
+            parse(&call("decide_proposal", r#"{"accept":false}"#), &s),
+            Ok(Invocation::DecideProposal { accept: false })
+        );
+        for (name, args) in [
+            ("open_plan_task", "{}"),
+            ("open_plan_task", r#"{"goal":"   "}"#),
+            ("open_plan_task", r#"{"goal":"x","workspace":"ws-1"}"#),
+            ("decide_proposal", "{}"),
+            ("decide_proposal", r#"{"accept":"yes"}"#),
+            ("decide_proposal", r#"{"accept":true,"proposal_id":"p-1"}"#),
+        ] {
+            let err = parse(&call(name, args), &s).unwrap_err();
+            assert!(matches!(err, ToolRejection::InvalidArguments { .. }), "{name} {args}");
+        }
+        let long = json!({ "goal": "é".repeat(GOAL_MAX + 1) }).to_string();
+        assert!(parse(&call("open_plan_task", &long), &s).is_err());
+        assert!(parse(&call("open_plan_task", &json!({ "goal": "é".repeat(GOAL_MAX) }).to_string()), &s).is_ok());
+        // Un segretario senza i tool nuovi (salvato prima) non li ha.
+        let old = secretary(&[SecretaryTool::BoardStatus]);
+        assert_eq!(
+            parse(&call("decide_proposal", r#"{"accept":true}"#), &old),
+            Err(ToolRejection::NotAllowed("decide_proposal".into()))
+        );
     }
 
     #[test]

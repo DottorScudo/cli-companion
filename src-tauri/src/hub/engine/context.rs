@@ -10,6 +10,7 @@
 
 use super::chat::ChatMessage;
 use super::output;
+use super::sessions::WakeCause;
 use crate::hub::model::{Author, Message, Thread};
 use crate::hub::settings::{Language, Secretary};
 use crate::hub::text::clean_text;
@@ -38,6 +39,28 @@ in English, plain text without headings. Keep what will matter later: the goal, 
 their state, the open questions and what the user is waiting for. Reply with the summary only.";
 
 const NEW_MESSAGE: &str = "New message from the user:";
+const BOARD_EVENT: &str = "A board event in this thread woke you up (JSON):";
+
+/// Cosa fare quando un evento della board sveglia il titolare del thread.
+const EVENT_GUIDE: &str = "You are the owner of this thread because you opened its planning task. Tell the user in \
+a few lines what happened and what, if anything, they need to do. A new proposal: present its tasks briefly and ask \
+the user to use Reply on the proposal message to accept or reject it; you cannot decide it yourself now. A plan that \
+ended without a proposal: its summary holds the planner's questions, ask them to the user; once they answer you can \
+open a new planning task with the original goal, the questions and the answers. A failed task or a task that needs \
+attention: say which one and why, if known. All tasks concluded: sum up the outcome.";
+
+/// Cosa ricordare quando il messaggio dell'utente risponde a una proposta pendente.
+const PROPOSAL_REPLY: &str = "This message is the user's reply to the pending task proposal {proposal}. If the user \
+clearly accepts or rejects it, call decide_proposal; if the intent is not clear, ask the user instead of deciding.";
+
+/// Il messaggio che apre un turno e perche' lo apre.
+pub struct Trigger<'a> {
+    pub id: &'a str,
+    pub cause: WakeCause,
+    /// La proposta pendente a cui risponde il messaggio dell'utente
+    /// (`planning::proposal_target`), se c'e'.
+    pub proposal: Option<&'a str>,
+}
 
 /// System prompt del segretario + istruzione fissa del motore + lingua.
 pub fn system_prompt(secretary: &Secretary, language: Language) -> String {
@@ -49,12 +72,13 @@ pub fn system_prompt(secretary: &Secretary, language: Language) -> String {
     )
 }
 
-/// Il messaggio che apre un turno di `me` per il messaggio `trigger_id`.
-/// `last_seen` e' il messaggio che ha aperto il turno precedente della
-/// sessione (`None` al risveglio, o se e' stato potato). `None` se il
-/// messaggio non e' (piu') nel thread.
-pub fn turn_message(thread: &Thread, trigger_id: &str, last_seen: Option<&str>, me: &str) -> Option<String> {
-    let at = thread.messages.iter().position(|m| m.id == trigger_id)?;
+/// Il messaggio che apre un turno di `me` per il messaggio `trigger`: di
+/// un utente o, per un risveglio da evento, l'evento della board con le
+/// indicazioni per il titolare. `last_seen` e' il messaggio che ha aperto il
+/// turno precedente della sessione (`None` al risveglio, o se e' stato
+/// potato). `None` se il messaggio non e' (piu') nel thread.
+pub fn turn_message(thread: &Thread, trigger: &Trigger<'_>, last_seen: Option<&str>, me: &str) -> Option<String> {
+    let at = thread.messages.iter().position(|m| m.id == trigger.id)?;
     let before = &thread.messages[..at];
     let seen = last_seen.and_then(|id| before.iter().position(|m| m.id == id));
     let mut out = match seen {
@@ -64,9 +88,25 @@ pub fn turn_message(thread: &Thread, trigger_id: &str, last_seen: Option<&str>, 
     if !out.is_empty() {
         out.push_str("\n\n");
     }
-    out.push_str(NEW_MESSAGE);
-    out.push('\n');
-    out.push_str(&thread.messages[at].body);
+    let message = &thread.messages[at];
+    match trigger.cause {
+        WakeCause::Message => {
+            out.push_str(NEW_MESSAGE);
+            out.push('\n');
+            out.push_str(&message.body);
+            if let Some(proposal) = trigger.proposal {
+                out.push_str("\n\n");
+                out.push_str(&PROPOSAL_REPLY.replace("{proposal}", proposal));
+            }
+        }
+        WakeCause::BoardEvent => {
+            out.push_str(BOARD_EVENT);
+            out.push('\n');
+            out.push_str(&output::message(message).to_string());
+            out.push_str("\n\n");
+            out.push_str(EVENT_GUIDE);
+        }
+    }
     Some(out)
 }
 
@@ -131,7 +171,12 @@ pub fn clean_summary(raw: &str) -> Option<String> {
 mod tests {
     use super::*;
     use crate::hub::engine::chat::ToolCall;
-    use crate::hub::engine::fixtures::{bot, numbered, secretary, thread, user};
+    use crate::hub::engine::fixtures::{bot, msg, numbered, secretary, thread, user};
+    use crate::hub::model::{HubEvent, HubEventKind};
+
+    fn by_user(id: &str) -> Trigger<'_> {
+        Trigger { id, cause: WakeCause::Message, proposal: None }
+    }
 
     #[test]
     fn the_system_prompt_adds_the_engine_rules_and_the_language() {
@@ -149,7 +194,7 @@ mod tests {
         messages.push(user("trigger", "@mario a che punto siamo?"));
         let mut t = thread(messages);
         t.summary = Some("Login: t-1 running.".into());
-        let text = turn_message(&t, "trigger", None, "mario").unwrap();
+        let text = turn_message(&t, &by_user("trigger"), None, "mario").unwrap();
         assert!(text.contains(r#""summary":"Login: t-1 running.""#), "{text}");
         assert!(text.contains(r#""title":"Login""#));
         assert!(!text.contains(r#""id":"m4""#) && text.contains(r#""id":"m5""#) && text.contains(r#""id":"m14""#));
@@ -165,19 +210,50 @@ mod tests {
             bot("m3", "giorgio", "Io controllo i test."),
             user("m4", "e il login?"),
         ]);
-        let text = turn_message(&t, "m4", Some("m1"), "mario").unwrap();
+        let text = turn_message(&t, &by_user("m4"), Some("m1"), "mario").unwrap();
         assert!(text.starts_with("Messages posted in the thread since your last reply"));
         assert!(text.contains("Io controllo i test.") && !text.contains("Tutto in coda."));
         assert!(!text.contains("summary") && !text.contains("\"title\""));
         let only_mine = thread(vec![user("m1", "x"), bot("m2", "mario", "y"), user("m3", "e poi?")]);
-        assert_eq!(turn_message(&only_mine, "m3", Some("m1"), "mario").unwrap(), "New message from the user:\ne poi?");
+        assert_eq!(
+            turn_message(&only_mine, &by_user("m3"), Some("m1"), "mario").unwrap(),
+            "New message from the user:\ne poi?"
+        );
     }
 
     #[test]
     fn a_pruned_last_seen_falls_back_to_a_full_wake_and_a_missing_trigger_to_none() {
         let t = thread(vec![user("m1", "x"), user("m2", "y")]);
-        assert!(turn_message(&t, "m2", Some("gone"), "mario").unwrap().starts_with("This thread (JSON)"));
-        assert!(turn_message(&t, "gone", None, "mario").is_none());
+        assert!(turn_message(&t, &by_user("m2"), Some("gone"), "mario").unwrap().starts_with("This thread (JSON)"));
+        assert!(turn_message(&t, &by_user("gone"), None, "mario").is_none());
+    }
+
+    #[test]
+    fn a_reply_to_a_pending_proposal_is_pointed_out() {
+        let t = thread(vec![user("m1", "sì, accetta")]);
+        let trigger = Trigger { id: "m1", cause: WakeCause::Message, proposal: Some("p-1") };
+        let text = turn_message(&t, &trigger, None, "giorgio").unwrap();
+        assert!(text.contains("New message from the user:\nsì, accetta\n\n"), "{text}");
+        assert!(text.ends_with(
+            "pending task proposal p-1. If the user clearly accepts or rejects it, call \
+decide_proposal; if the intent is not clear, ask the user instead of deciding."
+        ));
+    }
+
+    #[test]
+    fn a_board_event_opens_the_turn_with_its_data_and_the_owner_guide() {
+        let mut event = msg("e1", Author::System, "Nuova proposta: 1 task\n- Login", 5);
+        event.event = Some(HubEvent {
+            workspace: Some("ws-1".into()),
+            ..HubEvent::of_proposal(HubEventKind::ProposalCreated, "p-1")
+        });
+        let t = thread(vec![user("m1", "@giorgio aggiungi il login"), event]);
+        let trigger = Trigger { id: "e1", cause: WakeCause::BoardEvent, proposal: None };
+        let text = turn_message(&t, &trigger, None, "giorgio").unwrap();
+        assert!(text.starts_with("This thread (JSON)") && text.contains("aggiungi il login"), "{text}");
+        assert!(text.contains("A board event in this thread woke you up (JSON):\n{"), "{text}");
+        assert!(text.contains(r#""kind":"proposal_created""#) && text.contains(r#""proposal_id":"p-1""#), "{text}");
+        assert!(text.contains("you cannot decide it yourself now") && !text.contains("New message from the user"));
     }
 
     #[test]

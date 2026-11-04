@@ -78,7 +78,8 @@ use auth::authenticate;
 pub use auth::SessionCredential;
 use auth::SessionKeys;
 pub use bridge::{
-    board_views, flush_on_exit, handle_rpc, load_boards, on_hook_event, queue_plan_task, user_input, IpcBridge,
+    board_views, decide_hub_proposal, flush_on_exit, handle_rpc, load_boards, on_hook_event, queue_hub_plan_task,
+    user_input, IpcBridge,
 };
 pub use commands::*;
 pub use host::{Host, TauriHost};

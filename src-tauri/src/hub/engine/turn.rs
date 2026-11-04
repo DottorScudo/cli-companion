@@ -34,6 +34,10 @@ pub trait TurnHost: Send + Sync {
     fn thread_read(&self) -> impl Future<Output = Result<Value, String>> + Send;
     /// Scrive un messaggio del segretario nel thread.
     fn post_message(&self, body: String) -> impl Future<Output = Result<(), String>> + Send;
+    /// Apre un task di pianificazione collegato al thread (vedi `planning::open_plan`).
+    fn open_plan_task(&self, goal: String) -> impl Future<Output = Result<Value, String>> + Send;
+    /// Decide la proposta a cui risponde il messaggio del turno (vedi `planning::decide`).
+    fn decide_proposal(&self, accept: bool) -> impl Future<Output = Result<Value, String>> + Send;
     /// Scrive un messaggio di sistema (in italiano) nel thread.
     fn notice(&self, text: String) -> impl Future<Output = ()> + Send;
 }
@@ -100,6 +104,8 @@ async fn execute<H: TurnHost>(host: &H, secretary: &Secretary, call: &ToolCall) 
         Ok(Invocation::BoardStatus { workspace }) => host.board_status(workspace).await,
         Ok(Invocation::ThreadRead) => host.thread_read().await,
         Ok(Invocation::PostMessage { body }) => host.post_message(body).await.map(|()| json!({ "posted": true })),
+        Ok(Invocation::OpenPlanTask { goal }) => host.open_plan_task(goal).await,
+        Ok(Invocation::DecideProposal { accept }) => host.decide_proposal(accept).await,
     };
     match outcome {
         Ok(value) => value.to_string(),

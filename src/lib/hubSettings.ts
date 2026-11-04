@@ -40,6 +40,8 @@ export const SECRETARY_TOOLS: readonly { id: HubSecretaryTool; description: stri
   { id: "board_status", description: "Legge task e stati della board" },
   { id: "thread_read", description: "Legge il riassunto e gli ultimi messaggi del thread" },
   { id: "post_message", description: "Scrive nel thread" },
+  { id: "open_plan_task", description: "Apre un task di pianificazione nel workspace del canale" },
+  { id: "decide_proposal", description: "Accetta o scarta una proposta quando rispondi al suo messaggio" },
 ];
 
 function languageLabel(language: HubLanguage): string {

@@ -23,6 +23,7 @@ pub fn task(id: &str, status: TaskStatus) -> TaskSnap {
 pub fn proposal(id: &str, ids: &[&str]) -> ProposalSnap {
     ProposalSnap {
         id: id.to_string(),
+        source_task: None,
         tasks: ids.iter().map(|t| ProposedTask { id: t.to_string(), title: format!("Task {t}") }).collect(),
     }
 }

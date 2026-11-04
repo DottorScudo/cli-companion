@@ -2,7 +2,14 @@
 import type { HubMessage } from "./HubMessage";
 import type { HubThreadState } from "./HubThreadState";
 
-export type HubThread = { id: string, channel: string, title: string, state: HubThreadState, task_ids: Array<string>, proposal_id: string | null, created_at: number, updated_at: number, 
+export type HubThread = { id: string, channel: string, title: string, state: HubThreadState, task_ids: Array<string>, proposal_id: string | null, 
+/**
+ * Il segretario titolare del thread: quello che vi ha aperto l'ultimo task
+ * di pianificazione (`open_plan_task`). Alcuni eventi della board lo
+ * svegliano (vedi `events::route`). Assente nei thread senza
+ * pianificazione e nei file scritti prima.
+ */
+owner: string | null, created_at: number, updated_at: number, 
 /**
  * Riassunto del thread scritto da un segretario alla chiusura della sua
  * sessione (poche righe, vedi `engine::context::clean_summary`); lo legge

@@ -837,8 +837,13 @@ consegna codice: niente branch da integrare, niente istruzioni di consegna. Rego
 `board/plan.rs`, lato automazione `automation/planner.rs`.
 
 - **Chi lo crea**: solo l'app, con l'API interna `automation::create_plan_task(st, host, ws_id,
-  &PlanRequest { title, task, model?, repo? })` (dall'app reale `automation::queue_plan_task(app, …)`,
-  che fa git: fuori dal main thread). Il task entra **direttamente in coda** (niente proposta), con
+  &PlanRequest { title, task, model?, repo? })`. L'Agents HUB passa da
+  `planner::create_hub_plan_task` (dall'app reale `automation::queue_hub_plan_task(app, ws_id, title, task)`,
+  che fa git: fuori dal main thread), con il repository radice e il modello di `hub_planner_model`: il
+  primo della fascia `strong` dell'agente del workspace (per Claude Code `opus`; pianificare è il
+  ragionamento più difficile e si fa una volta per obiettivo), oppure quello dei worker del workspace se
+  l'agente non dichiara le fasce. Le proposte l'HUB le decide con `automation::decide_hub_proposal`, lo
+  stesso `proposal_decide` dei pulsanti del pannello Task. Il task entra **direttamente in coda** (niente proposta), con
   l'id generato dal titolo come `task_create` e l'agente del workspace; `model` assente = quello dei
   worker del workspace. Titolo, testo, modello e repo si validano come ogni task; il workspace non deve
   essere archiviato e il repository deve essere un repository git in qualunque modalità ("… is not a

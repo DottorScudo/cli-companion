@@ -292,3 +292,19 @@ fn threads_written_before_the_summary_read_without_it() {
     let list: ChannelThreads = serde_json::from_str(raw).unwrap();
     assert!(list.thread("t1").unwrap().summary.is_none());
 }
+
+#[test]
+fn the_owner_is_set_replaced_and_validated() {
+    let mut list = with_thread("t1", 1);
+    assert!(list.thread("t1").unwrap().owner.is_none());
+    assert_eq!(list.set_owner("t1", "giorgio", 2).unwrap().owner.as_deref(), Some("giorgio"));
+    let t = list.set_owner("t1", "mario", 3).unwrap();
+    assert_eq!((t.owner.as_deref(), t.updated_at), (Some("mario"), 3));
+    assert_eq!(list.set_owner("t1", "mario", 9).unwrap().updated_at, 3, "nessun cambiamento");
+    assert!(list.set_owner("t1", "   ", 4).is_err());
+    assert!(list.set_owner("t1", &"a".repeat(40), 4).is_err());
+    assert_eq!(list.set_owner("nope", "mario", 4).unwrap_err(), THREAD_NOT_FOUND);
+    // Un file scritto prima del titolare si legge senza.
+    let raw = r#"{"threads":[{"id":"t1","channel":"ws-1","title":"x","state":"open","created_at":1,"updated_at":1}]}"#;
+    assert!(serde_json::from_str::<ChannelThreads>(raw).unwrap().thread("t1").unwrap().owner.is_none());
+}

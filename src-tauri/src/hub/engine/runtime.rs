@@ -18,11 +18,12 @@
 //!   punto di attesa non scrive piu' nulla nei thread (`is_current`).
 
 use super::jobs;
-use super::sessions::{Job, Notice, SessionTurn, Sessions, ThreadKey};
+use super::sessions::{Job, Notice, Routing, SessionTurn, Sessions, ThreadKey};
 use super::status::{self, SecretaryStatus};
 use super::texts;
 use crate::hub::append::{append_text, TextMessage};
 use crate::hub::channel::Channel;
+use crate::hub::events::EventWake;
 use crate::hub::model::{Author, Message};
 use crate::hub::settings::{HubSettingsStore, SessionSettings};
 use std::collections::HashMap;
@@ -75,14 +76,7 @@ impl SecretaryEngine {
             let mut inner = self.lock();
             let routing =
                 inner.sessions.route(&key, message, &settings.secretaries, idle_ms(&settings.session), now_ms());
-            if routing.start_lane {
-                inner.start_executor(app, &key);
-            } else if !routing.woken.is_empty() {
-                inner.revive_executor(app, &key);
-            }
-            if !routing.woken.is_empty() {
-                inner.ensure_scheduler(app);
-            }
+            inner.run_routing(app, &key, &routing);
             routing
         };
         for notice in &routing.notices {
@@ -96,6 +90,47 @@ impl SecretaryEngine {
             }
         }
         if !routing.woken.is_empty() {
+            self.emit_status(app);
+        }
+    }
+
+    /// Eventi della board appena scritti nei thread del canale: sveglia i
+    /// titolari (`events::route`). Da chiamare dopo aver rilasciato il lock dei
+    /// thread; veloce: accoda soltanto.
+    pub fn on_events(&self, app: &AppHandle, channel: &Channel, wakes: &[EventWake]) {
+        if wakes.is_empty() {
+            return;
+        }
+        let settings = app.state::<HubSettingsStore>().get();
+        if !settings.enabled {
+            return;
+        }
+        let idle = idle_ms(&settings.session);
+        let mut woken = false;
+        {
+            let mut inner = self.lock();
+            for wake in wakes {
+                let key = ThreadKey::new(channel, &wake.thread_id);
+                let routing = inner.sessions.route_event(
+                    &key,
+                    &wake.secretary,
+                    &wake.trigger,
+                    &settings.secretaries,
+                    idle,
+                    now_ms(),
+                );
+                if routing.woken.is_empty() {
+                    log::info!(
+                        "hub: @{} non puo' rispondere, evento solo nel thread {}",
+                        wake.secretary,
+                        wake.thread_id
+                    );
+                }
+                inner.run_routing(app, &key, &routing);
+                woken |= !routing.woken.is_empty();
+            }
+        }
+        if woken {
             self.emit_status(app);
         }
     }
@@ -193,6 +228,20 @@ impl SecretaryEngine {
 }
 
 impl Inner {
+    /// Avvia (o rianima) l'esecutore della coda e lo schedulatore se il
+    /// risveglio ha accodato dei turni.
+    fn run_routing(&mut self, app: &AppHandle, key: &ThreadKey, routing: &Routing) {
+        if routing.woken.is_empty() {
+            return;
+        }
+        if routing.start_lane {
+            self.start_executor(app, key);
+        } else {
+            self.revive_executor(app, key);
+        }
+        self.ensure_scheduler(app);
+    }
+
     /// Avvia l'esecutore della coda del thread. Sotto il lock: l'esecutore
     /// legge la coda solo dopo che la sua maniglia e' registrata.
     fn start_executor(&mut self, app: &AppHandle, key: &ThreadKey) {

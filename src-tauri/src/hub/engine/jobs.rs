@@ -6,8 +6,9 @@
 //! o escluso dal canale chiude la sua sessione al turno successivo.
 
 use super::chat::{ChatMessage, ModelError};
-use super::context;
+use super::context::{self, Trigger};
 use super::host::{AppTurnHost, ThreadIo};
+use super::planning::proposal_target;
 use super::runtime::SecretaryEngine;
 use super::sessions::{usable, Job, ThreadKey};
 use super::texts;
@@ -28,7 +29,10 @@ pub async fn run_queue(app: AppHandle, key: ThreadKey, epoch: u64) {
     while let Some(job) = engine.next_job(&key, epoch) {
         engine.emit_status(&app);
         match job {
-            Job::Reply { secretary, trigger } => reply(&app, &key, &secretary, &trigger, epoch).await,
+            Job::Reply { secretary, trigger, cause } => {
+                let trigger = Trigger { id: &trigger, cause, proposal: None };
+                reply(&app, &key, &secretary, trigger, epoch).await
+            }
             Job::Summarize { secretary, conversation } => summarize(&app, &key, &secretary, &conversation, epoch).await,
         }
         engine.job_done(&key, epoch);
@@ -36,8 +40,9 @@ pub async fn run_queue(app: AppHandle, key: ThreadKey, epoch: u64) {
     }
 }
 
-/// Un turno del segretario `name` per il messaggio `trigger`.
-async fn reply(app: &AppHandle, key: &ThreadKey, name: &str, trigger: &str, epoch: u64) {
+/// Un turno del segretario `name` per il messaggio `trigger`. La proposta che
+/// il turno puo' decidere si ricava qui, dal thread letto all'inizio del turno.
+async fn reply(app: &AppHandle, key: &ThreadKey, name: &str, mut trigger: Trigger<'_>, epoch: u64) {
     let engine = app.state::<SecretaryEngine>();
     let settings = app.state::<HubSettingsStore>().get();
     let io = ThreadIo::new(app, key, epoch);
@@ -57,8 +62,10 @@ async fn reply(app: &AppHandle, key: &ThreadKey, name: &str, trigger: &str, epoc
     let Some(mut turn) = engine.begin_turn(key, name, epoch) else {
         return;
     };
-    let Some(opening) = context::turn_message(&thread, trigger, turn.last_seen.as_deref(), name) else {
-        log::warn!("hub: messaggio {trigger} non piu' nel thread, turno di {name} saltato");
+    let proposal = proposal_target(&thread, trigger.id, trigger.cause);
+    trigger.proposal = proposal.as_ref().map(|p| p.proposal_id.as_str());
+    let Some(opening) = context::turn_message(&thread, &trigger, turn.last_seen.as_deref(), name) else {
+        log::warn!("hub: messaggio {} non piu' nel thread, turno di {name} saltato", trigger.id);
         engine.end_turn(key, name, turn, epoch);
         return;
     };
@@ -73,13 +80,13 @@ async fn reply(app: &AppHandle, key: &ThreadKey, name: &str, trigger: &str, epoc
     turn.conversation.push(ChatMessage::User(opening));
     let max_steps = settings.session.max_steps;
     let spec = TurnSpec { secretary, system: context::system_prompt(secretary, settings.language), max_steps };
-    let host = AppTurnHost { io: &io, secretary };
+    let host = AppTurnHost { io: &io, secretary, trigger: trigger.id, proposal: proposal.clone() };
     match run_turn(&model, &host, &spec, &mut turn.conversation).await {
         TurnEnd::Reply(text) => post_reply(&io, name, &text).await,
         TurnEnd::StepLimit => io.notice(texts::step_limit(name, max_steps)).await,
         TurnEnd::Failed(e) => io.notice(texts::model_error(name, e)).await,
     }
-    turn.last_seen = Some(trigger.to_string());
+    turn.last_seen = Some(trigger.id.to_string());
     compact(&mut turn.conversation);
     engine.end_turn(key, name, turn, epoch);
 }

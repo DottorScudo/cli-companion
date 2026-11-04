@@ -11,6 +11,8 @@
 //! - `openai`: il client reale (`async-openai`) e la classificazione degli errori;
 //! - `tools`: schema, descrizione e validazione dei tool, accesso alle board;
 //! - `output`: board e thread in JSON compatto per il modello;
+//! - `planning`: `open_plan_task` e `decide_proposal` (il task `plan`, la
+//!   proposta a cui risponde l'utente, la decisione);
 //! - `context`: system prompt, messaggio di apertura di un turno, riassunto;
 //! - `mentions`: le menzioni `@nome`;
 //! - `sessions`: sessioni, titolare, code dei thread e scadenze (puro);
@@ -32,6 +34,7 @@ mod jobs;
 mod mentions;
 mod openai;
 mod output;
+mod planning;
 mod runtime;
 mod sessions;
 pub mod status;

@@ -172,6 +172,14 @@ describe("segretari", () => {
     assert.deepEqual(toggleTool([order[0], order[2]], order[0]), [order[2]]);
   });
 
+  it("SECRETARY_TOOLS: tutti i tool del backend, nell'ordine canonico", () => {
+    assert.deepEqual(
+      SECRETARY_TOOLS.map((t) => t.id),
+      ["board_status", "thread_read", "post_message", "open_plan_task", "decide_proposal"],
+    );
+    assert.ok(SECRETARY_TOOLS.every((t) => t.description.length > 0));
+  });
+
   it("toggleChannel: nell'ordine dei canali esistenti", () => {
     const existing = ["general", "ws1", "ws2"];
     assert.deepEqual(toggleChannel([], "ws2", existing), ["ws2"]);

@@ -105,9 +105,9 @@ test esclusi) sono queste:
 | `board` | `workspaces` (`Delivery`, `Workspace`, `SettingsPatch`), `agents` (agente predefinito), `validate`, `store` | `automation`, `ipc`, `pty`, `mcp`, `tauri` |
 | `ipc` | `agents` (contratto `HookEvents`, tipo `HookEventKind` e ricerca nel registro con `registry::find`), `platform` | `automation`, `board`, `workspaces` |
 | `pty` | `ipc` (nomi delle variabili e `is_valid_tab_id`), `platform`, `wsl`, `workspaces`, `automation` (credenziale di sessione e `user_input`) | `board` |
-| `automation` | `board`, `workspaces`, `agents`, `ipc` (tipi e trait), `platform`, `validate`, `wsl`, `schedule`, `user_skills`, `store`, `awake`, `pty` (solo `workspace_of_tab`, in `TauriHost`), `hub` (solo `board_published`, in `TauriHost`; `lib.rs` registra `board_views` come sorgente di `hub::set_board_source`) | — |
+| `automation` | `board`, `workspaces`, `agents`, `ipc` (tipi e trait), `platform`, `validate`, `wsl`, `schedule`, `user_skills`, `store`, `awake`, `pty` (solo `workspace_of_tab`, in `TauriHost`), `hub` (solo `board_published`, in `TauriHost`; `lib.rs` registra `board_views` come sorgente di `hub::set_board_source` e `queue_hub_plan_task` / `decide_hub_proposal` come azioni di `hub::set_board_actions`) | — |
 | `mcp` | `automation` (`Role`, `lock`, nomi dei metodi), `agents`, `workspaces`, `ipc` (client RPC) | `tauri` |
-| `hub` | `store`, `secrets` (API key del provider nel portachiavi), `bots` (validazione delle immagini dei segretari), `board` (`valid_id` e `BoardView` per gli eventi della board), `validate` (+ `workspaces` nei comandi e negli eventi della board, per sapere se il canale di un workspace esiste, anche nei canali di un segretario; le viste correnti delle board all'accensione e per il tool `board_status` dei segretari arrivano da una sorgente `BoardSource` registrata da `lib.rs`); crate esterni `async-openai` e `reqwest` solo nel client del modello (`hub/engine/openai.rs`) | `automation`, `agents`, `ipc`, `pty`, `mcp` |
+| `hub` | `store`, `secrets` (API key del provider nel portachiavi), `bots` (validazione delle immagini dei segretari), `board` (`valid_id` e `BoardView` per gli eventi della board), `validate` (+ `workspaces` nei comandi e negli eventi della board, per sapere se il canale di un workspace esiste, anche nei canali di un segretario; le viste correnti delle board all'accensione e per il tool `board_status` dei segretari arrivano da una sorgente `BoardSource` registrata da `lib.rs`, e le azioni dei segretari sulla board, task di pianificazione e decisione di una proposta, da `BoardActions` registrate allo stesso modo); crate esterni `async-openai` e `reqwest` solo nel client del modello (`hub/engine/openai.rs`) | `automation`, `agents`, `ipc`, `pty`, `mcp` |
 
 Le regole che questa tabella racchiude, e come sono garantite:
 
@@ -146,7 +146,10 @@ di ogni board, ma `hub` non nomina `automation`. `lib.rs`, che compone già entr
 `automation::board_views` come `hub::BoardSource` (`hub::set_board_source`), e `hub_set_enabled` la chiama
 solo al passaggio da spento ad acceso. Una sorgente iniettata invece di un comando nel livello di composizione
 lascia `hub_set_enabled` dov'è (con l'impostazione) e invece di una ripubblicazione forzata di tutte le board non
-emette `board-update` né salva file.
+emette `board-update` né salva file. Allo stesso modo le **azioni** dei segretari sulla board (`hub::BoardActions`:
+creare un task `plan`, decidere una proposta) sono puntatori a funzione che `lib.rs` registra con
+`hub::set_board_actions` (`automation::queue_hub_plan_task`, `automation::decide_hub_proposal`, lo stesso codice
+dei pulsanti del pannello Task): `hub` continua a non nominare `automation`.
 
 ### Dove sta cosa
 
@@ -178,7 +181,7 @@ emette `board-update` né salva file.
 1. `main.rs` esce subito per i rami da riga di comando; altrimenti `run()` (`lib.rs`) costruisce
    l'app: prima il plugin di log (`logging::plugin()`), poi opener, dialog, clipboard, notification,
    updater, process, e gli stati gestiti (`WorkspaceStore`, `PtyState`, store delle impostazioni degli avvii, dei bot e
-   dell'HUB, `hub::ApiKey` sul portachiavi del sistema, `HubState`, `HubFeed`, `hub::SecretaryEngine` con le sessioni dei segretari, `AutomationState`).
+   dell'HUB, `hub::ApiKey` sul portachiavi del sistema, `HubState`, `HubFeed`, `hub::HubBoardActions`, `hub::SecretaryEngine` con le sessioni dei segretari, `AutomationState`).
 2. `setup`, in quest'ordine: `store::install_emitter` (da qui un avviso dello store diventa un evento
    `store-warning`), `store::legacy::migrate_legacy_data` (copia dei vecchi identifier), caricamento di
    `workspaces.json`, `launch_settings.json`, `bots.json`, `hub_settings.json` (i thread dell'HUB no: si leggono alla
@@ -1006,11 +1009,15 @@ file, `commands`), `api_key` (la API key del provider nel portachiavi, tramite `
 ne vede solo la presenza), `commands` ed `events` (eventi della
 board nei thread: istantanea compatta, diff e instradamento puri, `HubFeed` con un thread dedicato che riceve le
 viste da `Host::board_published` e scrive fuori dai lock della board; all'accensione fissa come base le viste
-correnti di tutte le board, chieste alla sorgente registrata da `lib.rs`), `append` (un messaggio di testo con
+correnti di tutte le board, chieste alla sorgente registrata da `lib.rs`; l'instradamento porta la proposta di un
+piano nel thread del piano e indica quali eventi svegliano il segretario titolare del thread), `actions` (le azioni
+sulla board registrate da `lib.rs`), `append` (un messaggio di testo con
 salvataggio ed evento, per `hub_send` e per il motore) ed `engine` (il motore dei segretari: menzioni e titolare,
-sessioni in memoria con una coda per thread e uno schedulatore unico delle scadenze, ciclo di tool calling con i tool
-`board_status`, `thread_read`, `post_message`, riassunto del thread alla chiusura; logica pura o generica sui trait
-`ChatModel` e `TurnHost`, con un modello finto nei test; client reale `async-openai`). Comandi
+risvegli da evento della board, sessioni in memoria con una coda per thread e uno schedulatore unico delle scadenze,
+ciclo di tool calling con i tool `board_status`, `thread_read`, `post_message`, `open_plan_task` e `decide_proposal`
+(`engine/planning.rs`: la proposta si lega solo alla risposta dell'utente al suo evento), riassunto del thread alla
+chiusura; logica pura o generica sui trait `ChatModel`, `TurnHost` e `ProposalBoard`, con un modello e una board
+finti nei test; client reale `async-openai`). Comandi
 `hub_get_settings`, `hub_set_enabled`, `hub_set_provider`, `hub_set_api_key`, `hub_clear_api_key`,
 `hub_set_language`, `hub_set_session`, `hub_create_secretary`, `hub_update_secretary`, `hub_delete_secretary`,
 `hub_set_secretary_image`, `hub_remove_secretary_image`, `hub_list_threads`, `hub_get_thread`, `hub_create_thread`, `hub_send`,

@@ -9,6 +9,7 @@ use super::boards::{list_tasks, propose_tasks, task_details, workspace_of};
 use super::rpc::misrouted;
 use super::worktrees::ensure_git_repo;
 use super::*;
+use crate::agents::AgentUse;
 use crate::board::texts::{self, EnvInfo};
 use crate::board::{parse_spec, TaskSpec};
 use serde_json::json;
@@ -57,6 +58,36 @@ pub fn create_plan_task<H: Host>(
         spec.id = r.free_id(ws_id, &spec.title);
         r.create_task(ws_id, spec, ws.agent.as_deref(), now)
     })
+}
+
+/// Il modello del pianificatore di un task chiesto dall'HUB: il primo della
+/// fascia `strong` dell'agente del workspace (per Claude Code `opus`). Pianificare
+/// e' il lavoro di ragionamento piu' difficile e si fa una volta per obiettivo:
+/// vale il modello forte. `None` (= il modello dei worker del workspace) se
+/// l'agente non e' utilizzabile o non dichiara le fasce: il core non nomina
+/// nessun modello.
+pub fn hub_planner_model(workspace_agent: Option<&str>) -> Option<String> {
+    let agent = crate::agents::registry::resolve_agent(None, workspace_agent, AgentUse::Worker).ok()?;
+    crate::agents::tier_models(agent).map(|tiers| tiers.strong.to_string())
+}
+
+/// Crea il task `plan` chiesto dall'Agents HUB: repository radice e modello
+/// del pianificatore scelto da `hub_planner_model`.
+pub fn create_hub_plan_task<H: Host>(
+    st: &AutomationState,
+    host: &H,
+    ws_id: &str,
+    title: &str,
+    task: &str,
+) -> Result<String, String> {
+    let ws = workspace_of(host, ws_id)?;
+    let req = PlanRequest {
+        title: title.to_string(),
+        task: task.to_string(),
+        model: hub_planner_model(ws.agent.as_deref()),
+        repo: None,
+    };
+    create_plan_task(st, host, ws_id, &req)
 }
 
 /// Risposta di `get_task` per un task di pianificazione: niente passi di

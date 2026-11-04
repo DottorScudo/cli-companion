@@ -3,15 +3,23 @@
 //! `ThreadIo` legge e scrive il thread di un lavoro; `AppTurnHost` implementa
 //! `TurnHost` per i tool di un segretario. Ogni scrittura controlla prima che
 //! l'epoca del motore sia ancora quella del lavoro (HUB non spento nel frattempo).
+//!
+//! `open_plan_task` crea il task `plan` tenendo il lock dei thread: cosi' il
+//! thread degli eventi della board, che aspetta lo stesso lock, trova il task
+//! gia' collegato al thread del segretario e non gli apre un thread suo. Il
+//! lock dura la creazione del task (qualche comando git), mai una chiamata al
+//! modello; l'automazione non prende mai il lock dei thread.
 
 use super::chat::ModelError;
 use super::openai::OpenAiModel;
 use super::output;
+use super::planning::{self, PlanTicket, ProposalBoard, ProposalRef};
 use super::runtime::SecretaryEngine;
 use super::sessions::ThreadKey;
 use super::tools::{board_workspace, BoardAccessError};
 use super::turn::TurnHost;
 use crate::board::BoardView;
+use crate::hub::actions::{BoardActions, HubBoardActions};
 use crate::hub::api_key::ApiKey;
 use crate::hub::append::{append_text, TextMessage};
 use crate::hub::channel::Channel;
@@ -95,6 +103,52 @@ impl ThreadIo {
         .await
     }
 
+    /// `open_plan_task`: crea il task `plan` e lo collega al thread, con
+    /// `secretary` titolare (vedi `planning::open_plan`), poi `hub-update`.
+    pub async fn open_plan(&self, trigger: &str, secretary: &str, goal: String) -> Result<Value, String> {
+        let (app, key, epoch) = (self.app.clone(), self.key.clone(), self.epoch);
+        let (trigger, secretary) = (trigger.to_string(), secretary.to_string());
+        crate::blocking(move || {
+            if !app.state::<SecretaryEngine>().is_current(epoch) {
+                return Err(STALE.to_string());
+            }
+            let actions = app.state::<HubBoardActions>().get()?;
+            let dir = threads_dir_of(&app)?;
+            let now = chrono::Utc::now().timestamp_millis();
+            let ticket = PlanTicket {
+                channel: &key.channel,
+                thread_id: &key.thread_id,
+                trigger_id: &trigger,
+                secretary: &secretary,
+                goal: &goal,
+            };
+            let (value, touched) = app.state::<HubState>().update(&dir, &key.channel, |list| {
+                ensure_channel(&app, &key.channel)?;
+                let value =
+                    planning::open_plan(list, &ticket, now, |ws_id, order| (actions.create_plan)(&app, ws_id, order))?;
+                Ok((value, list.thread(&key.thread_id).map(summary)))
+            })?;
+            if let Some(touched) = touched {
+                emit_update(&app, &touched);
+            }
+            Ok(value)
+        })
+        .await
+    }
+
+    /// `decide_proposal` sulla proposta `target` del turno (vedi `planning::decide`).
+    pub async fn decide_proposal(&self, target: Option<ProposalRef>, accept: bool) -> Result<Value, String> {
+        let (app, epoch) = (self.app.clone(), self.epoch);
+        crate::blocking(move || {
+            if !app.state::<SecretaryEngine>().is_current(epoch) {
+                return Err(STALE.to_string());
+            }
+            let board = AppProposals { actions: app.state::<HubBoardActions>().get()?, app: app.clone() };
+            planning::decide(&board, target.as_ref(), accept)
+        })
+        .await
+    }
+
     /// Il client del modello con il provider e la API key correnti.
     pub async fn model(&self, provider: &Provider) -> Result<OpenAiModel, ModelError> {
         if !provider.is_configured() {
@@ -109,10 +163,33 @@ impl ThreadIo {
     }
 }
 
+/// Le proposte delle board viste da `decide_proposal`: le viste correnti (dalla
+/// sorgente registrata) e la decisione registrata da `lib.rs`.
+struct AppProposals {
+    app: AppHandle,
+    actions: BoardActions,
+}
+
+impl ProposalBoard for AppProposals {
+    fn pending_tasks(&self, workspace: &str, proposal_id: &str) -> Option<usize> {
+        let views = self.app.state::<HubFeed>().current_views(&self.app);
+        let view = views.iter().find(|v| v.workspace_id == workspace)?;
+        view.proposals.iter().find(|p| p.id == proposal_id).map(|p| p.tasks.len())
+    }
+
+    fn decide(&self, workspace: &str, proposal_id: &str, accept: bool) -> Result<(), String> {
+        (self.actions.decide_proposal)(&self.app, workspace, proposal_id, accept)
+    }
+}
+
 /// Gli effetti dei tool di un segretario sul suo thread.
 pub struct AppTurnHost<'a> {
     pub io: &'a ThreadIo,
     pub secretary: &'a Secretary,
+    /// Il messaggio che ha svegliato il turno.
+    pub trigger: &'a str,
+    /// La proposta che il turno puo' decidere (`planning::proposal_target`).
+    pub proposal: Option<ProposalRef>,
 }
 
 impl AppTurnHost<'_> {
@@ -168,6 +245,14 @@ impl TurnHost for AppTurnHost<'_> {
             log::warn!("hub: post_message di {} fallito: {e}", self.secretary.name);
             "The message could not be posted.".to_string()
         })
+    }
+
+    async fn open_plan_task(&self, goal: String) -> Result<Value, String> {
+        self.io.open_plan(self.trigger, &self.secretary.name, goal).await
+    }
+
+    async fn decide_proposal(&self, accept: bool) -> Result<Value, String> {
+        self.io.decide_proposal(self.proposal.clone(), accept).await
     }
 
     async fn notice(&self, text: String) {

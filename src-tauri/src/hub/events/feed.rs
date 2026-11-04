@@ -25,6 +25,7 @@ use super::snapshot::BoardSnapshot;
 use crate::board::BoardView;
 use crate::hub::channel::Channel;
 use crate::hub::commands::{emit_update, ensure_channel, threads_dir_of};
+use crate::hub::engine::SecretaryEngine;
 use crate::hub::settings::is_enabled;
 use crate::hub::state::HubState;
 use std::collections::hash_map::Entry;
@@ -162,8 +163,10 @@ fn run(app: &AppHandle, receiver: Receiver<FeedMsg>) {
 }
 
 /// Scrive gli eventi nei thread del canale del workspace ed emette
-/// `hub-update` per ogni thread toccato. Nessun salvataggio se nessun thread
-/// cambia (per esempio un task eliminato che non aveva un thread).
+/// `hub-update` per ogni thread toccato; poi, salvati i thread e rilasciato il
+/// loro lock, sveglia i titolari (`SecretaryEngine::on_events`). Nessun
+/// salvataggio se nessun thread cambia (per esempio un task eliminato che non
+/// aveva un thread).
 fn apply(app: &AppHandle, board: &BoardSnapshot, events: &[BoardEvent]) -> Result<(), String> {
     let channel = match Channel::parse(&board.workspace_id)? {
         channel @ Channel::Workspace(_) => channel,
@@ -172,7 +175,7 @@ fn apply(app: &AppHandle, board: &BoardSnapshot, events: &[BoardEvent]) -> Resul
     let dir = threads_dir_of(app)?;
     let state = app.state::<HubState>();
     let now = chrono::Utc::now().timestamp_millis();
-    let touched = state.update_when(
+    let routed = state.update_when(
         &dir,
         &channel,
         |list| {
@@ -181,11 +184,12 @@ fn apply(app: &AppHandle, board: &BoardSnapshot, events: &[BoardEvent]) -> Resul
             ensure_channel(app, &channel)?;
             Ok(route(list, &channel, board, events, now, &mut |prefix| state.next_id(prefix, now)))
         },
-        |touched| !touched.is_empty(),
+        |routed| !routed.touched.is_empty(),
     )?;
-    for summary in &touched {
+    for summary in &routed.touched {
         emit_update(app, summary);
     }
+    app.state::<SecretaryEngine>().on_events(app, &channel, &routed.wakes);
     Ok(())
 }
 

@@ -2,8 +2,9 @@
 
 /**
  * Un tool del motore che il segretario puo' usare: il limite vero di cosa fa
- * sta qui, non nel prompt. L'enum crescera' (`open_plan_task`,
- * `decide_proposal`, `relay_answer`, `ask_user`): un tool sconosciuto letto
- * dal file si salta (`tolerant::known_items`) senza perdere il resto.
+ * sta qui, non nel prompt. L'enum crescera' (`relay_answer`, `ask_user`): un
+ * tool sconosciuto letto dal file si salta (`tolerant::known_items`) senza
+ * perdere il resto. Un tool nuovo non si aggiunge da solo ai segretari
+ * esistenti: lo sceglie l'utente.
  */
-export type HubSecretaryTool = "board_status" | "thread_read" | "post_message";
+export type HubSecretaryTool = "board_status" | "thread_read" | "post_message" | "open_plan_task" | "decide_proposal";

@@ -1,7 +1,7 @@
 //! Punti d'ingresso dall'app reale: RPC dal socket, eventi degli hook, input
 //! dell'utente, uscita dall'app, caricamento delle board all'avvio e viste
 //! correnti delle board (la base degli eventi dell'Agents HUB all'accensione),
-//! creazione dei task di pianificazione per l'HUB.
+//! creazione dei task di pianificazione e decisione delle proposte per l'HUB.
 
 use super::*;
 
@@ -94,9 +94,17 @@ pub fn board_views(app: &AppHandle) -> Vec<BoardView> {
     app.state::<AutomationState>().views(&TauriHost(app.clone()))
 }
 
-/// Crea un task `plan` in coda nel workspace `ws_id` (vedi `planner`): l'API
-/// con cui l'Agents HUB delega la pianificazione. Ritorna l'id del task. Fa git:
-/// da chiamare fuori dal main thread.
-pub fn queue_plan_task(app: &AppHandle, ws_id: &str, req: &PlanRequest) -> Result<String, String> {
-    planner::create_plan_task(&app.state::<AutomationState>(), &TauriHost(app.clone()), ws_id, req)
+/// Crea un task `plan` in coda nel workspace `ws_id` (vedi
+/// `planner::create_hub_plan_task`): l'API con cui l'Agents HUB delega la
+/// pianificazione. Ritorna l'id del task. Fa git: da chiamare fuori dal main thread.
+pub fn queue_hub_plan_task(app: &AppHandle, ws_id: &str, title: &str, task: &str) -> Result<String, String> {
+    planner::create_hub_plan_task(&app.state::<AutomationState>(), &TauriHost(app.clone()), ws_id, title, task)
+}
+
+/// Accetta o scarta una proposta per conto dell'Agents HUB: lo stesso codice
+/// (e la stessa validazione) dei pulsanti del pannello Task. Fa git: da
+/// chiamare fuori dal main thread.
+pub fn decide_hub_proposal(app: &AppHandle, ws_id: &str, proposal_id: &str, accept: bool) -> Result<(), String> {
+    boards::proposal_decide(&app.state::<AutomationState>(), &TauriHost(app.clone()), ws_id, proposal_id, accept)
+        .map(drop)
 }
