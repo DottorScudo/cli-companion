@@ -54,7 +54,7 @@ La versione corrente è quella dell'ultimo tag git `v*`.
   `latest.json` e chiavi di firma.
 - [docs/DESIGN.MD](docs/DESIGN.MD) — note di design del progetto.
 - [docs/BOARD.MD](docs/BOARD.MD) — il Tasks Manager: coda di task, consegna, scheduler, fasce orarie, tool MCP.
-- [docs/wiki/integrare-un-coding-agent.md](docs/wiki/integrare-un-coding-agent.md) — come integrare un nuovo coding agent (contratti, procedura, esempio OpenCode).
+- [docs/wiki/integrare-un-coding-agent.md](docs/wiki/integrare-un-coding-agent.md) — come integrare un nuovo coding agent (contratti, procedura, OpenCode come seconda integrazione di riferimento).
 
 Notifiche dopo un aggiornamento: dalla v0.9.2 l'identifier è `cli-companion` e
 Windows recapita i toast solo se il collegamento nel menu Start ha lo stesso
@@ -201,7 +201,17 @@ in una sottocartella `agent-plugins` della cartella dati dell'app (`%APPDATA%`) 
 mano: usa “Rimuovi”. “Prova notifica” verifica il canale. Gli agenti avviati
 fuori da cli-companion vengono ignorati.
 
-Aggiungere un nuovo agente (guida completa, con OpenCode come esempio:
+Per **OpenCode** (solo la versione **2.x**): abilita l'integrazione in **Impostazioni → Generale →
+Integrazioni** (è la seconda, accanto a Claude Code), poi “Installa” sulla riga dell'ambiente. Il
+pacchetto è una cartella nostra, `plugins/cli-companion-notify/` dentro la configurazione di OpenCode
+(quella che riporta `opencode debug paths`): non viene toccato nessun altro file tuo. Gli avvii di
+cli-companion usano `--standalone` (OpenCode con un server privato nel tab, necessario perché il plugin
+e il server MCP vedano il terminale): un `opencode` digitato a mano funziona ma senza notifiche né MCP.
+I modelli hanno la forma `provider/modello` (es. `opencode/gpt-5.5`). Limiti: chiudendo OpenCode non
+arriva un evento di fine sessione (un worker resta “in corso” finché non chiudi il tab); l'utilizzo e i
+limiti del piano non sono mostrati; su WSL serve un OpenCode installato nella distro.
+
+Aggiungere un nuovo agente (guida completa, con OpenCode come seconda integrazione di riferimento:
 [docs/wiki/integrare-un-coding-agent.md](docs/wiki/integrare-un-coding-agent.md)): il core non sa come funziona un agente, offre dei
 contratti (`src-tauri/src/agents/contracts/`, uno per capacità) e ogni integrazione
 implementa quelli che le servono. Crea la cartella `src-tauri/src/agents/<nome>/`
@@ -211,7 +221,7 @@ contratti: `package` (file generati, installazione, rimozione; gli hook devono
 eseguire `cli-companion --notify <evento> <agente>` con eventi `session-start`,
 `finished`, `needs-input`, e il pacchetto dichiara il server MCP `cli-companion`,
 `cli-companion --mcp`), `automation` (sessioni automatiche, vedi sotto: il comando
-da digitare nella shell con prompt iniziale, modalità permessi e modello),
+da digitare nella shell con prompt iniziale, modalità permessi e modello, più eventuali variabili d'ambiente impostate dal core sul tab),
 `presets`, `models` (modelli consigliati per fascia e regola di validità del nome: senza,
 l'agente compare comunque ma senza suggerimenti), `usage_limits`, `session_usage`,
 `input_profile` e gli altri; quelli che non servono restano `None`. Un agente compare tra

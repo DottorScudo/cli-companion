@@ -383,6 +383,7 @@ fn closed_workers_are_pruned_beyond_the_cap() {
             title: "t".into(),
             cwd: String::new(),
             command: String::new(),
+            env: Vec::new(),
             kind: crate::board::TaskKind::Work,
         };
         let id = r.spawn_worker(format!("w{i}"), &format!("t{i}"), 1, new, env, i as i64).tab_id;

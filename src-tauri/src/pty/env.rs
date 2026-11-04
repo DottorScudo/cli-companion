@@ -5,6 +5,7 @@
 
 use portable_pty::CommandBuilder;
 
+use crate::agents::{is_valid_env_name, is_valid_env_value};
 use crate::ipc::{PORT_ENV, SESSION_ENV, TOKEN_ENV};
 use crate::platform::TargetKind;
 
@@ -36,12 +37,17 @@ pub(super) fn merge_wslenv(existing: Option<&str>, vars: &[&str]) -> String {
 /// (id del tab), `CLI_COMPANION_TOKEN` (il segreto di quella sessione) e
 /// `CLI_COMPANION_PORT` (se il listener e' in ascolto) per gli hook degli
 /// agenti e il server MCP e, su WSL, `WSLENV` che le fa attraversare il confine.
+/// `staged` sono le variabili chieste dall'integrazione dell'agente (gia'
+/// validate, vedi `staged_env`): vanno DOPO le nostre e, su WSL, i loro nomi
+/// entrano in `WSLENV` con `/u` (valori passati cosi' come sono). Per
+/// difesa, un nome o un valore non ammesso viene ignorato.
 pub(super) fn env_vars(
     tab_id: &str,
     secret: &str,
     port: Option<u16>,
     kind: TargetKind,
     parent_wslenv: Option<&str>,
+    staged: &[(String, String)],
 ) -> Vec<(String, String)> {
     let mut vars: Vec<(String, String)> = COLOR_ENV.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
     vars.push((SESSION_ENV.to_string(), tab_id.to_string()));
@@ -51,17 +57,28 @@ pub(super) fn env_vars(
         vars.push((PORT_ENV.to_string(), port.to_string()));
         forwarded.push(PORT_ENV);
     }
+    let staged: Vec<&(String, String)> =
+        staged.iter().filter(|(name, value)| is_valid_env_name(name) && is_valid_env_value(value)).collect();
     if kind == TargetKind::Wsl {
+        forwarded.extend(staged.iter().map(|(name, _)| name.as_str()));
         vars.push((WSLENV_VAR.to_string(), merge_wslenv(parent_wslenv, &forwarded)));
     }
+    vars.extend(staged.into_iter().cloned());
     vars
 }
 
-/// Imposta sul comando l'ambiente della sessione `tab_id`, con il suo `secret`.
-pub(super) fn apply_env(cmd: &mut CommandBuilder, tab_id: &str, secret: &str, kind: TargetKind) {
+/// Imposta sul comando l'ambiente della sessione `tab_id`, con il suo `secret`
+/// e le variabili `staged` dell'integrazione.
+pub(super) fn apply_env(
+    cmd: &mut CommandBuilder,
+    tab_id: &str,
+    secret: &str,
+    kind: TargetKind,
+    staged: &[(String, String)],
+) {
     let parent_wslenv = std::env::var(WSLENV_VAR).ok();
     let port = crate::ipc::listening_port();
-    for (key, value) in env_vars(tab_id, secret, port, kind, parent_wslenv.as_deref()) {
+    for (key, value) in env_vars(tab_id, secret, port, kind, parent_wslenv.as_deref(), staged) {
         cmd.env(key, value);
     }
     // Senza listener non si eredita la porta di un'altra istanza (app avviata da un suo terminale).

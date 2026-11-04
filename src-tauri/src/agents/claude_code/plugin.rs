@@ -14,6 +14,7 @@
 
 use super::presets::skill_path;
 use super::{AGENT_ID, MARKETPLACE, PLUGIN};
+use crate::agents::fnv32;
 use crate::agents::presets::{Preset, PRESETS};
 
 /// Notification che richiedono una risposta dell'utente.
@@ -75,11 +76,6 @@ fn mcp_json(exe: &str) -> String {
         }
     });
     serde_json::to_string_pretty(&v).unwrap_or_default()
-}
-
-/// FNV-1a a 32 bit: serve solo a derivare la versione del plugin.
-fn fnv32(s: &str) -> u32 {
-    s.bytes().fold(0x811c9dc5u32, |h, b| (h ^ b as u32).wrapping_mul(0x01000193))
 }
 
 /// La versione dipende dalla release dell'app e da hook, server MCP e skill:

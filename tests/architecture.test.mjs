@@ -15,6 +15,12 @@ const WIKI_PAGE = "docs/wiki/integrare-un-coding-agent.md";
 /** Integrazioni note. Aggiungendo un agente: una riga qui (e nel test Rust). */
 const INTEGRATIONS = [
   { module: "claude_code", id: "claude-code", commands: ["claude", "claude.exe"], models: ["sonnet", "opus", "haiku"] },
+  {
+    module: "opencode",
+    id: "opencode",
+    commands: ["opencode", "opencode.exe", "opencode.cmd"],
+    models: ["big-pickle", "gpt-5.5", "gpt-5.4-mini"],
+  },
 ];
 
 const SOURCE_FILE = /\.(ts|tsx|js|jsx|mjs)$/;

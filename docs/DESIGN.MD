@@ -507,7 +507,7 @@ le servono.
   env_key)`, `remove_agent_plugin(agent_id, env_key)`, `agent_plugins_outdated`, `agent_plugins_update`, `builtin_launches`.
 - Test: `architecture.rs` (il core non nomina un agente: vedi la mappa dei moduli), `conformance.rs` (verifica da solo
   ogni integrazione registrata e ogni contratto dichiarato), `testing.rs` (supporti).
-- Guida completa, con OpenCode come esempio: [wiki/integrare-un-coding-agent.md](wiki/integrare-un-coding-agent.md).
+- Guida completa, con OpenCode come seconda integrazione di riferimento: [wiki/integrare-un-coding-agent.md](wiki/integrare-un-coding-agent.md).
 - Aggiungere un agente: una cartella `agents/<nome>/` che implementa `AgentIntegration` + i contratti dichiarati in
   `capabilities()` + una riga in `registry.rs` (e una nei due test architetturali). La UI (Impostazioni → Generale → Integrazioni)
   raggruppa per agente da sola.
@@ -516,7 +516,7 @@ le servono.
   una voce in `PRESETS` + un file md. Il pacchetto di ogni integrazione che dichiara `presets` ne spedisce le skill e
   l'app espone una voce rapida per ognuna.
 - Automazione (facoltativa): `WorkerAutomation::command(env_kind, &AutomationRequest)
-  -> Option<String>` costruisce il comando da digitare nel tab per
+  -> Option<AutomationLaunch>` (`{ command, env }`) costruisce il comando da digitare nel tab, e le variabili d'ambiente da impostare sul tab, per
   avviare una sessione automatica; ritorna `None` se la richiesta non è rappresentabile in modo sicuro (tutto ciò che
   finisce in una riga di comando è non fidato). `AutomationRequest { bootstrap_prompt,
   permission_mode: PermissionMode (Default | AcceptEdits | Plan | Bypass), model, permissions_file }`.
@@ -579,6 +579,53 @@ le servono.
   - stato installato: `claude plugin list --json` contiene `id` ==
     `cli-companion-notify@cli-companion-local` (array o oggetto con `plugins`).
   - rimozione: `plugin uninstall` + `marketplace remove` + cartella generata.
+- `opencode/` (OpenCode 2.x, un file per contratto più `plugin.ts`, `plugin.rs`, `config_dir.rs`, `mode_rules.rs`,
+  `version.rs`): seconda integrazione reale, scritta senza `if` nel core. Dettagli e prove in
+  [wiki/integrare-un-coding-agent.md](wiki/integrare-un-coding-agent.md).
+  - rilevamento: `opencode --version` (`opencode v2.0.30`); su WSL path assoluto con `resolve_wsl_command_cached`
+    (lo shim Windows nel `PATH` di WSL è scartato). Solo la 2.x: `detect` mostra qualsiasi versione, `install` rifiuta
+    le altre (la v2 ha un'altra API dei plugin e un altro formato di configurazione).
+  - `--standalone` ovunque: di norma il TUI parla con un servizio condiviso per utente, il cui ambiente è quello di chi
+    lo ha avviato, quindi plugin e server MCP non vedono le `CLI_COMPANION_*` del tab. Con `--standalone` il server è
+    privato, figlio del TUI, e le eredita. Interattivo `opencode --standalone`; ripresa
+    `{command} --standalone --session {id}` (toglie anche `--standalone`, `--session/-s`, `--continue/-c`, `--fork`).
+    Il plugin è inerte senza `CLI_COMPANION_SESSION` o con `--service` in argv. Un `opencode` digitato a mano funziona
+    senza notifiche né MCP.
+  - pacchetto: una cartella nostra, `<config>/plugins/cli-companion-notify/` (`<config>` da `opencode debug paths`,
+    `XDG_CONFIG_HOME` rispettata), con `index.ts` e `skills/<preset>/SKILL.md`; nessun file dell'utente toccato e nessun
+    merge in `opencode.json`. Il plugin registra a runtime il server MCP `cli-companion` (`ctx.mcp.transform`) e le skill
+    (`ctx.skill.transform`). Riga di intestazione fissa in `index.ts` come marcatore; una cartella omonima senza
+    marcatore è rifiutata; `uninstall` toglie solo la nostra. Copia in `plugin_root` con `destination.txt`. `version` =
+    `<release>-h<fnv32>` (helper condiviso con Claude Code).
+  - eventi: il plugin ascolta `ctx.event.subscribe` (filtra da sé: il filtro `types` non vale nella 2.0.30) ed esegue
+    `<exe> --notify <evento> opencode` con uno stdin JSON nostro (`session_id`, `source`, `continuing`, `wait`,
+    `message`, `tool`, `summary`, `reason`). `session.created` (o il primo evento di una sessione mai vista, `resume`) →
+    `session-start`; `session.execution.succeeded` → `finished`; `permission.asked` → `permission-request` +
+    `needs-input` (permission); `form.created` → `needs-input` (question); `session.execution.failed` → `needs-input`
+    (other); `session.deleted` → `session-end`. Subagenti (con `parentID`) ignorati. Blocco del fine turno:
+    `{"continue":"<motivo>"}` su stdout, letto dal plugin che chiama `ctx.session.prompt`.
+  - automazione: `opencode run` esce al primo fine turno, quindi i worker usano il TUI:
+    `opencode --standalone --prompt "<bootstrap>" [--auto]` (`--auto` solo per `Bypass`). Il TUI non ha `--model` né
+    `--agent`: modello, `default_agent` (`plan`/`build`) e regole della modalità (`mode_rules.rs`) vanno in
+    `OPENCODE_CONFIG_CONTENT`, le regole del workspace nel file di `OPENCODE_CONFIG`
+    (`agents.build/plan.permissions`, dopo le regole di primo livello: l'ultima che corrisponde vince, quindi battono
+    quelle di modalità; con `--auto` i `deny` valgono ancora). Il server MCP è usabile senza conferme con
+    `cli-companion_*` e `execute` in `allow` (il modello lo chiama dal "Code Mode").
+  - permessi: sintassi `azione(risorsa)` o `azione`; `prepare` scrive `<dati app>/worker-permissions/opencode/<ws>.json`.
+  - preset: skill registrate dal plugin, avviate con `--prompt "Use the skill tool to load the skill <id>, ..."`.
+  - skill utente in `<config>/skills`; modelli `provider/modello` (`is_valid` = `valid_model_shape` + provider valido),
+    consigliati `opencode/gpt-5.4-mini`, `opencode/gpt-5.5`, `opencode/big-pickle`, nessun predefinito.
+  - non dichiarati: `usage_limits`, `session_usage` (sessioni in SQLite, nessun transcript), `input_profile`.
+  - limiti noti: chiudere il TUI non emette `session-end` (resta `running` fino alla chiusura del tab); solo la 2.x;
+    WSL coperto solo da test unitari.
+- Estensioni del core nate da OpenCode: (1) **`AutomationLaunch { command, env }`**: `WorkerAutomation::command` ritorna
+  anche variabili d'ambiente, validate da `is_valid_env_name` / `is_valid_env_value` / `first_invalid_env_name` (nome
+  `[A-Z_][A-Z0-9_]{0,63}`, riservati `CLI_COMPANION_*`, `WSLENV`, `PATH`, `TERM`, `COLORTERM`; valore ≤ 32 KiB senza
+  caratteri di controllo; niente doppioni; `automation_command` rifiuta le non valide). Il backend le prepara per il
+  tab del worker (`pty/staged_env.rs`, dentro `PtyState`, consumate una volta da `pty_spawn`, scartate alla chiusura
+  del worker) e `pty/env.rs` le aggiunge a `WSLENV` con `/u`: sul tab la shell parte già con l'ambiente giusto, in
+  PowerShell, cmd e bash, senza sintassi di shell. (2) **`validate::valid_model_shape`** (e `MODEL_SHAPE_PATTERN`):
+  la forma generica di un modello ammette `/` e `:`; la regola vera la dà `ModelCatalog::is_valid` dell'agente.
 
 ### Integrazioni: stato, risolutore e prontezza
 

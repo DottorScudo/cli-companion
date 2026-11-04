@@ -1191,3 +1191,21 @@ fn e2e_flag_defaults_to_false_is_parsed_and_omitted_when_false() {
     let old_spec: TaskSpec = serde_json::from_value(json!({"id": "a", "title": "T", "task": "x"})).unwrap();
     assert!(!old_spec.e2e);
 }
+
+#[test]
+fn the_generic_model_shape_leaves_the_agent_rule_to_the_resolved_agent() {
+    // `prov/model` ha una forma ammessa: il parsing lo lascia passare...
+    let ok = parse_proposal(&json!({"tasks":[{"id":"a","title":"T","task":"x","model":" prov/model "}]})).unwrap();
+    assert_eq!(ok[0].model.as_deref(), Some("prov/model"));
+    assert!(parse_spec(&json!({"id":"a","title":"T","task":"x","model":"a//b"}), None)
+        .unwrap_err()
+        .contains("invalid model"));
+    // ...ma l'agente predefinito non lo accetta: errore specifico dell'agente.
+    let b = Board::new("ws-1");
+    let err = b.check_specs(&ok, &HashSet::new(), None).unwrap_err();
+    assert!(err.contains("invalid model for") && err.contains("prov/model"), "{err}");
+    // Vale anche per la modifica di un task esistente.
+    let mut b = board_with(vec![spec("a", &[])]);
+    let err = b.update_task("a", &json!({"model":"prov/model"}), None, 2).unwrap_err();
+    assert!(err.contains("invalid model for"), "{err}");
+}

@@ -40,6 +40,11 @@ pub fn sanitize_env_key(key: &str) -> String {
     key.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '-' }).collect()
 }
 
+/// FNV-1a a 32 bit: serve solo a derivare la versione di un pacchetto dal suo contenuto.
+pub fn fnv32(s: &str) -> u32 {
+    s.bytes().fold(0x811c9dc5u32, |h, b| (h ^ b as u32).wrapping_mul(0x01000193))
+}
+
 /// Un file del pacchetto generato.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageFile {
@@ -73,6 +78,13 @@ pub trait IntegrationPackage: Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fnv32_matches_the_published_test_vectors() {
+        assert_eq!(fnv32(""), 0x811c9dc5);
+        assert_eq!(fnv32("a"), 0xe40c292c);
+        assert_eq!(fnv32("foobar"), 0xbf9cf968);
+    }
 
     #[test]
     fn sanitize_env_key_keeps_simple_names() {

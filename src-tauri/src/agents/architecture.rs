@@ -34,13 +34,22 @@ struct Integration {
 }
 
 /// Integrazioni note al test. Aggiungendo un agente: una riga qui.
-const INTEGRATIONS: &[Integration] = &[Integration {
-    folder: "claude_code",
-    id: "claude-code",
-    commands: &["claude", "claude.exe"],
-    hook_values: &["permission_prompt", "idle_prompt", "elicitation_dialog"],
-    models: &["sonnet", "opus", "haiku"],
-}];
+const INTEGRATIONS: &[Integration] = &[
+    Integration {
+        folder: "claude_code",
+        id: "claude-code",
+        commands: &["claude", "claude.exe"],
+        hook_values: &["permission_prompt", "idle_prompt", "elicitation_dialog"],
+        models: &["sonnet", "opus", "haiku"],
+    },
+    Integration {
+        folder: "opencode",
+        id: "opencode",
+        commands: &["opencode", "opencode.exe", "opencode.cmd"],
+        hook_values: &[],
+        models: &["big-pickle", "gpt-5.5", "gpt-5.4-mini"],
+    },
+];
 
 /// Cartelle di `agents/` che non sono integrazioni.
 const CORE_FOLDERS: [&str; 3] = ["architecture", "contracts", "presets"];

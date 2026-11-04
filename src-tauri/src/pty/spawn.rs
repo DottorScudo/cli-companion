@@ -90,16 +90,18 @@ fn windows_command(dir: &str, shell: &str) -> CommandBuilder {
     cmd
 }
 
-/// Comando completo di una sessione: shell del target piu' ambiente.
+/// Comando completo di una sessione: shell del target piu' ambiente (con le
+/// variabili `staged` dell'integrazione, applicate dopo le nostre).
 pub(super) fn session_command(
     target: &Target,
     dir: &str,
     shell: Option<&str>,
     tab_id: &str,
     secret: &str,
+    staged: &[(String, String)],
 ) -> CommandBuilder {
     let mut cmd = build_command(target, dir, shell);
-    apply_env(&mut cmd, tab_id, secret, target.kind());
+    apply_env(&mut cmd, tab_id, secret, target.kind(), staged);
     cmd
 }
 

@@ -7,7 +7,7 @@
 use super::*;
 use crate::agents::registry;
 use crate::agents::test_registry::SecondIntegration;
-use crate::agents::testing::{FakeIntegration, FAKE_MODEL_LARGE, FAKE_MODEL_SMALL};
+use crate::agents::testing::{FakeIntegration, FAKE_ENV_NAME, FAKE_MODEL_LARGE, FAKE_MODEL_SMALL};
 use crate::agents::{builtin_launch_list_for, presets::PRESETS};
 
 const FAKE_ID: &str = "fake-second";
@@ -113,6 +113,29 @@ fn without_a_workspace_model_the_fake_agent_starts_with_its_catalog_default() {
 }
 
 #[test]
+fn the_worker_of_the_fake_agent_gets_its_env_staged_but_not_sent_to_the_frontend() {
+    let _second = second();
+    let (st, h) = host(Some(FAKE_ID));
+    queue(&st, &h, vec![fake_spec("a", &[])]);
+    let tab = session_of(&st, &h, "a");
+    assert_eq!(h.staged_env(&tab), [(FAKE_ENV_NAME.to_string(), "accept-edits".to_string())]);
+    let spawn = h.spawns().into_iter().find(|s| s.tab_id == tab).unwrap();
+    assert!(!spawn.command.contains(FAKE_ENV_NAME));
+}
+
+#[test]
+fn the_worker_of_claude_code_stages_no_env() {
+    let _second = second();
+    let (st, h) = host(Some(FAKE_ID));
+    let mut real = fake_spec("r", &[]);
+    real["agent"] = json!(real_id());
+    real["model"] = json!("opus");
+    queue(&st, &h, vec![real]);
+    assert_eq!(launched(&st, &h, "r").0, real_id());
+    assert!(h.staged.lock().unwrap().is_empty());
+}
+
+#[test]
 fn a_review_task_of_the_fake_agent_starts_its_reviewer_with_that_agent() {
     let _second = second();
     let (st, h) = host(None);
@@ -156,8 +179,10 @@ fn get_workspace_settings_lists_both_integrations() {
     let out = call(&st, &h, INTAKE, "get_workspace_settings", json!({})).unwrap();
     let agents = out["agents"].as_array().unwrap();
     let ids: Vec<&str> = agents.iter().map(|a| a["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, [real_id(), FAKE_ID]);
-    let fake = &agents[1];
+    let registered: Vec<&str> = registry::all().iter().map(|i| i.id()).collect();
+    assert_eq!(ids, registered);
+    assert_eq!(ids.last(), Some(&FAKE_ID));
+    let fake = agents.last().unwrap();
     assert_eq!((fake["name"].as_str(), fake["is_default"].as_bool()), (Some(FAKE_NAME), Some(false)));
     let models: Vec<&str> = fake["models"].as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap()).collect();
     assert_eq!(models, [FAKE_MODEL_SMALL, FAKE_MODEL_LARGE]);
@@ -192,4 +217,38 @@ fn tasks_of_a_disabled_fake_agent_wait_with_the_reason_without_holding_back_the_
     fake_task["id"] = json!("c");
     let err = call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [fake_task]})).unwrap_err();
     assert_eq!(err, format!("task 'c': {FAKE_NAME} is disabled: enable it in the integrations settings"));
+}
+
+#[test]
+fn a_task_for_a_real_second_agent_is_validated_with_its_catalog_and_gets_its_config_in_the_env() {
+    const OTHER_ID: &str = "opencode";
+    const OTHER_NAME: &str = "OpenCode";
+    const OTHER_MODEL: &str = "opencode/gpt-5.5";
+    const CONFIG_ENV: &str = "OPENCODE_CONFIG_CONTENT";
+    let _second = second();
+    let (st, h) = host(None);
+    // Il modello di un altro agente non vale per questo.
+    let mut foreign = spec("x", &[]);
+    foreign["agent"] = json!(OTHER_ID);
+    let err = call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [foreign]})).unwrap_err();
+    assert!(err.contains(&format!("invalid model for {OTHER_NAME}: {FOREIGN_MODEL}")), "{err}");
+
+    let mut task = spec("o", &[]);
+    task["agent"] = json!(OTHER_ID);
+    task["model"] = json!(OTHER_MODEL);
+    queue(&st, &h, vec![task]);
+    assert_eq!(agent_of(&st, &h, "o"), OTHER_ID);
+    assert_eq!(status(&st, &h, "o"), "running");
+    assert_eq!(launched(&st, &h, "o"), (OTHER_ID.to_string(), OTHER_MODEL.to_string()));
+
+    // Modello e permessi viaggiano nell'ambiente del tab, mai nella riga di comando.
+    let tab = session_of(&st, &h, "o");
+    let env = h.staged_env(&tab);
+    let (name, value) = &env[0];
+    assert_eq!(name, CONFIG_ENV);
+    let config: Value = serde_json::from_str(value).unwrap();
+    assert_eq!(config["model"], OTHER_MODEL);
+    assert_eq!(config["default_agent"], "build");
+    let spawn = h.spawns().into_iter().find(|s| s.tab_id == tab).unwrap();
+    assert!(!spawn.command.contains(CONFIG_ENV));
 }

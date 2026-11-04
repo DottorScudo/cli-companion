@@ -159,15 +159,27 @@ fn request<'a>(prompt: &'a str, model: Option<&'a str>, permissions_file: Option
     AutomationRequest { bootstrap_prompt: prompt, permission_mode: PermissionMode::Default, model, permissions_file }
 }
 
-fn automation(automation: &dyn WorkerAutomation) -> Vec<String> {
+/// Modello accettato dalla forma generica, per le integrazioni senza catalogo.
+const SAFE_MODEL: &str = "model-1.0";
+
+fn automation(i: &dyn AgentIntegration, automation: &dyn WorkerAutomation) -> Vec<String> {
     let mut v = Vec::new();
+    // Un modello valido per l'agente: il primo consigliato dal suo catalogo.
+    let valid_model = i.capabilities().models.and_then(|c| c.suggested().first().map(|m| m.id)).unwrap_or(SAFE_MODEL);
     let prompt = crate::automation::BOOTSTRAP_PROMPT;
     for kind in [TargetKind::Windows, TargetKind::Wsl] {
         for mode in PermissionMode::ALL {
             let req = AutomationRequest { permission_mode: mode, ..request(prompt, None, None) };
             match automation.command(kind, &req) {
                 None => v.push(format!("automation: nessun comando per {kind:?}/{mode:?}")),
-                Some(cmd) => {
+                Some(AutomationLaunch { command: cmd, env }) => {
+                    // Nome, valore e duplicati: la stessa regola che applica il registro.
+                    if let Some(name) = first_invalid_env_name(&env) {
+                        let invalid =
+                            env.iter().any(|(n, val)| n == name && !(is_valid_env_name(n) && is_valid_env_value(val)));
+                        let what = if invalid { "non valida" } else { "duplicata" };
+                        v.push(format!("automation: variabile d'ambiente {what} ({kind:?}/{mode:?}): {name:?}"));
+                    }
                     if !cmd.contains(prompt) {
                         v.push(format!("automation: il comando non contiene il prompt ({kind:?}/{mode:?})"));
                     }
@@ -177,7 +189,8 @@ fn automation(automation: &dyn WorkerAutomation) -> Vec<String> {
                 }
             }
         }
-        let run = |req: &AutomationRequest| automation.command(kind, req);
+        let launch = |req: &AutomationRequest| automation.command(kind, req);
+        let run = |req: &AutomationRequest| launch(req).map(|launch| launch.command);
         for c in ['"', '$', '`', '%', '!', '\\', '\n'] {
             let bad = format!("a{c}b");
             if run(&request(&bad, None, None)).is_some() {
@@ -187,7 +200,7 @@ fn automation(automation: &dyn WorkerAutomation) -> Vec<String> {
         if run(&request("", None, None)).is_some() {
             v.push("automation: prompt vuoto accettato".to_string());
         }
-        if run(&request(prompt, Some("claude-opus-4.1"), None)).is_none() {
+        if run(&request(prompt, Some(valid_model), None)).is_none() {
             v.push("automation: modello valido rifiutato".to_string());
         }
         let long = "m".repeat(65);
@@ -202,8 +215,9 @@ fn automation(automation: &dyn WorkerAutomation) -> Vec<String> {
             }
         }
         let safe = "C:/data/worker-permissions/ws-1.json";
-        match run(&request(prompt, None, Some(safe))) {
-            Some(cmd) if cmd.contains(safe) => {}
+        // Il path arriva all'agente nel comando o in una variabile d'ambiente.
+        match launch(&request(prompt, None, Some(safe))) {
+            Some(l) if l.command.contains(safe) || l.env.iter().any(|(_, value)| value.contains(safe)) => {}
             other => v.push(format!("automation: permissions_file sicuro non usato: {other:?}")),
         }
     }
@@ -247,6 +261,12 @@ fn models(i: &dyn AgentIntegration, catalog: &dyn ModelCatalog) -> Vec<String> {
     }
     if let Some(default) = catalog.default_model().filter(|m| !catalog.is_valid(m)) {
         v.push(format!("models: il modello predefinito {default:?} non e' valido per l'agente"));
+    }
+    // La regola dell'agente sta dentro la barriera generica sulla forma.
+    for model in suggested.iter().map(|m| m.id).chain(catalog.default_model()) {
+        if !crate::validate::valid_model_shape(model) {
+            v.push(format!("models: il modello {model:?} esce dalla forma generica (valid_model_shape)"));
+        }
     }
     for name in UNSAFE_MODEL_NAMES {
         if catalog.is_valid(name) {
@@ -396,7 +416,7 @@ fn violations(i: &dyn AgentIntegration) -> Vec<String> {
         v.extend(presets(i, c, dir));
     }
     if let Some(c) = caps.automation {
-        v.extend(automation(c));
+        v.extend(automation(i, c));
     }
     if let Some(c) = caps.input_profile {
         v.extend(input_profile(c));
@@ -449,6 +469,16 @@ fn a_missing_preset_skill_is_reported() {
 }
 
 #[test]
+fn an_invalid_automation_env_is_reported() {
+    let broken = FakeIntegration::full("broken-env").with_flaw(Flaw::AutomationInvalidEnv);
+    let found = violations(&broken);
+    assert!(
+        found.iter().any(|m| m.contains("automation:") && m.contains("variabile d'ambiente non valida")),
+        "{found:?}"
+    );
+}
+
+#[test]
 fn an_unsafe_automation_command_is_reported() {
     let broken = FakeIntegration::full("broken-dollar").with_flaw(Flaw::AutomationLetsDollarThrough);
     let found = violations(&broken);
@@ -467,6 +497,13 @@ fn a_model_rule_that_accepts_spaces_is_reported() {
     let broken = FakeIntegration::full("broken-models").with_flaw(Flaw::ModelValidationAcceptsSpaces);
     let found = violations(&broken);
     assert!(found.iter().any(|m| m.contains("models:") && m.contains("\"a b\"")), "{found:?}");
+}
+
+#[test]
+fn a_suggested_model_outside_the_generic_shape_is_reported() {
+    let broken = FakeIntegration::full("broken-shape").with_flaw(Flaw::SuggestedModelOutsideShape);
+    let found = violations(&broken);
+    assert!(found.iter().any(|m| m.contains("models:") && m.contains("valid_model_shape")), "{found:?}");
 }
 
 #[test]

@@ -8,6 +8,7 @@ mod exit;
 mod io;
 mod registry;
 mod spawn;
+mod staged_env;
 #[cfg(test)]
 mod tests;
 
@@ -22,6 +23,7 @@ use crate::workspaces::WorkspaceStore;
 use io::{spawn_reader, spawn_writer};
 use registry::{PtySession, Reservation, SharedRegistry};
 use spawn::{check_start_dir, open_pty, pty_size, session_command, start_dir};
+use staged_env::StagedEnv;
 
 /// Messaggi sul canale dedicato di una sessione: `{kind:"output",data}` o
 /// `{kind:"exit"}`. Un canale per terminale (invece di un evento globale)
@@ -37,6 +39,8 @@ pub enum PtyEvent {
 #[derive(Default)]
 pub struct PtyState {
     registry: SharedRegistry,
+    /// Ambiente chiesto dalle integrazioni per i tab che il backend ha creato.
+    staged_env: StagedEnv,
 }
 
 /// Richiesta di apertura di un terminale, come arriva dal frontend.
@@ -80,7 +84,10 @@ fn open_session(app: &AppHandle, request: &SpawnRequest, on_event: Channel<PtyEv
     // Il segreto si emette solo a prenotazione riuscita: se un passo seguente
     // fallisce, il drop della credenziale lo revoca.
     let credential = app.state::<crate::automation::AutomationState>().issue_credential(&request.tab_id)?;
-    let cmd = session_command(&target, &dir, ws.shell.as_deref(), &request.tab_id, credential.secret());
+    // Solo il backend prepara queste variabili (per un tab che ha creato lui):
+    // la richiesta del frontend non le porta e non le influenza.
+    let staged = app.state::<PtyState>().staged_env.take(&request.tab_id);
+    let cmd = session_command(&target, &dir, ws.shell.as_deref(), &request.tab_id, credential.secret(), &staged);
     let opened = open_pty(cmd, pty_size(request.cols, request.rows))?;
 
     let session_id = reservation.id();
@@ -116,6 +123,18 @@ pub fn workspace_of_tab(app: &AppHandle, tab_id: &str) -> Option<String> {
     let state = app.state::<PtyState>();
     let registry = state.registry.lock().unwrap();
     registry.workspace_of_tab(tab_id).map(str::to_string)
+}
+
+/// Prepara le variabili d'ambiente del PTY del tab `tab_id`, che il frontend
+/// aprira' a breve: `pty_spawn` le applica una volta sola. Si chiama prima di
+/// annunciare il tab al frontend.
+pub fn stage_env(app: &AppHandle, tab_id: &str, vars: Vec<(String, String)>) {
+    app.state::<PtyState>().staged_env.stage(tab_id, vars);
+}
+
+/// Scarta le variabili preparate per il tab, se non sono state usate.
+pub fn discard_staged_env(app: &AppHandle, tab_id: &str) {
+    app.state::<PtyState>().staged_env.discard(tab_id);
 }
 
 /// Chiude tutti i terminali all'uscita dell'app, con un'attesa massima breve.

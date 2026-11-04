@@ -24,7 +24,8 @@ use std::time::Instant;
 /// 9_500 = 9_000 plus the `e2e` flag of the tasks and the `e2e` object of the repo settings (measured 9_477).
 /// 9_700 = 9_500 plus `agent` and the nested `worker_agents` object of propose_settings, which replace the
 /// top-level worker_model/worker_allow/worker_deny (measured 9_699 after trimming every description that was not needed).
-const SESSION_TOOLS_CEILING: usize = 9_700;
+/// 9_800 = 9_700 plus the longer generic model pattern (`MODEL_SHAPE_PATTERN`, twice; measured 9_748).
+const SESSION_TOOLS_CEILING: usize = 9_800;
 /// 3_050 = 2_600 plus run_e2e and get_e2e_result (measured 3_002).
 const WORKER_TOOLS_CEILING: usize = 3_050;
 /// The reviewer set (measured 4_005, with the `e2e` flag of propose_tasks): its own get_task and complete_task (verdict, findings, tests) plus the shared

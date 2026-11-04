@@ -4,7 +4,7 @@
 
 use super::{Task, TaskKind, TASK_MAX, TITLE_MAX};
 use crate::validate::{clip_chars, req_text};
-use crate::validate::{normalize_repo, valid_model};
+use crate::validate::{normalize_repo, valid_model_shape};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -233,9 +233,9 @@ pub fn parse_spec(v: &Value, base: Option<&TaskSpec>) -> Result<TaskSpec, String
         None => base.and_then(|b| b.model.clone()),
         Some(Value::Null) => None,
         Some(Value::String(m)) if m.trim().is_empty() => None,
-        Some(Value::String(m)) if valid_model(m.trim()) => Some(m.trim().to_string()),
+        Some(Value::String(m)) if valid_model_shape(m.trim()) => Some(m.trim().to_string()),
         Some(Value::String(_)) => {
-            return Err("invalid model (only letters, digits, '.', '_' and '-', max 64)".to_string())
+            return Err("invalid model (letters, digits, '.', '_', '-', ':' and '/', max 128)".to_string())
         }
         Some(_) => return Err("model must be a string".to_string()),
     };

@@ -4,7 +4,7 @@
 
 use super::process::CancelFlag;
 use super::*;
-use crate::agents::{self, AutomationRequest};
+use crate::agents::{self, AutomationLaunch, AutomationRequest};
 use crate::platform::{Target, TargetKind};
 use crate::schedule::{Schedule, ScheduleState};
 use crate::user_skills::targets;
@@ -28,7 +28,16 @@ pub trait Host: Clone + Send + 'static {
     fn tab_workspace(&self, tab_id: &str) -> Option<Workspace>;
     /// La cartella esiste nell'ambiente del workspace?
     fn dir_exists(&self, ws: &Workspace, path: &str) -> bool;
-    fn launch_command(&self, agent: &str, env_kind: TargetKind, req: &AutomationRequest) -> Result<String, String>;
+    /// Comando da digitare e variabili d'ambiente del tab per avviare l'agente.
+    fn launch_command(
+        &self,
+        agent: &str,
+        env_kind: TargetKind,
+        req: &AutomationRequest,
+    ) -> Result<AutomationLaunch, String>;
+    /// Prepara le variabili d'ambiente del PTY del tab `tab_id`: il backend le
+    /// applica allo spawn del tab, nulla passa dal frontend. Prima di `emit_spawn`.
+    fn stage_env(&self, tab_id: &str, env: Vec<(String, String)>);
     /// File con le regole di permesso pre-approvate/vietate del workspace per
     /// l'agente `agent`, scritto dal contratto `WorkerPermissions` e nel formato
     /// di path del suo ambiente. `None` = nessuna regola o agente senza il contratto.
@@ -219,8 +228,17 @@ impl Host for TauriHost {
         }
     }
 
-    fn launch_command(&self, agent: &str, env_kind: TargetKind, req: &AutomationRequest) -> Result<String, String> {
+    fn launch_command(
+        &self,
+        agent: &str,
+        env_kind: TargetKind,
+        req: &AutomationRequest,
+    ) -> Result<AutomationLaunch, String> {
         agents::automation_command(agent, env_kind, req)
+    }
+
+    fn stage_env(&self, tab_id: &str, env: Vec<(String, String)>) {
+        crate::pty::stage_env(&self.0, tab_id, env);
     }
 
     fn worker_permissions_file(&self, ws: &Workspace, agent: &str) -> Result<Option<String>, String> {
@@ -233,6 +251,8 @@ impl Host for TauriHost {
     }
 
     fn emit_close(&self, tab_id: &str) {
+        // Se il tab non e' mai stato aperto, le sue variabili non servono piu'.
+        crate::pty::discard_staged_env(&self.0, tab_id);
         let _ = self.0.emit(CLOSE_EVENT, TabEvent { tab_id: tab_id.to_string() });
     }
 

@@ -84,7 +84,7 @@ fn task_properties(with_id: bool) -> Value {
         },
         "model": {
             "type": ["string", "null"],
-            "pattern": "^[A-Za-z0-9._-]{1,64}$",
+            "pattern": crate::validate::MODEL_SHAPE_PATTERN,
             "description": model_description(tier_models(registry::default_agent()))
         },
         "kind": {
@@ -111,7 +111,7 @@ fn propose_tasks_tool() -> Value {
     let mut proposed = task_properties(true);
     proposed["model"] = json!({
         "type": "string",
-        "pattern": "^[A-Za-z0-9._-]{1,64}$",
+        "pattern": crate::validate::MODEL_SHAPE_PATTERN,
         "description": proposed_model_description(tier_models(registry::default_agent()))
     });
     tool(

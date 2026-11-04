@@ -4,8 +4,9 @@
 > l'integrazione implementa quelli che le servono, ed è il contratto
 > implementato a far funzionare l'agente.**
 
-Questa guida spiega come aggiungere un agente (Claude Code è l'integrazione di
-riferimento, OpenCode l'esempio sviluppato in fondo). Vale una regola sola:
+Questa guida spiega come aggiungere un agente (Claude Code è la prima integrazione
+di riferimento, OpenCode la seconda, descritta in fondo con ciò che è stato provato).
+Vale una regola sola:
 **il core non nomina mai un agente specifico**. Tutto ciò che è proprio di un
 agente (comandi, flag, formato degli hook, cartelle di configurazione, sintassi
 dei permessi) vive in `src-tauri/src/agents/<id>/`. Un test architetturale
@@ -14,7 +15,7 @@ riferimento a un agente.
 
 Indice: [Il modello](#il-modello) · [I contratti](#i-contratti) ·
 [Procedura](#procedura-passo-passo) · [Checklist](#checklist-finale) ·
-[Esempio: OpenCode](#esempio-opencode)
+[Integrazione di riferimento n. 2: OpenCode](#integrazione-di-riferimento-n-2-opencode)
 
 ## Il modello
 
@@ -160,7 +161,8 @@ fn uninstall(&self, ctx: &InstallCtx, target: &Target, det: &Detection) -> Resul
   deve cambiare quando cambiano gli hook, la dichiarazione MCP o le skill (per
   Claude Code è `<release>-h<hash>`): il core la confronta con quella installata
   per segnalare i pacchetti da aggiornare. `None` = non calcolabile, mai da
-  aggiornare.
+  aggiornare. L'hash si calcola con `fnv32` (`contracts/package.rs`, esportata da
+  `agents`), la stessa funzione per tutte le integrazioni: non scriverne un'altra.
 - `files` ritorna path relativi, con slash dritti, senza `..`, senza duplicati e
   senza BOM.
 - `install`/`uninstall` ritornano il log dei passi. Il core li serializza per
@@ -212,7 +214,9 @@ fn stop_block_output(&self, reason: &str) -> String;
 - `stop_block_output` è la riga scritta su stdout dall'hook di fine turno quando
   l'app risponde `{"block": "<motivo>"}` (un worker che chiude il turno senza
   aver chiamato `complete_task`): deve far proseguire l'agente. È l'unico
-  output che `--notify` produce.
+  output che `--notify` produce. Il formato lo decide l'integrazione: per
+  Claude Code lo legge l'agente stesso, per OpenCode un plugin nostro (vedi
+  l'ultima sezione).
 
 **Core con il contratto.** `--notify` legge lo stdin (tetto 1 MB) e lo passa a
 `normalize`; l'app usa i dettagli per l'id della sessione dell'agente (ripresa),
@@ -271,8 +275,9 @@ Tasks Manager) senza utente.
 **Firma** (`contracts/automation.rs`).
 
 ```rust
-fn command(&self, env_kind: TargetKind, req: &AutomationRequest) -> Option<String>;
+fn command(&self, env_kind: TargetKind, req: &AutomationRequest) -> Option<AutomationLaunch>;
 // AutomationRequest { bootstrap_prompt, permission_mode, model, permissions_file }
+// AutomationLaunch  { command: String, env: Vec<(String, String)> }
 ```
 
 - `bootstrap_prompt`: ASCII sicuro, garantito dal chiamante; chiede all'agente di
@@ -280,13 +285,31 @@ fn command(&self, env_kind: TargetKind, req: &AutomationRequest) -> Option<Strin
 - `permission_mode`: `Plan` | `Default` | `AcceptEdits` | `Bypass`
   (`PermissionMode::ALL`, dal più restrittivo). L'integrazione mappa ciascun
   livello su ciò che l'agente offre.
-- `model`: già validato (`[A-Za-z0-9._-]{1,64}`), ma l'integrazione **rivalida**.
+- `model`: già validato (forma generica `validate::valid_model_shape` e `ModelCatalog::is_valid` dell'agente), ma l'integrazione **rivalida**.
 - `permissions_file`: file di regole preparato dal contratto `WorkerPermissions`
   *della stessa integrazione*, già nel formato di path del target.
-- Il risultato è digitato nella shell del tab: valido in PowerShell, cmd e bash.
-  `None` = richiesta non rappresentabile in modo sicuro. Tutto ciò che non
-  si può mettere letterale tra doppi apici si rifiuta (`is_shell_safe_path` per i
-  path).
+- Il risultato è un `AutomationLaunch` con due parti. `command` è digitato nella
+  shell del tab: valido in PowerShell, cmd e bash. `None` = richiesta non
+  rappresentabile in modo sicuro. Tutto ciò che non si può mettere letterale tra
+  doppi apici si rifiuta (`is_shell_safe_path` per i path).
+- `env` sono le variabili d'ambiente che il **core** imposta sul processo del tab
+  *prima* che la shell parta (le prepara il backend per quel tab, `pty/staged_env.rs`,
+  e `pty_spawn` le consuma una volta sola; il frontend non può impostarne). Per un
+  agente che si configura con l'ambiente (modello, regole di permesso, file di
+  configurazione) è il canale giusto: **niente sintassi di shell**, quindi vale
+  uguale in PowerShell, cmd e bash, e i valori sono letterali (JSON compreso, senza
+  escape). Su WSL attraversano il confine con `WSLENV`, con il flag `/u` (da
+  Windows a WSL, valore invariato): il valore deve quindi essere **già nel formato
+  di path del target** (un path del file di regole su WSL è `/mnt/c/...`, come per
+  `permissions_file`). Le variabili arrivano a tutti i processi del tab, non solo
+  all'agente.
+- Validatori (`contracts/automation.rs`): il **nome** è `[A-Z_][A-Z0-9_]{0,63}` e
+  non può essere riservato (`CLI_COMPANION_*`, `WSLENV`, `PATH`, `TERM`,
+  `COLORTERM`); il **valore** è al massimo 32 KiB e senza caratteri di controllo
+  (NUL, a capo, tab); nessun nome ripetuto. Il registro (`automation_command`) rifiuta
+  un'integrazione che ne produce di non valide con l'errore inglese
+  `<nome> returned an invalid environment variable for automated sessions: <NOME>`,
+  senza ripiegare su altro. `first_invalid_env_name` applica le tre regole insieme.
 - Il comando deve far partire l'agente **con il server MCP `cli-companion`
   utilizzabile senza conferme** (per Claude Code una regola di permesso sul
   server): un worker che non può chiamare `get_task` non fa nulla.
@@ -306,10 +329,12 @@ come predefinito un agente senza `automation`, creare un task senza un agente es
 senza un agente del workspace) fallisce con quell'errore invece di ripiegare su un altro agente.
 
 **Conformità** (`automation`): per ogni target e ogni `PermissionMode` esiste un
-comando che contiene il prompt ed è sicuro per la shell; prompt con `" $ \` % ! \\`
-o a capo, o vuoto, rifiutati; modello valido accettato, modelli non validi
-(vuoto, spazi, `;`, `"`, 65 caratteri) rifiutati; `permissions_file` con
-caratteri pericolosi rifiutato, uno sicuro usato nel comando.
+avvio il cui `command` contiene il prompt ed è sicuro per la shell, e le cui `env`
+hanno nomi e valori validi e nessun nome duplicato (il messaggio dice target e
+modalità); prompt con `" $ \` % ! \\` o a capo, o vuoto, rifiutati; modello valido
+(il primo consigliato dal catalogo) accettato, modelli non validi (vuoto, spazi,
+`;`, `"`, 65 caratteri) rifiutati; `permissions_file` con caratteri pericolosi
+rifiutato, uno sicuro usato nel comando **oppure in una variabile d'ambiente**.
 
 ### 5. Permessi dei worker: `WorkerPermissions`
 
@@ -490,6 +515,25 @@ riga di comando (spazi, `$`, virgolette, backtick, `;`, `|`, `&`, a capo, vuoto)
 Claude Code accetta alias e id completi, quindi usa la forma sicura
 (`validate::valid_model`) invece di un elenco chiuso.
 
+**Due livelli di regola.** La validazione di un nome di modello ha due barriere, e
+non vanno confuse:
+
+1. **Forma generica** (`validate::valid_model_shape`, core): ASCII con cifre,
+   `.`, `_`, `-`, `/`, `:`, 1-128 byte, senza `-` o `/` iniziale, `/` finale o
+   `//`. Nessun metacarattere di shell. La applicano il parsing delle specifiche
+   dei task (`board/spec.rs`), il `pattern` dello schema degli strumenti MCP
+   (`MODEL_SHAPE_PATTERN`) e il frontend (`src/lib/model.ts`). Non sa nulla di
+   nessun agente: scarta solo ciò che non potrebbe mai essere un nome.
+2. **Regola dell'agente** (`ModelCatalog::is_valid`): decide cosa è un modello di
+   *quell'agente* (`provider/modello` per OpenCode, alias o id per Claude Code).
+   La applicano la creazione e la modifica di un task, le impostazioni dei worker
+   e `automation_command`.
+
+La regola dell'agente sta **dentro** la forma generica: la conformità richiede che
+ogni modello consigliato e il `default_model` la rispettino. Un agente il cui nome
+di modello non passa la forma generica non può dichiarare `models` (si estende la
+forma nel core, non la si aggira).
+
 **Cosa deve dichiarare l'integrazione.**
 
 - `suggested`: i modelli che vuole proporre, ciascuno con `id` (il nome come lo vuole il suo
@@ -520,10 +564,11 @@ si svuota se il nuovo agente non lo consiglia.
 
 **Core senza il contratto.** Nessun consiglio: i campi modello non hanno suggerimenti, le
 descrizioni del campo `model` non fanno nomi e la validità è la sola forma sicura
-(`validate::valid_model`).
+(`validate::valid_model_shape`, il primo livello).
 
 **Conformità** (`models`): id consigliati senza duplicati, con etichetta e validi
-per `is_valid`; `default_model`, se presente, valido; `is_valid` rifiuta nomi
+per `is_valid`; `default_model`, se presente, valido; consigliati e predefinito
+dentro la forma generica `valid_model_shape`; `is_valid` rifiuta nomi
 vuoti o con spazi, `$`, virgolette, backtick, `;`, `|`, `&`, a capo; se l'agente
 dichiara anche `automation`, il comando di avvio accetta ogni modello consigliato
 (Windows e WSL). Il test architetturale vieta i nomi dei modelli dell'agente fuori
@@ -617,6 +662,20 @@ aggiungine uno): un file in `contracts/`, un campo in `Capabilities` (e in
 integrazioni esistenti (anche `None`) e la `FakeIntegration`. Poi aggiorna questa
 guida.
 
+Due casi reali, entrambi emersi con OpenCode e risolti così (non con un `if`):
+
+- **La forma del nome del modello è demandata all'integrazione.** I modelli di
+  OpenCode sono `provider/modello` (a volte `provider/a/b` o con `:tag`), e la
+  vecchia barriera generica (`[A-Za-z0-9._-]`, niente `/`) li rifiutava prima
+  ancora che l'agente li vedesse. Il core ora ha solo una forma larga e sicura
+  (`valid_model_shape`) e lascia la regola vera a `ModelCatalog::is_valid`
+  (vedi la sezione 11).
+- **Un avvio può avere bisogno dell'ambiente.** OpenCode non ha flag per modello e
+  agente nel TUI: si configura con variabili d'ambiente, e digitarle nella riga
+  di comando richiederebbe una sintassi diversa per PowerShell, cmd e bash.
+  `WorkerAutomation::command` ora ritorna un `AutomationLaunch { command, env }`
+  e il core imposta le variabili sul tab (sezione 4).
+
 ## Checklist finale
 
 - [ ] `agents/<nome>/` ha un file per contratto, tutti i campi di `Capabilities`
@@ -633,7 +692,8 @@ guida.
 - [ ] Se dichiari `presets`: la skill di *tutti* i preset di `PRESETS` è nel
       pacchetto, testo identico al catalogo, invocabile come primo prompt.
 - [ ] Se dichiari `automation`: ogni `PermissionMode` mappato; il server MCP è
-      utilizzabile senza conferme; prompt, modello e path non fidati rifiutati.
+      utilizzabile senza conferme; prompt, modello e path non fidati rifiutati;
+      eventuali `env` con nomi e valori validi, path già nel formato del target.
 - [ ] Se dichiari `models`: `is_valid` rifiuta ciò che non è sicuro come argomento;
       almeno un modello consigliato per fascia (`Standard` e `Strong`), con
       etichetta; `default_model` valido (o `None`); i nomi dei modelli restano nella
@@ -659,394 +719,325 @@ guida.
 
 ---
 
-## Esempio: OpenCode
 
-Questo è un *esercizio di progetto*, non codice: come [OpenCode](https://opencode.ai/docs/)
-realizzerebbe ciascun contratto. **Nessuna riga di produzione per OpenCode esiste
-in questo repository.** Le informazioni vengono dalla documentazione ufficiale,
-consultata il 2026-11-04; le fonti sono citate per ogni punto.
+## Integrazione di riferimento n. 2: OpenCode
 
-Legenda: **[doc]** = documentato nella pagina citata; **[da verificare]** = non
-trovato nella documentazione, o riportato in modo ambiguo: va provato a mano su un
-OpenCode installato prima di scriverlo nel codice.
+OpenCode (`src-tauri/src/agents/opencode/`) è la seconda integrazione reale. È nata
+come esercizio di progetto sulla documentazione ufficiale e poi è stata scritta e
+provata: questa sezione documenta **ciò che esiste**, e per ogni punto che
+l'esercizio aveva lasciato **[da verificare]** dice l'esito provato. Serve da
+esempio di un agente molto diverso da Claude Code: nessun marketplace di plugin,
+configurazione in file e in variabili d'ambiente, nessun transcript su file.
 
-Nota di versione: la pagina di installazione distingue OpenCode V1 e V2 (stesso
-eseguibile `opencode`, non installabili insieme con il comando predefinito).
-**[da verificare]** quale versione descrivono le pagine citate e se l'integrazione
-deve supportarle entrambe; `detect` leggerà la versione e potrà rifiutare quelle
-non testate.
+Verifiche fatte su **OpenCode v2.0.30, Windows** (vedi "Cosa è stato verificato e
+cosa no" in fondo). Legenda: **[provato]** = visto funzionare su quella
+installazione; **[limite]** = limite noto e accettato; **[non verificato]** = coperto
+solo da test unitari.
 
-Fonti (tutte su `opencode.ai/docs`): [Config](https://opencode.ai/docs/config/) ·
-[Plugins](https://opencode.ai/docs/plugins/) · [CLI](https://opencode.ai/docs/cli/) ·
-[MCP servers](https://opencode.ai/docs/mcp-servers/) ·
-[Permissions](https://opencode.ai/docs/permissions/) ·
-[Agents](https://opencode.ai/docs/agents/) ·
-[Commands](https://opencode.ai/docs/commands/) ·
-[Skills](https://opencode.ai/docs/skills/) ·
-[SDK](https://opencode.ai/docs/sdk/) · [Server](https://opencode.ai/docs/server/) ·
-[Troubleshooting](https://opencode.ai/docs/troubleshooting/) ·
-[Windows (WSL)](https://opencode.ai/docs/windows-wsl/) ·
-[Intro/installazione](https://opencode.ai/docs/).
+### Versioni: solo la 2.x
+
+La pagina di installazione distingue OpenCode V1 e V2 (stesso eseguibile). La v2
+ha cambiato il formato della configurazione (regole `permissions` come array di
+`{action, resource, effect}`, `mcp.servers`, `plugins` come array) e l'API dei
+plugin (`setup(ctx)` con `ctx.mcp`, `ctx.skill`, `ctx.event`, `ctx.session`). Il
+formato v1 è ancora accettato e migrato dalla v2, ma l'API dei plugin v1 è diversa.
+Per questo l'integrazione supporta **solo la 2.x**: `detect` riporta qualunque
+versione (la scheda la mostra), ma `install` rifiuta una versione diversa dalla 2
+(`OpenCode 1.14.3 non e' supportato: serve la versione 2.x`) e, senza pacchetto
+installato per una versione supportata, l'integrazione non è mai `Pronto`.
 
 ### Nucleo
 
 - `id()` → `"opencode"`, `display_name()` → `"OpenCode"`.
-- **Eseguibile `opencode`** [doc: Intro]. Su Windows le pagine consigliano WSL ma
-  OpenCode può girare anche direttamente su Windows [doc: Windows (WSL)]; il target
-  Windows di cli-companion va quindi provato (comando `.cmd`/`.exe` dello shim
-  npm, `opencode.exe`...) **[da verificare]**; le distro WSL funzionano come per
-  Claude Code, con la stessa risoluzione del path assoluto.
-- **Versione**: `opencode --version` / `-v` [doc: CLI]. (La pagina Intro dice di
-  non sapere come controllarla, quella CLI sì: si usa la CLI.)
-- `interactive_command()` → `opencode`, da avviare nella cartella del progetto
-  [doc: Intro]. Il corrispondente di `--dangerously-skip-permissions` per l'avvio
-  interattivo è il flag `--auto`, che approva ciò che altrimenti chiederebbe
-  [doc: Permissions, "Auto mode"] **[da verificare]** che esista anche per la TUI
-  (la pagina CLI lo elenca fra i flag di `opencode` e di `opencode run`): se sì,
-  `"opencode --auto"`; altrimenti `"opencode"` e le conferme restano all'utente.
+- **Eseguibile** [provato]. Su Windows `opencode` è lo shim npm `opencode.cmd`, che
+  lancia `node_modules\@opencode\cli\bin\opencode.exe`; `opencode --version` stampa
+  `opencode v2.0.30` (`version.rs` salta il nome e la `v`). Il rilevamento usa
+  `run_timeout(.., DETECT_TIMEOUT)`. **WSL** [non verificato]: sul PC di sviluppo
+  non c'è un'installazione nativa nella distro (lo shim Windows visibile nel `PATH` di
+  WSL è scartato da `resolve_wsl_command_cached`, come deve), quindi i percorsi WSL
+  sono coperti solo da test unitari.
+- `interactive_command()` → `opencode --standalone`. Vedi sotto perché il flag è
+  indispensabile.
+
+### Servizio condiviso e `--standalone`
+
+Questa è la scoperta che ha deciso quasi tutto il resto [provato]. Per default il
+TUI di OpenCode v2 si collega a un **servizio in background condiviso per utente**,
+con l'ambiente di chi lo ha avviato per primo. I plugin e i server MCP locali girano
+*lì*, quindi **non vedono** le variabili `CLI_COMPANION_*` del tab (il solo tool
+shell le vede). Con `--standalone` il TUI avvia un server privato
+(`opencode serve --stdio`) come proprio figlio, che eredita l'ambiente del
+terminale: lo vedono il plugin, i figli MCP e la sostituzione `{env:NOME}`.
+
+Conseguenze:
+
+- Ogni comando generato (interattivo, worker, preset, ripresa) usa `--standalone`.
+- Il plugin è **inerte** a meno che `CLI_COMPANION_SESSION` sia impostata e `argv`
+  non contenga `--service`: nello stesso servizio condiviso non fa nulla, e fuori da
+  un tab di cli-companion nemmeno.
+- Un `opencode` digitato a mano in un tab funziona ma **senza notifiche né MCP**
+  [limite documentato]. La ripresa aggiunge sempre `--standalone`.
 
 ### 1. Pacchetto
 
-OpenCode non ha un "plugin installabile" con marketplace come Claude Code: la
-configurazione sta in file, quindi il pacchetto è un **insieme di file in una
-cartella di configurazione** che l'integrazione sceglie. Due strade, in ordine di
-preferenza:
+**Strada scelta: una cartella nostra, scoperta da sola** [provato]. Il pacchetto è
+`<config>/plugins/cli-companion-notify/`, dove `<config>` è la cartella che riporta
+`opencode debug paths` (riga `config`; `%USERPROFILE%\.config\opencode` su
+Windows, `XDG_CONFIG_HOME` rispettata). OpenCode carica da solo i plugin-cartella
+con un `index.ts`. File generati (puri, `version`/`files`):
 
-1. **Cartella di configurazione dedicata, via `OPENCODE_CONFIG_DIR`** [doc: Config].
-   La variabile indica "una cartella per agenti, comandi, modalità e plugin",
-   caricata dopo la globale e `.opencode`. Il pacchetto vive in
-   `<dati app>/agent-plugins/opencode/<target>/` (come `plugin_root`) e
-   `install` non tocca la configurazione dell'utente: imposta quella variabile
-   nell'ambiente dei terminali (e in `WSLENV` su WSL, come le variabili
-   `CLI_COMPANION_*`). Il core oggi non prevede variabili d'ambiente specifiche
-   di un agente: sarebbe un'estensione di un contratto (vedi "Punti in cui il
-   core dovrebbe crescere"), non un `if` nel core.
-   Alternativa senza variabili: file globali (punto 2).
-2. **Configurazione globale dell'utente** `~/.config/opencode/` (anche
-   `%USERPROFILE%\.config\opencode` su Windows) [doc: Troubleshooting, Config].
-   `install` scrive file *nostri*, distinguibili, senza modificare quelli
-   dell'utente: `plugins/cli-companion-notify.ts` (plugin locale, caricato
-   all'avvio da `~/.config/opencode/plugins/` [doc: Plugins]), e un frammento nel
-   `opencode.json` per il server MCP. `opencode.json` è del solo utente, quindi
-   la scrittura è un merge JSON con una chiave nostra (`mcp.cli-companion`) e la
-   rimozione toglie solo quella. In alternativa il file esclusivo
-   `OPENCODE_CONFIG` [doc: Config] **[da verificare]** per non toccare quello
-   dell'utente.
-
-**Server MCP** [doc: MCP servers]:
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "cli-companion": {
-      "type": "local",
-      "command": ["C:/Program Files/cli-companion/cli-companion.exe", "--mcp"],
-      "enabled": true
-    }
-  }
-}
+```text
+index.ts                       (prima riga: intestazione fissa con la versione)
+skills/<id del preset>/SKILL.md
 ```
 
-`command` è un **array** (a differenza di `.mcp.json` di Claude Code), l'exe usa
-slash dritti o `/mnt/c/...` su WSL (`InstallCtx::exe_for`). Il server eredita le
-variabili `CLI_COMPANION_*` del terminale **[da verificare]**: la pagina elenca
-`environment` per aggiungerne ma non dice se il processo MCP erediti l'ambiente di
-OpenCode. Se non lo eredita, va passato `environment` con i nomi (non i valori:
-il token è per sessione) e questo richiede un meccanismo `{env:NOME}`
-[doc: MCP servers lo mostra solo negli `headers` dei server remoti]
-**[da verificare]**. Il campo `timeout` (default 30000 ms) basta: le RPC
-rispondono subito.
+Il plugin, a runtime, registra **il server MCP `cli-companion`**
+(`ctx.mcp.transform`, comando `<exe> --mcp`) e **le skill dei preset**
+(`ctx.skill.transform`): quindi non si modifica nessun file di configurazione
+dell'utente, non c'è nessun merge in `opencode.json` e non serve nessuna variabile
+d'ambiente per il pacchetto. Provato: OpenCode carica il plugin *generato* con il
+vero `cli-companion.exe --mcp`, chiama `get_task` contro l'app in esecuzione e
+ottiene il titolo del task.
 
-**Plugin e hook** [doc: Plugins]. Un plugin è un modulo JS/TS che esporta una
-funzione `async ({ project, client, $, directory, worktree }) => ({ ...hook })`.
-Il corrispondente degli hook di Claude Code è il gestore `event`, che riceve gli
-eventi del bus, più `permission.asked`. Il plugin può eseguire comandi con `$`
-(shell di Bun). Mappatura:
+Dettagli di `install`/`uninstall`/`is_installed` (`package.rs`):
 
-| Evento cli-companion | Evento OpenCode [doc: Plugins] | Note |
-| --- | --- | --- |
-| `session-start` | `session.created` | l'id di sessione è nell'evento |
-| `finished` | `session.idle` | l'esempio ufficiale delle notifiche usa proprio questo |
-| `needs-input` | `permission.asked` (e la domanda all'utente) | `normalize` dà `WaitKind::Permission` o `Question`; **[da verificare]** quali eventi coprano le domande dell'agente (`question`) oltre ai permessi |
-| `permission-request` | `permission.asked` | porta il tool richiesto |
-| `session-end` | `session.deleted` / `server.*` | **[da verificare]**: non c'è un "fine sessione" documentato; un TUI chiuso potrebbe non emettere nulla |
+- **Riconoscimento**: la prima riga di `index.ts` è un'intestazione fissa
+  (`// cli-companion-notify <versione>: generated by cli-companion, ...`). Una
+  cartella con lo stesso nome senza quell'intestazione è **estranea** e l'installazione
+  la rifiuta; la rimozione cancella solo la nostra cartella.
+- **Copia e destinazione**: i file si scrivono anche in `plugin_root`
+  (`<dati app>/agent-plugins/opencode/<target>/`), insieme a `destination.txt` con la
+  cartella in cui il plugin è stato messo; `uninstall` usa quella registrata (e se
+  manca, la rilegge da `debug paths`). La cartella di destinazione si rifà da zero a
+  ogni installazione, niente avanzi.
+- **`version`**: `<release>-h<hash>` con `fnv32` su indice e skill, quindi cambia
+  quando cambia il plugin o il testo di un preset.
 
-Il plugin non conosce l'app: esegue `<exe> --notify <evento> opencode` con
-`$`, passando lo stdin come JSON costruito dal plugin stesso (il formato lo
-decidiamo noi, perché *scriviamo* noi il plugin: `HookEvents::normalize` ne è il
-lettore). Questo è un vantaggio rispetto a Claude Code: non si dipende da un formato
-altrui. Ma `session.idle` non è un hook "Stop" che può rispondere: **un blocco del
-fine turno** (`stop_block_output`) richiede che il plugin legga lo stdout del
-processo e rilanci un prompt nella stessa sessione, ad esempio con
-`client.session.prompt({ path, body })` [doc: SDK]: lo `stdout` del `--notify` non
-è letto da OpenCode. **[da verificare]** se `session.idle` si possa far proseguire
-direttamente. Fino a quando non è provato, `finished` funziona come notifica pura e
-`stop_block_output` rimanda al rilancio da plugin.
+Alternative provate e scartate:
 
-Variabili d'ambiente per `--notify`: il plugin gira nel processo di OpenCode e
-`$` eredita il suo ambiente [doc: Plugins, `shell.env` imposta variabili per le
-shell]; `CLI_COMPANION_SESSION` e `CLI_COMPANION_TOKEN` (id e segreto di quella sessione) sono quelle del terminale
-dell'app, quindi presenti **[da verificare]** (nessuna eccezione se OpenCode è
-avviato dal terminale di cli-companion).
-
-**Skill dei preset**: skill con `SKILL.md` e frontmatter `name`/`description`, nome
-uguale alla cartella (1-64 caratteri, minuscole, cifre, trattini singoli)
-[doc: Skills]. Posizioni: `.opencode/skills/<nome>/SKILL.md`,
-`~/.config/opencode/skills/<nome>/` e, per compatibilità, anche
-`~/.claude/skills/` e `.claude/skills/` [doc: Skills]. Gli id dei preset
-(`task-intake`, `skill-wizard`, `project-setup`) rispettano le regole del nome.
-Poiché OpenCode legge anche `~/.claude/skills/`, una skill utente sincronizzata per
-Claude Code **sarebbe già visibile**: l'integrazione OpenCode non deve duplicarla
-(vedi `user_skills`).
-
-**Versione**: hash di plugin + frammento MCP + skill, formato `<release>-h<hash>`,
-come `plugin_version_for` di Claude Code.
-
-**Stato installato** (`is_installed`): lettura dei file nostri (esistono ed hanno la
-versione attesa); nessun comando `opencode plugin list` è documentato
-**[da verificare]**.
-
-**Rimozione**: cancella solo i file con il nostro nome e la chiave `mcp.cli-companion`.
+- `OPENCODE_CONFIG_DIR`, `OPENCODE_CONFIG` e `OPENCODE_CONFIG_CONTENT` esistono e sono
+  rispettate (precedenza osservata: globale < `OPENCODE_CONFIG` / `CONFIG_DIR` <
+  progetto < `CONFIG_CONTENT`). `CONFIG_DIR` non è stata scelta per il pacchetto:
+  servirebbe in ogni terminale e sostituirebbe un eventuale valore dell'utente. Le
+  altre due le usa l'automazione (sotto).
+- Non esiste un flag `--config`.
+- Un plugin **file singolo** nell'array `plugins` viene saltato in silenzio:
+  valgono solo le cartelle. È il motivo della cartella con `index.ts`.
 
 ### 2. Eventi degli hook
 
-- Il formato dello stdin lo definisce il plugin che scriviamo: JSON con
-  `session_id`, `type`, `message`, `tool`, `summary`, `transcript_path`... →
-  `HookEvent`. Il vantaggio è che **normalize** è semplice e testabile con fixture
-  nostre. Il rischio è la deriva fra plugin e lettore: la `version` del pacchetto
-  deve includere il testo del plugin.
-- Una sessione OpenCode ha un id (`Session` in SDK [doc: SDK, `session.get`]); il
-  `session.created` lo porta **[da verificare]** il nome esatto del campo
-  (`event.properties.info.id`?).
-- `transcript_path`: OpenCode non ha un file di transcript: sessioni e messaggi
-  stanno in un database SQLite `opencode.db` [doc: Troubleshooting]. Il campo resta
-  `None`; vedi `session_usage`.
-- `stop_block_output`: vedi sopra; il testo su stdout è consumato dal plugin, non
-  da OpenCode, quindi la riga può essere qualunque cosa il plugin sappia leggere
-  (ad esempio il solo motivo).
+Il plugin sottoscrive `ctx.event.subscribe` (il filtro `types` **non** è applicato
+nella 2.0.30: filtra il plugin stesso; l'id di sessione è in `data.sessionID`) e per
+ogni evento esegue `<exe> --notify <evento> opencode` con uno stdin JSON **nostro**
+(chiavi `session_id`, `source`, `continuing`, `wait`, `message`, `tool`, `summary`,
+`reason`): `normalize` è un lettore semplice e testato, senza dipendere da un
+formato altrui. Esiti provati [provato salvo dove indicato]:
+
+| Evento cli-companion | Evento OpenCode | Note |
+| --- | --- | --- |
+| `session-start` | `session.created` | Parte al primo prompt, non all'apertura del TUI. `source` `startup` la prima volta, `clear` le successive. Se invece compare un evento di una sessione mai vista (`--session`, `--continue`: nessun `session.created`) si manda `session-start` con `source` `resume`. |
+| `finished` | `session.execution.succeeded` | `session.idle` e `session.status` esistono nei tipi ma non scattano mai. |
+| `needs-input` | `permission.asked` (`wait` permission, `tool` = azione, `summary` = risorse), `form.created` con `metadata.kind` question (`wait` question), `session.execution.failed` (`wait` other, il messaggio d'errore, ad es. la quota finita) | `permission.asked` manda anche `permission-request`. |
+| `session-end` | `session.deleted` | **Solo questo** [limite]: chiudere il TUI non emette nulla (il server privato è terminato senza eseguire i gestori d'uscita: provati `exit`, `beforeExit`, segnali, chiusura di stdin). Un worker il cui OpenCode è stato chiuso resta `running` finché il tab non viene chiuso. |
+
+Le sessioni dei subagenti (con `parentID`) sono ignorate.
+
+**Blocco del fine turno** [provato]. `stop_block_output` scrive su stdout
+`{"continue":"<motivo>"}`; il plugin lo legge dall'output di `--notify finished` e
+chiama `ctx.session.prompt({ sessionID, text })`: parte un secondo turno e il
+`finished` successivo porta `continuing: true`, che il core traduce in
+`already_continuing`. `transcript_path` resta `None` (le sessioni stanno in SQLite).
 
 ### 3. Ripresa della sessione
 
-Documentato [doc: CLI]: `opencode --session <id>` / `-s` e `opencode --continue` /
-`-c` per la TUI; `opencode run` ha gli stessi flag e `--fork`.
+`opencode --session <id>` riprende (gli id iniziano con `ses`; un id inesistente ne
+crea una nuova), `--continue` l'ultima [provato].
 
 ```rust
 ResumeSpec {
-    command_names: vec!["opencode", "opencode.exe"],   // vedi Nucleo: da verificare su Windows
-    strip_flags: vec![
-        ResumeFlag { names: vec!["--session", "-s"], takes_value: true },
-        ResumeFlag { names: vec!["--continue", "-c"], takes_value: false },
-        ResumeFlag { names: vec!["--fork"], takes_value: false },
-    ],
-    resume_template: "{command} --session {id}",
+    command_names: ["opencode", "opencode.exe", "opencode.cmd"],
+    strip_flags: [ --standalone, --session/-s (con valore), --continue/-c, --fork ],
+    resume_template: "{command} --standalone --session {id}",
 }
 ```
 
-Dall'hook `session.created` arriva l'id; `opencode session list --format json`
-[doc: CLI] permette di cercarlo a mano durante la verifica.
+Si toglie anche `--standalone` per non duplicarlo: il modello lo rimette sempre.
 
 ### 4. Automazione dei worker
 
-`opencode run` esegue "non interattivamente con un prompt" [doc: CLI]: è il
-candidato naturale. Ma un worker deve restare un **tab con un processo che vive e
-può essere osservato** come per Claude Code, e `opencode run` termina a fine
-risposta: **[da verificare]** se è adatto (il worker chiama `complete_task` e
-l'hook `finished` bloccato gli fa proseguire il turno; con `run` il processo esce
-al primo `idle`). L'alternativa è la TUI con prompt iniziale: la CLI documenta il
-flag `--prompt` per la TUI? **[da verificare]**, le pagine citate non lo dicono.
+**`opencode run` non è adatto** [provato]: esce alla prima fine di turno (quindi
+non può essere bloccato e fatto proseguire) e si blocca se stdin è una pipe aperta.
+I worker usano il **TUI**: `opencode --standalone --prompt "<bootstrap>"` (`--prompt`
+invia da solo), più `--auto` per il `Bypass`. Il TUI **non ha** `--model` né
+`--agent`, quindi il resto passa dall'`env` di `AutomationLaunch` (la prima
+applicazione reale di quel contratto):
 
-Forma probabile, se `run` si rivela adatto:
-
-```text
-opencode run "<bootstrap>" --agent <agente> --model <provider/modello> [--dir <cartella>]
-```
-
-Mappatura dei livelli di `PermissionMode`:
-
-| `PermissionMode` | OpenCode |
+| Variabile | Contenuto |
 | --- | --- |
-| `Plan` | `--agent plan`: agente primario "Plan", limitato all'analisi, può modificare solo i file Markdown dei piani [doc: Agents] |
-| `Default` | `--agent build` (predefinito, tutti i tool) con i permessi di configurazione `ask` [doc: Agents, Permissions] |
-| `AcceptEdits` | `build` con `permission.edit: "allow"` e il resto in `ask` (nel file di regole, punto 5) |
-| `Bypass` | `--auto`: "approva le richieste che altrimenti chiederebbero; le regole `deny` esplicite valgono ancora" [doc: Permissions, CLI] |
+| `OPENCODE_CONFIG_CONTENT` | JSON compatto: `model` (se dato), `default_agent` (`plan` o `build`) e le regole di permesso della modalità |
+| `OPENCODE_CONFIG` | solo se il workspace ha regole: il file preparato da `WorkerPermissions::prepare` (path nel formato del target) |
 
-Il server MCP deve essere utilizzabile senza conferme: `permission` nel file di
-regole con una regola per i tool MCP. Il nome dei tool MCP in OpenCode è
-`<server>_<tool>` (prefisso col nome del server) [doc: MCP servers], quindi
-`cli-companion_*`; la sintassi esatta per i tool MCP in `permission` non è mostrata
-in Permissions ("MCP tools with a wildcard") **[da verificare]**. Il modello
-vede i tool con il prefisso: il prompt di bootstrap dice "Call the get_task tool",
-e il modello troverà `cli-companion_get_task` **[da verificare]** (se non basta
-si adatta il prompt nella `AutomationRequest`, in inglese, restando agnostico).
+Mappatura dei livelli (`mode_rules.rs`):
 
-`model` è nel formato `provider/modello` [doc: Config, CLI]: contiene `/`, che il
-modello validato `[A-Za-z0-9._-]` del core **non ammette**. Questo è un
-limite del *core* da risolvere estendendo il contratto (ad esempio un
-validatore di modelli per integrazione), non un adattamento nell'integrazione.
-Annotalo prima di dichiarare `automation`.
+| `PermissionMode` | Agente | Regole di primo livello |
+| --- | --- | --- |
+| `Plan` | `plan` | tutto `ask`; `read`/`glob`/`grep`/`skill`/`question`/`execute` e `cli-companion_*` `allow`; i file `*.env` e `*.env.*` `ask` (gli `*.env.example` `allow`) |
+| `Default` | `build` | le stesse regole di `Plan` |
+| `AcceptEdits` | `build` | quelle di `Default` più `edit` `allow` |
+| `Bypass` | `build` | solo `execute` e `cli-companion_*` `allow`, con `--auto` |
+
+Le regole del workspace stanno nel file di `OPENCODE_CONFIG` sotto
+`agents.build.permissions` e `agents.plan.permissions`: vengono *dopo* tutte le regole
+di primo livello e l'ultima che corrisponde vince, quindi **le regole del workspace
+battono quelle di modalità**. Con `--auto` i `deny` espliciti valgono ancora
+[provato: `git log` negato, `git status` consentito, `echo` chiesto].
+
+**Server MCP senza conferme** [provato]. Il modello non chiama il tool direttamente:
+con il "Code Mode" predefinito di OpenCode usa il tool `execute` e scrive
+`tools["cli-companion"].get_task()`. L'azione di permesso è `cli-companion_<tool>`; la
+regola `cli-companion_*` `allow` (più `execute` `allow`) lo rende utilizzabile senza
+conferme. Il prompt di bootstrap, "Call the get_task tool", funziona **invariato**
+(provato con più modelli gratuiti); ogni chiamata MCP porta
+`_meta["ai.opencode/sessionID"]`.
+
+**Modello**: `provider/modello`. Il `command` rifiuta (`None`) un modello che
+`ModelCatalog::is_valid` non accetta; il modello valido va nel JSON, mai nella riga.
 
 ### 5. Permessi dei worker
 
-Il formato nativo è nella chiave `permission` di `opencode.json` o dell'agente
-[doc: Permissions]:
-
-```json
-{
-  "permission": {
-    "*": "ask",
-    "bash": { "*": "ask", "git *": "allow", "rm *": "deny" },
-    "edit": "allow"
-  }
-}
-```
-
-- Valori `allow` | `ask` | `deny`; pattern con `*` e `?`; **l'ultima regola che
-  corrisponde vince** (il catch-all `*` va per primo) [doc: Permissions].
-- `RuleFormat`: `max_rules` e `max_rule_chars` a scelta nostra; `example`:
-  `"git *"` (inglese) per l'allow di `bash`. Una regola dell'utente è quindi un
-  comando bash con wildcard; il formato per altri tool (`edit`, `webfetch`)
-  richiede una sintassi `tool: pattern` **[da definire]** nell'interfaccia: la
-  scelta più semplice è limitare le regole di cli-companion a `bash`.
-- `validate_rules`: trim, righe vuote e doppioni scartati, nessun a capo,
-  lunghezza massima, e un controllo che il pattern non sia vuoto.
-- `prepare`: scrive `<dati app>/worker-permissions/<ws>.json` con la sola chiave
-  `permission`, nel formato di path del target, e ritorna il path. Va
-  passato a OpenCode come **file di configurazione aggiuntivo** (`OPENCODE_CONFIG`,
-  caricato fra la globale e il progetto [doc: Config]) o come contenuto inline
-  (`OPENCODE_CONFIG_CONTENT`, precedenza più alta [doc: Config]). Le variabili
-  d'ambiente richiedono un meccanismo per impostarle nel comando: in
-  PowerShell, cmd e bash la sintassi è diversa. **[da verificare]** se esiste un
-  flag `--config`: nelle pagine citate no. È l'altro punto in cui il contratto
-  `WorkerAutomation` potrebbe dover crescere (variabili d'ambiente per
-  comando).
-- `guide()`: italiano; spiega la sintassi a wildcard e l'ordine "l'ultima vince",
-  avverte che con `--auto` (bypass) i `deny` valgono ancora ma tutto il resto è
-  approvato.
+Sintassi utente: `azione(risorsa)` oppure solo `azione` (= qualunque risorsa),
+esempio `shell(git status *)` (`RuleFormat::example`); `*` e `?` come wildcard,
+l'ultima regola che corrisponde vince. `validate_rules` fa trim, scarta righe vuote e
+doppioni, controlla forma, lunghezza e caratteri di controllo. `prepare` scrive
+`<dati app>/worker-permissions/opencode/<ws>.json` (solo se cambia) con le regole
+`allow` e poi `deny` sotto `agents.build/plan.permissions`, e ritorna il path per
+`OPENCODE_CONFIG`; un path non sicuro per la shell è un errore. La `guide` spiega
+che nel bypass i `deny` restano validi.
 
 ### 6. Preset
 
-`PresetLauncher::command` deve avviare OpenCode con la skill del preset come primo
-prompt. OpenCode carica le skill **su richiesta** con il tool `skill`, non con un
-`/nome` [doc: Skills]. Due strade:
-
-- **Comando personalizzato**: un file `commands/<id>.md` (o la chiave `command`
-  in `opencode.json`) con `template` che dice "load the skill `<id>` and follow it"
-  [doc: Commands: frontmatter `description`, `agent`, `subtask`, `model`; il corpo
-  è il template; `$ARGUMENTS`]; si invoca come `/<id>` nella TUI. Il comando di
-  avvio sarebbe `opencode` con prompt `/<id>` **[da verificare]** (flag `--prompt`
-  della TUI?). `opencode run --command <id>` esiste [doc: CLI] ma la pagina
-  Commands non lo descrive e `run` non è interattivo.
-- **Primo prompt testuale** che chiede di caricare la skill (`skill_path`
-  rimane quello della skill).
-
-`skill_path(preset)` → `skills/<id>/SKILL.md` (relativo alla radice del pacchetto,
-dentro `IntegrationPackage::files`). Il contenuto è **`preset.skill_text()`
-identico**: il frontmatter `name`/`description` dei preset ha già i campi richiesti
-e `name` coincide con la cartella; se un preset avesse un `name` diverso dall'id,
-sarebbe da correggere nel catalogo (non nell'integrazione).
+Le skill dei preset le registra il **plugin** (non servono comandi personalizzati).
+Una skill **non è un comando slash**: si carica con il tool `skill`, quindi il primo
+prompt è `opencode --standalone --prompt "Use the skill tool to load the skill <id>,
+then follow its instructions."` [provato nel TUI]. `skill_path` è
+`skills/<id>/SKILL.md` e il contenuto è `preset.skill_text()` identico (lo verifica la
+conformità). Un file di comando personalizzato avrebbe funzionato (`--prompt "/cmd"`
+si espande nel TUI, non in `run`) ma non serve.
 
 ### 7. Skill utente
 
-OpenCode legge `~/.config/opencode/skills/` **e** `~/.claude/skills/` [doc: Skills].
-Opzioni:
+Dichiarata: `windows_dir()` → `<config>/skills` (`XDG_CONFIG_HOME/opencode/skills`
+o `~/.config/opencode/skills`), `wsl_home_subpath()` → `.config/opencode/skills`.
+OpenCode legge anche `~/.claude/skills`; a parità di id vince
+`~/.config/opencode/skills` [provato con una home finta]: abilitando entrambe le
+integrazioni non ci sono doppioni.
 
-- `windows_dir()` → `%USERPROFILE%\.config\opencode\skills`;
-  `wsl_home_subpath()` → `.config/opencode/skills`. Le skill finiscono due volte
-  se l'utente ha anche Claude Code (il nome coincide, quindi il catalogo di OpenCode
-  vedrebbe un doppione **[da verificare]**: come si risolve la collisione).
-- Oppure **non dichiarare** `user_skills` e lasciare che OpenCode legga quelle di
-  Claude Code. Più semplice, ma funziona solo se Claude Code è installato: è
-  una scelta di prodotto.
+### 8. Limiti di utilizzo, 9. Consumi, 10. Profilo di input
 
-Raccomandazione: dichiarare il contratto solo dopo aver verificato la collisione.
+Non dichiarati (`None`):
 
-### 8. Limiti di utilizzo
-
-OpenCode usa le chiavi API/abbonamenti dei provider [doc: Config, `provider`]: non
-ha un limite "5 ore / settimanale" proprio. Nessuna fonte documenta un endpoint dei
-limiti. **Non dichiarare** `usage_limits` (`None`): il core risponde `unsupported`
-e l'interfaccia non mostra nulla. Se in futuro un provider espone i limiti,
-sarebbe un contratto *per provider*, non per agente: da progettare allora.
-
-### 9. Consumi della sessione
-
-Il transcript non è un file ma il database `opencode.db` [doc: Troubleshooting];
-l'SDK espone `session.messages` [doc: SDK] e il server HTTP `GET
-/session/:id/message` [doc: Server]. Le pagine citate **non elencano** i campi dei
-token (`tokens.input`, `output`, `cache.read`, ...), che stanno in `types.gen.ts`
-dell'SDK e nella specifica OpenAPI `/doc` del server **[da verificare]**.
-
-Un `SessionUsageReader` avrebbe senso solo se si legge il database o si interroga
-il server (`opencode serve`): in entrambi i casi non c'è un `transcript_path`
-come per Claude Code, quindi il contratto attuale (che prende un path di
-transcript) **non si adatta**. Fino ad allora: `None` (`Ok(None)`, nessun errore).
-
-### 10. Profilo di input
-
-Nessuna fonte sui tasti per incollare un'immagine nella TUI di OpenCode
-**[da verificare]**: si prova a mano (Ctrl+V su Windows e WSL). Se il Ctrl+V
-standard funziona, il profilo resta vuoto (`None`), che è il comportamento
-corretto.
+- `usage_limits`: OpenCode usa chiavi e abbonamenti dei provider, nessuna finestra.
+- `session_usage`: le sessioni stanno nel database SQLite `opencode.db`, non c'è un
+  transcript su file e il contratto prende un path (vedi "Punti in cui il core
+  dovrebbe crescere").
+- `input_profile`: l'incolla di immagini non è stata verificata, vale il comportamento
+  standard del terminale.
 
 ### 11. Modelli
 
-I modelli di OpenCode hanno la forma `provider/modello` [doc: CLI]: la forma
-sicura generica di `valid_model` (che non ammette `/`) non basta. L'integrazione
-dichiara il proprio `ModelCatalog`: `suggested` con almeno un modello per fascia
-(`Standard` per il lavoro ben definito, `Strong` per progettazione e rischio, ciascuno
-con `id` `provider/modello` e un'etichetta leggibile; quali sono si decide sul modello
-configurato dall'utente, non nel core), `default_model` `None` (vale la configurazione
-dell'utente, l'app non passa `--model`) e un `is_valid` che ammette una sola `/` tra
-due segmenti sicuri e rifiuta il resto. Con il catalogo dichiarato OpenCode ottiene,
-senza altro codice, i suggerimenti nel form dei task e nelle impostazioni dei worker,
-i modelli per fascia in `get_workspace_settings.agents` (da cui l'Intake sceglie) e la
-validazione del nome nell'avvio di un worker.
+Forma `provider/modello` (anche `provider/a/b`, `:tag`, es. `ollama/llama3:8b`).
+Consigliati (`models.rs`): `opencode/gpt-5.4-mini` (Standard), `opencode/gpt-5.5`
+(Strong) e `opencode/big-pickle` (Standard), tutti di OpenCode Zen; `default_model`
+`None` (vale la configurazione dell'utente). `is_valid` = `valid_model_shape` più un
+provider valido (minuscole, cifre, `.`, `_`, `-`) e segmenti non vuoti dopo la prima
+`/`: un nome senza provider è rifiutato. È il secondo livello descritto nella
+sezione 11 dei contratti.
 
-### Riepilogo: cosa dichiarerebbe OpenCode
+### Riepilogo: cosa dichiara OpenCode
 
 | Contratto | Esito | Perché |
 | --- | --- | --- |
-| `package` | Sì | plugin locale + `mcp` in `opencode.json` + skill |
-| `hook_events` | Sì | formato deciso dal nostro plugin |
-| `session_resume` | Sì | `--session <id>` / `--continue` documentati |
-| `automation` | Sì, dopo due verifiche | `opencode run` adatto? Modello `provider/modello` vs validazione del core |
-| `worker_permissions` | Sì | `permission` documentato; serve un modo per passare il file |
-| `presets` | Sì | skill + comando personalizzato; da provare il primo prompt |
-| `user_skills` | Da decidere | OpenCode legge già `~/.claude/skills/` |
-| `usage_limits` | No | non esiste un limite a finestre |
-| `session_usage` | No (per ora) | niente transcript su file; il contratto prende un path |
-| `input_profile` | No (per ora) | nessuna regola documentata |
-| `models` | Sì | consigli propri; `is_valid` accetta `provider/modello` |
+| `package` | Sì | cartella plugin nostra; MCP e skill registrati a runtime; solo 2.x |
+| `hook_events` | Sì | stdin deciso dal nostro plugin; blocco del fine turno provato |
+| `session_resume` | Sì | `--session`/`--continue` provati, sempre con `--standalone` |
+| `automation` | Sì | TUI con `--prompt` e `env` (`OPENCODE_CONFIG_CONTENT`/`OPENCODE_CONFIG`); `run` non adatto |
+| `worker_permissions` | Sì | `azione(risorsa)`, file in `OPENCODE_CONFIG` che batte le regole di modalità |
+| `presets` | Sì | skill del plugin caricate dal primo prompt |
+| `user_skills` | Sì | `<config>/skills`; nessun doppione con `~/.claude/skills` |
+| `usage_limits` | No | nessuna finestra di utilizzo |
+| `session_usage` | No | niente transcript su file |
+| `input_profile` | No | incolla immagini non verificato |
+| `models` | Sì | `provider/modello`, regola propria dentro la forma generica |
 
-Cosa vedrebbe l'utente, una volta registrata e **abilitata** da Impostazioni → Generale →
-Integrazioni: una scheda “OpenCode” con le funzioni dichiarate; l'avvio `builtin:opencode`;
-con `presets` le voci dei preset “… · OpenCode” (se è l'agente del workspace) e
-`builtin:preset:<id>@opencode` dal sottomenu “Avvia con…”; con `automation` OpenCode come
-scelta di **Agente dei worker** del workspace e di **Agente** del singolo task, con i modelli
-suggeriti e le regole `permission` nelle impostazioni dei worker; `Pronto` in un ambiente solo
-con l'eseguibile rilevato, il pacchetto installato e della versione attesa (altrimenti i task che lo usano
-restano in coda con “In attesa”). Il predefinito globale resta Claude Code finché l'utente non
-sceglie altro.
+Cosa vede l'utente: abilitata da Impostazioni → Generale → Integrazioni e con il
+pacchetto installato (**Installa**) per una 2.x rilevata, una scheda “OpenCode”, l'avvio
+`builtin:opencode`, le voci dei preset “… · OpenCode” e `…@opencode` da “Avvia con…”,
+OpenCode come **Agente** dei worker e dei task con i modelli suggeriti e le regole
+nelle impostazioni dei worker. Senza pacchetto o con una versione diversa dalla 2 i
+task che lo usano restano in coda con “In attesa”.
 
-### Punti in cui il core dovrebbe crescere
+### Cosa è stato verificato e cosa no
 
-Emersi dall'esempio, da decidere *prima* di scrivere l'integrazione (il core non
-si aggira con un `if`, si estende un contratto):
+Fatto a mano su questo PC (OpenCode v2.0.30, Windows):
+
+- rilevamento della versione e di `opencode debug paths`;
+- ciclo reale installa / `is_installed` / rimuovi in una home finta (test ignorato
+  `opencode_real_install_cycle_in_a_fake_home`, lanciabile con `cargo test -- --ignored`);
+- OpenCode che carica il plugin **generato** con il vero `cli-companion.exe --mcp`,
+  chiama `get_task` contro l'app in esecuzione e riceve il titolo del task;
+- il prototipo del plugin nel TUI: `session-start`, `finished`, blocco e
+  continuazione, `permission-request`/`needs-input`, caricamento di una skill da
+  `--prompt`;
+- le regole di precedenza dei permessi, `--auto` con `deny`, la home finta delle skill.
+
+**Non fatto attraverso l'interfaccia dell'app** (la build di sviluppo non può girare
+accanto all'app installata: stessa cartella dati). Checklist manuale rimasta:
+
+- [ ] pagina Integrazioni: OpenCode “Trovato” e poi “Pronto” dopo **Installa**;
+- [ ] tab `builtin:opencode`: parte, a fine turno suono e ✓, richiesta di permesso ❗;
+- [ ] un preset da “Avvia con…” (e con OpenCode agente del workspace);
+- [ ] un worker completo fino a `complete_task`, con modello e regole del workspace;
+- [ ] ripresa del tab dopo il riavvio dell'app;
+- [ ] WSL con un OpenCode nativo nella distro.
+
+### Fonti
+
+Documentazione v2 di OpenCode (consultata il 2026-11-04):
+[Home](https://opencode.ai/v2/docs/) ·
+[Config](https://opencode.ai/v2/docs/config/) ·
+[Plugins](https://opencode.ai/v2/docs/plugins/) ·
+[Scrivere plugin](https://opencode.ai/v2/docs/build/plugins/) ·
+[Server](https://opencode.ai/v2/docs/build/server/) ·
+[MCP servers](https://opencode.ai/v2/docs/mcp-servers/) ·
+[Permissions](https://opencode.ai/v2/docs/permissions/) ·
+[Skills](https://opencode.ai/v2/docs/skills/) ·
+[Commands](https://opencode.ai/v2/docs/commands/) ·
+[CLI](https://opencode.ai/v2/docs/cli/).
+Dove la documentazione e il comportamento differivano ha vinto la prova sulla 2.0.30
+(per esempio il filtro `types` degli eventi, `session.idle`).
+
+### Punti in cui il core è cresciuto, e quelli che restano
+
+Emersi dall'integrazione (il core non si aggira con un `if`, si estende un contratto).
+**Fatti**, con Claude Code che continua a passare:
 
 1. **Modelli `provider/modello`**: la validazione del *nome* è demandata
    all'integrazione (`ModelCatalog::is_valid`, usata da `automation_command`,
-   da `resolve_spec_agent` e dalle impostazioni dei worker). Resta però una prima
-   barriera generica sulla forma: `valid_model` (niente `/`) nel parsing delle
-   specifiche dei task (`board/spec.rs`) e il `pattern` dello schema degli strumenti
-   MCP (`propose_tasks`, `update_task`). Per OpenCode vanno allentate, lasciando la
-   regola all'integrazione.
-2. **Variabili d'ambiente per un comando** (`OPENCODE_CONFIG_DIR`,
-   `OPENCODE_CONFIG`): `WorkerAutomation::command` ritorna solo una riga di comando.
-   Per un agente che si configura con l'ambiente servirebbe un modo di esprimerlo
-   in modo valido per PowerShell, cmd e bash.
+   `resolve_spec_agent` e dalle impostazioni dei worker); resta una prima barriera
+   generica sulla forma, `valid_model_shape` (ammette `/` e `:`), nel parsing delle
+   specifiche (`board/spec.rs`), nel `pattern` degli strumenti MCP
+   (`MODEL_SHAPE_PATTERN`) e nel frontend.
+2. **Variabili d'ambiente per un avvio**: `AutomationLaunch { command, env }`, con
+   validatori nel contratto, preparazione per tab nel backend (`pty/staged_env.rs`,
+   `pty/env.rs`) e inoltro su WSL con `WSLENV` e `/u`.
+
+**Restano**:
+
 3. **Consumi senza transcript su file**: `SessionUsageReader` presuppone un file
-   (`transcript_path`).
+   (`transcript_path`); OpenCode ha le sessioni in SQLite.
+4. **Fine sessione senza un evento di uscita**: il core conosce `session-end` solo se
+   l'agente lo manda; un agente che muore in silenzio lascia il worker `running` fino
+   alla chiusura del tab.
 
 Ognuno è un cambio del core coperto da test di conformità e dalla
-`FakeIntegration`, e va fatto con Claude Code che continua a passare.
+`FakeIntegration`, e va fatto con le integrazioni esistenti che continuano a passare.

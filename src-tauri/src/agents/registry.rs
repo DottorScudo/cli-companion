@@ -2,17 +2,18 @@
 //! agenti.
 
 use super::claude_code;
-use super::contracts::{AgentIntegration, AutomationRequest};
+use super::contracts::{first_invalid_env_name, AgentIntegration, AutomationLaunch, AutomationRequest};
 use super::enablement;
 use super::integrations_store;
 use super::models::model_is_valid;
+use super::opencode;
 use super::resolve::{self, AgentUnavailable, AgentUse};
 use crate::platform::TargetKind;
 
 /// Integrazioni supportate. Per aggiungerne una: una riga qui. Quali sono
 /// abilitate e quale e' il predefinito lo sceglie l'utente (`integrations.json`);
 /// finche' non sceglie, vale la prima.
-static INTEGRATIONS: &[&dyn AgentIntegration] = &[&claude_code::ClaudeCode];
+static INTEGRATIONS: &[&dyn AgentIntegration] = &[&claude_code::ClaudeCode, &opencode::OpenCode];
 
 /// Tutte le integrazioni registrate, abilitate o no: serve alla pagina delle
 /// integrazioni, alla conformita' e al client IPC. Chi mostra o avvia qualcosa
@@ -65,19 +66,32 @@ pub fn resolve_agent(
     resolve::resolve_in(all(), &integrations_store::current(), explicit, workspace_agent, purpose)
 }
 
-/// Comando di avvio di una sessione automatica per l'agente `agent_id`.
-pub fn automation_command(agent_id: &str, env_kind: TargetKind, req: &AutomationRequest) -> Result<String, String> {
+/// Comando e variabili d'ambiente di avvio di una sessione automatica per
+/// l'agente `agent_id`. Le variabili sono validate qui: un'integrazione che ne
+/// restituisce di non valide e' difettosa e la sessione non parte.
+pub fn automation_command(
+    agent_id: &str,
+    env_kind: TargetKind,
+    req: &AutomationRequest,
+) -> Result<AutomationLaunch, String> {
     // Errori letti dal modello via RPC: in inglese.
     let integration =
         resolve_agent(Some(agent_id), None, AgentUse::Worker).map_err(|unavailable| unavailable.to_string())?;
     if let Some(model) = req.model.filter(|m| !model_is_valid(integration, m)) {
         return Err(format!("invalid model for {}: {model}", integration.display_name()));
     }
-    integration
+    let launch = integration
         .capabilities()
         .automation
         .and_then(|automation| automation.command(env_kind, req))
-        .ok_or_else(|| format!("{} does not support automated sessions", integration.display_name()))
+        .ok_or_else(|| format!("{} does not support automated sessions", integration.display_name()))?;
+    if let Some(name) = first_invalid_env_name(&launch.env) {
+        return Err(format!(
+            "{} returned an invalid environment variable for automated sessions: {name}",
+            integration.display_name()
+        ));
+    }
+    Ok(launch)
 }
 
 #[cfg(test)]
@@ -110,6 +124,30 @@ mod tests {
         assert_eq!(
             automation_command(default_agent().id(), TargetKind::Windows, &bad),
             Err("Claude Code does not support automated sessions".to_string())
+        );
+    }
+
+    #[test]
+    fn automation_command_passes_valid_env_and_rejects_an_invalid_one() {
+        use crate::agents::test_registry::SecondIntegration;
+        use crate::agents::testing::{FakeIntegration, Flaw, FAKE_ENV_NAME};
+        let req = AutomationRequest {
+            bootstrap_prompt: "ok",
+            permission_mode: PermissionMode::Plan,
+            model: None,
+            permissions_file: None,
+        };
+        let _good = SecondIntegration::enabled(FakeIntegration::full("fake-env"));
+        let launch = automation_command("fake-env", TargetKind::Windows, &req).unwrap();
+        assert_eq!(launch.env, [(FAKE_ENV_NAME.to_string(), "plan".to_string())]);
+        // Claude Code non chiede variabili.
+        assert!(automation_command(default_agent().id(), TargetKind::Windows, &req).unwrap().env.is_empty());
+        drop(_good);
+
+        let _bad = SecondIntegration::enabled(FakeIntegration::full("fake-bad").with_flaw(Flaw::AutomationInvalidEnv));
+        assert_eq!(
+            automation_command("fake-bad", TargetKind::Windows, &req),
+            Err("Fake returned an invalid environment variable for automated sessions: fake_agent_mode".to_string())
         );
     }
 

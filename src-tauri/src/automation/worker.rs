@@ -62,6 +62,9 @@ pub struct NewWorker {
     pub cwd: String,
     /// Comando da digitare nella shell del nuovo tab.
     pub command: String,
+    /// Variabili d'ambiente che il backend imposta sul processo del tab prima
+    /// che la shell parta (mai sul filo verso il frontend).
+    pub env: Vec<(String, String)>,
     /// Tipo del task: decide ruolo e strumenti del worker.
     pub kind: TaskKind,
 }

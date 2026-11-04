@@ -6,6 +6,7 @@ use super::spawn::{
     build_command, check_start_dir, is_powershell, open_pty, pty_size, session_command, start_dir,
     POWERSHELL_TITLE_HOOK,
 };
+use super::staged_env::{StagedEnv, MAX_STAGED};
 use crate::ipc::{PORT_ENV, SESSION_ENV, TOKEN_ENV};
 use crate::platform::{Target, TargetKind};
 use portable_pty::CommandBuilder;
@@ -106,13 +107,13 @@ fn wslenv_merge_handles_several_vars() {
 
 #[test]
 fn session_env_is_set_and_wsl_adds_wslenv() {
-    let windows = env_vars("tab-1", "tok", Some(17500), TargetKind::Windows, Some("PATH/l"));
+    let windows = env_vars("tab-1", "tok", Some(17500), TargetKind::Windows, Some("PATH/l"), &[]);
     assert_eq!(env_value(&windows, SESSION_ENV).as_deref(), Some("tab-1"));
     assert_eq!(env_value(&windows, TOKEN_ENV).as_deref(), Some("tok"));
     assert_eq!(env_value(&windows, PORT_ENV).as_deref(), Some("17500"));
     assert_eq!(env_value(&windows, "WSLENV"), None);
 
-    let wsl = env_vars("tab-1", "tok", Some(17500), TargetKind::Wsl, Some("PATH/l"));
+    let wsl = env_vars("tab-1", "tok", Some(17500), TargetKind::Wsl, Some("PATH/l"), &[]);
     assert_eq!(env_value(&wsl, SESSION_ENV).as_deref(), Some("tab-1"));
     assert_eq!(env_value(&wsl, TOKEN_ENV).as_deref(), Some("tok"));
     assert_eq!(env_value(&wsl, PORT_ENV).as_deref(), Some("17500"));
@@ -124,16 +125,16 @@ fn session_env_is_set_and_wsl_adds_wslenv() {
 
 #[test]
 fn port_is_set_and_forwarded_only_when_the_listener_is_up() {
-    let wsl = env_vars("tab-1", "tok", None, TargetKind::Wsl, Some("PATH/l"));
+    let wsl = env_vars("tab-1", "tok", None, TargetKind::Wsl, Some("PATH/l"), &[]);
     assert_eq!(env_value(&wsl, PORT_ENV), None);
     assert_eq!(env_value(&wsl, "WSLENV").as_deref(), Some("PATH/l:CLI_COMPANION_SESSION/u:CLI_COMPANION_TOKEN/u"));
-    let windows = env_vars("tab-1", "tok", None, TargetKind::Windows, None);
+    let windows = env_vars("tab-1", "tok", None, TargetKind::Windows, None, &[]);
     assert_eq!(env_value(&windows, PORT_ENV), None);
 }
 
 #[test]
 fn color_env_declares_256_and_truecolor() {
-    let vars = env_vars("tab-1", "tok", None, TargetKind::Windows, None);
+    let vars = env_vars("tab-1", "tok", None, TargetKind::Windows, None, &[]);
     assert_eq!(env_value(&vars, "TERM").as_deref(), Some("xterm-256color"));
     assert_eq!(env_value(&vars, "COLORTERM").as_deref(), Some("truecolor"));
 }
@@ -141,7 +142,7 @@ fn color_env_declares_256_and_truecolor() {
 #[test]
 fn apply_env_uses_the_given_secret() {
     let mut cmd = CommandBuilder::new("dummy");
-    apply_env(&mut cmd, "tab-1", "secret-1", TargetKind::Windows);
+    apply_env(&mut cmd, "tab-1", "secret-1", TargetKind::Windows, &[]);
     assert_eq!(cmd.get_env(SESSION_ENV), Some(std::ffi::OsStr::new("tab-1")));
     assert_eq!(cmd.get_env(TOKEN_ENV), Some(std::ffi::OsStr::new("secret-1")));
     // Nei test il listener non e' avviato: nessuna porta (e quella ereditata e' rimossa).
@@ -255,12 +256,12 @@ fn wsl_command_execs_the_requested_shell() {
 
 #[test]
 fn session_command_adds_the_environment_of_its_target() {
-    let windows = session_command(&Target::Windows, r"C:\work", None, "tab-1", "secret-1");
+    let windows = session_command(&Target::Windows, r"C:\work", None, "tab-1", "secret-1", &[]);
     assert_eq!(windows.get_env(SESSION_ENV), Some(std::ffi::OsStr::new("tab-1")));
     assert_eq!(windows.get_env(TOKEN_ENV), Some(std::ffi::OsStr::new("secret-1")));
     assert_eq!(windows.get_env("COLORTERM"), Some(std::ffi::OsStr::new("truecolor")));
 
-    let wsl = session_command(&wsl("Ubuntu"), "/srv", None, "tab-2", "secret-2");
+    let wsl = session_command(&wsl("Ubuntu"), "/srv", None, "tab-2", "secret-2", &[]);
     assert_eq!(wsl.get_env(SESSION_ENV), Some(std::ffi::OsStr::new("tab-2")));
     assert_eq!(wsl.get_env(TOKEN_ENV), Some(std::ffi::OsStr::new("secret-2")));
     let wslenv = wsl.get_env("WSLENV").unwrap().to_string_lossy().into_owned();
@@ -497,4 +498,87 @@ fn run_within_gives_up_on_a_stuck_item_at_the_deadline() {
 #[test]
 fn run_within_handles_no_items() {
     assert_eq!(run_within(Vec::<u8>::new(), Duration::from_millis(50), |_| {}), 0);
+}
+
+fn staged(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+}
+
+#[test]
+fn staged_env_is_set_after_the_session_variables_on_windows() {
+    let extra = staged(&[("OPENCODE_CONFIG_CONTENT", r#"{"a":"b $c"}"#), ("FAKE_AGENT_MODE", "plan")]);
+    let vars = env_vars("tab-1", "tok", None, TargetKind::Windows, None, &extra);
+    assert_eq!(env_value(&vars, "OPENCODE_CONFIG_CONTENT").as_deref(), Some(r#"{"a":"b $c"}"#));
+    assert_eq!(env_value(&vars, "FAKE_AGENT_MODE").as_deref(), Some("plan"));
+    assert_eq!(env_value(&vars, SESSION_ENV).as_deref(), Some("tab-1"));
+    assert_eq!(env_value(&vars, "WSLENV"), None);
+    // Vengono dopo le variabili del core.
+    let pos = |k: &str| vars.iter().position(|(n, _)| n == k).unwrap();
+    assert!(pos("FAKE_AGENT_MODE") > pos(TOKEN_ENV));
+}
+
+#[test]
+fn staged_env_names_are_merged_into_wslenv_without_duplicates() {
+    let extra = staged(&[("OPENCODE_CONFIG", "/mnt/c/x/cfg.json"), ("FAKE_AGENT_MODE", "plan")]);
+    let vars = env_vars("tab-1", "tok", None, TargetKind::Wsl, Some("PATH/l:FAKE_AGENT_MODE/p"), &extra);
+    assert_eq!(env_value(&vars, "OPENCODE_CONFIG").as_deref(), Some("/mnt/c/x/cfg.json"));
+    assert_eq!(
+        env_value(&vars, "WSLENV").as_deref(),
+        Some("PATH/l:FAKE_AGENT_MODE/p:CLI_COMPANION_SESSION/u:CLI_COMPANION_TOKEN/u:OPENCODE_CONFIG/u")
+    );
+}
+
+#[test]
+fn reserved_or_malformed_staged_names_are_never_applied() {
+    let extra = staged(&[
+        ("CLI_COMPANION_TOKEN", "evil"),
+        ("WSLENV", "evil"),
+        ("TERM", "evil"),
+        ("lower", "x"),
+        ("OK_VAR", "1"),
+    ]);
+    let vars = env_vars("tab-1", "tok", None, TargetKind::Wsl, None, &extra);
+    assert_eq!(env_value(&vars, TOKEN_ENV).as_deref(), Some("tok"));
+    assert_eq!(env_value(&vars, "TERM").as_deref(), Some("xterm-256color"));
+    assert_eq!(env_value(&vars, "lower"), None);
+    assert_eq!(vars.iter().filter(|(n, _)| n == "WSLENV").count(), 1);
+    assert_eq!(env_value(&vars, "WSLENV").as_deref(), Some("CLI_COMPANION_SESSION/u:CLI_COMPANION_TOKEN/u:OK_VAR/u"));
+}
+
+#[test]
+fn session_command_applies_staged_env_to_the_process() {
+    let extra = staged(&[("FAKE_AGENT_MODE", "bypass")]);
+    let windows = session_command(&Target::Windows, r"C:\work", None, "tab-1", "secret-1", &extra);
+    assert_eq!(windows.get_env("FAKE_AGENT_MODE"), Some(std::ffi::OsStr::new("bypass")));
+    let wsl = session_command(&wsl("Ubuntu"), "/srv", None, "tab-2", "secret-2", &extra);
+    assert_eq!(wsl.get_env("FAKE_AGENT_MODE"), Some(std::ffi::OsStr::new("bypass")));
+    let wslenv = wsl.get_env("WSLENV").unwrap().to_string_lossy().into_owned();
+    assert!(wslenv.split(':').any(|e| e == "FAKE_AGENT_MODE/u"), "{wslenv}");
+}
+
+#[test]
+fn staged_env_is_consumed_once_and_discarded_on_close() {
+    let store = StagedEnv::default();
+    store.stage("tab-1", staged(&[("A", "1")]));
+    assert_eq!(store.take("tab-1"), staged(&[("A", "1")]));
+    assert!(store.take("tab-1").is_empty());
+    assert!(store.take("never-staged").is_empty());
+
+    store.stage("tab-2", staged(&[("A", "2")]));
+    store.stage("tab-2", staged(&[("A", "3")]));
+    assert_eq!(store.len(), 1);
+    store.discard("tab-2");
+    assert!(store.take("tab-2").is_empty());
+}
+
+#[test]
+fn staged_env_is_bounded() {
+    let store = StagedEnv::default();
+    for i in 0..(MAX_STAGED + 10) {
+        store.stage(&format!("tab-{i}"), staged(&[("A", "1")]));
+    }
+    assert_eq!(store.len(), MAX_STAGED);
+    // Le piu' vecchie hanno ceduto il posto.
+    assert!(store.take("tab-0").is_empty());
+    assert!(!store.take(&format!("tab-{}", MAX_STAGED + 9)).is_empty());
 }

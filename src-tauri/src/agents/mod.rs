@@ -35,6 +35,7 @@ mod integrations_commands;
 mod integrations_store;
 mod launches;
 mod models;
+mod opencode;
 mod package;
 pub mod presets;
 mod readiness;

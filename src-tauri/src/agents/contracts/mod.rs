@@ -20,13 +20,16 @@ mod usage_limits;
 mod user_skills;
 mod worker_permissions;
 
-pub use automation::{is_shell_safe_path, AutomationRequest, PermissionMode, WorkerAutomation};
+pub use automation::{
+    first_invalid_env_name, is_shell_safe_path, is_valid_env_name, is_valid_env_value, AutomationLaunch,
+    AutomationRequest, PermissionMode, WorkerAutomation,
+};
 pub use capabilities::{Capabilities, Capability};
 pub use hook_events::{HookEvent, HookEventKind, HookEvents, WaitKind};
 pub use input_profile::{InputEvent, InputProfile, InputProfileSource, InputRule};
 pub use integration::{AgentIntegration, Detection};
 pub use models::{ModelCatalog, ModelTier, SuggestedModel};
-pub use package::{plugins_dir, sanitize_env_key, InstallCtx, IntegrationPackage, PackageFile};
+pub use package::{fnv32, plugins_dir, sanitize_env_key, InstallCtx, IntegrationPackage, PackageFile};
 pub use presets::PresetLauncher;
 pub use session_resume::{ResumeFlag, ResumeSpec, SessionResume};
 #[cfg(test)]

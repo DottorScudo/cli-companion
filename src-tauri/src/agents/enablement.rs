@@ -210,6 +210,18 @@ mod tests {
     }
 
     #[test]
+    fn a_newly_registered_integration_is_not_enabled_for_existing_users() {
+        // File gia' presente: anche se il nuovo pacchetto risulta installato, non si abilita da solo.
+        let fake = FakeIntegration::bare(FAKE_ID, "fake-cli");
+        let registered = [registry::all()[0], &fake as &dyn AgentIntegration];
+        let existing = state(&[first_id()], first_id());
+        let (loaded, warnings) = normalize_loaded(&existing, &registered, |_| true);
+        assert_eq!((loaded, warnings), (existing.clone(), Vec::new()));
+        assert_eq!(view(&existing, &registered), existing);
+        assert_eq!(enabled_in(&registered, &existing).len(), 1);
+    }
+
+    #[test]
     fn loading_drops_unknown_ids_with_a_warning_each() {
         let fake = FakeIntegration::bare(FAKE_ID, "fake-cli");
         let registered = [registry::all()[0], &fake as &dyn AgentIntegration];

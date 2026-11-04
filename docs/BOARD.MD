@@ -151,8 +151,8 @@ Limiti: 200 task per board, 20 task per proposta, 20 proposte pendenti per board
   dichiarare l'automazione. Una `TaskSpec` senza `agent` prende quello del workspace (`Workspace.agent`), poi il
   predefinito globale. Una volta scritto non segue più i predefiniti. I file creati prima dell'introduzione del campo
   lo ricevono al caricamento (`Board::sanitize`: il predefinito globale).
-- **`model`** è un nome del catalogo di *quell'* agente; l'integrazione ne valida la forma (`ModelCatalog::is_valid`,
-  altrimenti la forma sicura generica). Cambiando agente con `update_task` si ricontrolla anche il modello. Chi non lo
+- **`model`** è un nome del catalogo di *quell'* agente (per Claude Code un alias o un id, per OpenCode `provider/modello`, es. `opencode/gpt-5.5`): lo valida l'agente del task (`ModelCatalog::is_valid`, dentro la forma generica `valid_model_shape` che già ammette `/` e `:` nel parsing delle specifiche e nello schema MCP,
+  senza catalogo vale la sola forma). Un modello che l'agente non accetta è rifiutato: `invalid model for <nome>: <modello>`. Cambiando agente con `update_task` si ricontrolla anche il modello. Chi non lo
   indica (`null`) usa il modello dei worker del workspace per quell'agente (`worker_agents[<agente>].model`), poi il
   predefinito dell'agente (`None` = l'app non passa nessun modello).
 - **Motivo di attesa.** Un task `queued` il cui agente non è pronto nel target del workspace non è mai candidato
@@ -445,6 +445,13 @@ Funzione pura dopo ogni modifica (come oggi):
    entro `max_parallel`.
 4. Ogni scelto passa a `running` (`worker_status = starting`, `attempts += 1`,
    `started_at`), l'avvio vero (git + spawn) gira fuori dal lock su un thread separato.
+
+**Avvio del worker e agente.** Il comando del worker lo costruisce `WorkerAutomation::command` dell'agente
+del task e ritorna un `AutomationLaunch { command, env }`: il comando va digitato nel tab, le variabili `env`
+le imposta il backend sul processo del tab prima che la shell parta (per Claude Code non ce ne sono; OpenCode
+vi passa modello, agente di partenza e regole di permesso, con modelli `provider/modello`). Il modello è
+quello del task, poi del workspace per l'agente, poi il predefinito dell'agente, ed è sempre validato
+dall'agente del task.
 
 Nessun evento `plan_completed`: la UI mostra lo stato.
 

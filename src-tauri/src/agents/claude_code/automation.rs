@@ -1,7 +1,7 @@
 //! Contratto `WorkerAutomation` di Claude Code.
 
 use super::{ClaudeCode, MCP_ALLOW_RULE};
-use crate::agents::{AutomationRequest, PermissionMode, WorkerAutomation};
+use crate::agents::{AutomationLaunch, AutomationRequest, PermissionMode, WorkerAutomation};
 use crate::platform::TargetKind;
 
 impl WorkerAutomation for ClaudeCode {
@@ -9,7 +9,7 @@ impl WorkerAutomation for ClaudeCode {
     /// Il prompt va PRIMA dei flag (`--allowedTools` e' variadico). La stringa
     /// e' digitata in PowerShell, cmd o bash/zsh: un prompt con caratteri
     /// speciali per una qualunque di queste shell viene rifiutato.
-    fn command(&self, _env_kind: TargetKind, req: &AutomationRequest) -> Option<String> {
+    fn command(&self, _env_kind: TargetKind, req: &AutomationRequest) -> Option<AutomationLaunch> {
         let unsafe_char = |c: char| matches!(c, '"' | '$' | '`' | '%' | '!' | '\\') || c.is_control();
         if req.bootstrap_prompt.is_empty() || req.bootstrap_prompt.chars().any(unsafe_char) {
             return None;
@@ -42,7 +42,8 @@ impl WorkerAutomation for ClaudeCode {
             cmd.push_str(" --model ");
             cmd.push_str(m);
         }
-        Some(cmd)
+        // Claude Code si configura solo con i flag: nessuna variabile.
+        Some(AutomationLaunch { command: cmd, env: Vec::new() })
     }
 }
 
@@ -58,13 +59,15 @@ mod tests {
     fn automation_command_adds_quoted_settings_before_allowed_tools() {
         let mut r = req(PermissionMode::Default, Some("opus"), "ciao");
         r.permissions_file = Some(r"C:\Users\Mario Rossi\AppData\Roaming\cli-companion\worker-settings\ws-1.json");
-        let c = ClaudeCode.command(TargetKind::Windows, &r).unwrap();
+        let launch = ClaudeCode.command(TargetKind::Windows, &r).unwrap();
+        assert!(launch.env.is_empty());
+        let c = launch.command;
         assert_eq!(
             c,
             "claude \"ciao\" --permission-mode default --settings \"C:\\Users\\Mario Rossi\\AppData\\Roaming\\cli-companion\\worker-settings\\ws-1.json\" --allowedTools mcp__plugin_cli-companion-notify_cli-companion --model opus"
         );
         r.permissions_file = Some("/mnt/c/Users/me/AppData/Roaming/cli-companion/worker-settings/ws-1.json");
-        let c = ClaudeCode.command(TargetKind::Wsl, &r).unwrap();
+        let c = ClaudeCode.command(TargetKind::Wsl, &r).unwrap().command;
         assert!(c.contains(
             " --settings \"/mnt/c/Users/me/AppData/Roaming/cli-companion/worker-settings/ws-1.json\" --allowedTools"
         ));
@@ -86,9 +89,10 @@ mod tests {
         ];
         for env in [TargetKind::Windows, TargetKind::Wsl] {
             for (mode, flag) in cases {
-                let c = ClaudeCode.command(env, &req(mode, None, p)).unwrap();
+                let launch = ClaudeCode.command(env, &req(mode, None, p)).unwrap();
+                assert!(launch.env.is_empty());
                 assert_eq!(
-                    c,
+                    launch.command,
                     format!(
                         "claude \"{p}\" --permission-mode {flag} --allowedTools mcp__plugin_cli-companion-notify_cli-companion"
                     )
@@ -99,8 +103,10 @@ mod tests {
 
     #[test]
     fn automation_command_model_and_rejections() {
-        let c =
-            ClaudeCode.command(TargetKind::Wsl, &req(PermissionMode::Plan, Some("claude-opus-4.1"), "ciao")).unwrap();
+        let c = ClaudeCode
+            .command(TargetKind::Wsl, &req(PermissionMode::Plan, Some("claude-opus-4.1"), "ciao"))
+            .unwrap()
+            .command;
         assert!(c.ends_with(" --model claude-opus-4.1"));
         for bad in ["a\"b", "a$b", "a`b", "a%b", "a!b", "a\\b", "a\nb", ""] {
             let r = req(PermissionMode::Default, None, bad);

@@ -2,7 +2,7 @@
 //! lancio e spawn del worker. Gira su un thread dell'host, fuori dal lock.
 
 use super::{git, is_abs, join_path, repo_cfg, repo_dir, task_branch, FetchCache, StartJob, WORKTREES_DIR};
-use crate::agents::{registry, AutomationRequest};
+use crate::agents::{registry, AutomationLaunch, AutomationRequest};
 use crate::automation::hooks;
 use crate::automation::*;
 use crate::board::{repo_key, Task, WorktreeInfo};
@@ -293,7 +293,7 @@ fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Res
         model: effective_model(task, ws, catalog_default_model(&task.agent)),
         permissions_file: permissions_file.as_deref(),
     };
-    let command = host.launch_command(&task.agent, ws.kind, &req)?;
+    let AutomationLaunch { command, env: launch_env } = host.launch_command(&task.agent, ws.kind, &req)?;
     Ok(Prepared {
         worktree,
         warnings,
@@ -303,6 +303,7 @@ fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Res
             title: task.title.clone(),
             cwd: workdir.clone(),
             command,
+            env: launch_env,
             kind: task.kind,
         },
         env: WorkerEnv { delivery, repo_dir: dir, workdir, branch, base },
@@ -324,10 +325,15 @@ pub(in crate::automation) fn run_start_job<H: Host>(st: &AutomationState, host: 
         if st.run(host, |r| r.start_is_current(&ws_id, &tid, attempt)) {
             match prepare_start(st, host, &job) {
                 Ok(p) => {
+                    let launch_env = p.new.env.clone();
                     let ev = st.run(host, |r| {
                         r.register_task_worker(&job, p.worktree, p.warnings, p.new, p.env, now_millis())
                     });
                     if let Some(ev) = ev {
+                        // Prima dell'annuncio: il frontend apre il tab subito dopo.
+                        if !launch_env.is_empty() {
+                            host.stage_env(&ev.tab_id, launch_env);
+                        }
                         host.emit_spawn(&ev);
                     }
                 }

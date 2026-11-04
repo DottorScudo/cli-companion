@@ -4,7 +4,7 @@
 
 use super::process::CancelFlag;
 use super::*;
-use crate::agents::AutomationRequest;
+use crate::agents::{AutomationLaunch, AutomationRequest};
 use crate::platform::TargetKind;
 use crate::schedule::{Schedule, ScheduleState};
 use crate::workspaces::{AgentWorkerSettings, DeliveryMode, MergeMethod, RepoConfig, SettingsPatch};
@@ -47,6 +47,9 @@ pub(super) fn ws(id: &str, name: &str, kind: &str) -> Workspace {
 /// Ambiente e cartella (o errore) di una cartella target delle skill.
 type SkillDir = (String, Result<std::path::PathBuf, String>);
 
+/// Variabili d'ambiente preparate per un tab: (tab, variabili).
+type StagedEnv = (String, Vec<(String, String)>);
+
 /// Lavoro differito di `Host::defer`.
 type Job = Box<dyn FnOnce() + Send>;
 
@@ -60,6 +63,8 @@ struct FakeHost {
     /// Cartelle che "esistono" oltre a quelle con "esiste" nel nome.
     dirs: Arc<Mutex<Vec<String>>>,
     spawns: Arc<Mutex<Vec<SpawnEvent>>>,
+    /// Variabili d'ambiente preparate per il PTY di ogni tab (tab, variabili).
+    staged: Arc<Mutex<Vec<StagedEnv>>>,
     /// Board salvate (ultima per workspace) e viste emesse.
     saved: Arc<Mutex<HashMap<String, Board>>>,
     board_events: Arc<Mutex<Vec<BoardView>>>,
@@ -138,6 +143,12 @@ impl FakeHost {
         let out = GitOut { ok, stdout: stdout.to_string(), stderr: stderr.to_string() };
         self.git_rules.lock().unwrap().push((needle.to_string(), out));
     }
+    /// Variabili preparate per il tab `tab_id` (vuote se nessuna).
+    fn staged_env(&self, tab_id: &str) -> Vec<(String, String)> {
+        let staged = self.staged.lock().unwrap();
+        staged.iter().filter(|(t, _)| t == tab_id).flat_map(|(_, env)| env.clone()).collect()
+    }
+
     fn spawns(&self) -> Vec<SpawnEvent> {
         self.spawns.lock().unwrap().clone()
     }
@@ -223,15 +234,25 @@ impl Host for FakeHost {
     }
     /// Le verifiche del comando vero (agente del registro, abilitato e capace,
     /// modello suo), poi una riga leggibile con l'agente che parte.
-    fn launch_command(&self, agent: &str, env_kind: TargetKind, req: &AutomationRequest) -> Result<String, String> {
-        crate::agents::automation_command(agent, env_kind, req)?;
-        Ok(format!(
+    fn launch_command(
+        &self,
+        agent: &str,
+        env_kind: TargetKind,
+        req: &AutomationRequest,
+    ) -> Result<AutomationLaunch, String> {
+        let launch = crate::agents::automation_command(agent, env_kind, req)?;
+        let command = format!(
             "fake {agent} {} {:?} {} model={}",
             env_kind.as_str(),
             req.permission_mode,
             req.bootstrap_prompt,
             req.model.unwrap_or("-")
-        ))
+        );
+        // Le variabili sono quelle vere dell'integrazione.
+        Ok(AutomationLaunch { command, env: launch.env })
+    }
+    fn stage_env(&self, tab_id: &str, env: Vec<(String, String)>) {
+        self.staged.lock().unwrap().push((tab_id.to_string(), env));
     }
     fn emit_spawn(&self, ev: &SpawnEvent) {
         self.spawns.lock().unwrap().push(ev.clone());

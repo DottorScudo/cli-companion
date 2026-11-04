@@ -19,6 +19,10 @@ pub enum Flaw {
     ResumeTemplateWithoutId,
     /// La regola dei modelli accetta nomi con spazi.
     ModelValidationAcceptsSpaces,
+    /// Un modello consigliato esce dalla forma generica (`valid_model_shape`).
+    SuggestedModelOutsideShape,
+    /// L'automazione restituisce una variabile d'ambiente con nome non valido.
+    AutomationInvalidEnv,
 }
 
 #[derive(Debug, Clone)]
@@ -195,7 +199,7 @@ impl SessionResume for FakeIntegration {
 }
 
 impl WorkerAutomation for FakeIntegration {
-    fn command(&self, _: TargetKind, req: &AutomationRequest) -> Option<String> {
+    fn command(&self, _: TargetKind, req: &AutomationRequest) -> Option<AutomationLaunch> {
         let leaks_dollar = self.flaw == Some(Flaw::AutomationLetsDollarThrough);
         let unsafe_char =
             |c: char| matches!(c, '"' | '`' | '%' | '!' | '\\') || c.is_control() || (c == '$' && !leaks_dollar);
@@ -218,7 +222,10 @@ impl WorkerAutomation for FakeIntegration {
             }
             cmd.push_str(&format!(" --model {model}"));
         }
-        Some(cmd)
+        // Una variabile che dipende dalla richiesta, per provare il percorso fino al PTY.
+        let name = if self.flaw == Some(Flaw::AutomationInvalidEnv) { "fake_agent_mode" } else { FAKE_ENV_NAME };
+        let env = vec![(name.to_string(), req.permission_mode.as_str().to_string())];
+        Some(AutomationLaunch { command: cmd, env })
     }
 }
 
@@ -310,6 +317,9 @@ impl InputProfileSource for FakeIntegration {
     }
 }
 
+/// Variabile d'ambiente che l'automazione dell'agente finto imposta (valore: il livello di permessi).
+pub const FAKE_ENV_NAME: &str = "FAKE_AGENT_MODE";
+
 /// Modelli dell'agente finto, con nomi che non appartengono a nessun agente reale.
 pub const FAKE_MODEL_SMALL: &str = "fake-small";
 pub const FAKE_MODEL_LARGE: &str = "fake-large";
@@ -320,8 +330,17 @@ const FAKE_SUGGESTED: &[SuggestedModel] = &[
     SuggestedModel { id: FAKE_MODEL_LARGE, label: "Fake large", tier: ModelTier::Strong },
 ];
 
+/// Nome che l'agente accetta ma che non ha la forma generica sicura (`//`).
+const FAKE_MODEL_OUTSIDE_SHAPE: &str = "fake-a//b";
+
+const FAKE_SUGGESTED_OUTSIDE_SHAPE: &[SuggestedModel] =
+    &[SuggestedModel { id: FAKE_MODEL_OUTSIDE_SHAPE, label: "Fake odd", tier: ModelTier::Standard }];
+
 impl ModelCatalog for FakeIntegration {
     fn suggested(&self) -> &'static [SuggestedModel] {
+        if self.flaw == Some(Flaw::SuggestedModelOutsideShape) {
+            return FAKE_SUGGESTED_OUTSIDE_SHAPE;
+        }
         FAKE_SUGGESTED
     }
 
@@ -333,6 +352,9 @@ impl ModelCatalog for FakeIntegration {
     /// difetto accetta qualunque nome non vuoto, anche con spazi.
     fn is_valid(&self, model: &str) -> bool {
         let lenient = self.flaw == Some(Flaw::ModelValidationAcceptsSpaces);
+        if self.flaw == Some(Flaw::SuggestedModelOutsideShape) && model == FAKE_MODEL_OUTSIDE_SHAPE {
+            return true;
+        }
         (lenient || model.starts_with(FAKE_MODEL_PREFIX))
             && !model.is_empty()
             && model.len() <= crate::validate::MODEL_MAX
