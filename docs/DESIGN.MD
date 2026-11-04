@@ -223,14 +223,14 @@ Restano confinati ai comandi Tauri e all'host reale; la logica pura non li attra
 1. **Proposta.** In un tab normale l'Intake (un preset del plugin) chiama il tool MCP `propose_tasks`. Il server MCP
    (`--mcp`) inoltra la chiamata come RPC (`ipc::rpc_call`) col segreto del tab; `ipc/server.rs` la autentica,
    `automation::rpc::dispatch` risolve il ruolo del chiamante (`automation/roles.rs`) e verifica che il metodo gli
-   sia consentito; `automation/boards.rs` valida le specifiche con `board::parse_proposal` e aggiunge una `Proposal`
+   sia consentito; `automation/boards/session.rs` valida le specifiche con `board::parse_proposal` e aggiunge una `Proposal`
    alla board. Ogni modifica della board produce `Effect::Publish`: evento `board-update` e salvataggio coalescente.
 2. **Accettazione.** L'utente sceglie dalla UI (`proposal_decide`): le specifiche vengono rivalidate ed entrano in
    coda come `queued`.
 3. **Scheduler.** Dopo ogni modifica (e a ogni giro del timer) `board::schedule` (pura) sceglie i task avviabili:
    coda non in pausa, fascia aperta, dipendenze `done`, slot libero. Ogni scelto passa a `running` e il registro
    emette `Effect::StartTask`.
-4. **Avvio.** Fuori dal lock (`automation/worktrees.rs`, thread dell'host): base del branch, `git fetch`, worktree
+4. **Avvio.** Fuori dal lock (`automation/worktrees/start.rs`, thread dell'host): base del branch, `git fetch`, worktree
    `task/<id>` in `<repo>/.worktrees/<id>` (solo con consegna a worktree), file da copiare e comandi `setup` del
    repository, poi `emit_spawn` (`automation-spawn`) con il comando di avvio costruito dal contratto
    `WorkerAutomation` dell'agente. Un guardiano (`watchdog`) fallisce gli avvii bloccati dopo 5 minuti.
@@ -617,10 +617,13 @@ dati, consegna, scheduler, tool, UI): [BOARD.MD](BOARD.MD). Struttura a strati, 
   pubblicazione ordinata per `rev` (evento `board-update` + salvataggio coalescente, max 1/s).
 - `host.rs`: trait `Host` (eventi Tauri, git, file, timer, workspace) e `TauriHost`; i test usano
   un host finto con i timer in linea.
-- `boards.rs`: parte del `Registry` che tiene le board (proposte, azioni sui task, scheduler,
-  guardiano degli avvii) e la logica dei comandi e dei tool di sessione.
-- `worktrees.rs`: avvio di un task (base, `git fetch`, worktree, setup, spawn) e pulizia a
-  consegna avvenuta. `worktrees/real.rs`: lato reale di git (timeout 120 s, WSL via `wsl.exe -e`,
+- `boards.rs`: parte del `Registry` che tiene le board (proposte, modifiche dei task, scheduler).
+  `boards/lifecycle.rs`: avvio dei task, guardiano degli avvii, archiviazione del workspace e pulizia
+  nel `Registry`. `boards/commands.rs`: logica dei comandi Tauri della UI. `boards/session.rs`: tool
+  MCP delle sessioni (Intake e revisore).
+- `worktrees.rs`: tipi e helper condivisi di git (percorsi, `git`, verifica dei repository) e file
+  della board. `worktrees/start.rs`: avvio di un task (base, `git fetch`, worktree, setup, spawn).
+  `worktrees/cleanup.rs`: pulizia a consegna avvenuta. `worktrees/real.rs`: lato reale di git (timeout 120 s, WSL via `wsl.exe -e`,
   sempre tramite `process.rs`), rilevamento dei repository, file di esclusione.
   `worktrees/reconcile.rs`: riallineamento delle worktree con le board (task `done` rimasti,
   worktree `task/*` orfane) all'avvio e ogni 5 minuti, dal tick dello scheduler. `hooks.rs`: setup e pulizia per repository (`RepoConfig`), più lettura e

@@ -1,0 +1,135 @@
+//! Logica dei comandi Tauri delle board: la UI modifica la coda del workspace
+//! e riceve la vista aggiornata.
+
+use crate::automation::worktrees::{check_e2e_configured, ensure_repos};
+use crate::automation::*;
+use crate::board::{self, parse_spec, TaskAction, TaskSpec};
+
+pub(in crate::automation) fn workspace_of<H: Host>(host: &H, ws_id: &str) -> Result<Workspace, String> {
+    let ws = host.workspace(ws_id).ok_or_else(|| "workspace non trovato".to_string())?;
+    if ws.archived {
+        return Err("workspace archiviato".to_string());
+    }
+    Ok(ws)
+}
+
+pub(in crate::automation) fn board_set<H: Host>(
+    st: &AutomationState,
+    host: &H,
+    ws_id: &str,
+    max_parallel: Option<u8>,
+    paused: Option<bool>,
+) -> Result<BoardView, String> {
+    workspace_of(host, ws_id)?;
+    if max_parallel.is_none() && paused.is_none() {
+        return Err("nessuna modifica richiesta".to_string());
+    }
+    if max_parallel.is_some_and(|m| !(1..=board::MAX_PARALLEL_LIMIT).contains(&m)) {
+        return Err(format!("max_parallel deve essere tra 1 e {}", board::MAX_PARALLEL_LIMIT));
+    }
+    let now = now_millis();
+    st.run(host, |r| r.set_board(ws_id, max_parallel, paused, now))?;
+    st.view(host, ws_id)
+}
+
+pub(in crate::automation) fn task_create<H: Host>(
+    st: &AutomationState,
+    host: &H,
+    ws_id: &str,
+    spec: &Value,
+) -> Result<BoardView, String> {
+    let ws = workspace_of(host, ws_id)?;
+    let mut spec = parse_spec(spec, None)?;
+    ensure_repos(host, &ws, [spec.repo.as_deref()])?;
+    let now = now_millis();
+    st.run(host, |r| {
+        if spec.id.is_empty() {
+            spec.id = r.free_id(ws_id, &spec.title);
+        }
+        check_e2e_configured(&ws, std::slice::from_ref(&spec))?;
+        r.create_task(ws_id, spec, now)
+    })?;
+    st.view(host, ws_id)
+}
+
+/// Modifica di un task: il repository nuovo si verifica fuori dal lock.
+pub(super) fn update_checked<H: Host>(
+    st: &AutomationState,
+    host: &H,
+    ws: &Workspace,
+    id: &str,
+    patch: &Value,
+) -> Result<(), String> {
+    let current = st.run(host, |r| r.task_view(&ws.id, id)).ok_or_else(|| format!("task not found: {id}"))?;
+    let spec = parse_spec(patch, Some(&TaskSpec::from_task(&current.task)))?;
+    if spec.repo != current.task.repo {
+        ensure_repos(host, ws, [spec.repo.as_deref()])?;
+    }
+    check_e2e_configured(ws, std::slice::from_ref(&spec))?;
+    let now = now_millis();
+    st.run(host, |r| r.update_task(&ws.id, id, patch, now))
+}
+
+pub(in crate::automation) fn task_update<H: Host>(
+    st: &AutomationState,
+    host: &H,
+    ws_id: &str,
+    task_id: &str,
+    patch: &Value,
+) -> Result<BoardView, String> {
+    let ws = workspace_of(host, ws_id)?;
+    update_checked(st, host, &ws, task_id, patch)?;
+    st.view(host, ws_id)
+}
+
+pub(in crate::automation) fn task_action<H: Host>(
+    st: &AutomationState,
+    host: &H,
+    ws_id: &str,
+    task_id: &str,
+    action: TaskAction,
+) -> Result<BoardView, String> {
+    workspace_of(host, ws_id)?;
+    let now = now_millis();
+    st.run(host, |r| match action {
+        TaskAction::Retry => r.retry_task(ws_id, task_id, now),
+        TaskAction::MarkDone => r.mark_task_done(ws_id, task_id, now),
+        TaskAction::Stop => r.stop_task(ws_id, task_id, now),
+        TaskAction::Delete => r.delete_task(ws_id, task_id, now),
+        TaskAction::DeleteCascade => r.delete_task_cascade(ws_id, task_id, now),
+        TaskAction::ToTop => r.task_to_top(ws_id, task_id, now),
+    })?;
+    st.view(host, ws_id)
+}
+
+pub(in crate::automation) fn task_move<H: Host>(
+    st: &AutomationState,
+    host: &H,
+    ws_id: &str,
+    task_id: &str,
+    before: Option<&str>,
+) -> Result<BoardView, String> {
+    workspace_of(host, ws_id)?;
+    let now = now_millis();
+    st.run(host, |r| r.move_task(ws_id, task_id, before, now))?;
+    st.view(host, ws_id)
+}
+
+pub(in crate::automation) fn proposal_decide<H: Host>(
+    st: &AutomationState,
+    host: &H,
+    ws_id: &str,
+    proposal_id: &str,
+    accept: bool,
+) -> Result<BoardView, String> {
+    let ws = workspace_of(host, ws_id)?;
+    if accept {
+        // Nuova validazione: la modalita' di consegna o i repository possono essere cambiati.
+        let specs = st.run(host, |r| r.proposal_specs(ws_id, proposal_id))?;
+        ensure_repos(host, &ws, specs.iter().map(|s| s.repo.as_deref()))?;
+        check_e2e_configured(&ws, &specs)?;
+    }
+    let now = now_millis();
+    st.run(host, |r| r.decide_proposal(ws_id, proposal_id, accept, now))?;
+    st.view(host, ws_id)
+}
