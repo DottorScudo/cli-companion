@@ -4,7 +4,7 @@ import { selectThread, setThreadFilter } from "../../app/actions/hub";
 import { showWorkspaceTerminals } from "../../app/actions/view";
 import { useStore } from "../../hooks/useStore";
 import { formatRelative } from "../../lib/board";
-import { GENERAL_CHANNEL, filterThreads, listedOwner } from "../../lib/hub";
+import { GENERAL_CHANNEL, filterThreads } from "../../lib/hub";
 import type { ThreadFilter } from "../../lib/hub";
 import { cn } from "../../lib/utils";
 import { hubStore } from "../../stores/hub";
@@ -31,7 +31,6 @@ export default function HubThreadList({ channel, channelName }: Props) {
   const all = useStore(hubStore, (s) => s.threads[channel]);
   const filter = useStore(hubStore, (s) => s.filter);
   const selectedId = useStore(hubStore, (s) => s.threadId);
-  const openThread = useStore(hubStore, (s) => s.thread);
   const [creating, setCreating] = useState(false);
   const now = useManagerNow();
   const shown = useMemo(() => filterThreads(all ?? [], filter), [all, filter]);
@@ -105,7 +104,7 @@ export default function HubThreadList({ channel, channelName }: Props) {
                 >
                   <span className="flex items-center gap-2">
                     <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{t.title}</span>
-                    <ListOwner name={listedOwner(openThread, t.id)} />
+                    <ListOwner name={t.owner} />
                     {t.waiting_user && (
                       <span
                         className="h-2 w-2 flex-shrink-0 rounded-full bg-status-attention"

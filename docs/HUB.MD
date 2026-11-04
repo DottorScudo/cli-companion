@@ -132,7 +132,7 @@ resta uno solo. L'elenco (`hub_list_threads`) restituisce i riassunti, senza i m
   caratteri. Nuovi tipi e campi si aggiungono come varianti e campi facoltativi (compatibile in lettura).
 
 **Riassunto** (`HubThreadSummary`): `id`, `channel`, `title`, `state`, `task_count`, `message_count`,
-`waiting_user`, `created_at`, `updated_at`; elenco dal più recente.
+`waiting_user`, `owner` (il titolare del thread, `null` se non ne ha), `created_at`, `updated_at`; elenco dal più recente.
 
 `waiting_user` (`hub/waiting.rs`) è **calcolato**, mai salvato, così non può divergere dai messaggi: per ogni
 soggetto (task o proposta) conta l'ultimo evento, e il thread aspetta l'utente se almeno uno è `task_failed`,
@@ -358,8 +358,8 @@ arrivate la pagina scrive «Impostazioni non disponibili.» e gli accordion non 
   thread («mario e luisa stanno scrivendo…» se sono due). L'area `role="status"` resta nella pagina per l'annuncio
   agli screen reader.
 - **Titolare del thread** (`ThreadOwner`): nell'intestazione, il segretario `owner` del thread (quello che vi ha aperto
-  l'ultima pianificazione) con avatar e «· titolare». Nell'elenco dei thread la riga ne mostra l'avatar, ma il riassunto
-  (`HubThreadSummary`) non porta `owner`: si conosce solo per il thread aperto (`listedOwner`).
+  l'ultima pianificazione) con avatar e «· titolare». Nell'elenco dei thread ogni riga con un titolare ne mostra l'avatar
+  (`ListOwner`), anche se il thread non è aperto: `owner` viaggia nel riassunto (`HubThreadSummary`) e in `hub-update`.
 - **Sessione attiva** (`ThreadSession`): accanto al titolare, il segretario con la sessione che scade per ultima
   (vedi "Menzioni e risveglio"), con «sta lavorando» oppure «scade tra N min» (arrotondato per eccesso, «scade a momenti»
   a fine corsa). Niente se nessuno è sveglio; può essere un segretario diverso dal titolare.

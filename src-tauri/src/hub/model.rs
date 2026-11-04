@@ -200,6 +200,8 @@ pub struct ThreadSummary {
     /// C'e' un evento che aspetta l'utente: proposta pendente, task fallito o
     /// in attenzione (vedi `waiting::waiting_user`).
     pub waiting_user: bool,
+    /// Il segretario titolare del thread (vedi `Thread::owner`).
+    pub owner: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }

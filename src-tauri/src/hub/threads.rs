@@ -139,6 +139,7 @@ pub fn summary(t: &Thread) -> ThreadSummary {
         task_count: t.task_ids.len(),
         message_count: t.messages.len(),
         waiting_user: waiting_user(&t.messages),
+        owner: t.owner.clone(),
         created_at: t.created_at,
         updated_at: t.updated_at,
     }

@@ -294,6 +294,14 @@ fn threads_written_before_the_summary_read_without_it() {
 }
 
 #[test]
+fn the_summary_carries_the_owner_once_set() {
+    let mut list = with_thread("t1", 1);
+    assert!(list.summaries()[0].owner.is_none());
+    list.set_owner("t1", "giorgio", 2).unwrap();
+    assert_eq!(list.summaries()[0].owner.as_deref(), Some("giorgio"));
+}
+
+#[test]
 fn the_owner_is_set_replaced_and_validated() {
     let mut list = with_thread("t1", 1);
     assert!(list.thread("t1").unwrap().owner.is_none());

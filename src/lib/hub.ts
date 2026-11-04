@@ -111,6 +111,7 @@ export function summarizeThread(thread: HubThread): HubThreadSummary {
     task_count: thread.task_ids.length,
     message_count: thread.messages.length,
     waiting_user: false,
+    owner: thread.owner,
     created_at: thread.created_at,
     updated_at: thread.updated_at,
   };
@@ -177,12 +178,4 @@ export function authorLabel(author: HubMessage["author"]): string {
     case "bot":
       return author.name;
   }
-}
-
-/**
- * Titolare di un thread dell'elenco. Il riassunto (`HubThreadSummary`) non lo
- * porta: si conosce solo quello del thread aperto, già letto per intero.
- */
-export function listedOwner(openThread: Pick<HubThread, "id" | "owner"> | null, threadId: string): string | null {
-  return openThread !== null && openThread.id === threadId ? openThread.owner : null;
 }

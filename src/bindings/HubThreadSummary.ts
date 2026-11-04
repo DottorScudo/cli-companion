@@ -9,4 +9,8 @@ export type HubThreadSummary = { id: string, channel: string, title: string, sta
  * C'e' un evento che aspetta l'utente: proposta pendente, task fallito o
  * in attenzione (vedi `waiting::waiting_user`).
  */
-waiting_user: boolean, created_at: number, updated_at: number, };
+waiting_user: boolean, 
+/**
+ * Il segretario titolare del thread (vedi `Thread::owner`).
+ */
+owner: string | null, created_at: number, updated_at: number, };

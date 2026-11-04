@@ -14,7 +14,6 @@ import {
   hubChannels,
   hubTitlePath,
   latestWaitingChannel,
-  listedOwner,
   replyTarget,
   resolveChannel,
   sortThreads,
@@ -35,6 +34,7 @@ const summary = (id, extra = {}) => ({
   task_count: 0,
   message_count: 0,
   waiting_user: false,
+  owner: null,
   created_at: 1,
   updated_at: 1,
   ...extra,
@@ -56,6 +56,7 @@ const thread = (messages, extra = {}) => ({
   state: "open",
   task_ids: [],
   proposal_id: null,
+  owner: null,
   created_at: 1,
   updated_at: 10,
   messages,
@@ -317,12 +318,16 @@ describe("hubEvents: workerTabOf", () => {
   });
 });
 
-describe("listedOwner", () => {
-  it("il titolare si conosce solo per il thread aperto", () => {
-    const open = { id: "t1", owner: "giorgio" };
-    assert.equal(listedOwner(open, "t1"), "giorgio");
-    assert.equal(listedOwner(open, "t2"), null);
-    assert.equal(listedOwner(null, "t1"), null);
-    assert.equal(listedOwner({ id: "t1", owner: null }, "t1"), null);
+describe("titolare nel riassunto", () => {
+  it("il riassunto di un thread letto porta il titolare", () => {
+    assert.equal(summarizeThread(thread([], { owner: "giorgio" })).owner, "giorgio");
+    assert.equal(summarizeThread(thread([])).owner, null);
+  });
+
+  it("un aggiornamento sostituisce il riassunto con il suo titolare, anche per righe non aperte", () => {
+    const list = [summary("a"), summary("b")];
+    const next = upsertSummary(list, summary("b", { owner: "giorgio", updated_at: 2 }));
+    assert.equal(next.find((t) => t.id === "b").owner, "giorgio");
+    assert.equal(next.find((t) => t.id === "a").owner, null);
   });
 });
