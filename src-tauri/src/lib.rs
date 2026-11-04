@@ -56,6 +56,7 @@ pub fn run() {
         .manage(bots::new_store())
         .manage(hub::new_settings_store())
         .manage(hub::HubState::default())
+        .manage(hub::HubFeed::default())
         .manage(AutomationState::default())
         .setup(|app| {
             startup::mark("setup started");

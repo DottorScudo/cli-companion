@@ -1,7 +1,6 @@
 //! Ciclo di vita e collegamenti dei thread: chiusura e riapertura, task e
 //! proposte collegati e la ricerca del thread di un task o di una proposta.
-//! Li usera' il task degli eventi della board; per ora li provano i test.
-#![cfg_attr(not(test), expect(dead_code, reason = "API per gli eventi della board, provata dai test"))]
+//! Li usa l'instradamento degli eventi della board (`events::route`).
 
 use super::{text, ChannelThreads, THREAD_NOT_FOUND};
 use crate::board::valid_id;

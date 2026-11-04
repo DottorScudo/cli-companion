@@ -206,6 +206,7 @@ describe("hubEvents: eventLook", () => {
       proposal_created: ["Proposta", "proposal", "warning"],
       proposal_accepted: ["Proposta accettata", "proposal", "success"],
       proposal_rejected: ["Proposta rifiutata", "proposal", "neutral"],
+      task_created: ["Creato", "generic", "neutral"],
       task_started: ["Avviato", "started", "neutral"],
       task_done: ["Completato", "done", "success"],
       task_failed: ["Fallito", "failed", "danger"],

@@ -3,8 +3,8 @@
 //! revisione e' un task normale con `depends_on` sui task da verificare: lo
 //! scheduler lo avvia quando sono tutti `done`. Funzioni pure, nessun I/O.
 
-use super::view::clip_with_ellipsis;
 use super::{Board, ReportFields, Task, TaskSpec};
+use crate::validate::clip_with_ellipsis;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use ts_rs::TS;

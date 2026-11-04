@@ -29,11 +29,9 @@ mod tests {
             body: "evento".to_string(),
             reply_to: None,
             event: Some(HubEvent {
-                kind,
                 task_id: task.map(str::to_string),
                 proposal_id: proposal.map(str::to_string),
-                status: None,
-                summary: None,
+                ..HubEvent::new(kind)
             }),
             created_at: 0,
         }

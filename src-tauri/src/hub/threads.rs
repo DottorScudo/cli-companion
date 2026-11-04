@@ -151,8 +151,13 @@ fn validate_event(event: &HubEvent) -> Result<(), String> {
             return Err("valore non valido nell'evento".to_string());
         }
     }
-    if event.summary.as_deref().is_some_and(|s| s.chars().count() > BODY_MAX) {
-        return Err(format!("il riassunto dell'evento supera i {BODY_MAX} caratteri"));
+    if event.workspace.as_deref().is_some_and(|ws| !matches!(Channel::parse(ws), Ok(Channel::Workspace(_)))) {
+        return Err("workspace non valido nell'evento".to_string());
+    }
+    for (label, value) in [("il riassunto", &event.summary), ("la nota", &event.note)] {
+        if value.as_deref().is_some_and(|s| s.chars().count() > BODY_MAX) {
+            return Err(format!("{label} dell'evento supera i {BODY_MAX} caratteri"));
+        }
     }
     Ok(())
 }

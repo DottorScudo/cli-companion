@@ -148,8 +148,9 @@ impl AutomationState {
         }
     }
 
-    /// Emette la vista se la board e' piu' recente dell'ultima pubblicata e la
-    /// salva (coalescendo i salvataggi ravvicinati).
+    /// Emette la vista se la board e' piu' recente dell'ultima pubblicata, la
+    /// passa all'host (`board_published`, sotto il lock: ordine delle revisioni)
+    /// e la salva (coalescendo i salvataggi ravvicinati).
     fn publish<H: Host>(&self, host: &H, board: &Board, view: &BoardView) {
         let decision = {
             let mut map = lock(&self.published);
@@ -158,6 +159,7 @@ impl AutomationState {
             }
             map.insert(board.workspace_id.clone(), board.rev);
             host.emit_board(view);
+            host.board_published(view);
             let d = lock(&self.saves).offer(board, now_millis());
             if d == SaveDecision::Now {
                 Self::save(host, board);

@@ -17,6 +17,7 @@ mod board_flow;
 mod e2e;
 mod e2e_cancel;
 mod e2e_manual;
+mod hub_hook;
 mod ready;
 mod reconcile;
 mod reconcile_git;
@@ -68,6 +69,8 @@ struct FakeHost {
     /// Board salvate (ultima per workspace) e viste emesse.
     saved: Arc<Mutex<HashMap<String, Board>>>,
     board_events: Arc<Mutex<Vec<BoardView>>>,
+    /// Revisioni passate a `board_published`, in ordine (per workspace e revisione).
+    published: Arc<Mutex<Vec<(String, u64)>>>,
     deleted: Arc<Mutex<Vec<String>>>,
     /// Task archiviati (workspace, task) e l'errore forzato di `archive_tasks`.
     archive_log: Arc<Mutex<Vec<(String, Task)>>>,
@@ -374,6 +377,9 @@ impl Host for FakeHost {
     }
     fn emit_board(&self, view: &BoardView) {
         self.board_events.lock().unwrap().push(view.clone());
+    }
+    fn board_published(&self, view: &BoardView) {
+        self.published.lock().unwrap().push((view.workspace_id.clone(), view.rev));
     }
     fn emit_e2e(&self, ev: &crate::automation::e2e::E2eEvent) {
         self.e2e_events.lock().unwrap().push(ev.clone());

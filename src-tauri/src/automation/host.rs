@@ -87,6 +87,11 @@ pub trait Host: Clone + Send + 'static {
     /// Aggiunge all'archivio del workspace i task conclusi usciti dalla board.
     fn archive_tasks(&self, ws_id: &str, tasks: &[Task]) -> Result<(), String>;
     fn emit_board(&self, view: &BoardView);
+    /// La vista e' stata appena pubblicata (revisione nuova, dopo `emit_board`):
+    /// la riceve l'Agents HUB per gli eventi nei thread. Chiamato sotto il lock
+    /// delle pubblicazioni, nell'ordine delle revisioni di ogni board: deve
+    /// tornare subito (il lavoro su disco va fatto altrove).
+    fn board_published(&self, view: &BoardView);
     /// Esecuzione E2E manuale di un repository partita o conclusa (evento `e2e-update`).
     fn emit_e2e(&self, ev: &e2e::E2eEvent);
     /// Notifica di sistema (evento `task-notify`): il frontend la mostra.
@@ -325,6 +330,10 @@ impl Host for TauriHost {
 
     fn emit_board(&self, view: &BoardView) {
         let _ = self.0.emit(BOARD_EVENT, view);
+    }
+
+    fn board_published(&self, view: &BoardView) {
+        crate::hub::board_published(&self.0, view);
     }
 
     fn emit_e2e(&self, ev: &e2e::E2eEvent) {

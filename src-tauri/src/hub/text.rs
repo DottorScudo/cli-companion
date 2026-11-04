@@ -1,6 +1,8 @@
 //! Validazione dei testi e degli id che entrano nell'HUB. Funzioni pure con
 //! messaggi in italiano: li legge l'utente nell'interfaccia.
 
+use crate::validate::clip_with_ellipsis;
+
 /// Lunghezza del titolo di un thread, in caratteri.
 pub const TITLE_MAX: usize = 120;
 /// Lunghezza del testo di un messaggio (e del riassunto di un evento), in caratteri.
@@ -42,6 +44,23 @@ pub fn valid_ref_id(s: &str) -> bool {
     !s.is_empty() && s.len() <= REF_ID_MAX && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
+/// Testo su una riga scritto da altri (un titolo della board) e riportato in un
+/// messaggio: i caratteri di controllo diventano spazi, poi trim e al massimo
+/// `max` caratteri (con "…" se tagliato). Puo' tornare vuoto.
+pub fn clean_line(raw: &str, max: usize) -> String {
+    clean(raw, max, |c| c.is_control())
+}
+
+/// Come `clean_line`, ma tiene a capo e tabulazioni (un riassunto, una nota).
+pub fn clean_text(raw: &str, max: usize) -> String {
+    clean(raw, max, |c| c.is_control() && !matches!(c, '\n' | '\t'))
+}
+
+fn clean(raw: &str, max: usize, blank: impl Fn(char) -> bool) -> String {
+    let replaced: String = raw.chars().map(|c| if blank(c) { ' ' } else { c }).collect();
+    clip_with_ellipsis(replaced.trim(), max)
+}
+
 fn single_line(label: &str, raw: &str, max: usize) -> Result<String, String> {
     let text = raw.trim();
     let chars = text.chars().count();
@@ -81,6 +100,14 @@ mod tests {
     fn bot_names_are_bounded() {
         assert_eq!(bot_name(" mario ").unwrap(), "mario");
         assert!(bot_name("").is_err() && bot_name(&"m".repeat(BOT_NAME_MAX + 1)).is_err());
+    }
+
+    #[test]
+    fn board_texts_are_cleaned_and_clipped() {
+        assert_eq!(clean_line(" a\nb\u{1b}c ", 10), "a b c");
+        assert_eq!(clean_text(" riga 1\n\triga 2\u{0} ", 20), "riga 1\n\triga 2");
+        assert_eq!(clean_line(&"é".repeat(5), 3), "ééé…");
+        assert_eq!(clean_text("\u{7} ", 5), "");
     }
 
     #[test]

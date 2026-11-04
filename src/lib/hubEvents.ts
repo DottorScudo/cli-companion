@@ -19,6 +19,7 @@ const EVENT_LOOKS: Readonly<Record<string, HubEventLook>> = {
   proposal_created: { label: "Proposta", icon: "proposal", tone: "warning" },
   proposal_accepted: { label: "Proposta accettata", icon: "proposal", tone: "success" },
   proposal_rejected: { label: "Proposta rifiutata", icon: "proposal", tone: "neutral" },
+  task_created: { label: "Creato", icon: "generic", tone: "neutral" },
   task_started: { label: "Avviato", icon: "started", tone: "neutral" },
   task_done: { label: "Completato", icon: "done", tone: "success" },
   task_failed: { label: "Fallito", icon: "failed", tone: "danger" },

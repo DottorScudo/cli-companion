@@ -17,6 +17,10 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+/// Prefissi degli id generati da `HubState::next_id`.
+pub const THREAD_ID_PREFIX: &str = "thr";
+pub const MESSAGE_ID_PREFIX: &str = "msg";
+
 struct Loaded {
     file: JsonFile<ChannelThreads>,
     threads: ChannelThreads,
@@ -50,12 +54,26 @@ impl HubState {
         channel: &Channel,
         f: impl FnOnce(&mut ChannelThreads) -> Result<R, String>,
     ) -> Result<R, String> {
+        self.update_when(dir, channel, f, |_| true)
+    }
+
+    /// Come `update`, ma salva e pubblica solo se `changed` lo dice dell'esito
+    /// di `f`: un'operazione che non ha toccato nulla non riscrive (ne' crea) il file.
+    pub fn update_when<R>(
+        &self,
+        dir: &Path,
+        channel: &Channel,
+        f: impl FnOnce(&mut ChannelThreads) -> Result<R, String>,
+        changed: impl FnOnce(&R) -> bool,
+    ) -> Result<R, String> {
         let mut channels = self.lock();
         let entry = loaded(&mut channels, dir, channel);
         let mut next = entry.threads.clone();
         let out = f(&mut next)?;
-        entry.file.save(dir, &next)?;
-        entry.threads = next;
+        if changed(&out) {
+            entry.file.save(dir, &next)?;
+            entry.threads = next;
+        }
         Ok(out)
     }
 
@@ -145,6 +163,20 @@ mod tests {
         let err = state.update(&dir, &ws(), |_| Err::<(), _>("no".to_string())).unwrap_err();
         assert_eq!(err, "no");
         assert!(!dir.exists());
+    }
+
+    #[test]
+    fn an_update_that_changes_nothing_writes_nothing() {
+        let dir = temp_dir("unchanged");
+        let state = HubState::default();
+        let out = state.update_when(&dir, &ws(), |_| Ok(0), |n| *n > 0).unwrap();
+        assert_eq!(out, 0);
+        assert!(!dir.exists());
+        // Con `changed` falso anche le modifiche di `f` restano fuori.
+        state
+            .update_when(&dir, &ws(), |l| l.create_thread(&ws(), "t1".to_string(), "x", 1).map(|_| ()), |_| false)
+            .unwrap();
+        assert!(state.read(&dir, &ws(), |l| l.threads.is_empty()));
     }
 
     #[test]

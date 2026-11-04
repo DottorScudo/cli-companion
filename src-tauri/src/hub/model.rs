@@ -8,6 +8,7 @@
 //! a un enum e' compatibile in lettura; rinominarla richiede una migrazione.
 
 use super::channel::Channel;
+use crate::board::Verdict;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -40,17 +41,21 @@ pub enum MessageKind {
     Event,
 }
 
-/// Tipo di un evento della board riportato in un thread. Il task "eventi della
-/// board" puo' aggiungere varianti; un bot (tappa 2) le legge come dati.
+/// Tipo di un evento della board riportato in un thread (vedi `events`). Un
+/// bot (tappa 2) li legge come dati.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, rename = "HubEventKind")]
 pub enum HubEventKind {
+    /// Task creato a mano, non da una proposta.
+    TaskCreated,
     TaskStarted,
     TaskDone,
     TaskFailed,
     /// Il worker aspetta una risposta (stato `attention` della board).
     TaskAttention,
+    /// Task tolto dalla board senza essere `done`.
+    TaskDeleted,
     ProposalCreated,
     ProposalAccepted,
     ProposalRejected,
@@ -79,6 +84,9 @@ impl HubEventKind {
 #[ts(export, rename = "HubEvent")]
 pub struct HubEvent {
     pub kind: HubEventKind,
+    /// Workspace della board da cui viene l'evento.
+    #[serde(default)]
+    pub workspace: Option<String>,
     #[serde(default)]
     pub task_id: Option<String>,
     #[serde(default)]
@@ -89,9 +97,39 @@ pub struct HubEvent {
     /// Riassunto breve (per esempio dal report del worker).
     #[serde(default)]
     pub summary: Option<String>,
+    /// Esito di una revisione completata.
+    #[serde(default)]
+    pub verdict: Option<Verdict>,
+    /// Nota dell'app sul task (per esempio il motivo di un fallimento).
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 impl HubEvent {
+    /// Evento di un task, senza gli altri dati.
+    pub fn of_task(kind: HubEventKind, task_id: &str) -> Self {
+        Self { task_id: Some(task_id.to_string()), ..Self::new(kind) }
+    }
+
+    /// Evento di una proposta, senza gli altri dati.
+    pub fn of_proposal(kind: HubEventKind, proposal_id: &str) -> Self {
+        Self { proposal_id: Some(proposal_id.to_string()), ..Self::new(kind) }
+    }
+
+    /// Evento senza dati: il chiamante deve impostarne almeno il soggetto.
+    pub fn new(kind: HubEventKind) -> Self {
+        Self {
+            kind,
+            workspace: None,
+            task_id: None,
+            proposal_id: None,
+            status: None,
+            summary: None,
+            verdict: None,
+            note: None,
+        }
+    }
+
     /// Il soggetto dell'evento: il task per gli eventi dei task, la proposta per
     /// quelli delle proposte. `None` se manca l'id che il tipo richiede.
     pub fn subject(&self) -> Option<Subject<'_>> {

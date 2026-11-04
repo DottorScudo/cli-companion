@@ -105,9 +105,9 @@ test esclusi) sono queste:
 | `board` | `workspaces` (`Delivery`, `Workspace`, `SettingsPatch`), `agents` (agente predefinito), `validate`, `store` | `automation`, `ipc`, `pty`, `mcp`, `tauri` |
 | `ipc` | `agents` (contratto `HookEvents`, tipo `HookEventKind` e ricerca nel registro con `registry::find`), `platform` | `automation`, `board`, `workspaces` |
 | `pty` | `ipc` (nomi delle variabili e `is_valid_tab_id`), `platform`, `wsl`, `workspaces`, `automation` (credenziale di sessione e `user_input`) | `board` |
-| `automation` | `board`, `workspaces`, `agents`, `ipc` (tipi e trait), `platform`, `validate`, `wsl`, `schedule`, `user_skills`, `store`, `awake`, `pty` (solo `workspace_of_tab`, in `TauriHost`) | — |
+| `automation` | `board`, `workspaces`, `agents`, `ipc` (tipi e trait), `platform`, `validate`, `wsl`, `schedule`, `user_skills`, `store`, `awake`, `pty` (solo `workspace_of_tab`, in `TauriHost`), `hub` (solo `board_published`, in `TauriHost`) | — |
 | `mcp` | `automation` (`Role`, `lock`, nomi dei metodi), `agents`, `workspaces`, `ipc` (client RPC) | `tauri` |
-| `hub` | `store`, `board` (solo `valid_id`), `validate` (+ `workspaces` nei soli comandi, per sapere se il canale di un workspace esiste) | `automation`, `agents`, `ipc`, `pty`, `mcp` |
+| `hub` | `store`, `board` (`valid_id` e `BoardView` per gli eventi della board), `validate` (+ `workspaces` nei comandi e negli eventi della board, per sapere se il canale di un workspace esiste) | `automation`, `agents`, `ipc`, `pty`, `mcp` |
 
 Le regole che questa tabella racchiude, e come sono garantite:
 
@@ -128,7 +128,7 @@ Le regole che questa tabella racchiude, e come sono garantite:
 4. **Parti pure.** Hanno tempo e I/O iniettati e si provano senza finestra: `board/`, `automation::Registry`
    (`registry.rs`, `boards.rs`, `worker.rs`), `schedule.rs` (logica), `ipc/gate.rs`, `ipc/wire.rs`,
    `pty/env.rs` (`env_vars`, `merge_wslenv`), `user_skills`, `validate/`, `workspaces/settings_patch` e
-   `workspaces/validate`.
+   `workspaces/validate`, `hub/threads` e gli eventi della board di `hub/events` (`snapshot`, `diff`, `route`).
 5. **Input validato al confine.** Ogni valore che finisce in una riga di comando (branch, modello,
    repository, regole, nomi) passa da `validate/` o dal modulo che lo possiede; i messaggi sono errori
    tipizzati (`ValidationError`), in italiano per l'interfaccia e in inglese per gli strumenti letti dal
@@ -138,8 +138,9 @@ Cicli che esistono davvero (e perché): `workspaces/commands.rs` e `pty/mod.rs` 
 perché cambiare consegna, fasce o archiviazione di un workspace, o aprire una shell, riguarda anche
 lo scheduler e i segreti di sessione; `automation::TauriHost` chiede a `pty` il workspace di un tab.
 Restano confinati ai comandi Tauri e all'host reale; la logica pura non li attraversa. Dello stesso tipo è
-`workspaces/commands.rs` → `hub::forget_workspace` (la rimozione di un workspace cancella i suoi thread);
-`board` e `automation` non dipendono da `hub`.
+`workspaces/commands.rs` → `hub::forget_workspace` (la rimozione di un workspace cancella i suoi thread) e
+`automation::TauriHost::board_published` → `hub::board_published` (le viste pubblicate diventano eventi nei
+thread); `board` non dipende da `hub` e la logica di `automation` lo raggiunge solo dal trait `Host`.
 
 ### Dove sta cosa
 
@@ -159,7 +160,7 @@ Restano confinati ai comandi Tauri e all'host reale; la logica pura non li attra
 | `session.rs` | `session.json` e `scrollback/` |
 | `schedule.rs`, `awake.rs` | fasce orarie (logica pura + `schedule.json`) e blocco dello standby |
 | `launch_settings.rs`, `bots.rs` | impostazioni globali degli avvii e nomi/avatar dei bot (su `store/`) |
-| `hub.rs`, `hub/` | Agents HUB (spento di default): impostazione globale, canali, thread e messaggi su `store/`, comandi ed evento `hub-update` |
+| `hub.rs`, `hub/` | Agents HUB (spento di default): impostazione globale, canali, thread e messaggi su `store/`, comandi ed evento `hub-update`, eventi della board nei thread |
 | `user_skills.rs`, `user_skills/` | skill globali dell'utente: archivio e sincronizzazione nelle cartelle degli agenti |
 | `toast.rs`, `updater.rs`, `net.rs`, `ttl_cache.rs`, `logging.rs` | toast cliccabile (Windows), controllo aggiornamenti da CLI, client HTTP via `curl`, cache con scadenza, log su file |
 
@@ -978,7 +979,7 @@ il nome deve essere nella pool (senza maiuscole; si salva con l'ortografia della
 formato `#rrggbb`. Le immagini dei nomi che escono dalla pool sono eliminate da
 `set_bot_settings` e `reset_bot_names`.
 
-### `hub/` — Agents HUB (fondamenta)
+### `hub/` — Agents HUB
 
 Modalità opzionale, spenta di default (`hub_settings.json`, `{ enabled }`): un canale per workspace più il
 Generale, e in ogni canale thread di messaggi. Spenta, non crea file e non cambia nulla nel resto dell'app. Un
@@ -986,10 +987,12 @@ file per responsabilità: `channel` (`general` o l'id di un workspace, stringa s
 con prefisso `Hub` nei bindings), `text` (validazione, messaggi in italiano), `threads` (operazioni pure e
 limiti; `threads/lifecycle.rs` per chiusura, collegamenti e ricerca del thread di un task o di una proposta),
 `waiting` (`waiting_user` calcolato dagli eventi), `files` (`threads/<canale>.json` su `store/`), `state`
-(`HubState`: caricamento pigro, un `JsonFile` vivo per canale), `settings` e `commands`. Comandi
+(`HubState`: caricamento pigro, un `JsonFile` vivo per canale), `settings`, `commands` ed `events` (eventi della
+board nei thread: istantanea compatta, diff e instradamento puri, `HubFeed` con un thread dedicato che riceve le
+viste da `Host::board_published` e scrive fuori dai lock della board). Comandi
 `hub_get_settings`, `hub_set_enabled`, `hub_list_threads`, `hub_get_thread`, `hub_create_thread`, `hub_send`;
 evento `hub-update` (riassunto del thread toccato). La rimozione di un workspace cancella il suo file dei thread
-(`hub::forget_workspace`, chiamato da `remove_workspace` dopo la board). Modello, file, limiti e scelte:
+(`hub::forget_workspace`, chiamato da `remove_workspace` dopo la board) e l'istantanea della sua board. Modello, file, limiti e scelte:
 [HUB.MD](HUB.MD).
 
 ### Altri moduli

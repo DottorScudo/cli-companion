@@ -3,6 +3,7 @@
 //! resto dell'app. Stesso schema di `bots.rs`: un `JsonFile` statico e un
 //! `JsonStore` gestito da Tauri; i comandi ritornano le impostazioni salvate.
 
+use super::events::HubFeed;
 use crate::store::{adopt_envelope, data_dir, JsonFile, JsonStore};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
@@ -42,14 +43,20 @@ pub fn hub_get_settings(state: State<HubSettingsStore>) -> HubSettings {
     state.get()
 }
 
+/// Spegnere l'HUB butta le istantanee delle board: alla riaccensione la prima
+/// vista di ogni board fa di nuovo da base, senza eventi.
 #[tauri::command]
 pub async fn hub_set_enabled(app: AppHandle, enabled: bool) -> Result<HubSettings, String> {
     crate::blocking(move || {
         let dir = data_dir(&app)?;
-        app.state::<HubSettingsStore>().update(&dir, |s| {
+        let saved = app.state::<HubSettingsStore>().update(&dir, |s| {
             s.enabled = enabled;
             Ok(())
-        })
+        })?;
+        if !saved.enabled {
+            app.state::<HubFeed>().reset();
+        }
+        Ok(saved)
     })
     .await
 }

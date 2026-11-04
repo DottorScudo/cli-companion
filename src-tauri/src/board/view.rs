@@ -8,6 +8,7 @@ use super::{
     permits, Board, Op, Proposal, SettingsProposalView, Task, TaskAction, TaskKind, TaskStatus, MAX_PARALLEL_LIMIT,
     MIN_PARALLEL_LIMIT,
 };
+use crate::validate::clip_with_ellipsis;
 use crate::workspaces::{Delivery, Workspace};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -139,14 +140,6 @@ fn compact_row(v: &TaskView) -> Value {
         o["note"] = Value::from(clip_with_ellipsis(n, COMPACT_NOTE_MAX));
     }
     o
-}
-
-/// Tronca a `max` caratteri (mai in mezzo a un carattere), con "…" se tagliato.
-pub(super) fn clip_with_ellipsis(s: &str, max: usize) -> String {
-    match s.char_indices().nth(max) {
-        Some((i, _)) => format!("{}…", &s[..i]),
-        None => s.to_string(),
-    }
 }
 
 impl TaskView {

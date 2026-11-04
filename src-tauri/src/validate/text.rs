@@ -16,3 +16,11 @@ pub fn req_text(label: &str, s: &str, max: usize) -> Result<String, String> {
 pub fn clip_chars(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
 }
+
+/// Primi `max` caratteri di `s` (mai in mezzo a un carattere), con "…" se tagliato.
+pub fn clip_with_ellipsis(s: &str, max: usize) -> String {
+    match s.char_indices().nth(max) {
+        Some((i, _)) => format!("{}…", &s[..i]),
+        None => s.to_string(),
+    }
+}

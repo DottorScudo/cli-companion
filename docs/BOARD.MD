@@ -952,6 +952,12 @@ Argomenti camelCase lato JS.
   body }`; `title` è il titolo del task, `body` il testo italiano ("<titolo> richiede attenzione" /
   "<titolo> è fallito") e `tab_id` il tab del worker se esiste ancora. Il frontend mostra la
   notifica di sistema (come per le altre notifiche, solo con la finestra non in primo piano).
+- Agents HUB: ogni revisione della board davvero pubblicata (dopo `board-update`; mai una revisione
+  vecchia scartata) passa anche da `Host::board_published(view)`, chiamato da
+  `AutomationState::publish` sotto il lock delle pubblicazioni, nell'ordine delle revisioni. `TauriHost`
+  la inoltra a `hub::board_published` (nulla con l'HUB spento; acceso, accoda un'istantanea compatta a un
+  thread dedicato che scrive gli eventi nei thread fuori da ogni lock della board); l'host finto dei test
+  la registra. Board, `BoardView` e `task-notify` non cambiano. Vedi [HUB.MD](HUB.MD), "Eventi della board".
 - Attenzione: nessun hook dice che l'utente ha risposto. `pty_write` avvisa il backend quando
   nel terminale di un worker in `needs_input`/`idle` si preme Invio e il worker torna `running`.
 

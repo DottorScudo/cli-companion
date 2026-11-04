@@ -7,7 +7,7 @@ use super::channel::Channel;
 use super::files::threads_dir;
 use super::model::{Author, Message, Thread, ThreadSummary};
 use super::settings::is_enabled;
-use super::state::HubState;
+use super::state::{HubState, MESSAGE_ID_PREFIX, THREAD_ID_PREFIX};
 use super::threads::{summary, NewMessage, THREAD_NOT_FOUND};
 use crate::store::data_dir;
 use crate::workspaces::WorkspaceStore;
@@ -19,14 +19,12 @@ pub const HUB_UPDATE_EVENT: &str = "hub-update";
 
 const HUB_DISABLED: &str = "L'Agents HUB è spento: attivalo nelle impostazioni.";
 const CHANNEL_NOT_FOUND: &str = "canale non trovato: il workspace non esiste più";
-const THREAD_ID_PREFIX: &str = "thr";
-const MESSAGE_ID_PREFIX: &str = "msg";
 
 #[tauri::command]
 pub async fn hub_list_threads(app: AppHandle, channel: String) -> Result<Vec<ThreadSummary>, String> {
     let channel = Channel::parse(&channel)?;
     crate::blocking(move || {
-        let dir = dir(&app)?;
+        let dir = threads_dir_of(&app)?;
         ensure_channel(&app, &channel)?;
         Ok(app.state::<HubState>().read(&dir, &channel, |list| list.summaries()))
     })
@@ -37,7 +35,7 @@ pub async fn hub_list_threads(app: AppHandle, channel: String) -> Result<Vec<Thr
 pub async fn hub_get_thread(app: AppHandle, channel: String, thread_id: String) -> Result<Thread, String> {
     let channel = Channel::parse(&channel)?;
     crate::blocking(move || {
-        let dir = dir(&app)?;
+        let dir = threads_dir_of(&app)?;
         ensure_channel(&app, &channel)?;
         app.state::<HubState>()
             .read(&dir, &channel, |list| list.thread(&thread_id).cloned())
@@ -52,7 +50,7 @@ pub async fn hub_create_thread(app: AppHandle, channel: String, title: String) -
     let channel = Channel::parse(&channel)?;
     ensure_enabled(&app)?;
     crate::blocking(move || {
-        let dir = dir(&app)?;
+        let dir = threads_dir_of(&app)?;
         let state = app.state::<HubState>();
         let now = chrono::Utc::now().timestamp_millis();
         let id = state.next_id(THREAD_ID_PREFIX, now);
@@ -80,7 +78,7 @@ pub async fn hub_send(
     let channel = Channel::parse(&channel)?;
     ensure_enabled(&app)?;
     crate::blocking(move || {
-        let dir = dir(&app)?;
+        let dir = threads_dir_of(&app)?;
         let state = app.state::<HubState>();
         let now = chrono::Utc::now().timestamp_millis();
         let new =
@@ -107,7 +105,7 @@ fn ensure_enabled(app: &AppHandle) -> Result<(), String> {
 
 /// Il canale di un workspace esiste finche' esiste il workspace: niente file
 /// orfani per id inventati o workspace appena rimossi.
-fn ensure_channel(app: &AppHandle, channel: &Channel) -> Result<(), String> {
+pub(super) fn ensure_channel(app: &AppHandle, channel: &Channel) -> Result<(), String> {
     match channel {
         Channel::General => Ok(()),
         Channel::Workspace(id) if app.state::<WorkspaceStore>().find(id).is_some() => Ok(()),
@@ -115,11 +113,12 @@ fn ensure_channel(app: &AppHandle, channel: &Channel) -> Result<(), String> {
     }
 }
 
-fn dir(app: &AppHandle) -> Result<PathBuf, String> {
+/// La cartella dei thread nella cartella dati dell'app.
+pub(super) fn threads_dir_of(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(threads_dir(&data_dir(app)?))
 }
 
-fn emit_update(app: &AppHandle, summary: &ThreadSummary) {
+pub(super) fn emit_update(app: &AppHandle, summary: &ThreadSummary) {
     if let Err(e) = app.emit(HUB_UPDATE_EVENT, summary) {
         log::error!("hub: evento {HUB_UPDATE_EVENT} non inviato: {e}");
     }

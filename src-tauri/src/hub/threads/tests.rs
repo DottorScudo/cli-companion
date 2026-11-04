@@ -22,7 +22,7 @@ fn event(id: &str, kind: HubEventKind, task: &str) -> NewMessage {
         author: Author::System,
         body: format!("evento {kind:?}"),
         reply_to: None,
-        event: Some(HubEvent { kind, task_id: Some(task.to_string()), proposal_id: None, status: None, summary: None }),
+        event: Some(HubEvent::of_task(kind, task)),
     }
 }
 
@@ -104,6 +104,14 @@ fn events_are_validated() {
     let mut long = event("e3", HubEventKind::TaskDone, "a");
     long.event.as_mut().unwrap().summary = Some("x".repeat(BODY_MAX + 1));
     assert!(list.add_message("t1", long, 1).is_err());
+    let mut long_note = event("e4", HubEventKind::TaskFailed, "a");
+    long_note.event.as_mut().unwrap().note = Some("x".repeat(BODY_MAX + 1));
+    assert!(list.add_message("t1", long_note, 1).is_err());
+    for bad_ws in ["general", "../x"] {
+        let mut foreign = event("e5", HubEventKind::TaskDone, "a");
+        foreign.event.as_mut().unwrap().workspace = Some(bad_ws.to_string());
+        assert!(list.add_message("t1", foreign, 1).is_err(), "{bad_ws}");
+    }
     assert!(list.thread("t1").unwrap().messages.is_empty());
 }
 
