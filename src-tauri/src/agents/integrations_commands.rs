@@ -102,6 +102,7 @@ fn apply(
     if let Err(e) = app.emit(INTEGRATIONS_EVENT, &next) {
         log::warn!("evento {INTEGRATIONS_EVENT} non inviato: {e}");
     }
+    crate::automation::integrations_changed(app);
     Ok(next)
 }
 

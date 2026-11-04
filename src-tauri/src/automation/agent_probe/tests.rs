@@ -50,3 +50,20 @@ fn values_are_kept_per_target_and_agent() {
     let other_agent = ("windows".to_string(), "other".to_string());
     assert_eq!(probes.lookup(&other_agent, t0), Lookup { known: None, start_probe: true });
 }
+
+#[test]
+fn invalidating_forgets_the_known_values_and_asks_for_a_new_probe() {
+    let (probes, t0) = (AgentProbes::default(), Instant::now());
+    probes.record(key(), Readiness::Ready, t0);
+    probes.invalidate_all();
+    // Ancora fresco per il tempo, ma il valore non vale piu': si rileva da capo.
+    assert_eq!(probes.lookup(&key(), t0), Lookup { known: None, start_probe: true });
+}
+
+#[test]
+fn invalidating_keeps_a_probe_in_progress_from_being_duplicated() {
+    let (probes, t0) = (AgentProbes::default(), Instant::now());
+    assert!(probes.lookup(&key(), t0).start_probe);
+    probes.invalidate_all();
+    assert!(!probes.lookup(&key(), t0).start_probe);
+}

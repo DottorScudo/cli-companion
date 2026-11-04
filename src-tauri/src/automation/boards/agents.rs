@@ -64,4 +64,11 @@ impl AutomationState {
         let workspaces = host.workspaces();
         self.run(host, |r| r.recheck_agents(&workspaces, &|ws, agent| host.agent_readiness(ws, agent)));
     }
+
+    /// Le integrazioni abilitate sono cambiate: i valori noti di prontezza
+    /// si scartano e le board si rivalutano subito.
+    pub fn agents_changed<H: Host>(&self, host: &H) {
+        self.probes.invalidate_all();
+        self.reconcile(host);
+    }
 }

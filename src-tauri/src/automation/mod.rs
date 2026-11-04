@@ -72,6 +72,7 @@ mod worktrees;
 
 pub use crate::board::WorkerStatus;
 pub use crate::user_skills::targets::SkillTarget;
+pub use agent_probe::integrations_changed;
 use auth::authenticate;
 pub use auth::SessionCredential;
 use auth::SessionKeys;

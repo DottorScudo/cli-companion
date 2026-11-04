@@ -59,6 +59,16 @@ impl AgentProbes {
         Lookup { known: slot.value, start_probe }
     }
 
+    /// Dimentica i valori noti di tutti gli agenti: alla prossima lettura si
+    /// rileva da capo. Un rinnovo in corso resta tale (il suo esito, anche se
+    /// precedente al cambio, e' solo un valore noto in piu').
+    pub(super) fn invalidate_all(&self) {
+        for slot in lock(&self.slots).values_mut() {
+            slot.value = None;
+            slot.checked_at = None;
+        }
+    }
+
     /// Registra un valore appena rilevato; `true` se e' diverso dal noto (o
     /// non c'era).
     fn record(&self, key: Key, value: Readiness, now: Instant) -> bool {
@@ -81,8 +91,13 @@ fn key_and_target(ws: &Workspace, agent: &str) -> Result<(Key, Target), Readines
 }
 
 /// Ultimo valore noto, senza bloccare; il rinnovo parte da solo se serve. Sicuro
-/// sotto il lock del registro.
+/// sotto il lock del registro. Un agente non abilitato e' `Disabled` subito:
+/// lo stato delle abilitazioni sta in memoria e vince sul valore in cache, che
+/// subito dopo la disabilitazione direbbe ancora `Ready`.
 pub(super) fn cached_readiness(app: &AppHandle, ws: &Workspace, agent: &str) -> Option<Readiness> {
+    if !agents::registry::is_enabled(agent) {
+        return Some(Readiness::Disabled);
+    }
     let (key, target) = match key_and_target(ws, agent) {
         Ok(found) => found,
         Err(unreachable) => return Some(unreachable),
@@ -110,6 +125,13 @@ pub(super) fn fresh_readiness(app: &AppHandle, ws: &Workspace, agent: &str) -> R
     let readiness = agents::agent_readiness(app, agent, &target);
     store(app, key, readiness);
     readiness
+}
+
+/// Le integrazioni sono state abilitate, disabilitate o riordinate: i valori
+/// noti non valgono piu' e le board si rivalutano subito, cosi' i task fermi
+/// per un agente ripartono senza aspettare la scadenza della cache.
+pub fn integrations_changed(app: &AppHandle) {
+    app.state::<AutomationState>().agents_changed(&TauriHost(app.clone()));
 }
 
 /// Memorizza il valore e, se e' cambiato, fa rivalutare le board.

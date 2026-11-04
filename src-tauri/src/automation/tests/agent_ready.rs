@@ -171,3 +171,44 @@ fn get_workspace_settings_reports_the_readiness_of_each_enabled_agent() {
     assert_eq!(listed[0]["readiness"], "not-installed");
     assert_eq!(h.probed(), [default_id(), default_id()], "una sonda fresca per agente a ogni lettura");
 }
+
+/// "a" occupa l'unico posto del repository, "b" aspetta in coda con l'agente
+/// ancora pronto nella cache; restituisce la sessione di "a".
+fn queued_behind_a_running_task(st: &AutomationState, h: &FakeHost) -> String {
+    queue(st, h, vec![spec("a", &[]), spec("b", &[])]);
+    assert_eq!((status(st, h, "a"), status(st, h, "b")), ("running".into(), "queued".into()));
+    session_of(st, h, "a")
+}
+
+#[test]
+fn a_task_whose_agent_gets_disabled_while_queued_stays_queued_instead_of_failing() {
+    let (st, h) = host();
+    let session = queued_behind_a_running_task(&st, &h);
+    let spawned = h.spawns().len();
+
+    // L'integrazione viene disabilitata mentre il valore noto dice ancora "pronto".
+    h.set_readiness(default_id(), Some(Readiness::Disabled));
+    st.agents_changed(&h);
+    finish(&st, &h, &session, "completed");
+
+    // Lo slot si libera, ma "b" non parte: resta in coda con il motivo.
+    st.tick(&h, now_millis());
+    assert_eq!(status(&st, &h, "b"), "queued");
+    assert_eq!(task(&st, &h, "b")["agent_unavailable"], json!({"agent": default_id(), "reason": "disabled"}));
+    assert_eq!(h.spawns().len(), spawned, "nessuno spawn");
+}
+
+#[test]
+fn re_enabling_the_agent_restarts_the_queued_task_without_waiting_for_the_cache() {
+    let (st, h) = host();
+    let session = queued_behind_a_running_task(&st, &h);
+    h.set_readiness(default_id(), Some(Readiness::Disabled));
+    st.agents_changed(&h);
+    finish(&st, &h, &session, "completed");
+    assert_eq!(status(&st, &h, "b"), "queued");
+
+    h.set_readiness(default_id(), Some(Readiness::Ready));
+    st.agents_changed(&h);
+    assert_eq!(status(&st, &h, "b"), "running");
+    assert!(task(&st, &h, "b").get("agent_unavailable").is_none());
+}
