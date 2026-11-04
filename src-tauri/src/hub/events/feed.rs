@@ -10,9 +10,13 @@
 //! ma i messaggi sono istantanee compatte e arrivano al ritmo delle modifiche
 //! della board.
 //!
-//! Le istantanee stanno solo nella memoria del thread: la prima vista di un
-//! workspace dopo l'avvio dell'app o l'accensione dell'HUB fa da base, senza
-//! eventi. Spegnere l'HUB le butta. Il thread parte alla prima vista con l'HUB
+//! Le istantanee stanno solo nella memoria del thread. All'avvio dell'app la
+//! prima vista pubblicata di un workspace fa da base, senza eventi (il primo
+//! giro dell'automazione ripubblica tutte le board). All'accensione dell'HUB
+//! non si pubblica nulla: `baseline` chiede le viste correnti alla sorgente
+//! registrata (`set_source`, da `lib.rs`: `hub` non dipende da `automation`) e
+//! le fissa come base, cosi' gia' la prima modifica successiva produce i suoi
+//! eventi. Spegnere l'HUB le butta. Il thread parte al primo invio con l'HUB
 //! acceso; se muore, il prossimo invio ne avvia un altro (che riparte da zero).
 
 use super::diff::{diff, BoardEvent};
@@ -23,32 +27,60 @@ use crate::hub::channel::Channel;
 use crate::hub::commands::{emit_update, ensure_channel, threads_dir_of};
 use crate::hub::settings::is_enabled;
 use crate::hub::state::HubState;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, SendError, Sender};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Mutex, OnceLock, PoisonError};
 use tauri::{AppHandle, Manager};
 
 const WORKER_NAME: &str = "hub-board-events";
 
+/// Le viste correnti delle board di tutti i workspace, senza pubblicarle.
+pub type BoardSource = fn(&AppHandle) -> Vec<BoardView>;
+
 enum FeedMsg {
     Published(BoardSnapshot),
+    /// La vista corrente di una board all'accensione: solo base, mai eventi.
+    Baseline(BoardSnapshot),
     /// Il workspace e' stato rimosso.
     Forget(String),
     /// L'HUB e' stato spento.
     Reset,
 }
 
-/// Stato Tauri: il lato d'invio verso il thread, se e' partito.
+/// Stato Tauri: il lato d'invio verso il thread, se e' partito, e la sorgente
+/// delle viste per la base all'accensione.
 #[derive(Default)]
 pub struct HubFeed {
     tx: Mutex<Option<Sender<FeedMsg>>>,
+    source: OnceLock<BoardSource>,
 }
 
 impl HubFeed {
+    /// Registra la sorgente delle viste (una volta, all'avvio).
+    pub fn set_source(&self, source: BoardSource) {
+        if self.source.set(source).is_err() {
+            log::warn!("hub: sorgente delle board gia' registrata, tengo la prima");
+        }
+    }
+
     /// Una vista appena pubblicata. Con l'HUB spento non fa nulla.
     pub fn published(&self, app: &AppHandle, view: &BoardView) {
         if is_enabled(app) {
             self.send(app, FeedMsg::Published(BoardSnapshot::of(view)));
+        }
+    }
+
+    /// L'HUB e' appena stato acceso: le viste correnti di tutte le board
+    /// diventano la base, senza messaggi ne' scritture. Da chiamare fuori dal
+    /// main thread (legge il registro dell'automazione).
+    pub fn baseline(&self, app: &AppHandle) {
+        let Some(source) = self.source.get() else {
+            log::warn!("hub: nessuna sorgente delle board, la base arrivera' dalla prossima pubblicazione");
+            return;
+        };
+        for view in source(app) {
+            self.send(app, FeedMsg::Baseline(BoardSnapshot::of(&view)));
         }
     }
 
@@ -108,8 +140,9 @@ fn run(app: &AppHandle, receiver: Receiver<FeedMsg>) {
                     }
                 }
             }
+            FeedMsg::Baseline(base) if is_enabled(app) => baselines.seed(base),
             // Spento nel frattempo: il `Reset` e' in arrivo, si butta gia' ora.
-            FeedMsg::Published(_) | FeedMsg::Reset => baselines.clear(),
+            FeedMsg::Published(_) | FeedMsg::Baseline(_) | FeedMsg::Reset => baselines.clear(),
             FeedMsg::Forget(ws_id) => baselines.forget(&ws_id),
         }
     }
@@ -151,12 +184,29 @@ struct Baselines {
 
 impl Baselines {
     /// Tiene `next` come nuova base e ritorna gli eventi rispetto alla
-    /// precedente; nessuno se e' la prima vista del workspace.
+    /// precedente; nessuno se e' la prima vista del workspace. Una vista piu'
+    /// vecchia della base (la base fissata all'accensione legge il registro
+    /// fuori dal lock delle pubblicazioni) viene scartata: il diff all'indietro
+    /// riporterebbe eventi gia' riportati o mai avvenuti.
     fn advance(&mut self, next: BoardSnapshot) -> (&BoardSnapshot, Vec<BoardEvent>) {
-        let ws_id = next.workspace_id.clone();
-        let events = self.boards.get(&ws_id).map(|prev| diff(prev, &next)).unwrap_or_default();
-        let board = self.boards.entry(ws_id).insert_entry(next).into_mut();
-        (board, events)
+        match self.boards.entry(next.workspace_id.clone()) {
+            Entry::Vacant(slot) => (slot.insert(next), Vec::new()),
+            Entry::Occupied(slot) => {
+                let prev = slot.into_mut();
+                if next.rev < prev.rev {
+                    return (prev, Vec::new());
+                }
+                let events = diff(prev, &next);
+                *prev = next;
+                (prev, events)
+            }
+        }
+    }
+
+    /// Fissa `base` come base del workspace, senza eventi, se non ne ha gia'
+    /// una: una vista pubblicata nel frattempo e' gia' la base giusta.
+    fn seed(&mut self, base: BoardSnapshot) {
+        self.boards.entry(base.workspace_id.clone()).or_insert(base);
     }
 
     fn forget(&mut self, ws_id: &str) {

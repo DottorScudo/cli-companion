@@ -1,5 +1,6 @@
 //! Punti d'ingresso dall'app reale: RPC dal socket, eventi degli hook, input
-//! dell'utente, uscita dall'app e caricamento delle board all'avvio.
+//! dell'utente, uscita dall'app, caricamento delle board all'avvio e viste
+//! correnti delle board (la base degli eventi dell'Agents HUB all'accensione).
 
 use super::*;
 
@@ -83,4 +84,11 @@ pub fn load_boards(app: &tauri::App) {
     for board in board_files::load_all(&dir, now_millis()) {
         st.load_board(board);
     }
+}
+
+/// Le viste correnti delle board di tutti i workspace, senza pubblicarle.
+/// `lib.rs` la registra come sorgente dell'Agents HUB (`hub::set_board_source`),
+/// che all'accensione ne fa la base degli eventi della board.
+pub fn board_views(app: &AppHandle) -> Vec<BoardView> {
+    app.state::<AutomationState>().views(&TauriHost(app.clone()))
 }

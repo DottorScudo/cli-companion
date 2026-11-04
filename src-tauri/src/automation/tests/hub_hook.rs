@@ -32,3 +32,16 @@ fn a_stale_revision_is_not_passed_to_the_hub_hook() {
     assert_eq!(h.published.lock().unwrap().len(), published);
     assert_eq!(h.board_events.lock().unwrap().len(), emitted);
 }
+
+#[test]
+fn views_return_every_workspace_board_without_publishing() {
+    let (st, h) = (AutomationState::default(), FakeHost::with_delivery(DeliveryMode::Commit, false));
+    queue(&st, &h, vec![spec("a", &[])]);
+    let (published, emitted) = (h.published.lock().unwrap().len(), h.board_events.lock().unwrap().len());
+    let views = st.views(&h);
+    let last = h.board_events.lock().unwrap().last().unwrap().clone();
+    assert_eq!(revs(&views), vec![("ws-1".to_string(), last.rev), ("ws-2".to_string(), 0)]);
+    assert_eq!(views[0].tasks.len(), last.tasks.len());
+    assert_eq!(h.published.lock().unwrap().len(), published);
+    assert_eq!(h.board_events.lock().unwrap().len(), emitted);
+}

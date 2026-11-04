@@ -76,7 +76,7 @@ pub use agent_probe::integrations_changed;
 use auth::authenticate;
 pub use auth::SessionCredential;
 use auth::SessionKeys;
-pub use bridge::{flush_on_exit, handle_rpc, load_boards, on_hook_event, user_input, IpcBridge};
+pub use bridge::{board_views, flush_on_exit, handle_rpc, load_boards, on_hook_event, user_input, IpcBridge};
 pub use commands::*;
 pub use host::{Host, TauriHost};
 #[cfg(test)]

@@ -43,18 +43,25 @@ pub fn hub_get_settings(state: State<HubSettingsStore>) -> HubSettings {
     state.get()
 }
 
-/// Spegnere l'HUB butta le istantanee delle board: alla riaccensione la prima
-/// vista di ogni board fa di nuovo da base, senza eventi.
+/// Spegnere l'HUB butta le istantanee delle board. Accenderlo (solo il
+/// passaggio da spento ad acceso) fissa subito come base la vista corrente di
+/// ogni board, senza messaggi ne' scritture: gia' la prima modifica successiva
+/// produce i suoi eventi.
 #[tauri::command]
 pub async fn hub_set_enabled(app: AppHandle, enabled: bool) -> Result<HubSettings, String> {
     crate::blocking(move || {
         let dir = data_dir(&app)?;
+        let mut was_enabled = false;
         let saved = app.state::<HubSettingsStore>().update(&dir, |s| {
+            was_enabled = s.enabled;
             s.enabled = enabled;
             Ok(())
         })?;
-        if !saved.enabled {
-            app.state::<HubFeed>().reset();
+        let feed = app.state::<HubFeed>();
+        match (was_enabled, saved.enabled) {
+            (false, true) => feed.baseline(&app),
+            (_, false) => feed.reset(),
+            (true, true) => {}
         }
         Ok(saved)
     })

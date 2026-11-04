@@ -207,8 +207,16 @@ Il thread tiene in memoria l'ultima istantanea di ogni workspace: per task stato
 per raccontare gli eventi, riassunto del report, verdetto e nota (ripuliti dai caratteri di controllo e tagliati
 a 1000 caratteri); per proposta id e task proposti.
 
-- La **prima** vista di un workspace dopo l'avvio dell'app o dopo l'accensione dell'HUB fa solo da base, senza
-  eventi: all'avvio i `running` diventano `failed` per il riavvio e non generano messaggi.
+- All'**avvio dell'app** la prima vista pubblicata di un workspace fa solo da base, senza eventi (il primo giro
+  dell'automazione ripubblica tutte le board): i `running` diventati `failed` per il riavvio non generano messaggi.
+- All'**accensione dell'HUB** (solo il passaggio da spento ad acceso di `hub_set_enabled`) non si pubblica nulla:
+  la base di ogni board è fissata subito con la sua vista corrente, senza messaggi né scritture. Così già la
+  prima modifica successiva produce i suoi eventi (per esempio la prima proposta dell'Intake crea il suo thread
+  con il messaggio di proposta). Le viste arrivano da una sorgente che `lib.rs` registra
+  (`automation::board_views` → `hub::set_board_source`): `hub` non dipende da `automation`. Se nel frattempo è
+  già arrivata una vista pubblicata, la base resta quella.
+- Ogni istantanea porta la revisione della board: una vista più vecchia della base (la vista letta
+  all'accensione può essere più recente di una pubblicazione ancora in volo) viene scartata senza eventi.
 - Spegnere l'HUB butta le istantanee; rimuovere un workspace butta la sua.
 - Gli eventi avvenuti ad app chiusa o con l'HUB spento non vengono ricostruiti.
 

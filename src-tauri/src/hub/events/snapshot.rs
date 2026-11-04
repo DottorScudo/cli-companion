@@ -42,6 +42,8 @@ pub struct ProposalSnap {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BoardSnapshot {
     pub workspace_id: String,
+    /// Revisione della board: riconosce una vista piu' vecchia della base.
+    pub rev: u64,
     /// Nell'ordine della board.
     pub tasks: Vec<TaskSnap>,
     pub proposals: Vec<ProposalSnap>,
@@ -51,6 +53,7 @@ impl BoardSnapshot {
     pub fn of(view: &BoardView) -> Self {
         Self {
             workspace_id: view.workspace_id.clone(),
+            rev: view.rev,
             tasks: view.tasks.iter().map(task_snap).collect(),
             proposals: view.proposals.iter().map(proposal_snap).collect(),
         }

@@ -28,5 +28,5 @@ pub fn proposal(id: &str, ids: &[&str]) -> ProposalSnap {
 }
 
 pub fn board(tasks: Vec<TaskSnap>, proposals: Vec<ProposalSnap>) -> BoardSnapshot {
-    BoardSnapshot { workspace_id: WS.to_string(), tasks, proposals }
+    BoardSnapshot { workspace_id: WS.to_string(), rev: 0, tasks, proposals }
 }

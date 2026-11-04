@@ -69,6 +69,9 @@ pub fn run() {
             startup::timed("hub settings loaded", || hub::load_from_disk(app));
             startup::timed("boards loaded", || automation::load_boards(app));
             startup::timed("automation started", || automation::auto::init(app));
+            // `hub` non dipende da `automation`: la base delle board all'accensione
+            // dell'HUB arriva da questa sorgente.
+            hub::set_board_source(app.handle(), automation::board_views);
             automation::skills::restore_in_background(automation::TauriHost(app.handle().clone()));
             startup::timed("ipc listener started", || {
                 ipc::start_listener(app.handle(), std::sync::Arc::new(automation::IpcBridge(app.handle().clone())))

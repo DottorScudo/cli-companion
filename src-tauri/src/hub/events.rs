@@ -18,4 +18,4 @@ mod route;
 mod snapshot;
 mod texts;
 
-pub use feed::HubFeed;
+pub use feed::{BoardSource, HubFeed};

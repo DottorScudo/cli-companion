@@ -105,9 +105,9 @@ test esclusi) sono queste:
 | `board` | `workspaces` (`Delivery`, `Workspace`, `SettingsPatch`), `agents` (agente predefinito), `validate`, `store` | `automation`, `ipc`, `pty`, `mcp`, `tauri` |
 | `ipc` | `agents` (contratto `HookEvents`, tipo `HookEventKind` e ricerca nel registro con `registry::find`), `platform` | `automation`, `board`, `workspaces` |
 | `pty` | `ipc` (nomi delle variabili e `is_valid_tab_id`), `platform`, `wsl`, `workspaces`, `automation` (credenziale di sessione e `user_input`) | `board` |
-| `automation` | `board`, `workspaces`, `agents`, `ipc` (tipi e trait), `platform`, `validate`, `wsl`, `schedule`, `user_skills`, `store`, `awake`, `pty` (solo `workspace_of_tab`, in `TauriHost`), `hub` (solo `board_published`, in `TauriHost`) | — |
+| `automation` | `board`, `workspaces`, `agents`, `ipc` (tipi e trait), `platform`, `validate`, `wsl`, `schedule`, `user_skills`, `store`, `awake`, `pty` (solo `workspace_of_tab`, in `TauriHost`), `hub` (solo `board_published`, in `TauriHost`; `lib.rs` registra `board_views` come sorgente di `hub::set_board_source`) | — |
 | `mcp` | `automation` (`Role`, `lock`, nomi dei metodi), `agents`, `workspaces`, `ipc` (client RPC) | `tauri` |
-| `hub` | `store`, `board` (`valid_id` e `BoardView` per gli eventi della board), `validate` (+ `workspaces` nei comandi e negli eventi della board, per sapere se il canale di un workspace esiste) | `automation`, `agents`, `ipc`, `pty`, `mcp` |
+| `hub` | `store`, `board` (`valid_id` e `BoardView` per gli eventi della board), `validate` (+ `workspaces` nei comandi e negli eventi della board, per sapere se il canale di un workspace esiste; le viste correnti delle board all'accensione arrivano da una sorgente `BoardSource` registrata da `lib.rs`) | `automation`, `agents`, `ipc`, `pty`, `mcp` |
 
 Le regole che questa tabella racchiude, e come sono garantite:
 
@@ -141,6 +141,12 @@ Restano confinati ai comandi Tauri e all'host reale; la logica pura non li attra
 `workspaces/commands.rs` → `hub::forget_workspace` (la rimozione di un workspace cancella i suoi thread) e
 `automation::TauriHost::board_published` → `hub::board_published` (le viste pubblicate diventano eventi nei
 thread); `board` non dipende da `hub` e la logica di `automation` lo raggiunge solo dal trait `Host`.
+Nel verso opposto non c'è un ciclo: all'accensione l'HUB deve fissare la base degli eventi con la vista corrente
+di ogni board, ma `hub` non nomina `automation`. `lib.rs`, che compone già entrambi, registra in `setup`
+`automation::board_views` come `hub::BoardSource` (`hub::set_board_source`), e `hub_set_enabled` la chiama
+solo al passaggio da spento ad acceso. Una sorgente iniettata invece di un comando nel livello di composizione
+lascia `hub_set_enabled` dov'è (con l'impostazione) e invece di una ripubblicazione forzata di tutte le board non
+emette `board-update` né salva file.
 
 ### Dove sta cosa
 
@@ -989,7 +995,8 @@ limiti; `threads/lifecycle.rs` per chiusura, collegamenti e ricerca del thread d
 `waiting` (`waiting_user` calcolato dagli eventi), `files` (`threads/<canale>.json` su `store/`), `state`
 (`HubState`: caricamento pigro, un `JsonFile` vivo per canale), `settings`, `commands` ed `events` (eventi della
 board nei thread: istantanea compatta, diff e instradamento puri, `HubFeed` con un thread dedicato che riceve le
-viste da `Host::board_published` e scrive fuori dai lock della board). Comandi
+viste da `Host::board_published` e scrive fuori dai lock della board; all'accensione fissa come base le viste
+correnti di tutte le board, chieste alla sorgente registrata da `lib.rs`). Comandi
 `hub_get_settings`, `hub_set_enabled`, `hub_list_threads`, `hub_get_thread`, `hub_create_thread`, `hub_send`;
 evento `hub-update` (riassunto del thread toccato). La rimozione di un workspace cancella il suo file dei thread
 (`hub::forget_workspace`, chiamato da `remove_workspace` dopo la board) e l'istantanea della sua board. Modello, file, limiti e scelte:

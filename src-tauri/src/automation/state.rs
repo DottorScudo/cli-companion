@@ -142,6 +142,15 @@ impl AutomationState {
         Ok(self.registry().board_view(&ws, minute))
     }
 
+    /// Le viste correnti delle board di tutti i workspace (vuota per chi non ha
+    /// ancora una board). Non pubblica e non salva nulla.
+    pub fn views<H: Host>(&self, host: &H) -> Vec<BoardView> {
+        let workspaces = host.workspaces();
+        let minute = host.local_minute(now_millis());
+        let reg = self.registry();
+        workspaces.iter().map(|ws| reg.board_view(ws, minute)).collect()
+    }
+
     fn save<H: Host>(host: &H, board: &Board) {
         if let Err(e) = host.save_board(board) {
             log::error!("board {}: {e}", board.workspace_id);
