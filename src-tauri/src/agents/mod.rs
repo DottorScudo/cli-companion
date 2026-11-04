@@ -550,7 +550,7 @@ pub async fn agent_usage_limits(
 ) -> Result<UsageLimitsReply, String> {
     let provider = find_provider(&agent_id)?;
     let env = usage_env(&env)?;
-    if !settings.show_usage() {
+    if !settings.get().show_usage {
         return Ok(UsageLimitsReply::status("disabled", None));
     }
     crate::blocking(move || {
@@ -571,7 +571,7 @@ pub async fn agent_session_usage(
 ) -> Result<Option<SessionUsage>, String> {
     let provider = find_provider(&agent_id)?;
     let env = usage_env(&env)?;
-    if !settings.show_usage() {
+    if !settings.get().show_usage {
         return Ok(None);
     }
     let cache = cache.inner().clone();

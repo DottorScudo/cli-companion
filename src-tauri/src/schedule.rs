@@ -7,12 +7,12 @@
 //! l'ora locale a ogni giro. Persistenza (`schedule.json`) in fondo;
 //! l'integrazione con il `Registry` e' in `automation/auto.rs`.
 
+use crate::store::{adopt_envelope, JsonFile};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 pub const MAX_WINDOWS: usize = 12;
 pub const MINUTES_PER_DAY: u16 = 1440;
-pub const SCHEDULE_FILE: &str = "schedule.json";
 
 /// Finestra `[start, end)` in ora locale, `HH:MM`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -134,26 +134,16 @@ pub fn state(s: &Schedule, minute: u16, now_ms: i64) -> ScheduleState {
 // Persistenza dello schedule
 // ---------------------------------------------------------------------------
 
-/// Carica lo schedule; file assente = default; corrotto o non valido va in
-/// `.json.bak` e vale il default.
+static SCHEDULE_FILE: JsonFile<Schedule> = JsonFile::new("schedule.json", &[adopt_envelope]).validated(validate);
+
+/// Carica lo schedule; file assente = default; corrotto o non valido va in un
+/// backup datato (`schedule.json.bak-...`) e vale il default.
 pub fn load_schedule(dir: &Path) -> Schedule {
-    let path = dir.join(SCHEDULE_FILE);
-    let Ok(raw) = std::fs::read_to_string(&path) else {
-        return Schedule::default();
-    };
-    match serde_json::from_str::<Schedule>(&raw) {
-        Ok(s) if validate(&s).is_ok() => s,
-        _ => {
-            let _ = std::fs::rename(&path, path.with_extension("json.bak"));
-            Schedule::default()
-        }
-    }
+    SCHEDULE_FILE.load(dir).value
 }
 
 pub fn save_schedule(dir: &Path, s: &Schedule) -> Result<(), String> {
-    std::fs::create_dir_all(dir).map_err(|e| format!("impossibile creare cartella dati: {e}"))?;
-    let raw = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
-    crate::write_atomic(&dir.join(SCHEDULE_FILE), &raw).map_err(|e| format!("impossibile salvare lo schedule: {e}"))
+    SCHEDULE_FILE.save(dir, s)
 }
 
 #[cfg(test)]
@@ -303,20 +293,78 @@ mod tests {
         assert_eq!(v["schedule"]["windows"][0]["end"], "13:00");
     }
 
+    // --- Persistenza: file reali delle versioni precedenti, caricati con la static vera ---
+
+    const FILE_NAME: &str = "schedule.json";
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("cc-sched-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn backups(dir: &Path) -> Vec<std::path::PathBuf> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.file_name().unwrap().to_string_lossy().starts_with("schedule.json.bak-"))
+            .collect()
+    }
+
     #[test]
-    fn files_roundtrip_in_a_temp_dir() {
-        let dir = std::env::temp_dir().join(format!("cc-sched-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        // Schedule.
+    fn missing_file_gives_the_default_and_creates_nothing() {
+        let dir = temp_dir("missing");
         assert_eq!(load_schedule(&dir), Schedule::default());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn v0_valid_file_loads() {
+        let dir = temp_dir("v0");
+        let raw = r#"{"enabled":true,"windows":[{"start":"20:00","end":"13:00"}],"keep_awake":false}"#;
+        std::fs::write(dir.join(FILE_NAME), raw).unwrap();
+        let s = load_schedule(&dir);
+        assert_eq!(s, Schedule { keep_awake: false, ..sched(&[("20:00", "13:00")]) });
+        assert!(backups(&dir).is_empty());
+        assert_eq!(std::fs::read_to_string(dir.join(FILE_NAME)).unwrap(), raw);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn v0_invalid_windows_are_backed_up_with_a_date() {
+        let dir = temp_dir("invalid");
+        let raw = r#"{"enabled":true,"windows":[{"start":"1:00","end":"2:00"}]}"#;
+        std::fs::write(dir.join(FILE_NAME), raw).unwrap();
+        assert_eq!(load_schedule(&dir), Schedule::default());
+        let found = backups(&dir);
+        assert_eq!(found.len(), 1);
+        assert_eq!(std::fs::read_to_string(&found[0]).unwrap(), raw);
+        assert!(!dir.join(FILE_NAME).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn corrupt_file_is_backed_up() {
+        let dir = temp_dir("corrupt");
+        std::fs::write(dir.join(FILE_NAME), "non json").unwrap();
+        assert_eq!(load_schedule(&dir), Schedule::default());
+        assert_eq!(backups(&dir).len(), 1);
+        assert!(!dir.join(FILE_NAME).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_writes_the_envelope_and_roundtrips() {
+        let dir = temp_dir("roundtrip");
         let s = sched(&[("20:00", "13:00")]);
         save_schedule(&dir, &s).unwrap();
+        let raw: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join(FILE_NAME)).unwrap()).unwrap();
+        assert_eq!(raw["schema_version"], 1);
+        assert_eq!(raw["data"]["windows"][0]["start"], "20:00");
         assert_eq!(load_schedule(&dir), s);
-        // File non valido: .bak e default.
-        std::fs::write(dir.join(SCHEDULE_FILE), r#"{"enabled":true,"windows":[{"start":"1:00","end":"2:00"}]}"#)
-            .unwrap();
-        assert_eq!(load_schedule(&dir), Schedule::default());
-        assert!(dir.join("schedule.json.bak").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -1,17 +1,17 @@
 //! Bot: ogni sessione dell'app e' un "bot" con un nome preso da una pool
-//! configurabile dall'utente (puramente visivo). Persistenza in `bots.json`.
+//! configurabile dall'utente (puramente visivo). Persistenza in `bots.json`
+//! tramite `store` (busta versionata, backup datati se il file e' corrotto).
 //! La pool predefinita (`DEFAULT_NAMES`) e' l'unica fonte: il frontend la riceve
 //! da `get_bot_settings`. Ogni nome della pool puo' avere un'immagine pixel-art
 //! (PNG base64 + colore dominante), validata in `image` e salvata nello stesso file.
 
 mod image;
 
+use crate::store::{adopt_envelope, data_dir, JsonFile, JsonStore};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
 
-const SETTINGS_FILE: &str = "bots.json";
 const NAME_MAX_CHARS: usize = 24;
 const NAMES_MAX: usize = 200;
 
@@ -60,11 +60,12 @@ impl Default for BotSettings {
     }
 }
 
-#[derive(Default)]
-pub struct BotSettingsStore {
-    inner: Mutex<BotSettings>,
-    /// Serializza le modifiche: l'I/O avviene fuori dal lock `inner`.
-    save: Mutex<()>,
+static SETTINGS_FILE: JsonFile<BotSettings> = JsonFile::new("bots.json", &[adopt_envelope]);
+
+pub type BotSettingsStore = JsonStore<BotSettings>;
+
+pub fn new_store() -> BotSettingsStore {
+    JsonStore::new(&SETTINGS_FILE)
 }
 
 /// Normalizza la pool: trim, 1-24 caratteri, niente caratteri di controllo,
@@ -92,32 +93,15 @@ fn validate_names(names: Vec<String>) -> Result<Vec<String>, String> {
 }
 
 pub fn load_from_disk(app: &tauri::App) {
-    let Ok(dir) = app.path().app_data_dir() else {
-        return;
-    };
-    let path = dir.join(SETTINGS_FILE);
-    let Ok(raw) = std::fs::read_to_string(&path) else {
-        return;
-    };
-    match serde_json::from_str::<BotSettings>(&raw) {
-        Ok(s) => *app.state::<BotSettingsStore>().inner.lock().unwrap() = s,
-        Err(_) => {
-            // File corrotto: backup e riparto dal default.
-            let _ = std::fs::rename(&path, path.with_extension("json.bak"));
-        }
+    match data_dir(app.handle()) {
+        Ok(dir) => app.state::<BotSettingsStore>().load(&dir),
+        Err(e) => log::error!("cartella dati non disponibile, impostazioni dei bot non caricate: {e}"),
     }
-}
-
-fn save_to_disk(app: &AppHandle, s: &BotSettings) -> Result<(), String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("impossibile creare cartella dati: {e}"))?;
-    let raw = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
-    crate::write_atomic(&dir.join(SETTINGS_FILE), &raw).map_err(|e| format!("impossibile salvare: {e}"))
 }
 
 #[tauri::command]
 pub fn get_bot_settings(state: State<BotSettingsStore>) -> BotSettings {
-    state.inner.lock().unwrap().clone()
+    state.get()
 }
 
 #[tauri::command]
@@ -198,16 +182,10 @@ fn prune_images(s: &mut BotSettings) {
 }
 
 /// Applica `f`, salva e solo poi aggiorna la memoria (se il salvataggio fallisce
-/// lo stato resta invariato). Il lock `inner` non copre l'I/O.
-/// Se `f` fallisce non salva nulla.
+/// lo stato resta invariato). Se `f` fallisce non salva nulla.
 fn update(app: &AppHandle, f: impl FnOnce(&mut BotSettings) -> Result<(), String>) -> Result<BotSettings, String> {
-    let store = app.state::<BotSettingsStore>();
-    let _save = store.save.lock().unwrap();
-    let mut next = store.inner.lock().unwrap().clone();
-    f(&mut next)?;
-    save_to_disk(app, &next)?;
-    *store.inner.lock().unwrap() = next.clone();
-    Ok(next)
+    let dir = data_dir(app)?;
+    app.state::<BotSettingsStore>().update(&dir, f)
 }
 
 #[cfg(test)]
@@ -225,7 +203,7 @@ mod tests {
         assert_eq!(s.names.len(), DEFAULT_NAMES.len());
         assert_eq!(s.names[0], "Bolt");
         assert_eq!(s.names.last().map(String::as_str), Some("Zed"));
-        assert_eq!(BotSettingsStore::default().inner.lock().unwrap().clone(), s);
+        assert_eq!(new_store().get(), s);
     }
 
     #[test]
@@ -352,5 +330,123 @@ mod tests {
         let mut over = at_cap;
         over.push("Extra".into());
         assert!(validate_names(over).is_err());
+    }
+
+    // --- File reali delle versioni precedenti, caricati con la static vera ---
+
+    const FILE_NAME: &str = "bots.json";
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("cc-bots-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn load_fixture(name: &str, raw: &str) -> (std::path::PathBuf, BotSettingsStore) {
+        let dir = temp_dir(name);
+        std::fs::write(dir.join(FILE_NAME), raw).unwrap();
+        let store = new_store();
+        store.load(&dir);
+        (dir, store)
+    }
+
+    fn backups(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.file_name().unwrap().to_string_lossy().starts_with("bots.json.bak-"))
+            .collect()
+    }
+
+    #[test]
+    fn v0_empty_object_loads_defaults() {
+        let (dir, store) = load_fixture("v0-empty", "{}");
+        assert_eq!(store.get(), BotSettings::default());
+        assert!(backups(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn v0_disabled_keeps_the_default_pool() {
+        let (dir, store) = load_fixture("v0-disabled", r#"{"enabled":false}"#);
+        assert!(!store.get().enabled);
+        assert_eq!(store.get().names, default_names());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn v0_custom_names_stay_enabled() {
+        let (dir, store) = load_fixture("v0-names", r#"{"names":["Ada"]}"#);
+        assert!(store.get().enabled);
+        assert_eq!(store.get().names, names(&["Ada"]));
+        assert!(store.get().images.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn v0_with_images_keeps_them() {
+        let raw = r##"{"enabled":true,"names":["Ada","Bob"],"images":{"Ada":{"png":"AAAA","color":"#112233"}}}"##;
+        let (dir, store) = load_fixture("v0-images", raw);
+        let s = store.get();
+        assert_eq!(s.names, names(&["Ada", "Bob"]));
+        assert_eq!(s.images.len(), 1);
+        assert_eq!(s.images["Ada"], img("#112233"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn corrupt_file_is_backed_up_and_not_overwritten() {
+        let garbage = "{\"names\": [\"Ada\"";
+        let (dir, store) = load_fixture("corrupt", garbage);
+        assert_eq!(store.get(), BotSettings::default());
+        let found = backups(&dir);
+        assert_eq!(found.len(), 1);
+        assert_eq!(std::fs::read(&found[0]).unwrap(), garbage.as_bytes());
+        assert!(!dir.join(FILE_NAME).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn update_writes_the_envelope_and_roundtrips() {
+        let dir = temp_dir("roundtrip");
+        let store = new_store();
+        let next = store
+            .update(&dir, |s| {
+                s.enabled = false;
+                s.names = names(&["Ada"]);
+                s.images.insert("Ada".into(), img("#445566"));
+                Ok(())
+            })
+            .unwrap();
+        let raw: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join(FILE_NAME)).unwrap()).unwrap();
+        assert_eq!(raw["schema_version"], 1);
+        assert_eq!(raw["data"]["enabled"], false);
+        assert_eq!(raw["data"]["images"]["Ada"]["color"], "#445566");
+        let reloaded = new_store();
+        reloaded.load(&dir);
+        assert_eq!(reloaded.get(), next);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unreadable_file_keeps_defaults_and_refuses_updates() {
+        // Istanza locale: il blocco delle scritture e' appiccicoso per istanza.
+        static LOCAL_FILE: JsonFile<BotSettings> = JsonFile::new("bots.json", &[adopt_envelope]);
+        let dir = temp_dir("unreadable");
+        std::fs::create_dir_all(dir.join(FILE_NAME)).unwrap();
+        let store = JsonStore::new(&LOCAL_FILE);
+        store.load(&dir);
+        assert_eq!(store.get(), BotSettings::default());
+        let r = store.update(&dir, |s| {
+            s.enabled = false;
+            Ok(())
+        });
+        assert!(r.is_err());
+        assert_eq!(store.get(), BotSettings::default());
+        assert!(dir.join(FILE_NAME).is_dir());
+        assert!(backups(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

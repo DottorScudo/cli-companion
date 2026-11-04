@@ -6,9 +6,10 @@
 //! - `scrollback/<tab_id>.txt`: output serializzato di un terminale.
 
 use crate::agent_notify::is_valid_tab_id;
+use crate::store::data_dir;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 const SESSION_FILE: &str = "session.json";
 const SCROLLBACK_DIR: &str = "scrollback";
@@ -16,10 +17,6 @@ const SCROLLBACK_DIR: &str = "scrollback";
 const SESSION_MAX_BYTES: usize = 2 * 1024 * 1024;
 /// Tetto dello scrollback di un singolo terminale.
 const SCROLLBACK_MAX_BYTES: usize = 4 * 1024 * 1024;
-
-fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path().app_data_dir().map_err(|e| e.to_string())
-}
 
 fn scrollback_path(dir: &Path, tab_id: &str) -> Result<PathBuf, String> {
     if !is_valid_tab_id(tab_id) {
@@ -43,7 +40,7 @@ fn write_capped(path: &Path, data: &str, max: usize, what: &str) -> Result<(), S
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("cartella dati: {e}"))?;
     }
-    crate::write_atomic(path, data).map_err(|e| format!("scrittura {}: {e}", path.display()))
+    crate::store::write_atomic(path, data).map_err(|e| format!("scrittura {}: {e}", path.display()))
 }
 
 fn load_session_at(dir: &Path) -> Result<Option<String>, String> {

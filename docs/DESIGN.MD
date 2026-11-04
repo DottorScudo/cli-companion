@@ -13,7 +13,8 @@ e aprirci dentro terminali integrati a tab.
   grezzi non pre-bundlati -> schermata bianca). Vedi `tests/no-gluestack.test.mjs`.
 - Terminali: **xterm.js** (`@xterm/xterm` + `@xterm/addon-fit`) nel frontend,
   **portable-pty** (ConPTY su Windows) nel backend
-- Persistenza: **JSON** (`workspaces.json`, `session.json`, `boards/<workspace_id>.json`, `schedule.json`, `bots.json`, `launch_settings.json` nella app-data dir di Tauri)
+- Persistenza: **JSON** nella app-data dir di Tauri. `launch_settings.json`, `bots.json` e `schedule.json` passano da `store/` (busta `{schema_version, data}`, migrazioni, backup datati); `workspaces.json`, `session.json` e `boards/<workspace_id>.json` hanno ancora la persistenza propria (`workspaces.json` e le board passeranno a `store/` in seguito)
+- Log: **tauri-plugin-log** (file nella cartella dei log dell'app, vedi `store/` più sotto)
 - Board dei task: **React Flow** (`@xyflow/react`) + **dagre** (`@dagrejs/dagre`) per il layout a grafo
 
 ## Architettura
@@ -447,15 +448,63 @@ File nella cartella dati dell'app, scritti con `write_atomic`:
   con `agent_notify::is_valid_tab_id` (stesso charset del `CLI_COMPANION_SESSION`).
   `prune_scrollback(keep)` elimina i file dei tab non elencati (chiamato dopo il ripristino).
 
+### `store/` — persistenza JSON comune
+
+Componente unico per i file di impostazioni (oggi `launch_settings.json`, `bots.json`,
+`schedule.json`; `workspaces.json` e le board non sono ancora sullo store, ci passeranno in
+seguito). Un file e' descritto da un `JsonFile<T>` statico (nome + catena di migrazioni, e
+opzionalmente `.validated(check)`); `JsonStore<T>` lo tiene in memoria come stato Tauri
+(`get`, `load`, `update`). Un file e' una unita' di codice per responsabilita': `atomic`,
+`backup`, `envelope`, `file`, `json_store`, `legacy`, `migrate`, `warnings`.
+
+- **Formato**: `{ "schema_version": N, "data": ... }`, JSON indentato. Un file senza busta
+  (cioe' qualunque JSON che non abbia ESATTAMENTE le chiavi `schema_version` intero non
+  negativo e `data`) e' il formato storico: versione 0, l'intero valore e' il dato.
+- **Migrazioni**: lista ordinata di passi puri `Value -> Value` (`Migration`); la versione
+  corrente di un file e' il numero dei passi, quindi aggiungere un passo = incrementare la
+  versione. Il passo 0 -> 1 introduce la busta (`adopt_envelope`, identita'; `launch_settings`
+  ne usa uno proprio che migra anche `builtin:orchestrator`). Al caricamento si applicano
+  `steps[versione_del_file..]`; un passo che fallisce nomina il proprio indice nell'errore.
+- **File corrotto** (non UTF-8, non JSON, migrazione o deserializzazione fallita, controllo
+  semantico `validated` fallito): mai cancellato. Viene rinominato
+  `<nome>.bak-<AAAAMMGG-OOMMSSmmm>` (UTC, ordinabile) e si riparte dal default; di ogni file
+  si tengono gli ultimi 5 backup (i vecchi `*.json.bak` del comportamento precedente non
+  vengono toccati). Il file nuovo nasce solo dal primo salvataggio esplicito.
+- **Versione piu' recente** dell'app (`schema_version` > passi noti): trattata come corrotta
+  (backup, warning `newer_version`), cosi' un salvataggio successivo non puo' distruggerla.
+- **File illeggibile** (errore di I/O diverso da "non trovato": permessi, file bloccato,
+  percorso che e' una cartella): il file non viene toccato, si usa il default, i salvataggi di
+  quel file sono rifiutati con un errore esplicito finche' non si sistema e si riavvia l'app.
+  Lo stesso vale se nemmeno il rename in backup riesce.
+- **Avvisi**: ogni anomalia produce uno `StoreWarning { file, kind (corrupt | newer_version |
+  unreadable), message, backup, at }`, scritto nel log, conservato in memoria (ultimi 100) e
+  letto dal frontend con il comando `store_warnings`; l'evento Tauri `store-warning` lo
+  notifica appena viene prodotto.
+- **`write_atomic`**: file temporaneo unico, `write_all` + `sync_all`, poi rename; il
+  temporaneo e' rimosso se qualcosa fallisce. Su Windows il rename riprova fino a 5 volte con
+  pausa crescente (antivirus/indicizzatore possono bloccare il file per qualche ms).
+- **Log**: `logging.rs` configura `tauri-plugin-log`, registrato per primo. File
+  `cli-companion.log` nella cartella dei log dell'app (`LogDir`), rotazione a 1 MB con 5 file
+  conservati; livello `Info` in release e `Debug` in debug (che scrive anche su stdout).
+- **Migrazione dai vecchi identifier** (`store/legacy.rs`): al primo avvio la cartella dati di
+  `com.jmagarelli.cli-companion` viene copiata per intero se quella nuova non esiste, e
+  `workspaces.json` di `com.jmagarelli.muse-companion` se manca; le cartelle vecchie restano
+  intatte.
+- **Downgrade non supportato**: un file salvato con la busta, letto da una versione
+  precedente dell'app (che si aspetta il formato senza busta), viene visto come
+  corrotto/incompleto e messo da parte nel backup. Non si torna a una versione precedente
+  senza ripristinare a mano i dati.
+
 ### `bots.rs` — nomi dei bot (impostazioni globali)
 
 Ogni sessione (tab) è un "bot" con un nome e un avatar: tocco puramente visivo.
 File `bots.json` nella cartella dati: `{ enabled, names, images }`, con `images` =
 `{ nome: { png, color } }` (`#[serde(default)]`: i file vecchi restano validi). File assente o campo
 mancante = `enabled: true` e la pool predefinita (`DEFAULT_NAMES`, unica fonte: il
-frontend la riceve da `get_bot_settings`). Stesso schema di `launch_settings.rs`: store
-con `Mutex`, file corrotto rinominato `.json.bak`, `update()` salva con `write_atomic`
-prima di aggiornare la memoria. Comandi `get_bot_settings`, `set_bot_settings(enabled,
+frontend la riceve da `get_bot_settings`). Stesso schema di `launch_settings.rs`: un
+`JsonFile` statico (`store/`) e un `JsonStore` gestito da Tauri; un file corrotto non viene
+cancellato ma messo da parte come `bots.json.bak-<timestamp>`, `update()` salva (scrittura
+atomica) prima di aggiornare la memoria. Comandi `get_bot_settings`, `set_bot_settings(enabled,
 names)` (ritorna le impostazioni salvate), `reset_bot_names`, `set_bot_image(name, png,
 color)` e `remove_bot_image(name)` (ritornano anch'essi le impostazioni salvate). Validazione
 dei nomi: trim, 1-24 caratteri, niente caratteri di controllo, niente duplicati (senza
@@ -467,7 +516,7 @@ formato `#rrggbb`. Le immagini dei nomi che escono dalla pool sono eliminate da
 
 ### `lib.rs`
 
-Registra i plugin (`opener`, `dialog`, `clipboard-manager`, `notification`), gli stati condivisi, il caricamento
+Registra i plugin (`log` per primo, poi `opener`, `dialog`, `clipboard-manager`, `notification`), gli stati condivisi, il caricamento
 dello store in `setup` e tutti i comandi. Capability minime in
 `capabilities/default.json` (`core:default`, `core:window:allow-destroy` per la chiusura dopo il salvataggio, `opener:default`, `notification:default`, `dialog:allow-open`, clipboard).
 

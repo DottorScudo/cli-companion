@@ -36,6 +36,17 @@ export interface LaunchSettings {
   show_usage: boolean;
 }
 
+/** Avviso di persistenza: un file di dati inutilizzabile (corrotto, più recente o illeggibile). */
+export interface StoreWarning {
+  file: string;
+  kind: "corrupt" | "newer_version" | "unreadable";
+  message: string;
+  /** Nome del backup datato, se il file è stato messo da parte. */
+  backup: string | null;
+  /** Unix ms. */
+  at: number;
+}
+
 /** Impostazioni dei bot: pool dei nomi e immagini associate (puramente visivi). */
 export interface BotSettings {
   enabled: boolean;
@@ -387,6 +398,9 @@ export const api = {
   /** Applica o scarta una proposta di modifica alle impostazioni. */
   settingsProposalDecide: (workspaceId: string, proposalId: string, accept: boolean) =>
     invoke<SettingsDecision>("settings_proposal_decide", { workspaceId, proposalId, accept }),
+
+  // Avvisi di persistenza (backend: src-tauri/src/store/warnings.rs); evento "store-warning".
+  storeWarnings: () => invoke<StoreWarning[]>("store_warnings"),
 
   // Fasce orarie globali (solo come gate dello scheduler, docs/BOARD.MD).
   scheduleGet: () => invoke<ScheduleState>("schedule_get"),
