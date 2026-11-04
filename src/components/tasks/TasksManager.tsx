@@ -48,8 +48,6 @@ export interface TasksManagerProps {
   loadError: string | null;
   /** Aggiorna la board in App con la risposta di un comando. */
   onBoard: (board: BoardView) => void;
-  /** Aggiorna il workspace in App (proposta di impostazioni applicata). */
-  onWorkspaceUpdated: (workspace: Workspace) => void;
   /** "← Terminali": chiude il manager. */
   onBackToTerminals: () => void;
   /** Torna ai terminali e mette a fuoco il tab del worker. */
@@ -73,7 +71,6 @@ export default function TasksManager({
   board,
   loadError,
   onBoard,
-  onWorkspaceUpdated,
   onBackToTerminals,
   onOpenTerminal,
   onOpenIntake,
@@ -171,14 +168,7 @@ export default function TasksManager({
           Coda in pausa: i task in corso finiscono, nessun nuovo task parte.
         </p>
       )}
-      {board && (
-        <ManagerProposals
-          workspaceId={workspace.id}
-          board={board}
-          onBoard={onBoard}
-          onWorkspaceUpdated={onWorkspaceUpdated}
-        />
-      )}
+      {board && <ManagerProposals workspaceId={workspace.id} board={board} onBoard={onBoard} />}
 
       <div className="flex min-h-0 flex-1">
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden">

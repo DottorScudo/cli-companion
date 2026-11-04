@@ -400,6 +400,9 @@ export const api = {
 
   automationSessions: () => invoke<AutomationTabInfo[]>("automation_sessions"),
 
+  /** Listener registrati e sessione ripristinata: il timer dell'automazione puo' partire (idempotente). */
+  frontendReady: () => invoke<void>("frontend_ready"),
+
   // Coda dei task (backend: src-tauri, contratto in docs/BOARD.MD).
   boardGet: (workspaceId: string) => invoke<BoardView>("board_get", { workspaceId }),
 

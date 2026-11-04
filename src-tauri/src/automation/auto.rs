@@ -12,11 +12,61 @@
 use super::*;
 use crate::schedule::{self, Schedule, ScheduleState};
 use std::collections::HashSet;
+use std::sync::Condvar;
 
-/// Giro del timer e attesa iniziale (il frontend deve aver registrato i
-/// listener prima del primo `automation-spawn`).
+/// Giro del timer. Il primo giro attende `frontend_ready` (il frontend deve
+/// aver registrato i listener prima del primo `automation-spawn`), vedi
+/// `FRONTEND_READY_TIMEOUT`.
 pub const TICK_EVERY: Duration = Duration::from_secs(30);
-const STARTUP_DELAY: Duration = Duration::from_secs(10);
+/// Quanto il timer aspetta `frontend_ready` prima di partire comunque: se il
+/// frontend non risponde (errore di avvio, webview bloccata) l'automazione
+/// non deve restare ferma per sempre.
+const FRONTEND_READY_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Segnale "il frontend e' pronto" (listener registrati, sessione
+/// ripristinata). Resta acceso: segnalare di nuovo (ricarica del frontend) e'
+/// innocuo e chi aspetta dopo il segnale non si blocca.
+pub struct ReadySignal {
+    ready: Mutex<bool>,
+    cv: Condvar,
+}
+
+impl ReadySignal {
+    pub const fn new() -> Self {
+        Self { ready: Mutex::new(false), cv: Condvar::new() }
+    }
+
+    /// Accende il segnale e sveglia chi aspetta.
+    pub fn signal(&self) {
+        *self.ready.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.cv.notify_all();
+    }
+
+    /// Aspetta il segnale per al piu' `timeout`; `true` se e' arrivato. Immune
+    /// ai risvegli spuri: si riaddormenta finche' il segnale non c'e' o il
+    /// tempo non e' scaduto.
+    pub fn wait(&self, timeout: Duration) -> bool {
+        let guard = self.ready.lock().unwrap_or_else(|e| e.into_inner());
+        let (guard, _) = self.cv.wait_timeout_while(guard, timeout, |ready| !*ready).unwrap_or_else(|e| e.into_inner());
+        *guard
+    }
+}
+
+impl Default for ReadySignal {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Segnalato da `frontend_ready`, atteso dal timer in `init`.
+static FRONTEND_READY: ReadySignal = ReadySignal::new();
+
+/// Il frontend ha registrato i listener e ripristinato la sessione: il timer
+/// puo' partire (e con lui i primi `automation-spawn`). Idempotente.
+#[tauri::command]
+pub fn frontend_ready() {
+    FRONTEND_READY.signal();
+}
 
 #[derive(Default)]
 pub(super) struct AutoCore {
@@ -166,7 +216,12 @@ pub fn init(app: &tauri::App) {
         st.run(&host, |r| r.init_schedule(s));
     }
     std::thread::spawn(move || {
-        std::thread::sleep(STARTUP_DELAY);
+        if !FRONTEND_READY.wait(FRONTEND_READY_TIMEOUT) {
+            log::warn!(
+                "Il frontend non ha segnalato di essere pronto entro {} s: l'automazione parte comunque",
+                FRONTEND_READY_TIMEOUT.as_secs()
+            );
+        }
         loop {
             st.tick(&host, now_millis());
             std::thread::sleep(TICK_EVERY);

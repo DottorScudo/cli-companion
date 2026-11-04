@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { api } from "../../lib/tauri";
-import type { AgentProfile, Workspace } from "../../lib/tauri";
+import type { Workspace } from "../../lib/tauri";
+import { useStore } from "../../hooks/useStore";
+import { configStore } from "../../stores/config";
 import {
   WORKER_PERMISSIONS,
   normalizeWorkerPermission,
@@ -23,13 +25,12 @@ const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.
 
 interface Props {
   workspace: Workspace;
-  agentProfiles: AgentProfile[];
-  onWorkspaceUpdated: (ws: Workspace) => void;
 }
 
 /** Workspace › Worker: permessi, modello, regole e fasce orarie dei worker automatici. */
-export default function WorkerPage({ workspace, agentProfiles, onWorkspaceUpdated }: Props) {
-  const { run, saving, error } = useWorkspaceOp(onWorkspaceUpdated);
+export default function WorkerPage({ workspace }: Props) {
+  const { run, saving, error } = useWorkspaceOp();
+  const agentProfiles = useStore(configStore, (s) => s.agentProfiles);
 
   // Bozze: seguono il workspace selezionato e il valore salvato.
   const [workerModelDraft, setWorkerModelDraft] = useState("");
@@ -190,7 +191,7 @@ export default function WorkerPage({ workspace, agentProfiles, onWorkspaceUpdate
         </Field>
       </Section>
 
-      <UseScheduleSection workspace={workspace} onWorkspaceUpdated={onWorkspaceUpdated} />
+      <UseScheduleSection workspace={workspace} />
 
       <Section>
         <Field

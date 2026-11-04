@@ -559,6 +559,7 @@ dello store in `setup` e tutti i comandi. Capability minime in
 ## Frontend (`src/`)
 
 - `lib/tauri.ts`: tipi (`Workspace`, eventi PTY) e wrapper `api` sopra `invoke`/`listen`.
+- **Convenzione hook**: gli hook React condivisi dall'app stanno in `src/hooks/`, quelli di una feature accanto ai componenti della feature (es. `components/tasks/useTaskPanelCollapsed.ts`); `src/lib/` contiene solo logica pura / moduli non React.
 - **Bot** (`lib/bots.ts`, zero-dep, `tests/bots.test.mjs`): `pickBotName(pool, taken)`
   sceglie a caso un nome non usato dai tab aperti (pool esaurita: suffisso numerico,
   "Bolt 2"; pool vuota: "Bot 1"...); `botLook(name)` ricava l'aspetto dell'avatar da un
@@ -720,7 +721,7 @@ dello store in `setup` e tutti i comandi. Capability minime in
   All'avvio `automation_sessions()` riallinea lo stato. `PaneHeader` mostra il badge AUTO
   (INTAKE per i tab avviati da un preset) e la parola di stato. I tab automatici sono esclusi dal salvataggio di sessione e
   scrollback e non vengono ripristinati.
-- **Tasks Manager** (`components/tasks/`, `lib/board.ts`, `lib/boardLayout.ts`, `lib/useBoards.ts`):
+- **Tasks Manager** (`components/tasks/`, `lib/board.ts`, `lib/boardLayout.ts`, `hooks/useBoards.ts`):
   `lib/board.ts` (zero-dep, testato) ha i tipi del contratto (`BoardView`, `Task`, `Proposal`,
   `Delivery`), i quattro stati (+ "Richiede attenzione") con etichette e colori, selettori, ricerca/filtri,
   formati di durata e consegna, `mergeBoard` per `rev`. `useBoards` (in `App.tsx`) carica `board_get`,

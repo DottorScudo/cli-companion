@@ -13,7 +13,7 @@ import type { Rect } from "../lib/layout";
 import { RESTORE_SEPARATOR, SCROLLBACK_LINES, SCROLLBACK_SAVE_MS } from "../lib/session";
 import { cn } from "../lib/utils";
 import PaneHeader from "./PaneHeader";
-import type { PtyEvent, Workspace } from "../lib/tauri";
+import type { PtyEvent } from "../lib/tauri";
 import type { BotImage } from "../lib/bots";
 import { clipboardKeyAction, createBusyTracker, resolvePasteAction, sanitizeTerminalTitle } from "../lib/terminal";
 import { TERMINAL_THEME } from "../lib/terminalTheme";
@@ -22,7 +22,8 @@ import { LAUNCH_AFTER_OUTPUT_MS, LAUNCH_FALLBACK_MS, buildLaunchInput, shouldInj
 interface Props {
   /** Chiave del tab: diventa `CLI_COMPANION_SESSION` per gli hook degli agenti. */
   tabId: string;
-  workspace: Workspace;
+  /** Workspace del tab (cartella e ambiente del pty). */
+  workspaceId: string;
   /** Comando dell'avvio da eseguire all'apertura ("" = shell semplice). */
   initialCommand: string;
   /** Tab ripristinato da una sessione precedente: mostra prima la cronologia salvata. */
@@ -42,8 +43,8 @@ interface Props {
   pinned: boolean;
   /** Evidenzia il pannello come bersaglio di un trascinamento. */
   dropTarget: boolean;
-  // Callback stabili (le stesse per tutti i tab): ricevono il `tabId`, cosi'
-  // il componente memoizzato non si ri-renderizza a ogni render di App.
+  // Callback stabili (funzioni di modulo, le stesse per tutti i tab): ricevono il
+  // `tabId`, cosi' il componente memoizzato si ridisegna solo se cambia una prop visibile.
   onActivate: (tabId: string) => void;
   onClose: (tabId: string) => void;
   onToggleMaximize: (tabId: string) => void;
@@ -85,7 +86,7 @@ interface Props {
 
 function TerminalView({
   tabId,
-  workspace,
+  workspaceId,
   initialCommand,
   restore = false,
   rect,
@@ -371,7 +372,7 @@ function TerminalView({
             injectTimer = setTimeout(injectLaunch, LAUNCH_AFTER_OUTPUT_MS);
           }
         };
-        const id = await api.ptySpawn(workspace.id, tabId, initialCols, initialRows, channel, cwdRef.current);
+        const id = await api.ptySpawn(workspaceId, tabId, initialCols, initialRows, channel, cwdRef.current);
         if (disposed) {
           void api.ptyClose(id).catch((e) => report("chiusura del terminale", e));
           return;
@@ -435,7 +436,10 @@ function TerminalView({
       termRef.current = null;
       fitRef.current = null;
     };
-  }, []);
+    // `tabId` e' la chiave React del componente e il workspace di un tab non cambia
+    // mai: finche' il terminale e' montato le dipendenze sono costanti, quindi
+    // l'effetto gira una volta sola (un cambio ucciderebbe il pty).
+  }, [tabId, workspaceId]);
 
   // Quando il pannello torna visibile, riadatta il terminale alla dimensione reale.
   useEffect(() => {
@@ -538,30 +542,8 @@ function TerminalView({
 }
 
 /**
- * Memoizzato: App si ri-renderizza spesso (eventi agente, titoli). `status`, `usage` e
- * `automation` sono oggetti ricreati a ogni render, quindi si confrontano per
- * campo; tutte le altre prop per identita'.
+ * Memoizzato senza comparatore: le prop sono tutte stabili (valori primitivi,
+ * oggetti derivati con `useMemo` da `TerminalPane`, callback di modulo), quindi
+ * il confronto per identita' basta a ridisegnarlo solo quando cambia qualcosa.
  */
-export default memo(TerminalView, (a, b) => {
-  const keys = Object.keys(b) as Array<keyof Props>;
-  if (keys.length !== Object.keys(a).length) return false;
-  for (const k of keys) {
-    if (k === "usage") {
-      if (a.usage?.text !== b.usage?.text || a.usage?.title !== b.usage?.title) return false;
-    } else if (k === "status") {
-      const x = a.status;
-      const y = b.status;
-      if (x.icon !== y.icon || x.tone !== y.tone || x.label !== y.label) return false;
-    } else if (k === "automation") {
-      const x = a.automation;
-      const y = b.automation;
-      if (x !== y) {
-        if (!x || !y) return false;
-        if (x.status !== y.status || x.tooltip !== y.tooltip) return false;
-      }
-    } else if (a[k] !== b[k]) {
-      return false;
-    }
-  }
-  return true;
-});
+export default memo(TerminalView);

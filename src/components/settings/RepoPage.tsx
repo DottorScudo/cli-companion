@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -28,12 +28,11 @@ interface CardProps {
   repo: string;
   saved: RepoConfig | undefined;
   missing: boolean;
-  onWorkspaceUpdated: (ws: Workspace) => void;
 }
 
 /** Scheda di un repository: si apre al bisogno, ha bozza e salvataggio propri. */
-const RepoCard = memo(function RepoCard({ workspaceId, repo, saved, missing, onWorkspaceUpdated }: CardProps) {
-  const { run, saving, error, setError } = useWorkspaceOp(onWorkspaceUpdated);
+const RepoCard = memo(function RepoCard({ workspaceId, repo, saved, missing }: CardProps) {
+  const { run, saving, error, setError } = useWorkspaceOp();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<RepoDraft>(() => draftFromConfig(saved));
   const [validation, setValidation] = useState<string | null>(null);
@@ -210,11 +209,10 @@ const RepoCard = memo(function RepoCard({ workspaceId, repo, saved, missing, onW
 
 interface Props {
   workspace: Workspace;
-  onWorkspaceUpdated: (ws: Workspace) => void;
 }
 
 /** Workspace › Repository: setup e pulizia dei worktree, eseguiti dall'app, per ogni repository. */
-export default function RepoPage({ workspace, onWorkspaceUpdated }: Props) {
+export default function RepoPage({ workspace }: Props) {
   const [detected, setDetected] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [detectError, setDetectError] = useState<string | null>(null);
@@ -237,7 +235,6 @@ export default function RepoPage({ workspace, onWorkspaceUpdated }: Props) {
 
   const repos = workspace.repos ?? EMPTY;
   const rows = useMemo(() => repoRows(detected, Object.keys(repos)), [detected, repos]);
-  const updated = useCallback((ws: Workspace) => onWorkspaceUpdated(ws), [onWorkspaceUpdated]);
 
   return (
     <SettingsPage
@@ -278,7 +275,6 @@ export default function RepoPage({ workspace, onWorkspaceUpdated }: Props) {
           repo={r.repo}
           saved={repos[r.repo]}
           missing={r.missing}
-          onWorkspaceUpdated={updated}
         />
       ))}
     </SettingsPage>

@@ -4,7 +4,7 @@ import type { DeskMap } from "../../lib/office";
 
 interface DeskTab {
   key: string;
-  workspace: { id: string };
+  workspaceId: string;
 }
 
 /**
@@ -16,7 +16,7 @@ interface DeskTab {
 export function useStableDesks(tabs: readonly DeskTab[]): DeskMap {
   const desks = useRef<DeskMap>(new Map());
   return useMemo(() => {
-    const sessions = tabs.map((t) => ({ key: t.key, workspaceId: t.workspace.id }));
+    const sessions = tabs.map((t) => ({ key: t.key, workspaceId: t.workspaceId }));
     desks.current = assignDesks(desks.current, sessions);
     return desks.current;
   }, [tabs]);

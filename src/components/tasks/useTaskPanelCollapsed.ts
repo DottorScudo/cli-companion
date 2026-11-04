@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
-import { browserStorage } from "./browserStorage";
-import { readCollapsed, withCollapsed, writeCollapsed } from "./taskPanelPrefs";
-import type { CollapsedMap } from "./taskPanelPrefs";
+import { browserStorage } from "../../lib/browserStorage";
+import { readCollapsed, withCollapsed, writeCollapsed } from "../../lib/taskPanelPrefs";
+import type { CollapsedMap } from "../../lib/taskPanelPrefs";
 
 /**
  * Stato compresso/espanso del pannello Task per workspace (o per la vista

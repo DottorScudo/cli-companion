@@ -6,6 +6,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { ignoreError } from "../lib/errors";
+import { uiStore } from "../stores/ui";
 import { cn } from "../lib/utils";
 
 type Phase = "idle" | "checking" | "available" | "uptodate" | "downloading" | "installing" | "error";
@@ -22,12 +23,7 @@ function formatDate(raw?: string): string {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString();
 }
 
-interface Props {
-  /** Esito dell'ultimo controllo: serve al pallino sul pulsante Impostazioni. */
-  onAvailable?: (available: boolean) => void;
-}
-
-export default function UpdateCheck({ onAvailable }: Props) {
+export default function UpdateCheck() {
   const [version, setVersion] = useState<string | null>(null);
   const [update, setUpdate] = useState<Update | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -39,25 +35,23 @@ export default function UpdateCheck({ onAvailable }: Props) {
     getVersion().then(setVersion).catch(ignoreError("la versione è solo un'etichetta; fuori da Tauri non esiste"));
   }, []);
 
-  const checkNow = useCallback(
-    async (silent: boolean) => {
-      setError(null);
-      if (!silent) setPhase("checking");
-      try {
-        const found = await check();
-        setUpdate(found);
-        setPhase(found ? "available" : "uptodate");
-        onAvailable?.(found !== null);
-      } catch (e) {
-        // Controllo silenzioso: rete assente o nessuna release non fanno rumore.
-        if (!silent) {
-          setPhase("error");
-          setError(String(e));
-        }
+  const checkNow = useCallback(async (silent: boolean) => {
+    setError(null);
+    if (!silent) setPhase("checking");
+    try {
+      const found = await check();
+      setUpdate(found);
+      setPhase(found ? "available" : "uptodate");
+      // Esito dell'ultimo controllo: serve al pallino sul pulsante Impostazioni.
+      uiStore.setUpdateAvailable(found !== null);
+    } catch (e) {
+      // Controllo silenzioso: rete assente o nessuna release non fanno rumore.
+      if (!silent) {
+        setPhase("error");
+        setError(String(e));
       }
-    },
-    [onAvailable],
-  );
+    }
+  }, []);
 
   // Controllo silenzioso all'avvio: mostra il badge solo se c'è un update.
   useEffect(() => {

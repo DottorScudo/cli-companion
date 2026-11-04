@@ -1,16 +1,14 @@
 import { useState } from "react";
 import { api } from "../../lib/tauri";
-import type { BuiltinLaunch } from "../../lib/tauri";
+import { setGlobalLaunch } from "../../app/actions/settings";
+import { useStore } from "../../hooks/useStore";
+import { configStore } from "../../stores/config";
 import { BuiltinBadge, Field, Section, SettingsPage, selectClass } from "./shared";
 
-interface Props {
-  builtins: BuiltinLaunch[];
-  globalLaunch: string | null;
-  onGlobalLaunchChange: (id: string | null) => void;
-}
-
 /** Generale › Avvii: avvio predefinito globale e avvii integrati. */
-export default function GeneralLaunchesPage({ builtins, globalLaunch, onGlobalLaunchChange }: Props) {
+export default function GeneralLaunchesPage() {
+  const builtins = useStore(configStore, (s) => s.builtinLaunches);
+  const globalLaunch = useStore(configStore, (s) => s.globalLaunch);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,7 +17,7 @@ export default function GeneralLaunchesPage({ builtins, globalLaunch, onGlobalLa
     setSaving(true);
     try {
       const s = await api.setGlobalDefaultLaunch(value === "" ? null : value);
-      onGlobalLaunchChange(s.default_launch);
+      setGlobalLaunch(s.default_launch);
     } catch (e) {
       setError(String(e));
     } finally {

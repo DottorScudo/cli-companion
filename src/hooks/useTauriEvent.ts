@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { report } from "./errors";
-import { startSubscription } from "./subscription";
-import type { TauriEvents } from "./tauri";
+import { report } from "../lib/errors";
+import { startSubscription } from "../lib/subscription";
+import type { TauriEvents } from "../lib/tauri";
 
 /**
  * Ascolta un evento del backend per tutta la vita del componente. L'handler è

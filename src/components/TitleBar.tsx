@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { appWindow } from "../lib/appWindow";
 import type { AppWindow } from "../lib/appWindow";
 import { report } from "../lib/errors";
@@ -6,17 +6,8 @@ import { startSubscription } from "../lib/subscription";
 import { Star } from "lucide-react";
 import Logo from "./Logo";
 import StatusIcon from "./StatusIcon";
-import type { TabStatus } from "../lib/agents";
+import type { TitleTab } from "../stores/selectors";
 import { cn } from "../lib/utils";
-
-export interface TitleTab {
-  /** Id del workspace (o GLOBAL_ID per la vista globale). */
-  id: string;
-  name: string;
-  count: number;
-  /** Stato aggregato del gruppo (null = nessun indicatore). */
-  status: TabStatus | null;
-}
 
 interface Props {
   /** Vista globale: presente solo con almeno un tab fissato. */
@@ -82,14 +73,7 @@ function Tab({
  * sono `data-tauri-drag-region` (trascinamento + doppio clic = massimizza);
  * i controlli interattivi no.
  */
-export default function TitleBar({
-  globalTab,
-  globalActive,
-  groups,
-  activeWorkspaceId,
-  onSelectGlobal,
-  onSelectGroup,
-}: Props) {
+function TitleBar({ globalTab, globalActive, groups, activeWorkspaceId, onSelectGlobal, onSelectGroup }: Props) {
   const [maximized, setMaximized] = useState(false);
 
   // Segue lo stato di massimizzazione per scambiare l'icona.
@@ -193,3 +177,6 @@ export default function TitleBar({
     </div>
   );
 }
+
+/** Memoizzata: le prop sono stabili, si ridisegna solo se cambia un tab o la selezione. */
+export default memo(TitleBar);

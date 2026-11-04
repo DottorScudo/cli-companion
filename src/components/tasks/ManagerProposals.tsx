@@ -2,17 +2,16 @@ import ProposalCard from "./ProposalCard";
 import SettingsProposalCard from "./SettingsProposalCard";
 import { pendingProposals } from "../../lib/board";
 import type { BoardView } from "../../lib/board";
-import type { Workspace } from "../../lib/tauri";
+import { workspaceUpdated } from "../../app/actions/workspaces";
 
 interface Props {
   workspaceId: string;
   board: BoardView;
   onBoard: (board: BoardView) => void;
-  onWorkspaceUpdated: (workspace: Workspace) => void;
 }
 
 /** Fascia delle proposte pendenti (Task Intake e impostazioni), sopra la vista. */
-export default function ManagerProposals({ workspaceId, board, onBoard, onWorkspaceUpdated }: Props) {
+export default function ManagerProposals({ workspaceId, board, onBoard }: Props) {
   if (pendingProposals(board) === 0) return null;
   return (
     <section
@@ -30,7 +29,7 @@ export default function ManagerProposals({ workspaceId, board, onBoard, onWorksp
             workspaceId={workspaceId}
             proposal={p}
             onBoard={onBoard}
-            onWorkspace={onWorkspaceUpdated}
+            onWorkspace={workspaceUpdated}
           />
         </div>
       ))}

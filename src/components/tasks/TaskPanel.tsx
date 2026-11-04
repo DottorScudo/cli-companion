@@ -11,6 +11,7 @@ import {
   XCircle,
   ChevronsLeft,
 } from "lucide-react";
+import { workspaceUpdated } from "../../app/actions/workspaces";
 import { api } from "../../lib/tauri";
 import type { Workspace } from "../../lib/tauri";
 import type { BotImage } from "../../lib/bots";
@@ -46,8 +47,6 @@ export interface TaskPanelProps {
   onToggleCollapsed: () => void;
   /** Aggiorna la board in App con la risposta di un comando. */
   onBoard: (board: BoardView) => void;
-  /** Aggiorna il workspace in App (proposta di impostazioni applicata). */
-  onWorkspaceUpdated: (workspace: Workspace) => void;
   /** Apre il Tasks Manager del workspace, col dettaglio di `taskId` se dato. */
   onOpenManager: (taskId?: string) => void;
   /** Apre un nuovo tab Task Intake nel workspace. */
@@ -73,7 +72,6 @@ export default function TaskPanel({
   collapsed,
   onToggleCollapsed,
   onBoard,
-  onWorkspaceUpdated,
   onOpenManager,
   onOpenIntake,
   onNewTask,
@@ -217,7 +215,7 @@ export default function TaskPanel({
                 workspaceId={workspaceId}
                 proposal={p}
                 onBoard={onBoard}
-                onWorkspace={onWorkspaceUpdated}
+                onWorkspace={workspaceUpdated}
               />
             ))}
 

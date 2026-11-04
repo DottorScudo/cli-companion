@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "../ui/button";
 import { api } from "../../lib/tauri";
-import { useTauriEvent } from "../../lib/useTauriEvent";
+import { useTauriEvent } from "../../hooks/useTauriEvent";
 import type { E2eRun } from "../../lib/board";
 import { afterRunResponse } from "../../lib/e2e";
 import E2eResult from "../tasks/E2eResult";

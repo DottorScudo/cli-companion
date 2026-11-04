@@ -14,6 +14,7 @@ mod board_flow;
 mod e2e;
 mod e2e_cancel;
 mod e2e_manual;
+mod ready;
 mod review;
 mod schedule;
 mod session_end;

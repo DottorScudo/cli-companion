@@ -118,6 +118,7 @@ pub fn run() {
             automation::e2e_open_report,
             automation::auto::schedule_get,
             automation::auto::schedule_set,
+            automation::auto::frontend_ready,
             toast::show_agent_notification,
             agents::agent_env_status,
             agents::agent_profiles,

@@ -12,8 +12,11 @@ import RepoPage from "./settings/RepoPage";
 import DeliveryPage from "./settings/DeliveryPage";
 import ArchivedPage from "./settings/ArchivedPage";
 import { SettingsPage, selectClass } from "./settings/shared";
-import type { AgentEnvStatus, AgentProfile, BotSettings, BuiltinLaunch, Workspace } from "../lib/tauri";
+import { closeSettings } from "../app/actions/settings";
+import { useStore } from "../hooks/useStore";
 import { cn } from "../lib/utils";
+import { uiStore } from "../stores/ui";
+import { visibleWorkspaces, workspacesStore } from "../stores/workspaces";
 
 export type SettingsTab =
   | "general-launches"
@@ -47,58 +50,16 @@ const WORKSPACE_TABS: { id: SettingsTab; label: string }[] = [
 
 const GROUP_LABEL = "px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint";
 
-interface Props {
-  isOpen: boolean;
-  initialTab?: SettingsTab;
-  /** Workspace preselezionato nelle pagine del workspace. */
-  initialWorkspaceId?: string;
-  workspaces: Workspace[];
-  onClose: () => void;
-  onWorkspaceUpdated: (ws: Workspace) => void;
-  /** Elimina un workspace (stesso flusso della sidebar). */
-  onRemoveWorkspace?: (id: string) => Promise<void>;
-  /** Esito del controllo aggiornamenti fatto nella pagina "Aggiornamenti". */
-  onUpdateAvailable?: (available: boolean) => void;
-  /** C'è un aggiornamento disponibile (pallino sulla voce del menu). */
-  updateAvailable?: boolean;
-  /** Profili dei coding agent (dichiarati dal backend). */
-  agentProfiles: AgentProfile[];
-  /** Elenco aggiornato degli ambienti dei coding agent (per la barra di stato). */
-  onAgentEnvs?: (envs: AgentEnvStatus[]) => void;
-  /** Interruttore "Mostra utilizzo" cambiato nelle Impostazioni. */
-  onShowUsage?: (enabled: boolean) => void;
-  /** Avvii integrati dell'app. */
-  builtinLaunches?: BuiltinLaunch[];
-  /** Avvio predefinito globale (id di un integrato; null = shell vuota). */
-  globalLaunch?: string | null;
-  onGlobalLaunchChange?: (id: string | null) => void;
-  /** Impostazioni dei bot (nome e avatar delle sessioni). */
-  botSettings: BotSettings;
-  onBotSettingsChange: (settings: BotSettings) => void;
-}
-
-export default function SettingsDialog({
-  isOpen,
-  initialTab = "general-launches",
-  initialWorkspaceId,
-  workspaces: allWorkspaces,
-  onClose,
-  onWorkspaceUpdated,
-  onRemoveWorkspace,
-  onUpdateAvailable,
-  updateAvailable = false,
-  agentProfiles,
-  onAgentEnvs,
-  onShowUsage,
-  builtinLaunches = [],
-  globalLaunch = null,
-  onGlobalLaunchChange,
-  botSettings,
-  onBotSettingsChange,
-}: Props) {
+/**
+ * Impostazioni: apertura, pagina e workspace richiesti stanno nello store ui;
+ * le pagine leggono i propri dati dagli archivi e li aggiornano con le azioni.
+ */
+export default function SettingsDialog() {
+  const { open: isOpen, tab: initialTab, workspaceId: initialWorkspaceId } = useStore(uiStore, (s) => s.settings);
+  // C'è un aggiornamento disponibile (pallino sulla voce del menu).
+  const updateAvailable = useStore(uiStore, (s) => s.updateAvailable);
   // Gli archiviati si gestiscono solo nella loro pagina.
-  const workspaces = allWorkspaces.filter((w) => !w.archived);
-  const archivedWorkspaces = allWorkspaces.filter((w) => w.archived);
+  const workspaces = useStore(workspacesStore, visibleWorkspaces);
   const [tab, setTab] = useState<SettingsTab>(initialTab);
   const [workspaceId, setWorkspaceId] = useState<string>("");
   const [prevOpen, setPrevOpen] = useState(isOpen);
@@ -157,15 +118,9 @@ export default function SettingsDialog({
   const renderPage = () => {
     switch (tab) {
       case "general-launches":
-        return (
-          <GeneralLaunchesPage
-            builtins={builtinLaunches}
-            globalLaunch={globalLaunch}
-            onGlobalLaunchChange={(id) => onGlobalLaunchChange?.(id)}
-          />
-        );
+        return <GeneralLaunchesPage />;
       case "bots":
-        return <BotsPage settings={botSettings} onSettingsChange={onBotSettingsChange} />;
+        return <BotsPage />;
       case "schedule":
         return (
           <SettingsPage
@@ -181,43 +136,28 @@ export default function SettingsDialog({
             title="Coding agent"
             description="Il plugin che avvisa l’app quando un agente ha finito o ha bisogno di te."
           >
-            <AgentSettingsTab profiles={agentProfiles} onEnvs={onAgentEnvs} onShowUsage={onShowUsage} />
+            <AgentSettingsTab />
           </SettingsPage>
         );
       case "updates":
         return (
           <SettingsPage title="Aggiornamenti" description="Controlla e installa le nuove versioni dell’app.">
-            <UpdateCheck onAvailable={onUpdateAvailable} />
+            <UpdateCheck />
           </SettingsPage>
         );
       case "archived":
-        return (
-          <ArchivedPage
-            workspaces={archivedWorkspaces}
-            onWorkspaceUpdated={onWorkspaceUpdated}
-            onRemove={(id) => onRemoveWorkspace?.(id) ?? Promise.resolve()}
-          />
-        );
+        return <ArchivedPage />;
     }
     if (!selected) return noWorkspace;
     switch (tab) {
       case "launches":
-        return (
-          <WorkspaceLaunchesPage
-            workspace={selected}
-            builtins={builtinLaunches}
-            globalLaunch={globalLaunch}
-            onWorkspaceUpdated={onWorkspaceUpdated}
-          />
-        );
+        return <WorkspaceLaunchesPage workspace={selected} />;
       case "worker":
-        return (
-          <WorkerPage workspace={selected} agentProfiles={agentProfiles} onWorkspaceUpdated={onWorkspaceUpdated} />
-        );
+        return <WorkerPage workspace={selected} />;
       case "delivery":
-        return <DeliveryPage workspace={selected} onWorkspaceUpdated={onWorkspaceUpdated} />;
+        return <DeliveryPage workspace={selected} />;
       case "repos":
-        return <RepoPage workspace={selected} onWorkspaceUpdated={onWorkspaceUpdated} />;
+        return <RepoPage workspace={selected} />;
     }
   };
 
@@ -225,7 +165,7 @@ export default function SettingsDialog({
     <Dialog
       open={isOpen}
       onOpenChange={(o) => {
-        if (!o) onClose();
+        if (!o) closeSettings();
       }}
     >
       <DialogContent
@@ -281,7 +221,7 @@ export default function SettingsDialog({
         </div>
 
         <DialogFooter className="border-t px-5 py-3">
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={closeSettings}>
             Chiudi
           </Button>
         </DialogFooter>

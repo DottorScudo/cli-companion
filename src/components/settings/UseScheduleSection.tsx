@@ -4,12 +4,11 @@ import { Section, useWorkspaceOp } from "./shared";
 
 interface Props {
   workspace: Workspace;
-  onWorkspaceUpdated: (ws: Workspace) => void;
 }
 
 /** Interruttore "Rispetta le fasce orarie" (`use_schedule`) del workspace. */
-export default function UseScheduleSection({ workspace, onWorkspaceUpdated }: Props) {
-  const { run, saving, error } = useWorkspaceOp(onWorkspaceUpdated);
+export default function UseScheduleSection({ workspace }: Props) {
+  const { run, saving, error } = useWorkspaceOp();
   return (
     <Section>
       <label className="flex items-center gap-2 text-[13px]">

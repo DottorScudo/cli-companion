@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { api } from "../lib/tauri";
-import type { AgentEnvStatus, AgentProfile } from "../lib/tauri";
+import type { AgentEnvStatus } from "../lib/tauri";
 import {
   agentEnvBadge,
   agentEnvState,
@@ -13,20 +13,16 @@ import {
   groupByAgent,
 } from "../lib/agents";
 import { report } from "../lib/errors";
+import { setAgentEnvs, setShowUsage as publishShowUsage } from "../app/actions/settings";
+import { useStore } from "../hooks/useStore";
+import { configStore } from "../stores/config";
 import { usageLimitsNotices } from "../lib/usage";
 import { cn } from "../lib/utils";
 
 /** Tab "Coding agent": installa il plugin di notifica negli env (Windows + WSL). */
-interface Props {
-  /** Profili dei coding agent: da qui gli avvisi sui limiti di utilizzo. */
-  profiles: AgentProfile[];
-  /** Notifica l'elenco aggiornato degli ambienti (barra di stato). */
-  onEnvs?: (envs: AgentEnvStatus[]) => void;
-  /** Notifica il nuovo valore dell'interruttore "Mostra utilizzo". */
-  onShowUsage?: (enabled: boolean) => void;
-}
-
-export default function AgentSettingsTab({ profiles, onEnvs, onShowUsage }: Props) {
+export default function AgentSettingsTab() {
+  // Profili dei coding agent: da qui gli avvisi sui limiti di utilizzo.
+  const profiles = useStore(configStore, (s) => s.agentProfiles);
   const [showUsage, setShowUsage] = useState(true);
 
   useEffect(() => {
@@ -41,7 +37,7 @@ export default function AgentSettingsTab({ profiles, onEnvs, onShowUsage }: Prop
     try {
       const s = await api.setShowUsage(enabled);
       setShowUsage(s.show_usage !== false);
-      onShowUsage?.(s.show_usage !== false);
+      publishShowUsage(s.show_usage !== false);
     } catch (e) {
       setShowUsage(!enabled);
       report("salvataggio dell'impostazione di utilizzo", e, { notify: true });
@@ -59,12 +55,13 @@ export default function AgentSettingsTab({ profiles, onEnvs, onShowUsage }: Prop
     try {
       const list = await api.agentEnvStatus();
       setEnvs(list);
-      onEnvs?.(list);
+      // Elenco aggiornato degli ambienti: lo legge anche la barra di stato.
+      setAgentEnvs(list);
       setLoadError(null);
     } catch (e) {
       setLoadError(String(e));
     }
-  }, [onEnvs]);
+  }, []);
 
   useEffect(() => {
     void refresh();

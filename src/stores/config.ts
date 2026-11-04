@@ -1,0 +1,89 @@
+// Dati letti dal backend o dalle impostazioni, non legati a un tab: profili
+// degli agenti, avvii integrati, bot, ambienti con i plugin installati.
+
+import { createStore } from "../lib/store.ts";
+import { botImageOf } from "../lib/bots.ts";
+import type { BotImage } from "../lib/bots.ts";
+import type { AgentEnvStatus, AgentProfile, BotSettings, BuiltinLaunch } from "../lib/tauri.ts";
+
+export interface ConfigState {
+  /** Profili di input e ripresa degli agenti (statici): letti una volta all'avvio. */
+  agentProfiles: AgentProfile[];
+  /** Profili caricati (o errore già segnalato): il ripristino della sessione li aspetta. */
+  profilesReady: boolean;
+  builtinLaunches: BuiltinLaunch[];
+  globalLaunch: string | null;
+  /** Interruttore globale dell'utilizzo (limiti e token). */
+  showUsage: boolean;
+  /** Nome e avatar di ogni sessione; la pool serve ai nomi dei tab ripristinati. */
+  botSettings: BotSettings;
+  /** Plugin degli agenti installati per ambiente (barra di stato). */
+  agentEnvs: AgentEnvStatus[];
+  appVersion: string | null;
+}
+
+export const DEFAULT_BOT_SETTINGS: BotSettings = { enabled: true, names: [], images: {} };
+
+export const INITIAL_CONFIG: ConfigState = {
+  agentProfiles: [],
+  profilesReady: false,
+  builtinLaunches: [],
+  globalLaunch: null,
+  showUsage: true,
+  botSettings: DEFAULT_BOT_SETTINGS,
+  agentEnvs: [],
+  appVersion: null,
+};
+
+/** Aggiorna alcuni campi. Se ognuno è `Object.is`-uguale a quello attuale: stesso stato. */
+export function patchConfig(s: ConfigState, patch: Partial<ConfigState>): ConfigState {
+  const changes = Object.entries(patch).filter(
+    ([key, value]) => value !== undefined && !Object.is(s[key as keyof ConfigState], value),
+  );
+  return changes.length === 0 ? s : { ...s, ...Object.fromEntries(changes) };
+}
+
+type BotImageResolver = (name: string) => BotImage | undefined;
+
+// Un risolutore per coppia (names, images): finché le impostazioni non cambiano
+// la funzione è la stessa e le immagini sono gli stessi oggetti, così i figli
+// memoizzati non si ridisegnano.
+const resolverCache = new WeakMap<readonly string[], WeakMap<object, BotImageResolver>>();
+
+function makeResolver(source: { names: readonly string[]; images: Record<string, BotImage> }): BotImageResolver {
+  const byName = new Map<string, BotImage | undefined>();
+  return (name) => {
+    if (!byName.has(name)) byName.set(name, botImageOf(source, name));
+    return byName.get(name);
+  };
+}
+
+/** Immagine di un bot per nome, con cache per `(names, images)`. */
+export function botImageResolver(bots: BotSettings): BotImageResolver {
+  let byImages = resolverCache.get(bots.names);
+  if (!byImages) {
+    byImages = new WeakMap();
+    resolverCache.set(bots.names, byImages);
+  }
+  let resolver = byImages.get(bots.images);
+  if (!resolver) {
+    resolver = makeResolver({ names: bots.names, images: bots.images });
+    byImages.set(bots.images, resolver);
+  }
+  return resolver;
+}
+
+/** Il bot si mostra solo con la funzione attiva. */
+export function shownBot(bots: BotSettings, name: string): string | undefined {
+  return bots.enabled ? name : undefined;
+}
+
+export function createConfigStore() {
+  const store = createStore<ConfigState>(INITIAL_CONFIG);
+  return {
+    ...store,
+    patch: (patch: Partial<ConfigState>) => store.update((s) => patchConfig(s, patch)),
+  };
+}
+
+export const configStore = createConfigStore();

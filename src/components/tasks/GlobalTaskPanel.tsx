@@ -18,7 +18,7 @@ import { usePanelNow } from "./usePanelNow";
  */
 export interface GlobalTaskPanelProps {
   /** Workspace visibili (non archiviati), nell'ordine della sidebar. */
-  workspaces: Workspace[];
+  workspaces: readonly Workspace[];
   /** Board note per id di workspace (può mancare chi non ha ancora risposto). */
   boards: Record<string, BoardView>;
   /** Passa alla vista del workspace (selezione come dalla sidebar). */

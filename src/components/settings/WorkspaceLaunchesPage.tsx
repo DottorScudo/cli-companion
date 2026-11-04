@@ -3,7 +3,9 @@ import { Pencil, Star, Trash2 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { api } from "../../lib/tauri";
-import type { BuiltinLaunch, Launch, Workspace } from "../../lib/tauri";
+import type { Launch, Workspace } from "../../lib/tauri";
+import { useStore } from "../../hooks/useStore";
+import { configStore } from "../../stores/config";
 import {
   LAUNCH_COMMAND_MAX,
   LAUNCH_NAME_MAX,
@@ -16,14 +18,13 @@ import { BuiltinBadge, Field, Section, SettingsPage, selectClass, useWorkspaceOp
 
 interface Props {
   workspace: Workspace;
-  builtins: BuiltinLaunch[];
-  globalLaunch: string | null;
-  onWorkspaceUpdated: (ws: Workspace) => void;
 }
 
 /** Workspace › Avvii: avvio predefinito, avvii integrati e personalizzati. */
-export default function WorkspaceLaunchesPage({ workspace, builtins, globalLaunch, onWorkspaceUpdated }: Props) {
-  const { run, saving, error, setError } = useWorkspaceOp(onWorkspaceUpdated);
+export default function WorkspaceLaunchesPage({ workspace }: Props) {
+  const builtins = useStore(configStore, (s) => s.builtinLaunches);
+  const globalLaunch = useStore(configStore, (s) => s.globalLaunch);
+  const { run, saving, error, setError } = useWorkspaceOp();
 
   // Form di aggiunta.
   const [newName, setNewName] = useState("");

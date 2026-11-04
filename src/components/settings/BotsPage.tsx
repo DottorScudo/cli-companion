@@ -2,6 +2,9 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "../../lib/tauri";
 import type { BotSettings } from "../../lib/tauri";
+import { setBotSettings } from "../../app/actions/settings";
+import { useStore } from "../../hooks/useStore";
+import { configStore } from "../../stores/config";
 import { BOT_NAME_MAX } from "../../lib/bots";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -10,13 +13,9 @@ import BotNameRow from "./BotNameRow";
 import { Field, Section, SettingsPage } from "./shared";
 import { BOT_IMAGE_ACCEPT, useBotImagePicker } from "./useBotImagePicker";
 
-interface Props {
-  settings: BotSettings;
-  onSettingsChange: (settings: BotSettings) => void;
-}
-
 /** Generale › Bot: nome e avatar di ogni sessione, e la pool da cui si pescano i nomi. */
-export default function BotsPage({ settings, onSettingsChange }: Props) {
+export default function BotsPage() {
+  const settings = useStore(configStore, (s) => s.botSettings);
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +27,7 @@ export default function BotsPage({ settings, onSettingsChange }: Props) {
     setError(null);
     setSaving(true);
     try {
-      onSettingsChange(await op());
+      setBotSettings(await op());
       return true;
     } catch (e) {
       setError(String(e));

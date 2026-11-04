@@ -1,20 +1,17 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "../ui/button";
 import { api } from "../../lib/tauri";
-import type { Workspace } from "../../lib/tauri";
+import { removeWorkspace } from "../../app/actions/workspaces";
+import { useStore } from "../../hooks/useStore";
+import { workspacesStore } from "../../stores/workspaces";
 import { cn } from "../../lib/utils";
 import { Section, SettingsPage, useWorkspaceOp } from "./shared";
 
-interface Props {
-  /** Solo i workspace archiviati. */
-  workspaces: Workspace[];
-  onWorkspaceUpdated: (ws: Workspace) => void;
-  onRemove: (id: string) => Promise<void>;
-}
-
 /** Elenco dei workspace archiviati: ripristino o eliminazione. */
-export default function ArchivedPage({ workspaces, onWorkspaceUpdated, onRemove }: Props) {
-  const { run, saving, error, setError } = useWorkspaceOp(onWorkspaceUpdated);
+export default function ArchivedPage() {
+  const list = useStore(workspacesStore, (s) => s.list);
+  const workspaces = useMemo(() => list.filter((w) => w.archived), [list]);
+  const { run, saving, error, setError } = useWorkspaceOp();
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
 
@@ -22,7 +19,7 @@ export default function ArchivedPage({ workspaces, onWorkspaceUpdated, onRemove 
     setRemoving(true);
     setError(null);
     try {
-      await onRemove(id);
+      await removeWorkspace(id);
       setConfirmingId(null);
     } catch (e) {
       setError(String(e));

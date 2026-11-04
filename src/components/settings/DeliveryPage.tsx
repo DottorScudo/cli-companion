@@ -16,12 +16,11 @@ import { Field, Section, SettingsPage, selectClass, useWorkspaceOp } from "./sha
 
 interface Props {
   workspace: Workspace;
-  onWorkspaceUpdated: (ws: Workspace) => void;
 }
 
 /** Workspace › Consegna: come i worker consegnano il lavoro finito (docs/BOARD.MD). */
-export default function DeliveryPage({ workspace, onWorkspaceUpdated }: Props) {
-  const { run, saving, error } = useWorkspaceOp(onWorkspaceUpdated);
+export default function DeliveryPage({ workspace }: Props) {
+  const { run, saving, error } = useWorkspaceOp();
   const delivery = effectiveDelivery(workspace);
 
   // Ogni cambio salva subito la consegna intera; il backend la normalizza.

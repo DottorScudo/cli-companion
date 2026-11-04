@@ -95,7 +95,7 @@ export interface ActivityGroup<W> {
 
 /** Workspace con task in corso, in coda, falliti o proposte, nell'ordine dato. */
 export function activityGroups<W extends { id: string }>(
-  workspaces: W[],
+  workspaces: readonly W[],
   boards: Record<string, Pick<BoardView, "tasks" | "proposals" | "settings_proposals"> | undefined>,
 ): ActivityGroup<W>[] {
   const groups: ActivityGroup<W>[] = [];

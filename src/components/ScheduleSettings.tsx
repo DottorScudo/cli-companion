@@ -3,7 +3,7 @@ import { Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { api } from "../lib/tauri";
-import { useTauriEvent } from "../lib/useTauriEvent";
+import { useTauriEvent } from "../hooks/useTauriEvent";
 import {
   MAX_WINDOWS,
   addWindow,

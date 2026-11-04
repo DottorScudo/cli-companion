@@ -1,0 +1,202 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import {
+  DEFAULT_BOT_SETTINGS,
+  INITIAL_CONFIG,
+  botImageResolver,
+  createConfigStore,
+  patchConfig,
+  shownBot,
+} from "../src/stores/config.ts";
+import {
+  INITIAL_UI,
+  closeManager,
+  closeSettings,
+  consumeIntent,
+  createUiStore,
+  modalOpen,
+  openManager,
+  openSettings,
+  setAddWorkspaceOpen,
+  setNotice,
+  setOffice,
+  setOutdatedPlugins,
+  setSessionReady,
+  setUpdateAvailable,
+  toggleOffice,
+} from "../src/stores/ui.ts";
+
+const IMAGE = { png: "AAAA", color: "#aabbcc" };
+
+describe("config: patchConfig", () => {
+  it("stato iniziale", () => {
+    assert.equal(INITIAL_CONFIG.botSettings, DEFAULT_BOT_SETTINGS);
+    assert.deepEqual(DEFAULT_BOT_SETTINGS, { enabled: true, names: [], images: {} });
+    assert.equal(INITIAL_CONFIG.profilesReady, false);
+    assert.equal(INITIAL_CONFIG.showUsage, true);
+  });
+
+  it("stessi valori (Object.is) = stesso stato", () => {
+    assert.equal(patchConfig(INITIAL_CONFIG, {}), INITIAL_CONFIG);
+    assert.equal(patchConfig(INITIAL_CONFIG, { showUsage: true, globalLaunch: null }), INITIAL_CONFIG);
+    assert.equal(patchConfig(INITIAL_CONFIG, { agentEnvs: INITIAL_CONFIG.agentEnvs }), INITIAL_CONFIG);
+  });
+
+  it("un array nuovo, anche se vuoto, è un cambiamento", () => {
+    assert.notEqual(patchConfig(INITIAL_CONFIG, { agentEnvs: [] }), INITIAL_CONFIG);
+  });
+
+  it("cambia solo i campi indicati e ignora gli undefined", () => {
+    const next = patchConfig(INITIAL_CONFIG, { showUsage: false, appVersion: undefined });
+    assert.equal(next.showUsage, false);
+    assert.equal(next.appVersion, null);
+    assert.equal(next.botSettings, INITIAL_CONFIG.botSettings);
+  });
+
+  it("lo store non notifica una patch a vuoto", () => {
+    const store = createConfigStore();
+    let calls = 0;
+    store.subscribe(() => calls++);
+    store.patch({ showUsage: true });
+    assert.equal(calls, 0);
+    store.patch({ globalLaunch: "builtin:claude" });
+    assert.equal(calls, 1);
+    assert.equal(store.getState().globalLaunch, "builtin:claude");
+  });
+});
+
+describe("config: bot", () => {
+  const bots = (extra = {}) => ({ enabled: true, names: ["Bolt", "Nova"], images: { Bolt: IMAGE }, ...extra });
+
+  it("botImageResolver risolve per nome (anche col suffisso numerico)", () => {
+    const resolve = botImageResolver(bots());
+    assert.equal(resolve("Bolt"), IMAGE);
+    assert.equal(resolve("bolt 2"), IMAGE);
+    assert.equal(resolve("Nova"), undefined);
+    assert.equal(resolve("Sconosciuto"), undefined);
+  });
+
+  it("stessa funzione finché names e images sono gli stessi riferimenti", () => {
+    const b = bots();
+    assert.equal(botImageResolver(b), botImageResolver({ ...b, enabled: false }));
+    assert.notEqual(botImageResolver(b), botImageResolver({ ...b, images: { ...b.images } }));
+    assert.notEqual(botImageResolver(b), botImageResolver({ ...b, names: [...b.names] }));
+  });
+
+  it("l'immagine è sempre lo stesso oggetto (figli memoizzati)", () => {
+    const resolve = botImageResolver(bots());
+    assert.equal(resolve("Bolt"), resolve("Bolt"));
+  });
+
+  it("shownBot mostra il nome solo con la funzione attiva", () => {
+    assert.equal(shownBot(bots(), "Bolt"), "Bolt");
+    assert.equal(shownBot(bots({ enabled: false }), "Bolt"), undefined);
+  });
+});
+
+describe("ui: dialoghi", () => {
+  it("modalOpen vale per Impostazioni e dialogo di aggiunta", () => {
+    assert.ok(!modalOpen(INITIAL_UI));
+    assert.ok(modalOpen(setAddWorkspaceOpen(INITIAL_UI, true)));
+    assert.ok(modalOpen(openSettings(INITIAL_UI, "bots")));
+    assert.ok(!modalOpen(closeSettings(openSettings(INITIAL_UI, "bots"))));
+  });
+
+  it("openSettings imposta pagina e workspace; aprire di nuovo uguale = stesso stato", () => {
+    const s = openSettings(INITIAL_UI, "launches", "w1");
+    assert.deepEqual(s.settings, { open: true, tab: "launches", workspaceId: "w1" });
+    assert.equal(openSettings(s, "launches", "w1"), s);
+    assert.equal(openSettings(s, "launches", undefined).settings.workspaceId, undefined);
+  });
+
+  it("closeSettings: chiuso = stesso stato; aperto = solo open falso", () => {
+    assert.equal(closeSettings(INITIAL_UI), INITIAL_UI);
+    const s = closeSettings(openSettings(INITIAL_UI, "updates"));
+    assert.deepEqual(s.settings, { open: false, tab: "updates", workspaceId: undefined });
+  });
+
+  it("setAddWorkspaceOpen, setNotice, setUpdateAvailable, setSessionReady: stesso valore = stesso stato", () => {
+    assert.equal(setAddWorkspaceOpen(INITIAL_UI, false), INITIAL_UI);
+    assert.equal(setNotice(INITIAL_UI, null), INITIAL_UI);
+    assert.equal(setUpdateAvailable(INITIAL_UI, false), INITIAL_UI);
+    assert.equal(setSessionReady(INITIAL_UI, false), INITIAL_UI);
+    assert.equal(setNotice(INITIAL_UI, "ciao").notice, "ciao");
+    assert.equal(setSessionReady(INITIAL_UI, true).sessionReady, true);
+  });
+
+  it("setOutdatedPlugins: stessa lista = stesso stato", () => {
+    const list = [];
+    const s = setOutdatedPlugins(INITIAL_UI, list);
+    assert.equal(s.outdatedPlugins, list);
+    assert.equal(setOutdatedPlugins(s, list), s);
+  });
+});
+
+describe("ui: Tasks Manager e Ufficio", () => {
+  it("openManager apre il manager del workspace e chiude l'Ufficio", () => {
+    const s = openManager(setOffice(INITIAL_UI, true), "w1");
+    assert.equal(s.managerOpen.w1, true);
+    assert.equal(s.officeOpen, false);
+    assert.equal(s.managerIntent, null);
+  });
+
+  it("openManager con richiesta assegna un nonce crescente", () => {
+    const first = openManager(INITIAL_UI, "w1", { taskId: "t1" });
+    assert.deepEqual(first.managerIntent, { taskId: "t1", nonce: 1 });
+    const second = openManager(first, "w1", { newTask: true });
+    assert.deepEqual(second.managerIntent, { newTask: true, nonce: 2 });
+    assert.equal(second.intentNonce, 2);
+  });
+
+  it("openManager senza richiesta azzera quella pendente ma non consuma nonce", () => {
+    const withIntent = openManager(INITIAL_UI, "w1", { taskId: "t1" });
+    const s = openManager(withIntent, "w1");
+    assert.equal(s.managerIntent, null);
+    assert.equal(s.intentNonce, 1);
+  });
+
+  it("openManager su un manager già aperto, senza richiesta né Ufficio = stesso stato", () => {
+    const s = openManager(INITIAL_UI, "w1");
+    assert.equal(openManager(s, "w1"), s);
+    assert.notEqual(openManager(s, "w2"), s);
+  });
+
+  it("closeManager mette false solo se era aperto", () => {
+    const s = openManager(INITIAL_UI, "w1");
+    assert.equal(closeManager(s, "w1").managerOpen.w1, false);
+    assert.equal(closeManager(INITIAL_UI, "w1"), INITIAL_UI);
+    const closed = closeManager(s, "w1");
+    assert.equal(closeManager(closed, "w1"), closed);
+  });
+
+  it("consumeIntent azzera la richiesta una volta sola", () => {
+    const s = openManager(INITIAL_UI, "w1", { taskId: "t1" });
+    const consumed = consumeIntent(s);
+    assert.equal(consumed.managerIntent, null);
+    assert.equal(consumeIntent(consumed), consumed);
+  });
+
+  it("setOffice e toggleOffice", () => {
+    assert.equal(setOffice(INITIAL_UI, false), INITIAL_UI);
+    const open = toggleOffice(INITIAL_UI);
+    assert.equal(open.officeOpen, true);
+    assert.equal(toggleOffice(open).officeOpen, false);
+  });
+});
+
+describe("createUiStore", () => {
+  it("le azioni a vuoto non notificano", () => {
+    const store = createUiStore();
+    let calls = 0;
+    store.subscribe(() => calls++);
+    store.closeSettings();
+    store.closeManager("w1");
+    store.consumeIntent();
+    store.setNotice(null);
+    store.setOffice(false);
+    assert.equal(calls, 0);
+    store.openManager("w1", { taskId: "t" });
+    store.consumeIntent();
+    assert.equal(calls, 2);
+  });
+});

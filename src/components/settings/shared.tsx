@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import type { ReactNode } from "react";
 import type { Workspace } from "../../lib/tauri";
+import { workspaceUpdated } from "../../app/actions/workspaces";
 import { cn } from "../../lib/utils";
 
 export const selectClass =
@@ -64,26 +65,23 @@ export function BuiltinBadge() {
 
 /**
  * Esegue una modifica al workspace tenendo traccia di stato di salvataggio ed
- * errore; il workspace aggiornato risale a chi lo possiede.
+ * errore; il workspace aggiornato finisce nello store dei workspace.
  */
-export function useWorkspaceOp(onWorkspaceUpdated: (ws: Workspace) => void) {
+export function useWorkspaceOp() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const run = useCallback(
-    async (op: () => Promise<Workspace>): Promise<boolean> => {
-      setError(null);
-      setSaving(true);
-      try {
-        onWorkspaceUpdated(await op());
-        return true;
-      } catch (e) {
-        setError(String(e));
-        return false;
-      } finally {
-        setSaving(false);
-      }
-    },
-    [onWorkspaceUpdated],
-  );
+  const run = useCallback(async (op: () => Promise<Workspace>): Promise<boolean> => {
+    setError(null);
+    setSaving(true);
+    try {
+      workspaceUpdated(await op());
+      return true;
+    } catch (e) {
+      setError(String(e));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, []);
   return { run, saving, error, setError };
 }

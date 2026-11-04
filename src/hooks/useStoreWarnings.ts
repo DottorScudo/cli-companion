@@ -1,9 +1,9 @@
 import { useEffect } from "react";
-import { api } from "./tauri";
-import { report } from "./errors";
-import { noticeStore } from "./notices";
-import { storeWarningNotice } from "./storeWarnings";
-import type { StoreWarning } from "./storeWarnings";
+import { api } from "../lib/tauri";
+import { report } from "../lib/errors";
+import { noticeStore } from "../lib/notices";
+import { storeWarningNotice } from "../lib/storeWarnings";
+import type { StoreWarning } from "../lib/storeWarnings";
 import { useTauriEvent } from "./useTauriEvent";
 
 const showWarning = (warning: StoreWarning) => noticeStore.push(storeWarningNotice(warning));
