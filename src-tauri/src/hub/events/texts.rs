@@ -1,14 +1,21 @@
-//! I testi in italiano dei messaggi evento e dei titoli dei thread: brevi, i
-//! dati completi sono nel campo `event` del messaggio.
+//! I testi in italiano dei messaggi evento e dei titoli dei thread: una riga
+//! (tipo di evento e titolo del task), i dati completi sono nel campo `event`
+//! del messaggio. Fanno eccezione il piano senza proposta, che porta le domande
+//! per l'utente, e il fallimento, che aggiunge la prima riga del motivo.
 
 use super::diff::TaskChange;
 use super::snapshot::{ProposalSnap, TaskSnap};
 use crate::board::{TaskKind, Verdict};
+use crate::validate::clip_with_ellipsis;
 
 /// Task elencati nel messaggio di una nuova proposta; gli altri si contano.
 const PROPOSAL_LIST_MAX: usize = 20;
 /// Titolo di riserva di un thread se il titolo del task e' vuoto dopo la pulizia.
 const FALLBACK_TITLE: &str = "Obiettivo";
+/// Caratteri del motivo di un fallimento riportati nel messaggio.
+const FAILURE_REASON_MAX: usize = 120;
+/// Separatore tra il titolo di un task fallito e il suo motivo.
+const REASON_SEPARATOR: &str = " — ";
 
 pub const PROPOSAL_REJECTED: &str = "Proposta scartata.";
 pub const THREAD_CONCLUDED: &str = "Tutti i task sono conclusi: thread chiuso.";
@@ -43,41 +50,53 @@ pub fn task(change: TaskChange, task: &TaskSnap) -> String {
     match change {
         TaskChange::Created => format!("Task creato: {title}"),
         TaskChange::Started => format!("Task avviato: {title}"),
-        TaskChange::Done => with_detail(done_headline(task), task.summary.as_deref()),
-        TaskChange::Failed => {
-            with_detail(format!("Task fallito: {title}"), task.note.as_deref().or(task.summary.as_deref()))
-        }
+        TaskChange::Done => done_headline(task),
+        TaskChange::Failed => failed_headline(task),
         TaskChange::Attention => format!("Il task richiede attenzione: {title}"),
         TaskChange::Deleted => format!("Task eliminato: {title}"),
     }
 }
 
 /// Un task `plan` concluso senza proposta: il riassunto porta le domande del
-/// pianificatore per l'utente.
+/// pianificatore per l'utente, che nel thread non si vedono altrove.
 pub fn plan_without_proposal(task: &TaskSnap) -> String {
-    with_detail(format!("Pianificazione conclusa senza proposta: {}", task.title), task.summary.as_deref())
+    let headline = format!("Pianificazione conclusa senza proposta: {}", task.title);
+    match task.summary.as_deref() {
+        Some(questions) => format!("{headline}\n{questions}"),
+        None => headline,
+    }
 }
 
 fn done_headline(task: &TaskSnap) -> String {
     match (task.kind, task.verdict) {
         (TaskKind::Review, Some(verdict)) => {
-            format!("Revisione completata: {} (esito: {})", task.title, verdict_label(verdict))
+            format!("Revisione finita: {} (esito: {})", task.title, verdict_label(verdict))
         }
-        _ => format!("Task completato: {}", task.title),
+        _ => format!("Task finito: {}", task.title),
     }
+}
+
+fn failed_headline(task: &TaskSnap) -> String {
+    let headline = format!("Task fallito: {}", task.title);
+    match failure_reason(task) {
+        Some(reason) => format!("{headline}{REASON_SEPARATOR}{reason}"),
+        None => headline,
+    }
+}
+
+/// La prima riga non vuota della nota (o, se manca, del riassunto), tagliata.
+fn failure_reason(task: &TaskSnap) -> Option<String> {
+    [task.note.as_deref(), task.summary.as_deref()]
+        .into_iter()
+        .flatten()
+        .find_map(|text| text.lines().map(str::trim).find(|line| !line.is_empty()))
+        .map(|line| clip_with_ellipsis(line, FAILURE_REASON_MAX))
 }
 
 fn verdict_label(verdict: Verdict) -> &'static str {
     match verdict {
         Verdict::Passed => "superata",
         Verdict::Issues => "problemi trovati",
-    }
-}
-
-fn with_detail(headline: String, detail: Option<&str>) -> String {
-    match detail {
-        Some(d) => format!("{headline}\n{d}"),
-        None => headline,
     }
 }
 
@@ -105,16 +124,48 @@ mod tests {
     }
 
     #[test]
-    fn task_texts() {
+    fn task_texts_are_one_line_without_the_summary() {
         let mut t = task("a", crate::board::TaskStatus::Done);
-        assert_eq!(super::task(TaskChange::Done, &t), "Task completato: Task a");
-        t.summary = Some("fatto".to_string());
-        assert_eq!(super::task(TaskChange::Done, &t), "Task completato: Task a\nfatto");
-        // Senza nota, il fallimento mostra il riassunto del report.
-        assert_eq!(super::task(TaskChange::Failed, &t), "Task fallito: Task a\nfatto");
+        t.summary = Some("fatto\naltro".to_string());
+        assert_eq!(super::task(TaskChange::Created, &t), "Task creato: Task a");
+        assert_eq!(super::task(TaskChange::Started, &t), "Task avviato: Task a");
+        assert_eq!(super::task(TaskChange::Done, &t), "Task finito: Task a");
+        assert_eq!(super::task(TaskChange::Attention, &t), "Il task richiede attenzione: Task a");
         (t.kind, t.verdict) = (TaskKind::Review, Some(Verdict::Passed));
-        assert_eq!(super::task(TaskChange::Done, &t), "Revisione completata: Task a (esito: superata)\nfatto");
+        assert_eq!(super::task(TaskChange::Done, &t), "Revisione finita: Task a (esito: superata)");
+        t.verdict = Some(Verdict::Issues);
+        assert_eq!(super::task(TaskChange::Done, &t), "Revisione finita: Task a (esito: problemi trovati)");
         assert_eq!(super::task(TaskChange::Deleted, &t), "Task eliminato: Task a");
+    }
+
+    #[test]
+    fn a_failure_reports_the_first_line_of_its_reason() {
+        let mut t = task("a", crate::board::TaskStatus::Failed);
+        assert_eq!(super::task(TaskChange::Failed, &t), "Task fallito: Task a");
+        // Senza nota, il motivo e' la prima riga non vuota del riassunto.
+        t.summary = Some("\n  \nprima riga\nseconda".to_string());
+        assert_eq!(super::task(TaskChange::Failed, &t), "Task fallito: Task a — prima riga");
+        t.note = Some("worker interrotto\ndettagli".to_string());
+        assert_eq!(super::task(TaskChange::Failed, &t), "Task fallito: Task a — worker interrotto");
+        t.note = Some("   ".to_string());
+        assert_eq!(super::task(TaskChange::Failed, &t), "Task fallito: Task a — prima riga");
+    }
+
+    #[test]
+    fn a_long_failure_reason_is_cut_with_an_ellipsis() {
+        let mut t = task("a", crate::board::TaskStatus::Failed);
+        t.note = Some("è".repeat(FAILURE_REASON_MAX + 5));
+        let body = super::task(TaskChange::Failed, &t);
+        let reason = body.strip_prefix("Task fallito: Task a — ").unwrap();
+        assert_eq!(reason, format!("{}…", "è".repeat(FAILURE_REASON_MAX)));
+        t.note = Some("è".repeat(FAILURE_REASON_MAX));
+        assert!(!super::task(TaskChange::Failed, &t).ends_with('…'));
+    }
+
+    #[test]
+    fn a_plan_without_proposal_keeps_the_questions() {
+        let mut t = task("a", crate::board::TaskStatus::Done);
+        assert_eq!(plan_without_proposal(&t), "Pianificazione conclusa senza proposta: Task a");
         t.summary = Some("Questions for the user:\n1. Quale database?".to_string());
         assert_eq!(
             plan_without_proposal(&t),

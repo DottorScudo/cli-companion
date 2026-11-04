@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn events_keep_their_data_without_empty_fields() {
-        let mut m = msg("m1", Author::System, "Task completato: Login", 1_700_000_000_000);
+        let mut m = msg("m1", Author::System, "Task finito: Login", 1_700_000_000_000);
         m.kind = MessageKind::Event;
         m.event = Some(HubEvent { status: Some("done".into()), ..HubEvent::of_task(HubEventKind::TaskDone, "t-1") });
         let v = message(&m, &names());

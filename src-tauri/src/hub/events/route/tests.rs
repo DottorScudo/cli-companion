@@ -128,7 +128,7 @@ fn task_events_go_to_the_thread_of_their_task() {
     let t = only_thread(&list);
     assert_eq!(
         bodies(t)[1..],
-        ["Task avviato: Task a", "Il task richiede attenzione: Task a", "Task fallito: Task a\nworker interrotto"]
+        ["Task avviato: Task a", "Il task richiede attenzione: Task a", "Task fallito: Task a — worker interrotto"]
     );
     let event = last_event(t);
     assert_eq!(event.kind, HubEventKind::TaskFailed);
@@ -137,7 +137,7 @@ fn task_events_go_to_the_thread_of_their_task() {
 }
 
 #[test]
-fn a_completed_review_reports_its_summary_and_verdict() {
+fn a_completed_review_reports_its_verdict_without_the_summary() {
     let mut list = ChannelThreads::default();
     let mut review = task("r", TaskStatus::Running);
     review.kind = TaskKind::Review;
@@ -149,7 +149,7 @@ fn a_completed_review_reports_its_summary_and_verdict() {
 
     let t = only_thread(&list);
     let done = t.messages.iter().find(|m| m.event.as_ref().is_some_and(|e| e.kind == HubEventKind::TaskDone)).unwrap();
-    assert_eq!(done.body, "Revisione completata: Task r (esito: problemi trovati)\nnessun problema");
+    assert_eq!(done.body, "Revisione finita: Task r (esito: problemi trovati)");
     let event = done.event.as_ref().unwrap();
     assert_eq!(
         (event.summary.as_deref(), event.verdict, event.status.as_deref()),
@@ -294,7 +294,7 @@ fn the_proposal_of_a_plan_lands_in_its_thread_and_wakes_the_owner() {
     let out = routed(&mut list, &proposed, &done, 20);
     assert!(out.wakes.is_empty());
     let t = only_thread(&list);
-    assert_eq!((t.state, bodies(t).last()), (ThreadState::Open, Some(&"Task completato: Task plan-x")));
+    assert_eq!((t.state, bodies(t).last()), (ThreadState::Open, Some(&"Task finito: Task plan-x")));
 
     // Accettata: i task si collegano nello stesso thread.
     let accepted =
@@ -350,7 +350,7 @@ fn a_plan_whose_proposal_was_already_decided_is_not_unanswered() {
     routed(&mut list, &proposed, &rejected, 20);
     let out = routed(&mut list, &rejected, &board(vec![plan(TaskStatus::Done)], vec![]), 30);
     assert!(out.wakes.is_empty());
-    assert_eq!(bodies(only_thread(&list)).last(), Some(&"Task completato: Task plan-x"));
+    assert_eq!(bodies(only_thread(&list)).last(), Some(&"Task finito: Task plan-x"));
 }
 
 #[test]

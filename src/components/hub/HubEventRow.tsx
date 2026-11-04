@@ -14,7 +14,7 @@ import { focusTerminal, openManager } from "../../app/actions/view";
 import { useStores } from "../../hooks/useStore";
 import { formatRelative } from "../../lib/board";
 import { eventLook, workerTabOf } from "../../lib/hubEvents";
-import { planTaskOf } from "../../lib/hubProposals";
+import { eventTaskOf, taskLinkLabel } from "../../lib/hubProposals";
 import type { HubEventIcon, HubEventTone } from "../../lib/hubEvents";
 import type { HubEvent, HubMessage } from "../../lib/tauri";
 import { cn } from "../../lib/utils";
@@ -52,8 +52,9 @@ interface Props {
 }
 
 /**
- * Evento della board come riga compatta: icona e tipo, testo, nota del
- * riassunto, link al terminale del worker (se il tab è ancora aperto) e "Rispondi".
+ * Evento della board come riga compatta: icona e tipo, testo, link al terminale
+ * del worker (se il tab è ancora aperto), link al task nel Tasks Manager (se è
+ * ancora nella board) e "Rispondi".
  */
 export default function HubEventRow({ message, event, target, now, onReply }: Props) {
   const look = eventLook(event.kind);
@@ -63,18 +64,17 @@ export default function HubEventRow({ message, event, target, now, onReply }: Pr
     [event],
   );
   const workerTab = useStores(WORKER_STORES, computeWorkerTab);
-  const computePlanTask = useCallback(() => planTaskOf(boardsStore.getState().boards, event), [event]);
-  const planTask = useStores(BOARDS_ONLY, computePlanTask);
+  const computeTask = useCallback(() => eventTaskOf(boardsStore.getState().boards, event), [event]);
+  const task = useStores(BOARDS_ONLY, computeTask);
   const { workspace } = event;
   return (
     <div className="group flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-accent/40">
       <Icon className={cn("mt-0.5 !size-4 flex-shrink-0", TONE_CLASS[look.tone])} aria-hidden="true" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <p className="text-[12px] leading-snug">
+        <p className="whitespace-pre-line text-[12px] leading-snug">
           <span className={cn("font-semibold", TONE_CLASS[look.tone])}>{look.label}</span>
           <span className="text-text-secondary"> · {message.body}</span>
         </p>
-        {event.summary && <p className="whitespace-pre-line text-[11px] text-muted-foreground">{event.summary}</p>}
         {workerTab !== null && (
           <button
             type="button"
@@ -84,13 +84,13 @@ export default function HubEventRow({ message, event, target, now, onReply }: Pr
             apri il terminale del worker
           </button>
         )}
-        {planTask && workspace !== null && (
+        {task && workspace !== null && (
           <button
             type="button"
-            onClick={() => openManager(workspace, { taskId: planTask.id })}
+            onClick={() => openManager(workspace, { taskId: task.id })}
             className="self-start text-[11px] text-primary hover:underline"
           >
-            apri il task di pianificazione nel Tasks Manager
+            {taskLinkLabel(task)}
           </button>
         )}
         {target && <ReplyReference target={target} />}

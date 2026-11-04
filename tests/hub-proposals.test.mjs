@@ -4,11 +4,12 @@ import { describe, it } from "node:test";
 import {
   PROPOSAL_STATUS_LABEL,
   cardStatus,
-  planTaskOf,
+  eventTaskOf,
   proposalCount,
   proposalSpecs,
   proposalStatuses,
   proposalTitle,
+  taskLinkLabel,
 } from "../src/lib/hubProposals.ts";
 
 const message = (kind, proposalId, extra = {}) => ({
@@ -82,7 +83,7 @@ describe("proposalCount e proposalTitle", () => {
   });
 });
 
-describe("planTaskOf", () => {
+describe("eventTaskOf", () => {
   const boards = {
     ws: {
       tasks: [
@@ -91,14 +92,22 @@ describe("planTaskOf", () => {
       ],
     },
   };
-  it("il task plan dell'evento", () => {
-    assert.equal(planTaskOf(boards, { workspace: "ws", task_id: "plan-x" })?.id, "plan-x");
+  it("il task dell'evento, piano o no", () => {
+    assert.equal(eventTaskOf(boards, { workspace: "ws", task_id: "plan-x" })?.id, "plan-x");
+    assert.equal(eventTaskOf(boards, { workspace: "ws", task_id: "work-y" })?.id, "work-y");
   });
-  it("null per task che non sono piani, mancanti o eventi senza task o workspace", () => {
-    assert.equal(planTaskOf(boards, { workspace: "ws", task_id: "work-y" }), null);
-    assert.equal(planTaskOf(boards, { workspace: "ws", task_id: "ghost" }), null);
-    assert.equal(planTaskOf(boards, { workspace: "altro", task_id: "plan-x" }), null);
-    assert.equal(planTaskOf(boards, { workspace: "ws", task_id: null }), null);
-    assert.equal(planTaskOf(boards, { workspace: null, task_id: "plan-x" }), null);
+  it("null per task non più nella board o eventi senza task o workspace", () => {
+    assert.equal(eventTaskOf(boards, { workspace: "ws", task_id: "ghost" }), null);
+    assert.equal(eventTaskOf(boards, { workspace: "altro", task_id: "plan-x" }), null);
+    assert.equal(eventTaskOf(boards, { workspace: "ws", task_id: null }), null);
+    assert.equal(eventTaskOf(boards, { workspace: null, task_id: "plan-x" }), null);
+  });
+});
+
+describe("taskLinkLabel", () => {
+  it("un solo link per evento: quello dei piani ha il suo testo", () => {
+    assert.equal(taskLinkLabel({ kind: "plan" }), "apri il task di pianificazione nel Tasks Manager");
+    assert.equal(taskLinkLabel({ kind: "work" }), "apri il task nel Tasks Manager");
+    assert.equal(taskLinkLabel({ kind: "review" }), "apri il task nel Tasks Manager");
   });
 });

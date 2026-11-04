@@ -61,14 +61,18 @@ export function proposalTitle(count: number | null): string {
   return count === null ? "Proposta pronta" : `Proposta pronta · ${count} task`;
 }
 
-/** Il task `plan` a cui si riferisce l'evento, se è nella board del suo workspace. */
-export function planTaskOf(
+/** Il task a cui si riferisce l'evento, se è ancora nella board del suo workspace (eliminato o archiviato: `null`). */
+export function eventTaskOf(
   boards: Readonly<Record<string, Pick<BoardView, "tasks">>>,
   event: Pick<HubEvent, "workspace" | "task_id">,
 ): TaskView | null {
   if (event.workspace === null || event.task_id === null) return null;
-  const task = boards[event.workspace]?.tasks.find((t) => t.id === event.task_id);
-  return task && isPlan(task) ? task : null;
+  return boards[event.workspace]?.tasks.find((t) => t.id === event.task_id) ?? null;
+}
+
+/** Testo del link che apre il task dell'evento nel Tasks Manager: i piani hanno il loro. */
+export function taskLinkLabel(task: Pick<TaskView, "kind">): string {
+  return isPlan(task) ? "apri il task di pianificazione nel Tasks Manager" : "apri il task nel Tasks Manager";
 }
 
 /** Stato da mostrare sulla scheda di un messaggio: solo «proposta pronta» è una scheda, gli altri eventi restano righe. */

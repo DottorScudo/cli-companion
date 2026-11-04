@@ -372,8 +372,9 @@ arrivate la pagina scrive «Impostazioni non disponibili.» e gli accordion non 
   porta solo `proposal_id`. Decisa, la proposta lascia la board e la scheda ripiega sul testo del messaggio (che elenca
   i titoli). La scheda **non decide**: «Rispondi» (in evidenza finché è pendente, con il suggerimento «Rispondi per
   accettare o scartare») cita il messaggio e la decisione passa dal segretario (`decide_proposal`).
-- **Eventi di un `plan`**: la riga dell'evento di un task di pianificazione (anche «proposta pronta» e «senza proposta»)
-  ha il link «apri il task di pianificazione nel Tasks Manager» (`planTaskOf`). Decisioni (`proposal_accepted` /
+- **Link al task**: la riga di ogni evento di un task ancora nella board ha il link «apri il task nel Tasks Manager»
+  (`eventTaskOf`); per un `plan` (anche «proposta pronta» e «senza proposta») è «apri il task di pianificazione nel
+  Tasks Manager». Un task eliminato o archiviato non ha link. Decisioni (`proposal_accepted` /
   `proposal_rejected`) e risvegli del titolare sono righe e messaggi del segretario come gli altri.
 
 ### Colonna SEGRETARI
@@ -489,11 +490,15 @@ Sui thread del canale del workspace, con tempo e id passati dal chiamante:
 Nei thread con un **titolare** l'instradamento restituisce anche i risvegli (`EventWake`: thread, segretario,
 messaggio da cui parte il turno), vedi "Risvegli da evento".
 
-Testi (`events/texts.rs`): «Task creato: <titolo>», «Task avviato: <titolo>», «Task completato: <titolo>» (con il
-riassunto sulla riga dopo), «Revisione completata: <titolo> (esito: superata | problemi trovati)», «Task fallito:
-<titolo>» (con la nota, o il riassunto se manca), «Il task richiede attenzione: <titolo>», «Task eliminato:
-<titolo>». Il campo `event` porta i dati completi: `workspace`, `task_id`/`proposal_id`, `status` e, per
-`task_done`/`task_failed`, `summary`, `verdict` e `note` del tentativo concluso.
+Testi (`events/texts.rs`), una riga ciascuno: «Task creato: <titolo>», «Task avviato: <titolo>», «Task finito:
+<titolo>», «Revisione finita: <titolo> (esito: superata | problemi trovati)», «Task fallito: <titolo>» (con
+` — ` e la prima riga non vuota della nota, o del riassunto se manca, tagliata a 120 caratteri con «…»), «Il task
+richiede attenzione: <titolo>», «Task eliminato: <titolo>». Fa eccezione «Pianificazione conclusa senza proposta:
+<titolo>», che porta sotto le domande del pianificatore (nel thread non si vedono altrove). Il riassunto del worker
+non è nel testo: il campo `event` porta i dati completi (`workspace`, `task_id`/`proposal_id`, `status` e, per
+`task_done`/`task_failed`, `summary`, `verdict` e `note` del tentativo concluso) e li legge il segretario. La riga
+nell'interfaccia (`HubEventRow`) mostra solo il testo, più il link «apri il task nel Tasks Manager» se il task è
+ancora nella board.
 
 Un passo con eventi è **una sola** modifica atomica del canale (`HubState::update_when`, sotto il lock dell'HUB
 e dopo il controllo che il workspace esista ancora), seguita da un `hub-update` per ogni thread toccato. Un passo
