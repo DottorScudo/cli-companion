@@ -1,7 +1,8 @@
 //! Configurazione E2E di un repository: comando, report JUnit, timeout
 //! (vedi docs/BOARD.MD, "Test E2E").
 
-use super::{MAX_REPO_COMMAND_LEN, MAX_REPO_PATH_LEN};
+use super::validate::{MAX_REPO_COMMAND_LEN, MAX_REPO_PATH_LEN};
+use crate::validate::{is_absolute_like, path_segments, ErrorCode, ValidationError};
 use serde::{Deserialize, Serialize};
 
 /// Timeout predefinito e limiti, in minuti.
@@ -27,19 +28,21 @@ pub struct E2eConfig {
 impl E2eConfig {
     /// Normalizza e valida: comando su una riga non vuoto, percorso JUnit
     /// relativo senza `..`, timeout nei limiti.
-    pub fn normalized(self) -> Result<E2eConfig, String> {
+    pub fn normalized(self) -> Result<E2eConfig, ValidationError> {
         let command = self.command.trim();
         if command.is_empty() {
-            return Err("comando E2E mancante".to_string());
+            return Err(ValidationError::new(ErrorCode::E2eCommandMissing));
         }
         if command.chars().any(|c| c.is_control() && c != '\t') {
-            return Err("il comando E2E deve stare su una riga".to_string());
+            return Err(ValidationError::new(ErrorCode::E2eCommandMultiline));
         }
         if command.chars().count() > MAX_REPO_COMMAND_LEN {
-            return Err(format!("comando E2E troppo lungo (max {MAX_REPO_COMMAND_LEN} caratteri)"));
+            return Err(ValidationError::new(ErrorCode::E2eCommandTooLong).max(MAX_REPO_COMMAND_LEN));
         }
         if !(MIN_E2E_TIMEOUT_MIN..=MAX_E2E_TIMEOUT_MIN).contains(&self.timeout_min) {
-            return Err(format!("timeout E2E non valido (da {MIN_E2E_TIMEOUT_MIN} a {MAX_E2E_TIMEOUT_MIN} minuti)"));
+            return Err(ValidationError::new(ErrorCode::E2eTimeoutInvalid)
+                .min(MIN_E2E_TIMEOUT_MIN as usize)
+                .max(MAX_E2E_TIMEOUT_MIN as usize));
         }
         Ok(E2eConfig {
             command: command.to_string(),
@@ -50,21 +53,20 @@ impl E2eConfig {
 }
 
 /// Percorso del report: relativo, `/` come separatore, senza `..`.
-fn normalize_junit(raw: &str) -> Result<String, String> {
+fn normalize_junit(raw: &str) -> Result<String, ValidationError> {
     let t = raw.trim().replace('\\', "/");
     if t.is_empty() {
-        return Err("percorso JUnit E2E mancante".to_string());
+        return Err(ValidationError::new(ErrorCode::E2eJunitMissing));
     }
-    let b = t.as_bytes();
-    if t.starts_with('/') || (b.len() >= 2 && b[1] == b':') {
-        return Err("il percorso JUnit E2E deve essere relativo al repository".to_string());
+    if is_absolute_like(&t) {
+        return Err(ValidationError::new(ErrorCode::E2eJunitNotRelative));
     }
     if t.chars().count() > MAX_REPO_PATH_LEN || t.chars().any(char::is_control) {
-        return Err(format!("percorso JUnit E2E non valido (max {MAX_REPO_PATH_LEN} caratteri)"));
+        return Err(ValidationError::new(ErrorCode::E2eJunitInvalid).max(MAX_REPO_PATH_LEN));
     }
-    let segs: Vec<&str> = t.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
+    let segs = path_segments(&t);
     if segs.is_empty() || segs.contains(&"..") {
-        return Err("percorso JUnit E2E non valido (niente '..')".to_string());
+        return Err(ValidationError::new(ErrorCode::E2eJunitEscapes));
     }
     Ok(segs.join("/"))
 }
@@ -88,6 +90,22 @@ mod tests {
         let c: E2eConfig = serde_json::from_str(r#"{"command":"x","junit":"j.xml"}"#).unwrap();
         assert_eq!(c.timeout_min, DEFAULT_E2E_TIMEOUT_MIN);
         assert!(serde_json::from_str::<E2eConfig>(r#"{"command":"x","junit":"j","extra":1}"#).is_err());
+    }
+
+    #[test]
+    fn rejections_carry_a_typed_code() {
+        let code = |c: E2eConfig| c.normalized().unwrap_err().code();
+        assert_eq!(code(cfg("  ", "j.xml", 5)), ErrorCode::E2eCommandMissing);
+        assert_eq!(code(cfg("a\nb", "j.xml", 5)), ErrorCode::E2eCommandMultiline);
+        assert_eq!(code(cfg(&"x".repeat(MAX_REPO_COMMAND_LEN + 1), "j.xml", 5)), ErrorCode::E2eCommandTooLong);
+        assert_eq!(code(cfg("x", "j.xml", 0)), ErrorCode::E2eTimeoutInvalid);
+        assert_eq!(code(cfg("x", " ", 5)), ErrorCode::E2eJunitMissing);
+        assert_eq!(code(cfg("x", "C:/j", 5)), ErrorCode::E2eJunitNotRelative);
+        assert_eq!(code(cfg("x", "../j", 5)), ErrorCode::E2eJunitEscapes);
+        assert_eq!(code(cfg("x", "a\0b", 5)), ErrorCode::E2eJunitInvalid);
+        let e = cfg("x", "j.xml", 99).normalized().unwrap_err();
+        assert_eq!(e.message_it(), "timeout E2E non valido (da 1 a 60 minuti)");
+        assert_eq!(e.message_en(), "invalid e2e timeout_min (from 1 to 60 minutes)");
     }
 
     #[test]

@@ -11,14 +11,14 @@ export interface SettingsDecision {
   workspace: Workspace | null;
 }
 
-/** Avvio personalizzato di un workspace (vedi `Launch` in workspaces.rs). */
+/** Avvio personalizzato di un workspace (vedi `Launch` in workspaces/model.rs). */
 export interface Launch {
   id: string;
   name: string;
   command: string;
 }
 
-/** Avvio integrato (vedi `BuiltinLaunch` in workspaces.rs). */
+/** Avvio integrato (vedi `BuiltinLaunch` in agents/mod.rs). */
 export interface BuiltinLaunch {
   id: string;
   name: string;
@@ -55,7 +55,7 @@ export interface Workspace {
   launches: Launch[];
   /** Avvio predefinito: assente/null = eredita il globale; "shell" = shell vuota; altrimenti id. */
   default_launch?: string | null;
-  /** Tetto dei permessi dei worker automatici (vedi `Workspace` in workspaces.rs). */
+  /** Tetto dei permessi dei worker automatici (vedi `WorkerSettings` in workspaces/model.rs). */
   worker_permission: WorkerPermission;
   /** Modello dei worker automatici; assente/null = predefinito dell'agente. */
   worker_model?: string | null;
@@ -74,7 +74,7 @@ export interface Workspace {
   archived?: boolean;
 }
 
-/** Preparazione e pulizia dei worktree di un repository (vedi `RepoConfig` in workspaces.rs). */
+/** Preparazione e pulizia dei worktree di un repository (vedi `RepoConfig` in workspaces/repo_config.rs). */
 export interface RepoConfig {
   base_branch: string | null;
   container_root: string | null;

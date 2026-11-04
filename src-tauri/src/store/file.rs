@@ -14,11 +14,31 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// Voci scartate citate per esteso in un avviso; le altre sono solo contate.
+const MAX_DROPPED_SHOWN: usize = 3;
+
+/// Esito della decodifica del dato: il valore e le voci che non si sono
+/// potute leggere (una descrizione ciascuna).
+pub struct Decoded<T> {
+    pub value: T,
+    pub dropped: Vec<String>,
+}
+
+/// Dal JSON migrato al valore. Il predefinito (`decode_whole`) e' tutto-o-niente;
+/// un file che e' un elenco di voci indipendenti puo' scartare quelle rotte.
+pub type Decoder<T> = fn(Value) -> Result<Decoded<T>, String>;
+
+fn decode_whole<T: DeserializeOwned>(data: Value) -> Result<Decoded<T>, String> {
+    let value = serde_json::from_value(data).map_err(|e| format!("dati non validi: {e}"))?;
+    Ok(Decoded { value, dropped: Vec::new() })
+}
+
 /// Descrizione di un file di dati (nome + catena di migrazioni). Pensato per
 /// vivere in una `static`: il flag di blocco scritture e' per istanza.
 pub struct JsonFile<T> {
     name: &'static str,
     steps: &'static [Migration],
+    decoder: Decoder<T>,
     check: fn(&T) -> Result<(), String>,
     /// Alzato quando il file esistente non e' stato ne' letto ne' messo da
     /// parte: salvare lo distruggerebbe.
@@ -47,13 +67,27 @@ impl<T: Serialize + DeserializeOwned + Default> JsonFile<T> {
     /// `steps` non puo' essere vuoto: il primo passo e' 0 -> 1 (la busta).
     pub const fn new(name: &'static str, steps: &'static [Migration]) -> Self {
         assert!(!steps.is_empty(), "almeno un passo di migrazione (0 -> 1)");
-        Self { name, steps, check: accept_all::<T>, write_blocked: AtomicBool::new(false), _t: PhantomData }
+        Self {
+            name,
+            steps,
+            decoder: decode_whole::<T>,
+            check: accept_all::<T>,
+            write_blocked: AtomicBool::new(false),
+            _t: PhantomData,
+        }
     }
 
     /// Validazione semantica dopo la deserializzazione: se fallisce il file e'
     /// trattato come corrotto.
     pub const fn validated(mut self, check: fn(&T) -> Result<(), String>) -> Self {
         self.check = check;
+        self
+    }
+
+    /// Decodifica personalizzata: le voci che `decoder` scarta non fanno perdere
+    /// le altre; il file originale viene copiato in un backup e l'utente avvisato.
+    pub const fn decoded_with(mut self, decoder: Decoder<T>) -> Self {
+        self.decoder = decoder;
         self
     }
 
@@ -75,7 +109,8 @@ impl<T: Serialize + DeserializeOwned + Default> JsonFile<T> {
             Err(e) => return self.unreadable(&e),
         };
         match self.decode(&bytes) {
-            Ok(value) => Loaded { value, warning: None },
+            Ok(decoded) if decoded.dropped.is_empty() => Loaded { value: decoded.value, warning: None },
+            Ok(decoded) => self.partially_read(dir, decoded),
             Err(Rejection::Corrupt(reason)) => self.set_aside(dir, WarningKind::Corrupt, &reason),
             Err(Rejection::Newer(found)) => {
                 let reason = format!("scritto da una versione più recente dell'app (schema {found})");
@@ -99,7 +134,7 @@ impl<T: Serialize + DeserializeOwned + Default> JsonFile<T> {
         write_atomic(&dir.join(self.name), &raw).map_err(|e| fail(&e))
     }
 
-    fn decode(&self, bytes: &[u8]) -> Result<T, Rejection> {
+    fn decode(&self, bytes: &[u8]) -> Result<Decoded<T>, Rejection> {
         let corrupt = |reason: String| Rejection::Corrupt(reason);
         let text = std::str::from_utf8(bytes).map_err(|e| corrupt(format!("UTF-8 non valido: {e}")))?;
         let raw: Value = serde_json::from_str(text).map_err(|e| corrupt(format!("JSON non valido: {e}")))?;
@@ -108,9 +143,41 @@ impl<T: Serialize + DeserializeOwned + Default> JsonFile<T> {
             return Err(Rejection::Newer(version));
         }
         let data = run_chain(data, version, self.steps).map_err(corrupt)?;
-        let value: T = serde_json::from_value(data).map_err(|e| corrupt(format!("dati non validi: {e}")))?;
-        (self.check)(&value).map_err(corrupt)?;
-        Ok(value)
+        let decoded = (self.decoder)(data).map_err(corrupt)?;
+        (self.check)(&decoded.value).map_err(corrupt)?;
+        Ok(decoded)
+    }
+
+    /// Alcune voci sono state scartate: il file originale (che le contiene
+    /// ancora) va in un backup prima che un salvataggio lo riscriva. Se non si
+    /// riesce a copiarlo i salvataggi restano bloccati, come per un file messo
+    /// da parte senza successo.
+    fn partially_read(&self, dir: &Path, decoded: Decoded<T>) -> Loaded<T> {
+        let Decoded { value, dropped } = decoded;
+        let count = dropped.len();
+        let shown = dropped.iter().take(MAX_DROPPED_SHOWN).cloned().collect::<Vec<_>>().join("; ");
+        let reason = match count.saturating_sub(MAX_DROPPED_SHOWN) {
+            0 => shown,
+            more => format!("{shown}; altre {more}"),
+        };
+        let what = format!("Nel file {} {count} voci non sono leggibili e sono state escluse ({reason})", self.name);
+        let (message, backup) = match backup::preserve(dir, self.name, Utc::now()) {
+            Ok(saved) => (
+                format!("{what}; le altre sono state caricate. Il file originale è stato salvato come {saved}."),
+                Some(saved),
+            ),
+            Err(e) => {
+                self.write_blocked.store(true, Ordering::SeqCst);
+                (
+                    format!(
+                        "{what} e non è stato possibile salvarne una copia ({e}): il suo salvataggio è disabilitato."
+                    ),
+                    None,
+                )
+            }
+        };
+        log::warn!("{message}");
+        Loaded { value, warning: Some(self.warn(WarningKind::PartiallyRead, message, backup)) }
     }
 
     /// Mette da parte il file inutilizzabile come backup datato. Se nemmeno
@@ -150,11 +217,16 @@ impl<T: Serialize + DeserializeOwned + Default> JsonFile<T> {
         self.finish(WarningKind::Unreadable, message, None)
     }
 
+    /// Avviso registrato; il valore da usare e' quello predefinito.
     fn finish(&self, kind: WarningKind, message: String, backup: Option<String>) -> Loaded<T> {
+        Loaded { value: T::default(), warning: Some(self.warn(kind, message, backup)) }
+    }
+
+    fn warn(&self, kind: WarningKind, message: String, backup: Option<String>) -> StoreWarning {
         let warning =
             StoreWarning { file: self.name.to_string(), kind, message, backup, at: Utc::now().timestamp_millis() };
         warnings::report(warning.clone());
-        Loaded { value: T::default(), warning: Some(warning) }
+        warning
     }
 }
 
@@ -455,5 +527,88 @@ mod tests {
     fn empty_step_list_is_rejected() {
         let steps: &'static [Migration] = &[];
         let _ = JsonFile::<Doc>::new("doc.json", steps);
+    }
+
+    /// File di voci indipendenti: ogni elemento che non e' un numero viene scartato.
+    fn keep_numbers(data: Value) -> Result<Decoded<Vec<u32>>, String> {
+        let Value::Array(items) = data else { return Err("atteso un elenco".to_string()) };
+        let mut decoded = Decoded { value: Vec::new(), dropped: Vec::new() };
+        for (index, item) in items.into_iter().enumerate() {
+            match serde_json::from_value::<u32>(item) {
+                Ok(n) => decoded.value.push(n),
+                Err(e) => decoded.dropped.push(format!("voce {}: {e}", index + 1)),
+            }
+        }
+        Ok(decoded)
+    }
+
+    fn list_file() -> JsonFile<Vec<u32>> {
+        JsonFile::new("list.json", &[crate::store::adopt_envelope]).decoded_with(keep_numbers)
+    }
+
+    #[test]
+    fn dropped_entries_keep_the_others_and_back_up_the_original() {
+        let d = temp_dir("partial");
+        let original = r#"{"schema_version":1,"data":[1,"due",3,null]}"#;
+        std::fs::write(d.join("list.json"), original).unwrap();
+        let loaded = list_file().load(&d);
+        assert_eq!(loaded.value, vec![1, 3]);
+        let w = loaded.warning.unwrap();
+        assert_eq!(w.kind, WarningKind::PartiallyRead);
+        assert!(
+            w.message.contains("2 voci") && w.message.contains("voce 2") && w.message.contains("voce 4"),
+            "{}",
+            w.message
+        );
+        let backup = w.backup.unwrap();
+        assert!(backup.starts_with("list.json.bak-"));
+        assert_eq!(std::fs::read_to_string(d.join(&backup)).unwrap(), original, "il backup ha anche le voci scartate");
+        assert_eq!(std::fs::read_to_string(d.join("list.json")).unwrap(), original, "l'originale non viene toccato");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn only_the_first_dropped_entries_are_quoted() {
+        let d = temp_dir("partial-many");
+        std::fs::write(d.join("list.json"), r#"[1,"a","b","c","d","e"]"#).unwrap();
+        let w = list_file().load(&d).warning.unwrap();
+        assert!(w.message.contains("5 voci") && w.message.contains("altre 2"), "{}", w.message);
+        assert!(!w.message.contains("voce 6"), "{}", w.message);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_fully_readable_file_has_no_warning_and_no_backup() {
+        let d = temp_dir("partial-clean");
+        std::fs::write(d.join("list.json"), "[4,5]").unwrap();
+        let loaded = list_file().load(&d);
+        assert_eq!(loaded.value, vec![4, 5]);
+        assert!(loaded.warning.is_none());
+        assert!(names(&d).iter().all(|n| !n.contains(".bak-")));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_decoder_failure_is_corrupt_like_any_other() {
+        let d = temp_dir("partial-corrupt");
+        std::fs::write(d.join("list.json"), r#"{"non":"un elenco"}"#).unwrap();
+        let loaded = list_file().load(&d);
+        assert!(loaded.value.is_empty());
+        assert_eq!(loaded.warning.unwrap().kind, WarningKind::Corrupt);
+        assert!(!d.join("list.json").exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn saving_after_a_partial_read_keeps_the_backup() {
+        let d = temp_dir("partial-save");
+        std::fs::write(d.join("list.json"), r#"[1,"x"]"#).unwrap();
+        let f = list_file();
+        let backup = f.load(&d).warning.unwrap().backup.unwrap();
+        f.save(&d, &vec![1]).unwrap();
+        assert_eq!(std::fs::read_to_string(d.join(backup)).unwrap(), r#"[1,"x"]"#);
+        let reloaded = f.load(&d);
+        assert_eq!((reloaded.value, reloaded.warning.is_none()), (vec![1], true));
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

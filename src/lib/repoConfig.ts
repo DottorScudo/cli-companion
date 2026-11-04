@@ -1,6 +1,6 @@
 // Impostazioni per repository (setup e pulizia dei worktree, test E2E): bozze del form,
 // conversioni testo <-> elenco e validazione. Specchio di `RepoConfig::normalized`
-// in src-tauri/src/workspaces.rs, che resta la fonte di verita'.
+// in src-tauri/src/workspaces/repo_config.rs, che resta la fonte di verita'.
 
 import type { E2eConfig, RepoConfig } from "./tauri";
 

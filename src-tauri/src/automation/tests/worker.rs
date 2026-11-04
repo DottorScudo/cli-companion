@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::board::texts::WORKER_GUARDRAILS;
+use crate::validate::valid_model;
 
 #[test]
 fn get_task_returns_task_instructions_environment_and_delivery() {

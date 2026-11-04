@@ -6,8 +6,9 @@
 use super::hooks;
 use super::*;
 use crate::agents::AutomationRequest;
-use crate::board::{repo_key, valid_branch, Task, TaskSpec, WorktreeInfo};
+use crate::board::{repo_key, Task, TaskSpec, WorktreeInfo};
 use crate::platform::{wsl_run_command, Target, TargetKind};
+use crate::validate::{normalize_repo, valid_branch};
 use crate::workspaces::{DeliveryMode, RepoConfig};
 use std::path::PathBuf;
 
@@ -431,7 +432,7 @@ pub(super) fn parse_repo_list(out: &str) -> Vec<String> {
         .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty())
-        .filter_map(|l| board::normalize_repo(l).ok().map(|r| r.unwrap_or_else(|| ".".to_string())))
+        .filter_map(|l| normalize_repo(l).ok().map(|r| r.unwrap_or_else(|| ".".to_string())))
         .collect();
     v.sort_by(|a, b| (a != ".", a).cmp(&(b != ".", b)));
     v.dedup();
@@ -525,8 +526,8 @@ fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Res
     let permissions_file = host.worker_settings_path(ws, &task.agent)?;
     let req = AutomationRequest {
         bootstrap_prompt: BOOTSTRAP_PROMPT,
-        permission_mode: ws.worker_permission_mode(),
-        model: task.model.as_deref().or(ws.worker_model.as_deref()),
+        permission_mode: ws.worker.permission,
+        model: task.model.as_deref().or(ws.worker.model.as_deref()),
         permissions_file: permissions_file.as_deref(),
     };
     let command = host.launch_command(&task.agent, ws.kind, &req)?;

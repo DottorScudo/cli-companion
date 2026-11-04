@@ -3,7 +3,8 @@
 //! dal titolo. Funzioni pure, nessun I/O.
 
 use super::{Task, TaskKind};
-use crate::automation::{clip_chars, req_text, valid_model, TASK_MAX, TITLE_MAX};
+use crate::automation::{clip_chars, req_text, TASK_MAX, TITLE_MAX};
+use crate::validate::{normalize_repo, valid_model};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -11,8 +12,6 @@ use std::collections::{HashMap, HashSet};
 pub const ID_MAX: usize = 40;
 pub const MAX_TASKS_PER_PROPOSAL: usize = 20;
 const MAX_DEPENDS: usize = 50;
-const REPO_MAX: usize = 256;
-const BRANCH_MAX: usize = 100;
 
 /// Campi di input di un task, normalizzati. `id` vuoto = da generare
 /// (`task_create`).
@@ -56,42 +55,6 @@ pub fn valid_id(s: &str) -> bool {
         && b.len() <= ID_MAX
         && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
         && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
-}
-
-/// Nome di branch sicuro da passare come argv a git: niente `-` iniziale,
-/// niente `..`, solo caratteri semplici.
-pub fn valid_branch(s: &str) -> bool {
-    !s.is_empty()
-        && s.len() <= BRANCH_MAX
-        && !s.starts_with('-')
-        && !s.starts_with('/')
-        && !s.ends_with('/')
-        && !s.ends_with('.')
-        && !s.contains("..")
-        && !s.contains("//")
-        && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/'))
-}
-
-/// Repository di un task: cartella relativa alla root. Normalizza i
-/// separatori (`/`), toglie `./` iniziale e `/` finale; niente path assoluti
-/// ne' `..`. `"."` (la root) vale `None`.
-pub fn normalize_repo(s: &str) -> Result<Option<String>, String> {
-    let t = s.trim().replace('\\', "/");
-    if t.is_empty() {
-        return Err("repo is empty (use \".\" for the workspace root, or null)".to_string());
-    }
-    if t.chars().count() > REPO_MAX || t.chars().any(char::is_control) {
-        return Err(format!("invalid repo: {}", clip_chars(&t, 40)));
-    }
-    let b = t.as_bytes();
-    if t.starts_with('/') || (b.len() >= 2 && b[1] == b':') {
-        return Err(format!("repo must be relative to the workspace root: {t}"));
-    }
-    let segs: Vec<&str> = t.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
-    if segs.contains(&"..") {
-        return Err(format!("repo cannot contain '..': {t}"));
-    }
-    Ok(if segs.is_empty() { None } else { Some(segs.join("/")) })
 }
 
 /// Chiave di un repository nelle mappe: "." = la root.

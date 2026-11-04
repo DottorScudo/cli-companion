@@ -27,26 +27,10 @@ const INTAKE: &str = "tab-intake";
 pub(super) fn ws(id: &str, name: &str, kind: &str) -> Workspace {
     let kind = TargetKind::parse(kind).expect("kind del workspace di test");
     let wsl = kind == TargetKind::Wsl;
-    Workspace {
-        id: id.to_string(),
-        name: name.to_string(),
-        kind,
-        path: if wsl { "/home/u".to_string() } else { "C:\\p".to_string() },
-        distro: wsl.then(|| "Ubuntu".to_string()),
-        shell: None,
-        created_at: 0,
-        launches: Vec::new(),
-        worker_permission: "accept-edits".to_string(),
-        worker_model: None,
-        worker_allow: Vec::new(),
-        worker_deny: Vec::new(),
-        delivery: Delivery::default(),
-        use_schedule: false,
-        default_launch: None,
-        worker_rules: String::new(),
-        repos: Default::default(),
-        archived: false,
-    }
+    let path = if wsl { "/home/u" } else { "C:\\p" };
+    let mut workspace = Workspace::new(id.to_string(), name.to_string(), kind, path.to_string());
+    workspace.distro = wsl.then(|| "Ubuntu".to_string());
+    workspace
 }
 
 /// Ambiente e cartella (o errore) di una cartella target delle skill.
@@ -146,8 +130,8 @@ impl FakeHost {
                 let mut w = self.ws1_base.lock().unwrap().clone().unwrap_or_else(|| ws("ws-1", "Proj", "windows"));
                 w.delivery = *self.delivery.lock().unwrap();
                 w.use_schedule = *self.use_schedule.lock().unwrap();
-                w.worker_model = self.worker_model.lock().unwrap().clone();
-                w.worker_rules = self.worker_rules.lock().unwrap().clone();
+                w.worker.model = self.worker_model.lock().unwrap().clone();
+                w.worker.rules = self.worker_rules.lock().unwrap().clone();
                 w.archived = *self.archived.lock().unwrap();
                 w.repos = self.repo_cfg.lock().unwrap().clone();
                 Some(w)
@@ -160,8 +144,8 @@ impl FakeHost {
     fn store_ws1(&self, w: Workspace) {
         *self.delivery.lock().unwrap() = w.delivery;
         *self.use_schedule.lock().unwrap() = w.use_schedule;
-        *self.worker_model.lock().unwrap() = w.worker_model.clone();
-        *self.worker_rules.lock().unwrap() = w.worker_rules.clone();
+        *self.worker_model.lock().unwrap() = w.worker.model.clone();
+        *self.worker_rules.lock().unwrap() = w.worker.rules.clone();
         *self.repo_cfg.lock().unwrap() = w.repos.clone();
         *self.ws1_base.lock().unwrap() = Some(w);
     }

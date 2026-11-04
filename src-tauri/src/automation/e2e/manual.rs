@@ -8,7 +8,8 @@ use super::E2eEvent;
 use crate::automation::boards::workspace_of;
 use crate::automation::worktrees::{ensure_repos, repo_dir};
 use crate::automation::*;
-use crate::board::{normalize_repo, repo_key, E2eRun};
+use crate::board::{repo_key, E2eRun};
+use crate::validate::normalize_repo;
 
 const NOT_CONFIGURED: &str = "E2E non configurati per il repository";
 const ALREADY_RUNNING: &str = "esecuzione E2E gia' in corso per questo repository";

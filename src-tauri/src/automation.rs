@@ -137,10 +137,6 @@ pub(crate) fn clip_chars(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
 }
 
-pub(crate) fn valid_model(m: &str) -> bool {
-    !m.is_empty() && m.len() <= 64 && m.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
-}
-
 /// Campo stringa obbligatorio di un oggetto JSON.
 pub(crate) fn req_str<'a>(p: &'a Value, key: &str) -> Result<&'a str, String> {
     match p.get(key) {
@@ -531,11 +527,11 @@ impl Registry {
             repo_cfg: ws.repos.get(&board::repo_key(t.repo.as_deref())),
         };
         let mut out = match t.kind {
-            TaskKind::Review => review::get_task_json(&info, &ws.worker_rules, b),
+            TaskKind::Review => review::get_task_json(&info, &ws.worker.rules, b),
             TaskKind::Work => serde_json::json!({
                 "task": t.task,
                 "title": t.title,
-                "instructions": board::texts::instructions(&info, &ws.worker_rules),
+                "instructions": board::texts::instructions(&info, &ws.worker.rules),
                 "environment": board::texts::environment(&info),
                 "delivery": board::texts::delivery_steps(&info),
             }),

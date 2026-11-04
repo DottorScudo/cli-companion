@@ -346,26 +346,7 @@ mod tests {
     #[cfg(windows)]
     fn windows_ws(dir: &std::path::Path) -> Workspace {
         use crate::platform::TargetKind;
-        Workspace {
-            id: "w".into(),
-            name: "w".into(),
-            kind: TargetKind::Windows,
-            path: dir.to_string_lossy().into_owned(),
-            distro: None,
-            shell: None,
-            created_at: 0,
-            launches: Vec::new(),
-            worker_permission: "accept-edits".into(),
-            worker_model: None,
-            worker_allow: Vec::new(),
-            worker_deny: Vec::new(),
-            delivery: Default::default(),
-            use_schedule: false,
-            default_launch: None,
-            worker_rules: String::new(),
-            repos: Default::default(),
-            archived: false,
-        }
+        Workspace::new("w".into(), "w".into(), TargetKind::Windows, dir.to_string_lossy().into_owned())
     }
 
     #[cfg(windows)]

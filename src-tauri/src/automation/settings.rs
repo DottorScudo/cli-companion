@@ -10,8 +10,8 @@ use crate::agents::{builtin_launch_list, PermissionMode};
 use crate::board::SettingsProposal;
 use crate::worker_permissions::{MAX_RULES, MAX_RULE_CHARS};
 use crate::workspaces::{
-    validation_error_en, DeliveryMode, MergeMethod, SettingsPatch, MAX_COMMAND_LEN, MAX_LAUNCH_NAME_LEN,
-    MAX_PATCH_LAUNCHES, MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN,
+    DeliveryMode, MergeMethod, SettingsPatch, MAX_COMMAND_LEN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_LAUNCHES,
+    MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -105,11 +105,11 @@ fn get_settings<H: Host>(st: &AutomationState, host: &H, ws: &Workspace) -> Valu
 /// Le impostazioni che `propose_settings` puo' cambiare, con i loro valori.
 fn settings_json(ws: &Workspace) -> Value {
     json!({
-        "worker_rules": ws.worker_rules,
-        "worker_model": ws.worker_model,
-        "worker_permission": ws.worker_permission,
-        "worker_allow": ws.worker_allow,
-        "worker_deny": ws.worker_deny,
+        "worker_rules": ws.worker.rules,
+        "worker_model": ws.worker.model,
+        "worker_permission": ws.worker.permission.as_str(),
+        "worker_allow": ws.worker.allow,
+        "worker_deny": ws.worker.deny,
         "delivery": ws.delivery,
         "use_schedule": ws.use_schedule,
         "default_launch": ws.default_launch,
@@ -176,7 +176,7 @@ fn propose_settings<H: Host>(
     if patch.is_empty() {
         return Err("nothing to change: pass at least one setting besides reason".to_string());
     }
-    let patch = patch.normalized(ws).map_err(|e| validation_error_en(&e))?;
+    let patch = patch.normalized(ws).map_err(|e| e.message_en())?;
     ensure_known_repos(host, ws, &patch.repo_keys())?;
     let now = now_millis();
     let id = st.run(host, |r| r.propose_settings(&ws.id, session, reason, patch, now))?;

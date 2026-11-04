@@ -35,7 +35,7 @@ fn ws1(h: &FakeHost) -> Workspace {
 }
 
 fn launch(id: &str) -> Launch {
-    Launch { id: id.into(), name: format!("name {id}"), command: format!("cmd {id}"), is_default: false }
+    Launch { id: id.into(), name: format!("name {id}"), command: format!("cmd {id}") }
 }
 
 /// "ws-1" con due repository rilevati, uno configurato e uno solo configurato.
@@ -88,7 +88,7 @@ fn get_settings_reports_values_repos_allowed_values_and_limits() {
     let (st, h) = (AutomationState::default(), host_with_repos());
     let mut base = ws("ws-1", "Proj", "windows");
     base.launches = vec![launch("l-1")];
-    base.worker_allow = vec!["Bash(git:*)".into()];
+    base.worker.allow = vec!["Bash(git:*)".into()];
     base.default_launch = Some("l-1".into());
     *h.ws1_base.lock().unwrap() = Some(base);
     *h.worker_rules.lock().unwrap() = "Never push".into();
@@ -273,7 +273,7 @@ fn a_valid_proposal_is_pending_with_current_values_and_sensitive_fields() {
     assert!(id.starts_with("s-"), "{id}");
 
     assert!(h.board_events.lock().unwrap().len() > events, "board-update emitted");
-    assert_eq!(ws1(&h).worker_rules, "old rules", "nothing changes before the decision");
+    assert_eq!(ws1(&h).worker.rules, "old rules", "nothing changes before the decision");
     let v = view(&st, &h);
     let p = &v.settings_proposals[0];
     assert_eq!(
@@ -344,11 +344,11 @@ fn accepting_applies_everything_at_once_and_removes_the_proposal() {
 
     assert_eq!(h.applies(), 1);
     let w = ws1(&h);
-    assert_eq!(w.worker_rules, "Never push");
-    assert_eq!(w.worker_model.as_deref(), Some("opus"));
-    assert_eq!(w.worker_permission, "plan");
+    assert_eq!(w.worker.rules, "Never push");
+    assert_eq!(w.worker.model.as_deref(), Some("opus"));
+    assert_eq!(w.worker.permission, PermissionMode::Plan);
     assert_eq!(
-        (w.worker_allow.clone(), w.worker_deny.clone()),
+        (w.worker.allow.clone(), w.worker.deny.clone()),
         (vec!["Bash(npm test:*)".to_string()], vec!["Bash(rm:*)".to_string()])
     );
     assert_eq!(
@@ -363,7 +363,7 @@ fn accepting_applies_everything_at_once_and_removes_the_proposal() {
     assert_eq!(w.repos["api"].setup, ["npm i"]);
     assert!(w.repos.contains_key("old"), "untouched repos stay");
 
-    assert_eq!(d.workspace.as_ref().map(|w| w.worker_rules.as_str()), Some("Never push"));
+    assert_eq!(d.workspace.as_ref().map(|w| w.worker.rules.as_str()), Some("Never push"));
     assert!(d.board.settings_proposals.is_empty());
     assert_eq!(d.board.delivery.mode, DeliveryMode::Pr, "the view reflects the new delivery");
     assert!(h.board_events.lock().unwrap().len() > events, "board-update emitted");
@@ -405,7 +405,7 @@ fn discarding_removes_the_proposal_and_leaves_the_settings_alone() {
     assert_eq!(pending(&st, &h), 0);
     assert_eq!(h.applies(), 0);
     let w = ws1(&h);
-    assert_eq!((w.worker_rules.as_str(), w.use_schedule), ("", false));
+    assert_eq!((w.worker.rules.as_str(), w.use_schedule), ("", false));
     assert!(h.board_events.lock().unwrap().len() > events);
 }
 
@@ -426,7 +426,7 @@ fn a_failed_revalidation_keeps_the_proposal_and_changes_nothing() {
     let err = decide(&st, &h, &id, true).err().unwrap();
     assert!(err.contains("avvio non trovato"), "{err}");
     assert_eq!(h.applies(), 1);
-    assert_eq!(ws1(&h).worker_rules, "");
+    assert_eq!(ws1(&h).worker.rules, "");
     assert_eq!(pending(&st, &h), 1, "still pending");
 
     // Anche un errore dell'host lascia tutto com'e'.
@@ -480,7 +480,7 @@ fn null_values_clear_a_field_and_null_repos_are_removed_end_to_end() {
     let id = propose_ok(&st, &h, json!({"worker_model": null, "repos": {"api": {"base_branch": null}, "old": null}}));
     decide(&st, &h, &id, true).unwrap();
     let w = ws1(&h);
-    assert_eq!(w.worker_model, None);
+    assert_eq!(w.worker.model, None);
     assert_eq!(w.repos["api"].base_branch, None);
     assert_eq!(w.repos["api"].setup, ["npm ci"], "other fields of the repository stay");
     assert!(!w.repos.contains_key("old"));

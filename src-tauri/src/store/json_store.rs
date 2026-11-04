@@ -24,6 +24,12 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> JsonStore<T> {
         self.data.lock().unwrap().clone()
     }
 
+    /// Legge il dato corrente senza clonarlo: `f` gira sotto il lock, quindi deve
+    /// essere breve e non toccare lo store.
+    pub fn read<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        f(&self.data.lock().unwrap())
+    }
+
     /// Carica dal disco (avvisi e quarantena sono gestiti da `JsonFile::load`).
     pub fn load(&self, dir: &Path) {
         let loaded = self.file.load(dir).value;
@@ -80,6 +86,21 @@ mod tests {
         let reloaded = JsonStore::new(&COUNTER_FILE);
         reloaded.load(&d);
         assert_eq!(reloaded.get(), Counter { n: 5 });
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn read_borrows_the_current_value() {
+        let d = temp_dir("read");
+        let store = JsonStore::new(&COUNTER_FILE);
+        assert_eq!(store.read(|c| c.n), 0);
+        store
+            .update(&d, |c| {
+                c.n = 3;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(store.read(|c| c.n), 3);
         let _ = std::fs::remove_dir_all(&d);
     }
 

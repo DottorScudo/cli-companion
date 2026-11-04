@@ -1,0 +1,347 @@
+//! Comandi Tauri sui workspace (elenco, creazione, impostazioni, ordine,
+//! archiviazione, rimozione). Ognuno valida l'input, poi modifica e salva con
+//! `store::edit`; i comandi sugli avvii sono in `launches`.
+
+use super::delivery::Delivery;
+use super::model::Workspace;
+use super::repo_config::RepoConfig;
+use super::store::{change, edit, now_millis, WorkspaceStore, WORKSPACE_ID_PREFIX, WORKSPACE_NOT_FOUND};
+use super::validate::{
+    normalize_permission_rules, normalize_rules, normalize_worker_model, parse_worker_permission, repo_config_key,
+};
+use crate::automation::{AutomationState, TauriHost};
+use crate::platform::TargetKind;
+use crate::store::data_dir;
+use crate::validate::RuleList;
+use std::collections::HashSet;
+use tauri::{AppHandle, Manager, State};
+
+/// Nome di un workspace senza nome e senza cartella riconoscibile.
+const FALLBACK_NAME: &str = "workspace";
+
+#[tauri::command]
+pub fn list_workspaces(state: State<WorkspaceStore>) -> Vec<Workspace> {
+    state.all()
+}
+
+/// Async: la verifica della cartella WSL avvia `wsl.exe`, che a VM spenta
+/// puo' impiegare secondi (sul main thread congelerebbe la finestra).
+#[tauri::command]
+pub async fn add_workspace(
+    app: AppHandle,
+    name: String,
+    kind: String,
+    path: String,
+    distro: Option<String>,
+    shell: Option<String>,
+) -> Result<Workspace, String> {
+    crate::blocking(move || {
+        let kind = TargetKind::parse(&kind)?;
+        let (path, distro) = resolve_location(kind, path, distro)?;
+        let dir = data_dir(&app)?;
+        let store = app.state::<WorkspaceStore>();
+        store.update(&dir, |list| {
+            if list.iter().any(|w| w.kind == kind && w.path == path && w.distro == distro) {
+                return Err("workspace già presente".to_string());
+            }
+            let name = if name.trim().is_empty() { default_name_for(&path) } else { name.trim().to_string() };
+            let mut ws = Workspace::new(store.next_id(WORKSPACE_ID_PREFIX), name, kind, path);
+            ws.distro = distro;
+            ws.shell = shell.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+            ws.created_at = now_millis();
+            list.push(ws.clone());
+            Ok(ws)
+        })
+    })
+    .await
+}
+
+/// Percorso e distro verificati: la cartella esiste (su Windows) o si raggiunge
+/// con `wsl.exe` (WSL, dove si accetta anche un percorso Windows o `\\wsl$\...`).
+fn resolve_location(
+    kind: TargetKind,
+    path: String,
+    distro: Option<String>,
+) -> Result<(String, Option<String>), String> {
+    let mut path = path.trim().to_string();
+    if path.is_empty() {
+        return Err("percorso mancante".to_string());
+    }
+    match kind {
+        TargetKind::Wsl => {
+            let distro = distro.unwrap_or_default().trim().to_string();
+            if distro.is_empty() {
+                return Err(super::target::WSL_DISTRO_MISSING.to_string());
+            }
+            if !path.starts_with('/') {
+                path = crate::platform::windows_to_wsl_path(&path)
+                    .ok_or_else(|| "il percorso WSL deve essere assoluto (es. /home/user/proj)".to_string())?;
+            }
+            crate::wsl::ensure_wsl_dir(&distro, &path)?;
+            Ok((path, Some(distro)))
+        }
+        TargetKind::Windows => {
+            let meta = std::fs::metadata(&path).map_err(|_| format!("cartella non trovata: {path}"))?;
+            if !meta.is_dir() {
+                return Err(format!("non è una cartella: {path}"));
+            }
+            Ok((path, None))
+        }
+    }
+}
+
+/// Nome predefinito: l'ultimo componente del percorso.
+fn default_name_for(path: &str) -> String {
+    path.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(FALLBACK_NAME)
+        .to_string()
+}
+
+#[tauri::command]
+pub async fn rename_workspace(app: AppHandle, id: String, name: String) -> Result<Workspace, String> {
+    crate::blocking(move || {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return Err("nome mancante".to_string());
+        }
+        change(&app, &id, |ws| ws.name = name)
+    })
+    .await
+}
+
+/// Imposta il tetto dei permessi dei worker automatici del workspace.
+#[tauri::command]
+pub async fn set_worker_permission(app: AppHandle, id: String, mode: String) -> Result<Workspace, String> {
+    crate::blocking(move || {
+        let mode = parse_worker_permission(&mode)?;
+        change(&app, &id, |ws| ws.worker.permission = mode)
+    })
+    .await
+}
+
+/// Imposta le regole di permesso pre-approvate (`allow`) e vietate (`deny`)
+/// dei worker Claude Code del workspace (sintassi dei permessi di Claude Code).
+#[tauri::command]
+pub async fn set_worker_permission_rules(
+    app: AppHandle,
+    id: String,
+    allow: Vec<String>,
+    deny: Vec<String>,
+) -> Result<Workspace, String> {
+    crate::blocking(move || {
+        let allow = normalize_permission_rules(&allow, RuleList::Allow)?;
+        let deny = normalize_permission_rules(&deny, RuleList::Deny)?;
+        edit(&app, &id, |ws| {
+            ws.worker.allow = allow;
+            ws.worker.deny = deny;
+            Ok(())
+        })
+    })
+    .await
+}
+
+/// Imposta il modello di default dei worker automatici (vuoto = quello dell'agente).
+#[tauri::command]
+pub async fn set_worker_model(app: AppHandle, id: String, model: Option<String>) -> Result<Workspace, String> {
+    crate::blocking(move || {
+        let model = normalize_worker_model(model)?;
+        change(&app, &id, |ws| ws.worker.model = model)
+    })
+    .await
+}
+
+/// Regole per i worker del workspace (vuoto = nessuna).
+#[tauri::command]
+pub async fn set_worker_rules(app: AppHandle, workspace_id: String, rules: String) -> Result<Workspace, String> {
+    crate::blocking(move || {
+        let rules = normalize_rules(&rules)?;
+        change(&app, &workspace_id, |ws| ws.worker.rules = rules)
+    })
+    .await
+}
+
+/// Imposta la modalita' di consegna (vale per i task che partono da ora).
+#[tauri::command]
+pub async fn set_delivery(app: AppHandle, id: String, delivery: Delivery) -> Result<Workspace, String> {
+    crate::blocking(move || {
+        let out = change(&app, &id, |ws| ws.delivery = delivery.normalized())?;
+        reconcile_automation(&app);
+        Ok(out)
+    })
+    .await
+}
+
+/// I task del workspace partono solo nelle fasce orarie.
+#[tauri::command]
+pub async fn set_use_schedule(app: AppHandle, id: String, value: bool) -> Result<Workspace, String> {
+    crate::blocking(move || {
+        let out = change(&app, &id, |ws| ws.use_schedule = value)?;
+        reconcile_automation(&app);
+        Ok(out)
+    })
+    .await
+}
+
+/// Configurazione di un repository del workspace (`None` la rimuove).
+#[tauri::command]
+pub async fn set_repo_config(
+    app: AppHandle,
+    workspace_id: String,
+    repo: String,
+    config: Option<RepoConfig>,
+) -> Result<Workspace, String> {
+    crate::blocking(move || {
+        let key = repo_config_key(&repo)?;
+        let config = config.map(RepoConfig::normalized).transpose()?;
+        edit(&app, &workspace_id, |ws| {
+            match config {
+                Some(c) => ws.repos.insert(key, c),
+                None => ws.repos.remove(&key),
+            };
+            Ok(())
+        })
+    })
+    .await
+}
+
+/// Nuovo ordine dei workspace: `ids` elenca tutti gli id o solo un
+/// sottoinsieme (i non elencati seguono, nel loro ordine relativo).
+fn apply_order(list: &mut Vec<Workspace>, ids: &[String]) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    for id in ids {
+        if !list.iter().any(|w| &w.id == id) {
+            return Err(WORKSPACE_NOT_FOUND.to_string());
+        }
+        if !seen.insert(id.as_str()) {
+            return Err("id duplicato".to_string());
+        }
+    }
+    let mut rest = std::mem::take(list);
+    for id in ids {
+        if let Some(i) = rest.iter().position(|w| &w.id == id) {
+            list.push(rest.remove(i));
+        }
+    }
+    list.extend(rest);
+    Ok(())
+}
+
+/// Riordina i workspace e salva; ritorna l'elenco completo.
+#[tauri::command]
+pub async fn reorder_workspaces(app: AppHandle, ids: Vec<String>) -> Result<Vec<Workspace>, String> {
+    crate::blocking(move || {
+        let dir = data_dir(&app)?;
+        app.state::<WorkspaceStore>().update(&dir, |list| {
+            apply_order(list, &ids)?;
+            Ok(list.clone())
+        })
+    })
+    .await
+}
+
+/// Archivia / riattiva un workspace. Archiviato = congelato: la board non
+/// avvia task; i task in corso tornano in coda
+/// (i tab li chiude il frontend).
+#[tauri::command]
+pub async fn set_workspace_archived(app: AppHandle, workspace_id: String, archived: bool) -> Result<Workspace, String> {
+    crate::blocking(move || {
+        let out = change(&app, &workspace_id, |ws| ws.archived = archived)?;
+        // Fuori dal lock dei workspace: il registro li rilegge.
+        let automation = app.state::<AutomationState>();
+        automation.set_archived(&TauriHost(app.clone()), &workspace_id, archived);
+        Ok(out)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn remove_workspace(app: AppHandle, id: String) -> Result<(), String> {
+    crate::blocking(move || {
+        let dir = data_dir(&app)?;
+        app.state::<WorkspaceStore>().update(&dir, |list| {
+            let before = list.len();
+            list.retain(|w| w.id != id);
+            if list.len() == before {
+                return Err(WORKSPACE_NOT_FOUND.to_string());
+            }
+            Ok(())
+        })?;
+        // Fuori dal lock dei workspace: la board lo rilegge per schedulare.
+        let automation = app.state::<AutomationState>();
+        automation.remove_board(&TauriHost(app.clone()), &id);
+        Ok(())
+    })
+    .await
+}
+
+/// Dopo il salvataggio di consegna / fasce orarie lo scheduler va riallineato.
+/// Da chiamare fuori dal lock dei workspace: lo scheduler li rilegge.
+fn reconcile_automation(app: &AppHandle) {
+    let automation = app.state::<AutomationState>();
+    automation.reconcile(&TauriHost(app.clone()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ws_id(id: &str) -> Workspace {
+        Workspace::new(id.to_string(), id.to_string(), TargetKind::Windows, "C:\\p".to_string())
+    }
+
+    fn order(list: &[Workspace]) -> Vec<&str> {
+        list.iter().map(|w| w.id.as_str()).collect()
+    }
+
+    fn ids(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn reorder_applies_a_permutation_or_a_visible_subset() {
+        let mut list = vec![ws_id("a"), ws_id("b"), ws_id("c"), ws_id("d")];
+        apply_order(&mut list, &ids(&["d", "c", "b", "a"])).unwrap();
+        assert_eq!(order(&list), ["d", "c", "b", "a"]);
+        // Sottoinsieme: i non elencati seguono nel loro ordine relativo.
+        apply_order(&mut list, &ids(&["a", "c"])).unwrap();
+        assert_eq!(order(&list), ["a", "c", "d", "b"]);
+        apply_order(&mut list, &[]).unwrap();
+        assert_eq!(order(&list), ["a", "c", "d", "b"]);
+    }
+
+    #[test]
+    fn reorder_rejects_unknown_and_duplicate_ids_without_changes() {
+        let mut list = vec![ws_id("a"), ws_id("b")];
+        assert_eq!(apply_order(&mut list, &ids(&["b", "x"])).unwrap_err(), WORKSPACE_NOT_FOUND);
+        assert_eq!(apply_order(&mut list, &ids(&["b", "b"])).unwrap_err(), "id duplicato");
+        assert_eq!(order(&list), ["a", "b"]);
+    }
+
+    #[test]
+    fn default_name_is_the_last_path_component() {
+        assert_eq!(default_name_for("C:\\work\\proj"), "proj");
+        assert_eq!(default_name_for("/home/me/proj/"), "proj");
+        assert_eq!(default_name_for("C:\\work\\proj\\\\"), "proj");
+        assert_eq!(default_name_for("/"), FALLBACK_NAME);
+        assert_eq!(default_name_for(""), FALLBACK_NAME);
+    }
+
+    #[test]
+    fn a_location_needs_a_path_a_distro_for_wsl_and_an_existing_folder() {
+        assert_eq!(resolve_location(TargetKind::Windows, "  ".into(), None).unwrap_err(), "percorso mancante");
+        let missing = resolve_location(TargetKind::Windows, "Z:\\non\\esiste\\davvero".into(), None).unwrap_err();
+        assert!(missing.starts_with("cartella non trovata"), "{missing}");
+        let tmp = std::env::temp_dir();
+        let (path, distro) = resolve_location(TargetKind::Windows, format!(" {} ", tmp.display()), None).unwrap();
+        assert_eq!((path.as_str(), distro), (tmp.to_str().unwrap(), None));
+        let file = std::env::current_exe().unwrap();
+        let not_dir = resolve_location(TargetKind::Windows, file.display().to_string(), None).unwrap_err();
+        assert!(not_dir.starts_with("non è una cartella"), "{not_dir}");
+        let no_distro = resolve_location(TargetKind::Wsl, "/home/me".into(), Some("  ".into())).unwrap_err();
+        assert_eq!(no_distro, super::super::target::WSL_DISTRO_MISSING);
+        assert!(resolve_location(TargetKind::Wsl, "/home/me".into(), None).is_err());
+    }
+}

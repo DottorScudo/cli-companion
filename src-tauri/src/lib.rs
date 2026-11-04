@@ -16,13 +16,14 @@ mod toast;
 mod ttl_cache;
 pub mod updater;
 pub mod user_skills;
+mod validate;
 mod worker_permissions;
 mod workspaces;
 mod wsl;
 
 use automation::AutomationState;
 use pty::PtyState;
-// Resta finche' workspaces.rs e automation/host.rs non passano a `store`.
+// Resta finche' automation/host.rs non passa a `store`.
 pub(crate) use store::write_atomic;
 use workspaces::WorkspaceStore;
 

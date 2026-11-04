@@ -121,18 +121,12 @@ fn a_current_board_roundtrips() {
 // --- validazione ---
 
 #[test]
-fn ids_and_branches() {
+fn ids_are_validated() {
     for ok in ["a", "0", "a-b-1", &"a".repeat(40)] {
         assert!(valid_id(ok), "{ok}");
     }
     for bad in ["", "-a", "A", "a_b", "a b", &"a".repeat(41), "è"] {
         assert!(!valid_id(bad), "{bad}");
-    }
-    assert!(valid_branch("release/1.0") && !valid_branch("-x") && !valid_branch("a..b") && !valid_branch("a b"));
-    assert_eq!(normalize_repo(" ./api/ ").unwrap(), Some("api".to_string()));
-    assert_eq!(normalize_repo(".").unwrap(), None);
-    for bad in ["", "../x", "/abs", "C:\\x", "a/../b"] {
-        assert!(normalize_repo(bad).is_err(), "{bad}");
     }
 }
 

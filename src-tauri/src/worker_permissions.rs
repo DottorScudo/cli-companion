@@ -8,61 +8,64 @@
 //! `bypassPermissions`).
 
 use crate::platform::{windows_to_wsl_path, TargetKind};
+use crate::validate::{ErrorCode, ValidationError};
 use std::path::{Path, PathBuf};
 
 pub const MAX_RULES: usize = 100;
 pub const MAX_RULE_CHARS: usize = 300;
+/// Caratteri di una regola citati in un messaggio di errore.
+const CLIPPED_RULE_CHARS: usize = 40;
 
 /// Valida e normalizza una lista di regole: trim, righe vuote e doppioni
 /// scartati. Forma ammessa: `Nome` oppure `Nome(...)`, con Nome in
-/// `[A-Za-z0-9_*-]+` (anche `mcp__server__tool`). Errori in italiano (UI).
-pub fn validate_rules(rules: &[String]) -> Result<Vec<String>, String> {
+/// `[A-Za-z0-9_*-]+` (anche `mcp__server__tool`).
+pub fn validate_rules(rules: &[String]) -> Result<Vec<String>, ValidationError> {
     let mut out: Vec<String> = Vec::new();
     for raw in rules {
         let rule = raw.trim();
         if rule.is_empty() {
             continue;
         }
-        check_rule(rule).map_err(|e| format!("regola \"{}\": {e}", clip_for_error(rule)))?;
+        check_rule(rule).map_err(|code| ValidationError::new(code).value(clip_for_error(rule)).max(MAX_RULE_CHARS))?;
         if !out.iter().any(|r| r == rule) {
             out.push(rule.to_string());
         }
     }
     if out.len() > MAX_RULES {
-        return Err(format!("troppe regole (massimo {MAX_RULES})"));
+        return Err(ValidationError::new(ErrorCode::PermissionRulesTooMany).max(MAX_RULES));
     }
     Ok(out)
 }
 
 fn clip_for_error(rule: &str) -> String {
-    let mut s: String = rule.chars().take(40).collect();
-    if rule.chars().count() > 40 {
+    let mut s: String = rule.chars().take(CLIPPED_RULE_CHARS).collect();
+    if rule.chars().count() > CLIPPED_RULE_CHARS {
         s.push('…');
     }
     s
 }
 
-fn check_rule(rule: &str) -> Result<(), String> {
+fn check_rule(rule: &str) -> Result<(), ErrorCode> {
     if rule.chars().count() > MAX_RULE_CHARS {
-        return Err(format!("piu' lunga di {MAX_RULE_CHARS} caratteri"));
+        return Err(ErrorCode::PermissionRuleTooLong);
     }
     if rule.chars().any(char::is_control) {
-        return Err("contiene a capo o caratteri di controllo".to_string());
+        return Err(ErrorCode::PermissionRuleControlChars);
     }
     let name_len =
         rule.find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '*' | '-'))).unwrap_or(rule.len());
     if name_len == 0 {
-        return Err("forma attesa: Nome oppure Nome(...), es. Bash(git:*)".to_string());
+        return Err(ErrorCode::PermissionRuleBadShape);
     }
     let (name, rest) = rule.split_at(name_len);
     if rest.is_empty() {
         return Ok(());
     }
     if !(rest.starts_with('(') && rest.ends_with(')') && rest.len() > 2) {
-        return Err("forma attesa: Nome oppure Nome(...), es. Bash(git:*)".to_string());
+        return Err(ErrorCode::PermissionRuleBadShape);
     }
     if name.starts_with("mcp__") {
-        return Err("le regole mcp__ non accettano parentesi".to_string());
+        return Err(ErrorCode::PermissionRuleMcpParens);
     }
     Ok(())
 }
@@ -184,6 +187,30 @@ mod tests {
         assert!(validate_rules(&many).is_err());
         let ok: Vec<String> = (0..MAX_RULES).map(|i| format!("Bash(c{i}:*)")).collect();
         assert_eq!(validate_rules(&ok).unwrap().len(), MAX_RULES);
+    }
+
+    #[test]
+    fn rejected_rules_report_a_typed_error() {
+        let code = |rule: &str| validate_rules(&v(&[rule])).unwrap_err().code();
+        assert_eq!(code("git status"), ErrorCode::PermissionRuleBadShape);
+        assert_eq!(code("Bash(git\nstatus)"), ErrorCode::PermissionRuleControlChars);
+        assert_eq!(code("mcp__srv__tool(x)"), ErrorCode::PermissionRuleMcpParens);
+        assert_eq!(code(&format!("Bash({})", "a".repeat(MAX_RULE_CHARS))), ErrorCode::PermissionRuleTooLong);
+        let many: Vec<String> = (0..=MAX_RULES).map(|i| format!("Bash(c{i}:*)")).collect();
+        assert_eq!(validate_rules(&many).unwrap_err().code(), ErrorCode::PermissionRulesTooMany);
+        let e = validate_rules(&v(&["a b"])).unwrap_err();
+        assert_eq!(e.message_it(), "regola \"a b\": forma attesa: Nome oppure Nome(...), es. Bash(git:*)");
+        assert_eq!(e.message_en(), "rule \"a b\": expected Name or Name(...), e.g. Bash(git:*)");
+    }
+
+    #[test]
+    fn long_rules_are_clipped_in_the_message() {
+        let long = format!("{}(x)", "a".repeat(MAX_RULE_CHARS));
+        let e = validate_rules(&[long]).unwrap_err();
+        assert!(
+            e.message_en().contains('…')
+                && e.message_en().ends_with(&format!("longer than {MAX_RULE_CHARS} characters"))
+        );
     }
 
     #[test]

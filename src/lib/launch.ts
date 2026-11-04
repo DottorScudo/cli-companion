@@ -2,7 +2,7 @@
 // terminale. File volutamente a zero dipendenze: importabile sia dall'app sia
 // dai test `node --test` (type-stripping), come src/lib/terminal.ts.
 
-/** Avvio di un workspace (rispecchia `Launch` di workspaces.rs). */
+/** Avvio di un workspace (rispecchia `Launch` di workspaces/model.rs). */
 export interface LaunchLike {
   id: string;
   name: string;

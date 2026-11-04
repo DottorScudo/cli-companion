@@ -23,8 +23,7 @@ pub use report::{build_report, parse_report_fields, ReportFields, TaskReport, Te
 pub use review::{check_review_deps, check_verdict, reviewed_tasks, TaskKind, Verdict};
 pub use settings::{SettingsProposal, SettingsProposalView};
 pub use spec::{
-    id_from_title, normalize_repo, parse_max_parallel, parse_proposal, parse_spec, repo_key, valid_branch, valid_id,
-    validate_graph, TaskSpec,
+    id_from_title, parse_max_parallel, parse_proposal, parse_spec, repo_key, valid_id, validate_graph, TaskSpec,
 };
 
 use crate::automation::{clip_chars, WorkerStatus, DEFAULT_AGENT};

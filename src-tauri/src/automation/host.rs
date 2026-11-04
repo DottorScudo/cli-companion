@@ -217,7 +217,7 @@ impl Host for TauriHost {
             return Ok(None);
         }
         let data_dir = auto::data_dir(&self.0)?;
-        crate::worker_permissions::prepare_settings_file(&data_dir, &ws.id, ws.kind, &ws.worker_allow, &ws.worker_deny)
+        crate::worker_permissions::prepare_settings_file(&data_dir, &ws.id, ws.kind, &ws.worker.allow, &ws.worker.deny)
     }
 
     fn emit_spawn(&self, ev: &SpawnEvent) {

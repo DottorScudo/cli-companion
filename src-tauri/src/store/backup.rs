@@ -24,14 +24,28 @@ fn backup_name(name: &str, now: DateTime<Utc>) -> String {
 /// cancellato; se esiste gia' un backup con lo stesso istante si avanza di un
 /// millisecondo per non sovrascriverlo.
 pub(crate) fn quarantine(dir: &Path, name: &str, now: DateTime<Utc>) -> io::Result<String> {
+    let backup = free_backup_name(dir, name, now);
+    std::fs::rename(dir.join(name), dir.join(&backup))?;
+    prune(dir, name, BACKUPS_KEPT);
+    Ok(backup)
+}
+
+/// Come `quarantine`, ma il file originale resta dov'e': serve quando se ne
+/// usa ancora una parte (voci illeggibili escluse, il resto caricato).
+pub(crate) fn preserve(dir: &Path, name: &str, now: DateTime<Utc>) -> io::Result<String> {
+    let backup = free_backup_name(dir, name, now);
+    std::fs::copy(dir.join(name), dir.join(&backup))?;
+    prune(dir, name, BACKUPS_KEPT);
+    Ok(backup)
+}
+
+/// Nome di backup per `now`, avanzando di un millisecondo finche' e' occupato.
+fn free_backup_name(dir: &Path, name: &str, now: DateTime<Utc>) -> String {
     let mut at = now;
     while dir.join(backup_name(name, at)).exists() {
         at += Duration::milliseconds(1);
     }
-    let backup = backup_name(name, at);
-    std::fs::rename(dir.join(name), dir.join(&backup))?;
-    prune(dir, name, BACKUPS_KEPT);
-    Ok(backup)
+    backup_name(name, at)
 }
 
 /// Tiene i `keep` backup piu' recenti di `name` (ordinamento per nome, cioe'
@@ -96,6 +110,20 @@ mod tests {
         assert_eq!(backup, "a.json.bak-20260304-050607000");
         assert!(!d.join("a.json").exists());
         assert_eq!(std::fs::read_to_string(d.join(&backup)).unwrap(), "contenuto");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn preserve_copies_and_leaves_the_original() {
+        let d = temp_dir("copy");
+        std::fs::write(d.join("a.json"), "contenuto").unwrap();
+        let backup = preserve(&d, "a.json", at(0)).unwrap();
+        assert_eq!(backup, "a.json.bak-20260304-050607000");
+        assert_eq!(std::fs::read_to_string(d.join("a.json")).unwrap(), "contenuto");
+        assert_eq!(std::fs::read_to_string(d.join(&backup)).unwrap(), "contenuto");
+        let second = preserve(&d, "a.json", at(0)).unwrap();
+        assert_ne!(backup, second, "same instant never overwrites a backup");
+        assert!(preserve(&d, "missing.json", at(0)).is_err());
         let _ = std::fs::remove_dir_all(&d);
     }
 

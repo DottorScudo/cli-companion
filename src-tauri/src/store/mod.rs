@@ -19,6 +19,10 @@
 //!   gli ultimi 5) e si riparte dai valori predefiniti. Se il file non si puo'
 //!   nemmeno leggere (permessi, file bloccato) resta dov'e' e i salvataggi di
 //!   quel file vengono rifiutati.
+//! - **Voci escluse**: un file che e' un elenco di voci indipendenti puo' usare
+//!   `JsonFile::decoded_with`: le voci illeggibili vengono escluse, le altre
+//!   caricate, e il file originale copiato in un backup datato (avviso
+//!   `PartiallyRead`).
 //! - **Avvisi**: ogni anomalia produce uno `StoreWarning`, registrato nel log,
 //!   visibile con il comando `store_warnings` e notificato al frontend con
 //!   l'evento `store-warning`.
@@ -37,7 +41,7 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
 pub(crate) use atomic::write_atomic;
-pub use file::{JsonFile, Loaded};
+pub use file::{Decoded, JsonFile, Loaded};
 pub use json_store::JsonStore;
 pub use migrate::{adopt_envelope, Migration};
 pub use warnings::{install_emitter, StoreWarning, WarningKind};

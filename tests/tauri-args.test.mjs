@@ -16,7 +16,9 @@ function rustCommands() {
   const out = new Map();
   for (const file of [
     "pty/mod.rs",
-    "workspaces.rs",
+    "workspaces/commands.rs",
+    "workspaces/launches.rs",
+    "workspaces/explorer.rs",
     "wsl.rs",
     "updater.rs",
     "agent_notify.rs",

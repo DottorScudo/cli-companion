@@ -1,4 +1,8 @@
+use super::super::{MAX_LAUNCH_NAME_LEN, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_RULES_LEN};
 use super::*;
+use crate::agents::PermissionMode;
+use crate::validate::ErrorCode;
+use crate::worker_permissions::{MAX_RULES, MAX_RULE_CHARS};
 use serde_json::json;
 
 fn ws() -> Workspace {
@@ -7,7 +11,7 @@ fn ws() -> Workspace {
 }
 
 fn launch(id: &str) -> Launch {
-    Launch { id: id.into(), name: format!("name {id}"), command: format!("cmd {id}"), is_default: false }
+    Launch { id: id.into(), name: format!("name {id}"), command: format!("cmd {id}") }
 }
 
 fn patch(v: serde_json::Value) -> SettingsPatch {
@@ -22,7 +26,7 @@ fn id_gen() -> impl FnMut() -> String {
     }
 }
 
-fn apply(p: &SettingsPatch, w: &mut Workspace) -> Result<(), String> {
+fn apply(p: &SettingsPatch, w: &mut Workspace) -> Result<(), ValidationError> {
     p.apply(w, &mut id_gen())
 }
 
@@ -126,7 +130,7 @@ fn delivery_keeps_parallel_with_branches_and_merges_onto_current() {
 }
 
 #[test]
-fn invalid_values_fail_and_translate_to_english() {
+fn invalid_values_fail_with_the_english_texts_for_the_model() {
     let mut w = ws();
     w.launches = vec![launch("l1")];
     let too_many_launches: Vec<_> =
@@ -191,13 +195,13 @@ fn invalid_values_fail_and_translate_to_english() {
     ];
     for (v, expect) in cases {
         let err = patch(v.clone()).normalized(&w).unwrap_err();
-        let en = validation_error_en(&err);
-        assert!(en.contains(expect), "{v}: {en} (it: {err})");
+        let en = err.message_en();
+        assert!(en.contains(expect), "{v}: {en} (it: {})", err.message_it());
     }
 }
 
 #[test]
-fn italian_messages_are_translated_not_passed_through() {
+fn every_rejection_has_a_distinct_italian_and_english_text() {
     let w = ws();
     for v in [
         json!({"worker_rules": "a\u{1}b"}),
@@ -205,27 +209,54 @@ fn italian_messages_are_translated_not_passed_through() {
         json!({"worker_allow": ["bad rule"]}),
         json!({"launches": [{"name": "", "command": "c"}]}),
         json!({"repos": {"x": {"base_branch": "no good"}}}),
+        json!({"repos": {"x": {}}}),
+        json!({"delivery": {}}),
     ] {
-        let err = patch(v).normalized(&w).unwrap_err();
-        assert_ne!(validation_error_en(&err), err);
-    }
-    for already_english in ["too many repos in the proposal (max 20)", "something unknown", ""] {
-        assert_eq!(validation_error_en(already_english), already_english);
+        let err = patch(v.clone()).normalized(&w).unwrap_err();
+        assert_ne!(err.message_it(), err.message_en(), "{v}");
+        assert_eq!(String::from(err.clone()), err.message_it(), "i comandi dell'interfaccia usano l'italiano");
     }
 }
 
 #[test]
-fn rule_errors_keep_limits_in_english() {
+fn errors_carry_a_code_and_the_place_where_they_happened() {
+    let mut w = ws();
+    w.launches = vec![launch("l1")];
+    let code = |v: serde_json::Value| patch(v).normalized(&w).unwrap_err().code();
+    assert_eq!(code(json!({"worker_rules": "a\u{1}b"})), ErrorCode::RulesControlChars);
+    assert_eq!(code(json!({"worker_permission": "root"})), ErrorCode::PermissionInvalid);
+    assert_eq!(code(json!({"default_launch": "nope"})), ErrorCode::DefaultLaunchInvalid);
+    assert_eq!(code(json!({"delivery": {}})), ErrorCode::DeliveryEmpty);
+    assert_eq!(code(json!({"repos": {"x": {}}})), ErrorCode::RepoPatchEmpty);
     assert_eq!(
-        validation_error_en(&format!("Vietati: regola \"x\": piu' lunga di {MAX_RULE_CHARS} caratteri")),
-        format!("worker_deny: rule \"x\": longer than {MAX_RULE_CHARS} characters")
+        code(json!({"repos": {"x": {"remove_force": true}, "x/": {"remove_force": true}}})),
+        ErrorCode::RepoKeyDuplicate
     );
-    assert_eq!(
-        validation_error_en("Consentiti: regola \"a b\": forma attesa: Nome oppure Nome(...), es. Bash(git:*)"),
-        "worker_allow: rule \"a b\": expected Name or Name(...), e.g. Bash(git:*)"
-    );
+    assert_eq!(code(json!({"launches": [{"id": "ghost", "name": "n", "command": "c"}]})), ErrorCode::LaunchIdUnknown);
+    let err = patch(json!({"launches": [{"name": "n", "command": "c"}, {"name": "", "command": "c"}]}))
+        .normalized(&w)
+        .unwrap_err();
+    assert_eq!(err.message_it(), "launches[1]: nome avvio mancante");
+    let err = patch(json!({"repos": {"api/": {"setup": ["a\nb"]}}})).normalized(&w).unwrap_err();
+    assert_eq!(err.message_it(), "repos['api']: il comando di setup deve stare su una riga: a\nb");
 }
 
+#[test]
+fn rule_errors_name_their_list_and_keep_limits() {
+    let w = ws();
+    let too_long = format!("Bash({})", "a".repeat(MAX_RULE_CHARS));
+    let err = patch(json!({"worker_deny": [too_long]})).normalized(&w).unwrap_err();
+    assert_eq!(err.code(), ErrorCode::PermissionRuleTooLong);
+    assert!(err.message_en().starts_with("worker_deny: rule \"Bash(aaa"), "{}", err.message_en());
+    assert!(err.message_en().ends_with(&format!("longer than {MAX_RULE_CHARS} characters")));
+    assert!(err.message_it().starts_with("Vietati: regola \"Bash(aaa"), "{}", err.message_it());
+    let err = patch(json!({"worker_allow": ["a b"]})).normalized(&w).unwrap_err();
+    assert_eq!(err.message_en(), "worker_allow: rule \"a b\": expected Name or Name(...), e.g. Bash(git:*)");
+    assert_eq!(err.message_it(), "Consentiti: regola \"a b\": forma attesa: Nome oppure Nome(...), es. Bash(git:*)");
+    let many: Vec<String> = (0..=MAX_RULES).map(|i| format!("R{i}")).collect();
+    let err = patch(json!({"worker_deny": many})).normalized(&w).unwrap_err();
+    assert_eq!(err.message_en(), format!("worker_deny: too many rules (max {MAX_RULES})"));
+}
 #[test]
 fn default_launch_is_checked_against_launches_after_the_patch() {
     let mut w = ws();
@@ -273,11 +304,11 @@ fn apply_changes_everything_at_once() {
         "repos": {"api": {"base_branch": null, "setup": ["s"]}, "old": null, "new": {"remove_force": true}}
     }));
     apply(&p, &mut w).unwrap();
-    assert_eq!(w.worker_rules, "rules");
-    assert_eq!(w.worker_model.as_deref(), Some("opus"));
-    assert_eq!(w.worker_permission, "plan");
+    assert_eq!(w.worker.rules, "rules");
+    assert_eq!(w.worker.model.as_deref(), Some("opus"));
+    assert_eq!(w.worker.permission, PermissionMode::Plan);
     assert_eq!(
-        (w.worker_allow.as_slice(), w.worker_deny.as_slice()),
+        (w.worker.allow.as_slice(), w.worker.deny.as_slice()),
         (&["Read".to_string()][..], &["WebFetch".to_string()][..])
     );
     assert_eq!(
@@ -320,7 +351,7 @@ fn apply_default_launch_variants() {
 #[test]
 fn apply_absent_fields_change_nothing() {
     let mut w = ws();
-    w.worker_rules = "keep".into();
+    w.worker.rules = "keep".into();
     w.launches = vec![launch("l1")];
     w.default_launch = Some("l1".into());
     w.repos.insert("api".into(), RepoConfig { setup: vec!["s".into()], ..Default::default() });
@@ -330,7 +361,7 @@ fn apply_absent_fields_change_nothing() {
     apply(&patch(json!({"repos": {"api": {"remove_force": true}}})), &mut w).unwrap();
     assert_eq!(w.repos["api"].setup, ["s"]);
     assert!(w.repos["api"].remove_force);
-    assert_eq!(w.worker_rules, "keep");
+    assert_eq!(w.worker.rules, "keep");
 }
 
 #[test]
@@ -351,9 +382,9 @@ fn apply_repo_null_values_clear_or_remove() {
 #[test]
 fn current_reports_only_touched_fields() {
     let mut w = ws();
-    w.worker_rules = "old".into();
-    w.worker_model = Some("sonnet".into());
-    w.worker_allow = vec!["Read".into()];
+    w.worker.rules = "old".into();
+    w.worker.model = Some("sonnet".into());
+    w.worker.allow = vec!["Read".into()];
     w.launches = vec![launch("l1")];
     w.default_launch = Some("l1".into());
     w.delivery = Delivery { mode: DeliveryMode::Pr, parallel: true, merge_method: MergeMethod::Merge };
@@ -493,7 +524,7 @@ fn e2e_current_and_sensitive() {
 }
 
 #[test]
-fn e2e_errors_are_translated() {
+fn e2e_errors_have_english_texts() {
     let w = ws();
     let cases = [
         (json!({"command": "  ", "junit": "j"}), "repos['x']: e2e command is missing"),
@@ -507,8 +538,8 @@ fn e2e_errors_are_translated() {
     ];
     for (e2e, expect) in cases {
         let err = patch(json!({"repos": {"x": {"e2e": e2e}}})).normalized(&w).unwrap_err();
-        let en = validation_error_en(&err);
-        assert!(en.contains(expect), "{e2e}: {en} (it: {err})");
-        assert_ne!(en, err);
+        let en = err.message_en();
+        assert!(en.contains(expect), "{e2e}: {en} (it: {})", err.message_it());
+        assert_ne!(en, err.message_it());
     }
 }

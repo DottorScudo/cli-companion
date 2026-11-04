@@ -7,7 +7,8 @@ use crate::automation::boards::workspace_of;
 use crate::automation::hooks::fs_path;
 use crate::automation::worktrees::{join_path, repo_dir};
 use crate::automation::*;
-use crate::board::{normalize_repo, E2eRun};
+use crate::board::E2eRun;
+use crate::validate::normalize_repo;
 use std::path::PathBuf;
 
 const NO_RUN: &str = "nessuna esecuzione E2E di cui aprire il report";

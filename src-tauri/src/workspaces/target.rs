@@ -22,7 +22,6 @@ impl Workspace {
 
 #[cfg(test)]
 mod tests {
-    use super::super::parse_workspaces;
     use super::*;
 
     fn workspace(json: &str) -> Workspace {
@@ -53,7 +52,7 @@ mod tests {
             {"id":"ws-1","name":"win","kind":"windows","path":"C:\\proj","created_at":1,"shell":"pwsh"},
             {"id":"ws-2","name":"lin","kind":"wsl","path":"/home/u/proj","distro":"Ubuntu-24.04","created_at":2}
         ]"#;
-        let list = parse_workspaces(raw).unwrap();
+        let list: Vec<Workspace> = serde_json::from_str(raw).unwrap();
         assert_eq!((list[0].kind, list[1].kind), (TargetKind::Windows, TargetKind::Wsl));
         assert_eq!(list[1].distro.as_deref(), Some("Ubuntu-24.04"));
 
@@ -61,12 +60,12 @@ mod tests {
         assert_eq!((saved[0]["kind"].as_str(), saved[1]["kind"].as_str()), (Some("windows"), Some("wsl")));
         assert_eq!(saved[0]["path"], "C:\\proj");
         assert_eq!(saved[1]["distro"], "Ubuntu-24.04");
-        assert_eq!(parse_workspaces(&saved.to_string()).unwrap(), list);
+        assert_eq!(serde_json::from_value::<Vec<Workspace>>(saved).unwrap(), list);
     }
 
     #[test]
     fn unknown_kind_is_rejected_when_parsing() {
         let raw = r#"[{"id":"x","name":"x","kind":"linux","path":"/x","created_at":1}]"#;
-        assert!(parse_workspaces(raw).is_err());
+        assert!(serde_json::from_str::<Vec<Workspace>>(raw).is_err());
     }
 }

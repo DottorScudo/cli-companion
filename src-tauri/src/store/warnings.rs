@@ -20,6 +20,9 @@ pub enum WarningKind {
     NewerVersion,
     /// File non leggibile (permessi, bloccato): non toccato, salvataggi rifiutati.
     Unreadable,
+    /// Alcune voci non erano utilizzabili e sono state escluse; le altre sono
+    /// caricate e il file originale e' copiato in un backup.
+    PartiallyRead,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -143,5 +146,6 @@ mod tests {
         assert_eq!(v["file"], "f1.json");
         assert_eq!(serde_json::to_value(WarningKind::Unreadable).unwrap(), "unreadable");
         assert_eq!(serde_json::to_value(WarningKind::Corrupt).unwrap(), "corrupt");
+        assert_eq!(serde_json::to_value(WarningKind::PartiallyRead).unwrap(), "partially_read");
     }
 }
