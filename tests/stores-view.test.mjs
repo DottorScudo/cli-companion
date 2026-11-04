@@ -1,6 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { hubShown, managerShown, officeShown, overlayShown, sidebarShown } from "../src/stores/view.ts";
+import {
+  activeWorld,
+  hubShown,
+  managerShown,
+  officeShown,
+  overlayShown,
+  sidebarFooterShown,
+  worldRailShown,
+} from "../src/stores/view.ts";
 import { INITIAL_LAYOUT_STATE } from "../src/stores/layout.ts";
 import { INITIAL_UI } from "../src/stores/ui.ts";
 
@@ -44,11 +52,32 @@ describe("view: managerShown", () => {
   });
 });
 
+describe("view: activeWorld", () => {
+  it("l'Agents HUB solo scelto e acceso, altrimenti i terminali", () => {
+    assert.equal(activeWorld({ world: "hub" }, HUB_ON), "hub");
+    assert.equal(activeWorld({ world: "hub" }, HUB_OFF), "terminals");
+    assert.equal(activeWorld({ world: "terminals" }, HUB_ON), "terminals");
+    assert.equal(activeWorld({ world: "terminals" }, HUB_OFF), "terminals");
+  });
+});
+
 describe("view: hubShown", () => {
-  it("serve l'HUB aperto e acceso", () => {
-    assert.equal(hubShown({ hubOpen: true }, HUB_ON), true);
-    assert.equal(hubShown({ hubOpen: true }, HUB_OFF), false);
-    assert.equal(hubShown({ hubOpen: false }, HUB_ON), false);
+  it("serve il mondo HUB scelto e l'HUB acceso", () => {
+    assert.equal(hubShown({ world: "hub" }, HUB_ON), true);
+    assert.equal(hubShown({ world: "hub" }, HUB_OFF), false);
+    assert.equal(hubShown({ world: "terminals" }, HUB_ON), false);
+  });
+});
+
+describe("view: barra dei mondi e piede della sidebar", () => {
+  it("la barra c'è solo con l'HUB acceso", () => {
+    assert.equal(worldRailShown(HUB_ON), true);
+    assert.equal(worldRailShown(HUB_OFF), false);
+  });
+
+  it("il piede della sidebar c'è solo senza la barra", () => {
+    assert.equal(sidebarFooterShown(HUB_ON), false);
+    assert.equal(sidebarFooterShown(HUB_OFF), true);
   });
 });
 
@@ -59,19 +88,7 @@ describe("view: overlayShown", () => {
     assert.equal(overlayShown(layoutOf("b"), ui, BOTS_ON, HUB_OFF), false);
     assert.equal(overlayShown(layoutOf("b"), { ...ui, officeOpen: true }, BOTS_ON, HUB_OFF), true);
     assert.equal(overlayShown(layoutOf("b"), { ...ui, officeOpen: true }, BOTS_OFF, HUB_OFF), false);
-    assert.equal(overlayShown(layoutOf("b"), { ...ui, hubOpen: true }, BOTS_OFF, HUB_ON), true);
-    assert.equal(overlayShown(layoutOf("b"), { ...ui, hubOpen: true }, BOTS_OFF, HUB_OFF), false);
-  });
-});
-
-describe("view: sidebarShown", () => {
-  it("nascosta solo con l'HUB aperto e acceso", () => {
-    assert.equal(sidebarShown({ hubOpen: true }, HUB_ON), false);
-    assert.equal(sidebarShown({ hubOpen: true }, HUB_OFF), true);
-    assert.equal(sidebarShown({ hubOpen: false }, HUB_ON), true);
-  });
-
-  it("resta visibile con Manager e Ufficio", () => {
-    assert.equal(sidebarShown({ ...INITIAL_UI, officeOpen: true, managerOpen: { a: true } }, HUB_ON), true);
+    assert.equal(overlayShown(layoutOf("b"), { ...ui, world: "hub" }, BOTS_OFF, HUB_ON), true);
+    assert.equal(overlayShown(layoutOf("b"), { ...ui, world: "hub" }, BOTS_OFF, HUB_OFF), false);
   });
 });

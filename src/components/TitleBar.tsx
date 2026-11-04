@@ -5,11 +5,16 @@ import { report } from "../lib/errors";
 import { startSubscription } from "../lib/subscription";
 import { Star } from "lucide-react";
 import Logo from "./Logo";
+import HubTitlePath from "./HubTitlePath";
 import StatusIcon from "./StatusIcon";
 import type { TitleTab } from "../stores/selectors";
+import type { World } from "../stores/ui";
 import { cn } from "../lib/utils";
 
 interface Props {
+  world: World;
+  /** C'è la barra dei mondi (64px): il riquadro del logo si allarga per restare allineato alla colonna sotto. */
+  railShown: boolean;
   /** Vista globale: presente solo con almeno un tab fissato. */
   globalTab: TitleTab | null;
   globalActive: boolean;
@@ -69,11 +74,20 @@ function Tab({
 
 /**
  * Barra del titolo personalizzata (la finestra non ha decorazioni native):
- * logo, tab dei gruppi di terminali e pulsanti della finestra. Le zone libere
- * sono `data-tauri-drag-region` (trascinamento + doppio clic = massimizza);
+ * logo, tab dei gruppi di terminali (nel mondo Agents HUB, il percorso del
+ * canale) e pulsanti della finestra. Le zone libere sono `data-tauri-drag-region` (trascinamento + doppio clic = massimizza);
  * i controlli interattivi no.
  */
-function TitleBar({ globalTab, globalActive, groups, activeWorkspaceId, onSelectGlobal, onSelectGroup }: Props) {
+function TitleBar({
+  world,
+  railShown,
+  globalTab,
+  globalActive,
+  groups,
+  activeWorkspaceId,
+  onSelectGlobal,
+  onSelectGroup,
+}: Props) {
   const [maximized, setMaximized] = useState(false);
 
   // Segue lo stato di massimizzazione per scambiare l'icona.
@@ -105,30 +119,39 @@ function TitleBar({ globalTab, globalActive, groups, activeWorkspaceId, onSelect
       {/* Linea di base: i tab attivi la coprono per fondersi col contenuto. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border" />
 
-      <div data-tauri-drag-region className="flex w-[260px] flex-shrink-0 items-center gap-2.5 border-r px-4">
+      <div
+        data-tauri-drag-region
+        className={cn("flex flex-shrink-0 items-center gap-2.5 border-r px-4", railShown ? "w-[324px]" : "w-[260px]")}
+      >
         <Logo size={20} className="pointer-events-none" />
         <span className="pointer-events-none text-[13px] font-semibold tracking-tight">cli-companion</span>
       </div>
 
-      <div
-        data-tauri-drag-region
-        onWheel={(e) => {
-          e.currentTarget.scrollLeft += e.deltaY;
-        }}
-        className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      >
-        {globalTab && <Tab tab={globalTab} global active={globalActive} onClick={onSelectGlobal} />}
-        {groups.map((g) => (
-          <Tab
-            key={g.id}
-            tab={g}
-            active={!globalActive && g.id === activeWorkspaceId}
-            onClick={() => onSelectGroup(g.id)}
-          />
-        ))}
-        {/* Resto della barra: area di trascinamento anche con molti tab. */}
-        <div data-tauri-drag-region className="h-full min-w-4 flex-1" />
-      </div>
+      {world === "hub" ? (
+        <div data-tauri-drag-region className="flex min-w-0 flex-1 items-center px-4">
+          <HubTitlePath />
+        </div>
+      ) : (
+        <div
+          data-tauri-drag-region
+          onWheel={(e) => {
+            e.currentTarget.scrollLeft += e.deltaY;
+          }}
+          className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {globalTab && <Tab tab={globalTab} global active={globalActive} onClick={onSelectGlobal} />}
+          {groups.map((g) => (
+            <Tab
+              key={g.id}
+              tab={g}
+              active={!globalActive && g.id === activeWorkspaceId}
+              onClick={() => onSelectGroup(g.id)}
+            />
+          ))}
+          {/* Resto della barra: area di trascinamento anche con molti tab. */}
+          <div data-tauri-drag-region className="h-full min-w-4 flex-1" />
+        </div>
+      )}
 
       <div className="flex items-stretch">
         <button

@@ -22,13 +22,13 @@ import {
   openSettings,
   setAddWorkspaceOpen,
   setNotice,
-  setHub,
   setOffice,
   setOutdatedPlugins,
   setSessionReady,
   setUpdateAvailable,
-  toggleHub,
+  setWorld,
   toggleOffice,
+  toggleWorld,
 } from "../src/stores/ui.ts";
 
 const IMAGE = { png: "AAAA", color: "#aabbcc" };
@@ -188,37 +188,37 @@ describe("ui: Tasks Manager e Ufficio", () => {
     assert.equal(toggleOffice(open).officeOpen, false);
   });
 
-  it("setHub e toggleHub: spento di default, a vuoto non cambiano nulla", () => {
-    assert.equal(INITIAL_UI.hubOpen, false);
-    assert.equal(setHub(INITIAL_UI, false), INITIAL_UI);
-    const open = toggleHub(INITIAL_UI);
-    assert.equal(open.hubOpen, true);
-    assert.equal(setHub(open, true), open);
-    assert.equal(toggleHub(open).hubOpen, false);
+  it("setWorld e toggleWorld: i terminali di default, a vuoto non cambiano nulla", () => {
+    assert.equal(INITIAL_UI.world, "terminals");
+    assert.equal(setWorld(INITIAL_UI, "terminals"), INITIAL_UI);
+    const hub = toggleWorld(INITIAL_UI);
+    assert.equal(hub.world, "hub");
+    assert.equal(setWorld(hub, "hub"), hub);
+    assert.equal(toggleWorld(hub).world, "terminals");
   });
 
   it("Ufficio e Agents HUB si escludono a vicenda", () => {
-    const hub = setHub(INITIAL_UI, true);
+    const hub = setWorld(INITIAL_UI, "hub");
     const office = setOffice(hub, true);
     assert.equal(office.officeOpen, true);
-    assert.equal(office.hubOpen, false);
-    const back = setHub(office, true);
-    assert.equal(back.hubOpen, true);
+    assert.equal(office.world, "terminals");
+    const back = setWorld(office, "hub");
+    assert.equal(back.world, "hub");
     assert.equal(back.officeOpen, false);
-    assert.equal(toggleOffice(back).hubOpen, false);
+    assert.equal(toggleOffice(back).world, "terminals");
   });
 
-  it("chiudere una vista non tocca l'altra", () => {
-    const hub = setHub(INITIAL_UI, true);
+  it("chiudere l'Ufficio o tornare ai terminali non tocca l'altro", () => {
+    const hub = setWorld(INITIAL_UI, "hub");
     assert.equal(setOffice(hub, false), hub);
     const office = setOffice(INITIAL_UI, true);
-    assert.equal(setHub(office, false), office);
+    assert.equal(setWorld(office, "terminals"), office);
   });
 
-  it("openManager chiude anche l'Agents HUB", () => {
-    const s = openManager(setHub(INITIAL_UI, true), "w1");
+  it("openManager riporta ai terminali", () => {
+    const s = openManager(setWorld(INITIAL_UI, "hub"), "w1");
     assert.equal(s.managerOpen.w1, true);
-    assert.equal(s.hubOpen, false);
+    assert.equal(s.world, "terminals");
   });
 });
 

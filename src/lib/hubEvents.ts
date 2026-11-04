@@ -2,6 +2,9 @@
 // Il backend può aggiungere tipi (compatibile in lettura): uno sconosciuto si
 // mostra con la resa generica, mai come errore.
 
+import type { BoardView } from "../bindings/BoardView.ts";
+import type { HubEvent } from "../bindings/HubEvent.ts";
+
 /** Chiave dell'icona; il componente la traduce in un'icona. */
 export type HubEventIcon = "proposal" | "started" | "done" | "failed" | "attention" | "deleted" | "generic";
 
@@ -30,4 +33,18 @@ const EVENT_LOOKS: Readonly<Record<string, HubEventLook>> = {
 /** Resa di un tipo di evento (anche uno che questa versione non conosce). */
 export function eventLook(kind: string): HubEventLook {
   return EVENT_LOOKS[kind] ?? GENERIC_LOOK;
+}
+
+/**
+ * Tab del terminale del worker del task di un evento: la `session` del task
+ * nella board del workspace, se il tab è ancora aperto (`hasTab`); altrimenti `null`.
+ */
+export function workerTabOf(
+  boards: Readonly<Record<string, Pick<BoardView, "tasks">>>,
+  event: Pick<HubEvent, "workspace" | "task_id">,
+  hasTab: (key: string) => boolean,
+): string | null {
+  if (event.workspace === null || event.task_id === null) return null;
+  const task = boards[event.workspace]?.tasks.find((t) => t.id === event.task_id);
+  return task?.session && hasTab(task.session) ? task.session : null;
 }

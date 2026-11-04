@@ -1,4 +1,6 @@
 import AppDialogs from "./components/AppDialogs";
+import HubSidebar from "./components/hub/HubSidebar";
+import WorldRail from "./components/rail/WorldRail";
 import AppSidebar from "./components/AppSidebar";
 import AppStatusBar from "./components/AppStatusBar";
 import AppTitleBar from "./components/AppTitleBar";
@@ -13,14 +15,15 @@ import { useIntegrationsSync } from "./hooks/useIntegrations";
 import { useLaunchesSync } from "./hooks/useLaunchesSync";
 import { useSessionPersistence } from "./hooks/useSessionPersistence";
 import { useShortcuts } from "./hooks/useShortcuts";
-import { useSidebarShown } from "./hooks/useView";
+import { useActiveWorld, useWorldRailShown } from "./hooks/useView";
 import { useStoreWarnings } from "./hooks/useStoreWarnings";
 import { useUsagePolling } from "./hooks/useUsage";
 
 /**
  * Composizione dell'app: lo stato vive negli archivi (`src/stores`), le azioni
  * in `src/app`, e ogni componente legge da sé ciò che mostra. Qui si avviano
- * solo i processi di fondo e si dispongono le aree.
+ * solo i processi di fondo e si dispongono le aree: barra dei mondi (con
+ * l'Agents HUB acceso), colonna di sinistra del mondo attivo, area di lavoro.
  */
 export default function App() {
   useInitialData();
@@ -37,13 +40,15 @@ export default function App() {
   // Il backend parte solo a sessione ripristinata e ascoltatori registrati.
   useFrontendReady(useAppEvents());
 
-  const sidebarShown = useSidebarShown();
+  const world = useActiveWorld();
+  const railShown = useWorldRailShown();
 
   return (
     <div className="flex h-screen flex-col">
       <AppTitleBar />
       <div className="flex min-h-0 flex-1">
-        {sidebarShown && <AppSidebar />}
+        {railShown && <WorldRail />}
+        {world === "hub" ? <HubSidebar /> : <AppSidebar />}
         <Workbench />
       </div>
       <AppStatusBar />

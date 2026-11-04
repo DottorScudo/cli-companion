@@ -1135,7 +1135,7 @@ src/
   `requestAnimationFrame`: i bot si spostano con una transizione CSS su left/top (durata =
   distanza / velocita') e posa e camminata sono animazioni CSS (`office.css`, spente con
   `prefers-reduced-motion`). Ctrl+Maiusc+O (`useOfficeShortcut`, fase di cattura come
-  Ctrl+Maiusc+B) e il pulsante "Ufficio" nel footer della Sidebar lo aprono/chiudono; non fa
+  Ctrl+Maiusc+B) e il pulsante "Ufficio" (nel footer della Sidebar, o nella barra dei mondi con l'Agents HUB acceso) lo aprono/chiudono; non fa
   nulla con un dialogo aperto o con i bot spenti (che lo chiudono). Il click su un bot chiama
   `focusTerminal`; anche il click su un terminale della Sidebar, una notifica o l'apertura del
   Tasks Manager lo chiudono.
@@ -1205,7 +1205,11 @@ src/
   caret sul menu degli avvii. Menu "⋯": avvii, "Gestisci avvii…", Rinomina, Elimina
   (`DropdownMenu modal={false}`; le Impostazioni si aprono con un `setTimeout` a menu
   chiuso). Rinomina inline, elimina con doppia conferma. Footer: Impostazioni (pallino
-  accent se c'e' un update), pulsante "Ufficio" (solo con i bot attivi) e versione (`getVersion()`).
+  accent se c'e' un update), pulsante "Ufficio" (solo con i bot attivi) e versione (`getVersion()`); con l'Agents HUB
+  acceso il footer non c'e': Impostazioni, Ufficio e versione stanno nella barra dei mondi (`components/rail/WorldRail.tsx`,
+  64px a sinistra, con Terminali e HUB). Ctrl+Maiusc+H (`useShortcuts`) passa dal mondo Terminali al mondo Agents HUB
+  (`UiState.world`, `stores/view.ts` `activeWorld`; non persistito): la colonna di 260px mostra `AppSidebar` o `HubSidebar`
+  e l'overlay `HubOverlay` copre i terminali (che restano montati). Dettagli in [HUB.MD](HUB.MD), "Interfaccia".
 - `components/PaneHeader.tsx` (30px): stato, etichetta mono (prefisso "workspace /" nella vista
   globale), parola di stato dell'agente, pin / massimizza / chiudi. Area dei pannelli su
   `--pane-area` con 6px di margine; pannello attivo col bordo accent; bersaglio di

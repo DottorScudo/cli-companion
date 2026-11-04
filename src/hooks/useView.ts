@@ -2,7 +2,15 @@ import { configStore } from "../stores/config";
 import { hubStore } from "../stores/hub";
 import { layoutStore, viewWorkspaceId } from "../stores/layout";
 import { uiStore } from "../stores/ui";
-import { hubShown, managerShown, officeShown, overlayShown, sidebarShown } from "../stores/view";
+import type { World } from "../stores/ui";
+import {
+  activeWorld,
+  managerShown,
+  officeShown,
+  overlayShown,
+  sidebarFooterShown,
+  worldRailShown,
+} from "../stores/view";
 import { useStore, useStores } from "./useStore";
 
 // Cosa è mostrato, derivato dagli archivi (le funzioni pure stanno in
@@ -16,8 +24,7 @@ const VIEW_STORES = [layoutStore, uiStore, configStore, hubStore] as const;
 
 const computeManagerShown = () => managerShown(layoutStore.getState(), uiStore.getState());
 const computeOfficeShown = () => officeShown(uiStore.getState(), configStore.getState().botSettings);
-const computeHubShown = () => hubShown(uiStore.getState(), hubStore.getState());
-const computeSidebarShown = () => sidebarShown(uiStore.getState(), hubStore.getState());
+const computeActiveWorld = () => activeWorld(uiStore.getState(), hubStore.getState());
 const computeOverlayShown = () =>
   overlayShown(layoutStore.getState(), uiStore.getState(), configStore.getState().botSettings, hubStore.getState());
 
@@ -36,14 +43,19 @@ export function useOfficeShown(): boolean {
   return useStores(UI_CONFIG, computeOfficeShown);
 }
 
-/** L'Agents HUB è aperto e acceso. */
-export function useHubShown(): boolean {
-  return useStores(UI_HUB, computeHubShown);
+/** Il mondo mostrato: i terminali, o l'Agents HUB se acceso e scelto. */
+export function useActiveWorld(): World {
+  return useStores(UI_HUB, computeActiveWorld);
 }
 
-/** La sidebar dei workspace è visibile (nascosta mentre l'Agents HUB è aperto). */
-export function useSidebarShown(): boolean {
-  return useStores(UI_HUB, computeSidebarShown);
+/** La barra dei mondi è visibile (solo con l'Agents HUB acceso). */
+export function useWorldRailShown(): boolean {
+  return useStore(hubStore, worldRailShown);
+}
+
+/** Impostazioni, Ufficio e versione stanno nel piede della sidebar (senza la barra dei mondi). */
+export function useSidebarFooterShown(): boolean {
+  return useStore(hubStore, sidebarFooterShown);
 }
 
 /** Manager, Ufficio o Agents HUB coprono pannello Task e terminali. */

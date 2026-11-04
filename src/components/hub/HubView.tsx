@@ -1,40 +1,20 @@
-import { useEffect, useMemo } from "react";
-import { loadAllChannels, loadThread, selectChannel } from "../../app/actions/hub";
+import { useEffect } from "react";
+import { loadThread, selectChannel } from "../../app/actions/hub";
+import { useHubChannels } from "../../hooks/useHubChannels";
 import { useStore } from "../../hooks/useStore";
-import { GENERAL_CHANNEL, hubChannels, resolveChannel } from "../../lib/hub";
-import { shallowEqual } from "../../lib/store";
+import { GENERAL_CHANNEL, channelName } from "../../lib/hub";
 import { hubStore } from "../../stores/hub";
-import { visibleWorkspaces, workspacesStore } from "../../stores/workspaces";
-import type { WorkspacesState } from "../../stores/workspaces";
-import HubChannelList from "./HubChannelList";
 import HubConversation from "./HubConversation";
 import HubThreadList from "./HubThreadList";
 
-interface WorkspaceName {
-  id: string;
-  name: string;
-}
-
-const workspaceNames = (s: WorkspacesState): WorkspaceName[] =>
-  visibleWorkspaces(s).map((w) => ({ id: w.id, name: w.name }));
-const sameWorkspaces = (a: WorkspaceName[], b: WorkspaceName[]) =>
-  a.length === b.length && a.every((w, i) => shallowEqual(w, b[i]));
-
 /**
- * Vista a tutta larghezza a tre colonne: canali, thread del canale e conversazione. All'apertura
- * legge l'elenco di ogni canale (per i segnalini) e rilegge il thread rimasto
+ * Centro del mondo Agents HUB: thread del canale e conversazione (la colonna
+ * dei canali è `HubSidebar`, a sinistra). All'apertura rilegge il thread rimasto
  * aperto; poi segue `hub-update`, senza interrogazioni periodiche.
  */
 export default function HubView() {
-  const workspaces = useStore(workspacesStore, workspaceNames, sameWorkspaces);
+  const { channels, current } = useHubChannels();
   const channel = useStore(hubStore, (s) => s.channel);
-  const channels = useMemo(() => hubChannels(workspaces), [workspaces]);
-  const channelIds = useMemo(() => channels.map((c) => c.id).join("\n"), [channels]);
-  const current = resolveChannel(channel, channels);
-
-  useEffect(() => {
-    loadAllChannels(channelIds.split("\n"));
-  }, [channelIds]);
 
   useEffect(() => {
     const { channel: openChannel, threadId } = hubStore.getState();
@@ -48,8 +28,7 @@ export default function HubView() {
 
   return (
     <div className="flex h-full min-h-0">
-      <HubChannelList channels={channels} selected={current} />
-      <HubThreadList channel={current} channelName={channels.find((c) => c.id === current)?.name ?? ""} />
+      <HubThreadList channel={current} channelName={channelName(channels, current)} />
       <HubConversation channel={current} />
     </div>
   );

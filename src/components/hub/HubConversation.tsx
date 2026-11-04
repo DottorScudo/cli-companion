@@ -1,9 +1,11 @@
 import { useEffect, useRef } from "react";
 import { startReply } from "../../app/actions/hub";
+import { openManager } from "../../app/actions/view";
 import { useStore } from "../../hooks/useStore";
-import { replyTarget } from "../../lib/hub";
+import { GENERAL_CHANNEL, replyTarget } from "../../lib/hub";
 import { hubStore } from "../../stores/hub";
 import { useManagerNow } from "../tasks/useManagerNow";
+import { Button } from "../ui/button";
 import HubComposer from "./HubComposer";
 import HubMessageItem from "./HubMessageItem";
 
@@ -53,6 +55,11 @@ export default function HubConversation({ channel }: { channel: string }) {
         <span className="rounded border px-1.5 py-px text-[10px] text-muted-foreground">
           {thread.state === "open" ? "Aperto" : "Chiuso"}
         </span>
+        {channel !== GENERAL_CHANNEL && (
+          <Button type="button" size="sm" variant="outline" className="h-7 px-2" onClick={() => openManager(channel)}>
+            Apri nel Tasks Manager
+          </Button>
+        )}
       </header>
       <div
         ref={listRef}

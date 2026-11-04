@@ -1,6 +1,6 @@
 // Stato dell'Agents HUB: interruttore, canale e thread selezionati, riassunti
-// dei thread per canale e conversazione aperta. L'apertura della vista sta in
-// `stores/ui.ts` (si esclude con l'Ufficio). Ogni transizione ritorna lo
+// dei thread per canale e conversazione aperta. Il mondo attivo (Terminali o
+// Agents HUB) sta in `stores/ui.ts`. Ogni transizione ritorna lo
 // stesso stato se non cambia nulla.
 
 import { GENERAL_CHANNEL, appendMessage, upsertSummary } from "../lib/hub.ts";

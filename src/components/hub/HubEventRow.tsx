@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -9,11 +10,15 @@ import {
   XCircle,
   type LucideIcon,
 } from "lucide-react";
+import { focusTerminal } from "../../app/actions/view";
+import { useStores } from "../../hooks/useStore";
 import { formatRelative } from "../../lib/board";
-import { eventLook } from "../../lib/hubEvents";
+import { eventLook, workerTabOf } from "../../lib/hubEvents";
 import type { HubEventIcon, HubEventTone } from "../../lib/hubEvents";
 import type { HubEvent, HubMessage } from "../../lib/tauri";
 import { cn } from "../../lib/utils";
+import { boardsStore } from "../../stores/boards";
+import { tabsStore } from "../../stores/tabs";
 import { Button } from "../ui/button";
 import ReplyReference from "./ReplyReference";
 
@@ -34,6 +39,8 @@ const TONE_CLASS: Record<HubEventTone, string> = {
   warning: "text-status-attention",
 };
 
+const WORKER_STORES = [boardsStore, tabsStore] as const;
+
 interface Props {
   message: HubMessage;
   event: HubEvent;
@@ -42,10 +49,18 @@ interface Props {
   onReply: (messageId: string) => void;
 }
 
-/** Evento della board come riga compatta: icona e tipo, testo, nota del riassunto e "Rispondi". */
+/**
+ * Evento della board come riga compatta: icona e tipo, testo, nota del
+ * riassunto, link al terminale del worker (se il tab è ancora aperto) e "Rispondi".
+ */
 export default function HubEventRow({ message, event, target, now, onReply }: Props) {
   const look = eventLook(event.kind);
   const Icon = ICONS[look.icon];
+  const computeWorkerTab = useCallback(
+    () => workerTabOf(boardsStore.getState().boards, event, (key) => tabsStore.get(key) !== undefined),
+    [event],
+  );
+  const workerTab = useStores(WORKER_STORES, computeWorkerTab);
   return (
     <div className="group flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-accent/40">
       <Icon className={cn("mt-0.5 !size-4 flex-shrink-0", TONE_CLASS[look.tone])} aria-hidden="true" />
@@ -55,6 +70,15 @@ export default function HubEventRow({ message, event, target, now, onReply }: Pr
           <span className="text-text-secondary"> · {message.body}</span>
         </p>
         {event.summary && <p className="whitespace-pre-line text-[11px] text-muted-foreground">{event.summary}</p>}
+        {workerTab !== null && (
+          <button
+            type="button"
+            onClick={() => focusTerminal(workerTab)}
+            className="self-start text-[11px] text-primary hover:underline"
+          >
+            apri il terminale del worker
+          </button>
+        )}
         {target && <ReplyReference target={target} />}
       </div>
       <span className="flex-shrink-0 pt-0.5 text-[11px] text-muted-foreground">

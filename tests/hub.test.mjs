@@ -6,20 +6,25 @@ import {
   THREAD_TITLE_MAX_CHARS,
   appendMessage,
   authorLabel,
-  channelWaiting,
+  channelName,
   checkBody,
   checkTitle,
   excerpt,
   filterThreads,
   hubChannels,
+  hubTitlePath,
+  latestWaitingChannel,
   replyTarget,
   resolveChannel,
   sortThreads,
   summarizeThread,
   threadNeedsReload,
+  totalWaiting,
   upsertSummary,
+  waitingCount,
+  waitingText,
 } from "../src/lib/hub.ts";
-import { eventLook } from "../src/lib/hubEvents.ts";
+import { eventLook, workerTabOf } from "../src/lib/hubEvents.ts";
 
 const summary = (id, extra = {}) => ({
   id,
@@ -80,10 +85,63 @@ describe("hub: canali", () => {
     assert.equal(resolveChannel("rimosso", channels), GENERAL_CHANNEL);
   });
 
-  it("channelWaiting: almeno un thread che aspetta; elenco non letto = no", () => {
-    assert.equal(channelWaiting(undefined), false);
-    assert.equal(channelWaiting([]), false);
-    assert.equal(channelWaiting([summary("a"), summary("b", { waiting_user: true })]), true);
+  it("channelName: il nome del canale, quello del Generale se non esiste più", () => {
+    const channels = hubChannels([{ id: "a", name: "Alfa" }]);
+    assert.equal(channelName(channels, "a"), "Alfa");
+    assert.equal(channelName(channels, "rimosso"), "Generale");
+  });
+
+  it("hubTitlePath: canale risolto e titolo del thread (se c'è)", () => {
+    const channels = hubChannels([{ id: "a", name: "Alfa" }]);
+    assert.deepEqual(hubTitlePath(channels, "a", "Rilascio"), { channelName: "Alfa", threadTitle: "Rilascio" });
+    assert.deepEqual(hubTitlePath(channels, "rimosso", null), { channelName: "Generale", threadTitle: null });
+  });
+});
+
+describe("hub: thread in attesa", () => {
+  const waiting = (id, extra = {}) => summary(id, { waiting_user: true, ...extra });
+  const byChannel = {
+    general: [summary("g1"), waiting("g2", { updated_at: 5 })],
+    a: [waiting("a1", { channel: "a", updated_at: 9 }), waiting("a2", { channel: "a", updated_at: 3 })],
+    gone: [waiting("x1", { channel: "gone", updated_at: 99 })],
+  };
+
+  it("waitingCount: i thread che aspettano; elenco non letto = nessuno", () => {
+    assert.equal(waitingCount(undefined), 0);
+    assert.equal(waitingCount([]), 0);
+    assert.equal(waitingCount(byChannel.a), 2);
+    assert.equal(waitingCount(byChannel.general), 1);
+  });
+
+  it("waitingText: singolare e plurale", () => {
+    assert.equal(waitingText(1), "1 thread aspetta te");
+    assert.equal(waitingText(3), "3 thread aspettano te");
+  });
+
+  it("totalWaiting: somma sui soli canali dati, anche non letti", () => {
+    assert.equal(totalWaiting(byChannel, ["general", "a", "mai-letto"]), 3);
+    assert.equal(totalWaiting(byChannel, []), 0);
+    assert.equal(totalWaiting({}, ["general"]), 0);
+  });
+
+  it("latestWaitingChannel: il canale del thread in attesa aggiornato per ultimo", () => {
+    assert.equal(latestWaitingChannel(byChannel, ["general", "a"]), "a");
+    assert.equal(latestWaitingChannel(byChannel, ["general"]), "general");
+  });
+
+  it("latestWaitingChannel: ignora i canali non visibili e senza attese", () => {
+    assert.equal(latestWaitingChannel(byChannel, ["general", "a", "mai-letto"]), "a");
+    assert.equal(latestWaitingChannel({ general: [summary("g1")] }, ["general"]), null);
+    assert.equal(latestWaitingChannel({}, ["general"]), null);
+  });
+
+  it("latestWaitingChannel: a parità di aggiornamento vince il creato per ultimo", () => {
+    const tied = {
+      general: [waiting("g", { updated_at: 5, created_at: 1 })],
+      a: [waiting("a", { channel: "a", updated_at: 5, created_at: 2 })],
+    };
+    assert.equal(latestWaitingChannel(tied, ["general", "a"]), "a");
+    assert.equal(latestWaitingChannel(tied, ["a", "general"]), "a");
   });
 });
 
@@ -220,5 +278,40 @@ describe("hubEvents: eventLook", () => {
 
   it("un tipo sconosciuto ha la resa generica", () => {
     assert.deepEqual(eventLook("tipo_futuro"), { label: "Evento", icon: "generic", tone: "neutral" });
+  });
+});
+
+describe("hubEvents: workerTabOf", () => {
+  const boards = {
+    ws: {
+      tasks: [
+        { id: "t1", session: "tab-1" },
+        { id: "t2", session: null },
+      ],
+    },
+  };
+  const open = (key) => key === "tab-1";
+  const event = (extra = {}) => ({ workspace: "ws", task_id: "t1", ...extra });
+
+  it("il tab del worker, se il task ha una sessione e il tab è aperto", () => {
+    assert.equal(workerTabOf(boards, event(), open), "tab-1");
+  });
+
+  it("nessun task o workspace nell'evento: nessun tab", () => {
+    assert.equal(workerTabOf(boards, event({ task_id: null }), open), null);
+    assert.equal(workerTabOf(boards, event({ workspace: null }), open), null);
+  });
+
+  it("board o task mancante, task senza sessione: nessun tab", () => {
+    assert.equal(workerTabOf(boards, event({ workspace: "altro" }), open), null);
+    assert.equal(workerTabOf(boards, event({ task_id: "t9" }), open), null);
+    assert.equal(workerTabOf(boards, event({ task_id: "t2" }), open), null);
+  });
+
+  it("tab chiuso nel frattempo: nessun tab", () => {
+    assert.equal(
+      workerTabOf(boards, event(), () => false),
+      null,
+    );
   });
 });

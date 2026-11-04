@@ -161,22 +161,54 @@ badge del canale senza rileggere nulla; la conversazione aperta rilegge il threa
 
 ## Interfaccia
 
-Interruttore in Impostazioni › Generale › Agents HUB (spento di default). Acceso, la sidebar mostra un pulsante accanto
-a quello dell'Ufficio che apre la vista (`components/hub/`, overlay `workbench/HubOverlay.tsx` allo stesso livello
-dell'Ufficio): aprire l'una chiude l'altra, e spegnere l'HUB chiude la vista. Spento, non c'è pulsante, vista né
-chiamate: all'avvio si legge solo `hub_get_settings`.
+Interruttore in Impostazioni › Generale › Agents HUB (spento di default). L'app ha due **mondi**: i *Terminali*
+(workspace, Tasks Manager, Ufficio, come prima dell'HUB) e l'*Agents HUB*. Con l'HUB **acceso** una **barra dei
+mondi** (`components/rail/`, 64px, `<nav aria-label="Mondi">`) sta a sinistra, sempre visibile: Terminali, HUB (con
+la pillola dei thread che aspettano l'utente), Ufficio (con i bot attivi), poi Impostazioni (col pallino di
+aggiornamento) e versione. Con l'HUB **spento** non c'è barra né vista né chiamate (all'avvio si legge solo
+`hub_get_settings`) e il layout è quello di prima: la sidebar ha il suo piede con Impostazioni, Ufficio e versione.
+
+Ogni zona dello schermo resta al suo posto; cambia il contenuto con il mondo:
+
+| Zona | Mondo Terminali | Mondo Agents HUB |
+|---|---|---|
+| Barra del titolo | tab dei workspace (il riquadro del logo è largo 324px con la barra, 260px senza) | percorso `Agents HUB / # canale / titolo del thread` (`HubTitlePath`) |
+| Colonna di sinistra (260px) | sidebar dei workspace, senza piede se c'è la barra | canali (`HubSidebar`): Generale e uno per workspace visibile, con la pillola dei thread in attesa |
+| Centro | terminali, pannello Task, Tasks Manager, Ufficio | `HubOverlay`: thread del canale e conversazione |
+| Barra di stato | come sempre, più «Agents HUB: N thread aspettano te» se N > 0 | «Agents HUB», N thread in attesa, conteggio dei terminali a destra (`HubStatusBar`) |
+
+I terminali restano sempre montati e l'area di lavoro ha la stessa dimensione nei due mondi (barra e colonna hanno la
+stessa larghezza); l'overlay dell'HUB li copre come l'Ufficio, e l'HUB e l'Ufficio si escludono (`setWorld`,
+`setOffice`).
+
+**Collegamenti tra i mondi.** Terminali → HUB: il bottone con il numero di thread in attesa accanto al nome del
+workspace nella sidebar apre il suo canale; «Agents HUB: N thread aspettano te» nella barra di stato apre il canale del
+thread in attesa più recente (altrimenti l'ultimo canale aperto). HUB → Terminali: «Terminali» nell'intestazione dei
+thread (non nel Generale) mostra i terminali di quel workspace; «Apri nel Tasks Manager» nella conversazione apre il
+manager; sugli eventi della board «apri il terminale del worker» (se il task ha una `session` e il tab è ancora aperto,
+`workerTabOf`) mette a fuoco il tab. Ctrl+Maiusc+H passa da un mondo all'altro (solo con l'HUB acceso e nessun dialogo
+aperto); non c'è una X per chiudere l'HUB, si esce dalla barra o dalla scorciatoia.
+
+**Persistenza.** Il mondo attivo (`UiState.world`) non si salva nella sessione, come `officeOpen` e `managerOpen`:
+all'avvio si ripristinano i terminali, l'HUB è spento finché le impostazioni non sono lette e partire dai Terminali
+evita un lampo di vista sbagliata. Spegnere l'HUB riporta ai Terminali.
+
+**Caricamento.** Acceso l'HUB (e quando cambia l'insieme dei canali) `useHubSync` legge l'elenco di ogni canale, perché
+le pillole servono anche nel mondo Terminali; poi `hub-update` li tiene aggiornati. Le pillole contano solo i canali
+dei workspace visibili (`totalWaiting`).
 
 | Parte | Dove |
 |---|---|
 | Stato (interruttore, canale, filtro, riassunti per canale, thread aperto, risposta in corso) | `stores/hub.ts` |
-| Apertura della vista (`hubOpen`, esclusiva con `officeOpen`) | `stores/ui.ts`, `stores/view.ts` (`hubShown`) |
-| Canali, filtro, controlli sui testi, decisioni di rilettura | `lib/hub.ts` |
-| Resa degli eventi per tipo (etichetta, icona, tono; i tipi sconosciuti hanno la resa generica) | `lib/hubEvents.ts` |
-| Chiamate al backend e `hub-update` | `app/actions/hub.ts`, `hooks/useHubSync.ts` |
+| Mondo attivo (`world`, esclusivo con `officeOpen`) e derivazioni (`activeWorld`, `worldRailShown`, `sidebarFooterShown`) | `stores/ui.ts`, `stores/view.ts` |
+| Canali dai workspace visibili | `stores/hubChannels.ts`, `hooks/useHubChannels.ts` |
+| Canali, thread in attesa, percorso del titolo, controlli sui testi, decisioni di rilettura | `lib/hub.ts` |
+| Resa degli eventi per tipo (etichetta, icona, tono; i tipi sconosciuti hanno la resa generica) e tab del worker | `lib/hubEvents.ts` |
+| Chiamate al backend, `hub-update` e caricamento dei canali | `app/actions/hub.ts`, `hooks/useHubSync.ts` |
+| Passaggi tra i mondi | `app/actions/view.ts`, `hooks/useShortcuts.ts` |
 
-Tre colonne: canali (Generale, poi i workspace visibili nell'ordine della sidebar, con il segnalino se un thread ha
-`waiting_user`), thread del canale (filtro Aperti/Tutti, «Nuovo thread») e conversazione. All'apertura si legge
-l'elenco di ogni canale; poi si segue `hub-update`, senza interrogazioni periodiche. Gli eventi sono righe compatte con
+Il mondo Agents HUB ha tre colonne: canali (a sinistra, nella colonna dello schermo), thread del canale (filtro
+Aperti/Tutti, «+» nuovo thread) e conversazione. Gli eventi sono righe compatte con
 «Rispondi»: il compositore mostra il messaggio citato (annullabile) e invia con `reply_to`; la risposta riporta il
 riferimento all'originale, che sparisce se il messaggio è stato potato. Invio invia, Maiusc+Invio va a capo, al massimo
 8000 caratteri.

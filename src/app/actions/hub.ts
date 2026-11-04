@@ -17,11 +17,11 @@ export function loadHubSettings(): void {
     .catch((e) => report("caricamento delle impostazioni dell'Agents HUB", e, { notify: true }));
 }
 
-/** Accende o spegne l'HUB. Spegnerlo chiude la vista. Rifiuta con l'errore del backend. */
+/** Accende o spegne l'HUB. Spegnerlo riporta ai terminali. Rifiuta con l'errore del backend. */
 export async function setHubEnabled(enabled: boolean): Promise<void> {
   const settings = await api.hubSetEnabled(enabled);
   hubStore.settingsLoaded(settings.enabled);
-  if (!settings.enabled) uiStore.setHub(false);
+  if (!settings.enabled) uiStore.setWorld("terminals");
 }
 
 /** Legge i riassunti dei thread di un canale. */
@@ -32,7 +32,7 @@ export function loadChannelThreads(channel: string): void {
     .catch((e) => report("caricamento dei thread dell'Agents HUB", e, { notify: true }));
 }
 
-/** Apertura della vista: l'elenco di ogni canale, per i segnalini di chi aspetta l'utente. */
+/** L'elenco di ogni canale, per i segnalini di chi aspetta l'utente (a HUB acceso, in entrambi i mondi). */
 export function loadAllChannels(channels: readonly string[]): void {
   for (const channel of channels) loadChannelThreads(channel);
 }

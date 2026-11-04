@@ -1,4 +1,5 @@
 import { useStore, useStores } from "../hooks/useStore";
+import { useActiveWorld, useWorldRailShown } from "../hooks/useView";
 import { selectGlobal, selectWorkspace } from "../app/actions/view";
 import { layoutStore } from "../stores/layout";
 import { sameTitleTabs, titleBarTabs } from "../stores/selectors";
@@ -18,8 +19,8 @@ const computeTitleTabs = () =>
   );
 
 /**
- * Barra del titolo: tab della vista globale (se ha tab) e di ogni gruppo. I
- * tab si ricalcolano a ogni modifica di layout, tab o stato, ma la barra si
+ * Barra del titolo: tab della vista globale (se ha tab) e di ogni gruppo, o
+ * il percorso nel mondo Agents HUB. I tab si ricalcolano a ogni modifica di layout, tab o stato, ma la barra si
  * ridisegna solo se cambia qualcosa di visibile (un titolo OSC non basta).
  */
 export default function AppTitleBar() {
@@ -27,8 +28,13 @@ export default function AppTitleBar() {
   const globalActive = useStore(layoutStore, (s) => s.layout.activeView === "global");
   const activeWorkspaceId = useStore(layoutStore, (s) => s.layout.activeWorkspaceId);
 
+  const world = useActiveWorld();
+  const railShown = useWorldRailShown();
+
   return (
     <TitleBar
+      world={world}
+      railShown={railShown}
       globalTab={globalTab}
       globalActive={globalActive}
       groups={groups}

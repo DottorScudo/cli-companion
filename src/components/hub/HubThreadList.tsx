@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, SquareTerminal } from "lucide-react";
 import { selectThread, setThreadFilter } from "../../app/actions/hub";
+import { showWorkspaceTerminals } from "../../app/actions/view";
 import { useStore } from "../../hooks/useStore";
 import { formatRelative } from "../../lib/board";
-import { filterThreads } from "../../lib/hub";
+import { GENERAL_CHANNEL, filterThreads } from "../../lib/hub";
 import type { ThreadFilter } from "../../lib/hub";
 import { cn } from "../../lib/utils";
 import { hubStore } from "../../stores/hub";
@@ -21,7 +22,10 @@ interface Props {
   channelName: string;
 }
 
-/** Colonna dei thread del canale: filtro aperti/tutti, nuovo thread, righe con stato e ultimo aggiornamento. */
+/**
+ * Colonna dei thread del canale: ai terminali del workspace (non nel Generale),
+ * nuovo thread, filtro aperti/tutti, righe con stato e ultimo aggiornamento.
+ */
 export default function HubThreadList({ channel, channelName }: Props) {
   const all = useStore(hubStore, (s) => s.threads[channel]);
   const filter = useStore(hubStore, (s) => s.filter);
@@ -34,8 +38,28 @@ export default function HubThreadList({ channel, channelName }: Props) {
     <section aria-label="Thread" className="flex w-[280px] flex-shrink-0 flex-col border-r">
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold">{channelName}</h2>
-        <Button type="button" size="sm" variant="outline" className="h-7 gap-1 px-2" onClick={() => setCreating(true)}>
-          <Plus className="!size-3.5" /> Nuovo thread
+        {channel !== GENERAL_CHANNEL && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 px-2"
+            onClick={() => showWorkspaceTerminals(channel)}
+            title={`Vai ai terminali di ${channelName}`}
+          >
+            <SquareTerminal className="!size-3.5" aria-hidden="true" /> Terminali
+          </Button>
+        )}
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          className="size-7"
+          onClick={() => setCreating(true)}
+          aria-label="Nuovo thread"
+          title="Nuovo thread"
+        >
+          <Plus className="!size-3.5" />
         </Button>
       </div>
       {creating && <NewThreadForm key={channel} channel={channel} onDone={() => setCreating(false)} />}

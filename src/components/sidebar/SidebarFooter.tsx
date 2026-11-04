@@ -1,23 +1,20 @@
 import { SlidersHorizontal } from "lucide-react";
 import { Button } from "../ui/button";
-import HubButton from "../hub/HubButton";
 import OfficeButton from "../office/OfficeButton";
+import UpdateDot from "../UpdateDot";
 import { useStore } from "../../hooks/useStore";
-import { useHubShown, useOfficeShown } from "../../hooks/useView";
+import { useOfficeShown } from "../../hooks/useView";
 import { openSettings } from "../../app/actions/settings";
-import { toggleHub, toggleOffice } from "../../app/actions/view";
+import { toggleOffice } from "../../app/actions/view";
 import { configStore } from "../../stores/config";
-import { hubStore } from "../../stores/hub";
 import { uiStore } from "../../stores/ui";
 
-/** Piede della sidebar: Impostazioni (con il pallino se c'è un aggiornamento), Ufficio, Agents HUB e versione. */
+/** Piede della sidebar (senza la barra dei mondi): Impostazioni (con il pallino se c'è un aggiornamento), Ufficio e versione. */
 export default function SidebarFooter() {
   const updateAvailable = useStore(uiStore, (s) => s.updateAvailable);
   const botsEnabled = useStore(configStore, (s) => s.botSettings.enabled);
   const appVersion = useStore(configStore, (s) => s.appVersion);
-  const hubEnabled = useStore(hubStore, (s) => s.enabled);
   const officeShown = useOfficeShown();
-  const hubShown = useHubShown();
 
   return (
     <div className="flex items-center gap-2 border-t px-3 py-2.5">
@@ -28,17 +25,9 @@ export default function SidebarFooter() {
       >
         <SlidersHorizontal className="!size-[15px]" />
         Impostazioni
-        {updateAvailable && (
-          <span
-            className="h-1.5 w-1.5 rounded-full bg-primary"
-            title="Aggiornamento disponibile"
-            role="img"
-            aria-label="Aggiornamento disponibile"
-          />
-        )}
+        {updateAvailable && <UpdateDot />}
       </Button>
       {botsEnabled && <OfficeButton shown={officeShown} onToggle={toggleOffice} />}
-      {hubEnabled && <HubButton shown={hubShown} onToggle={toggleHub} />}
       {appVersion && <span className="font-mono text-[11px] text-faint">v{appVersion}</span>}
     </div>
   );

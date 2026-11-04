@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { useOfficeShortcut } from "../components/office/useOfficeShortcut";
-import { closeOffice, toggleMaximizeActivePane, toggleManager, toggleOffice } from "../app/actions/view";
+import { closeOffice, toggleMaximizeActivePane, toggleManager, toggleOffice, toggleWorld } from "../app/actions/view";
 import { configStore } from "../stores/config";
+import { hubStore } from "../stores/hub";
 import { layoutStore, viewWorkspaceId } from "../stores/layout";
 import { modalOpen, uiStore } from "../stores/ui";
 import { useStore } from "./useStore";
@@ -38,10 +39,20 @@ function onToggleMaximizeKey(e: KeyboardEvent): void {
   toggleMaximizeActivePane();
 }
 
-/** Scorciatoie globali: Ctrl+Maiusc+B (Tasks Manager), +M (massimizza), +O (Ufficio). */
+/** Ctrl+Maiusc+H: passa dai terminali all'Agents HUB e viceversa (solo con l'HUB acceso). */
+function onToggleWorldKey(e: KeyboardEvent): void {
+  if (!isChord(e, "h")) return;
+  if (!hubStore.getState().enabled || modalOpen(uiStore.getState())) return;
+  e.preventDefault();
+  e.stopPropagation();
+  toggleWorld();
+}
+
+/** Scorciatoie globali: Ctrl+Maiusc+B (Tasks Manager), +M (massimizza), +H (Agents HUB), +O (Ufficio). */
 export function useShortcuts(): void {
   useCaptureShortcut(onToggleManagerKey);
   useCaptureShortcut(onToggleMaximizeKey);
+  useCaptureShortcut(onToggleWorldKey);
 
   // Ufficio: Ctrl+Maiusc+O e pulsante della sidebar. Spegnere i bot lo chiude,
   // così riaccenderli non lo riapre da solo.

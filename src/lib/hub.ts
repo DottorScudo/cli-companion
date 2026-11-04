@@ -50,9 +50,55 @@ export function upsertSummary(list: readonly HubThreadSummary[], summary: HubThr
   return sortThreads([...list.filter((t) => t.id !== summary.id), summary]);
 }
 
-/** Almeno un thread dell'elenco aspetta l'utente (badge del canale). */
-export function channelWaiting(threads: readonly HubThreadSummary[] | undefined): boolean {
-  return threads?.some((t) => t.waiting_user) ?? false;
+/** Riassunti dei thread per canale, come li tiene `stores/hub.ts`. */
+export type ThreadsByChannel = Readonly<Record<string, readonly HubThreadSummary[]>>;
+
+/** Thread dell'elenco che aspettano l'utente (badge del canale); un elenco non ancora letto non ne ha. */
+export function waitingCount(threads: readonly HubThreadSummary[] | undefined): number {
+  return threads?.filter((t) => t.waiting_user).length ?? 0;
+}
+
+/** «1 thread aspetta te», «3 thread aspettano te». */
+export function waitingText(count: number): string {
+  return `${count} thread ${count === 1 ? "aspetta" : "aspettano"} te`;
+}
+
+/** Thread che aspettano l'utente nei soli canali dati (quelli visibili: un workspace archiviato non conta). */
+export function totalWaiting(threadsByChannel: ThreadsByChannel, channelIds: readonly string[]): number {
+  return channelIds.reduce((sum, id) => sum + waitingCount(threadsByChannel[id]), 0);
+}
+
+/** Canale del thread in attesa aggiornato per ultimo (a parità, creato per ultimo) tra i canali dati; `null` se nessuno aspetta. */
+export function latestWaitingChannel(threadsByChannel: ThreadsByChannel, channelIds: readonly string[]): string | null {
+  let best: HubThreadSummary | null = null;
+  for (const id of channelIds) {
+    for (const t of threadsByChannel[id] ?? []) {
+      if (!t.waiting_user) continue;
+      if (
+        best === null ||
+        t.updated_at > best.updated_at ||
+        (t.updated_at === best.updated_at && t.created_at > best.created_at)
+      ) {
+        best = t;
+      }
+    }
+  }
+  return best === null ? null : best.channel;
+}
+
+/** Nome del canale (quello del Generale se non esiste più). */
+export function channelName(channels: readonly HubChannel[], channel: string): string {
+  const id = resolveChannel(channel, channels);
+  return channels.find((c) => c.id === id)?.name ?? "";
+}
+
+/** Percorso mostrato nella barra del titolo: nome del canale e titolo del thread aperto, se c'è. */
+export function hubTitlePath(
+  channels: readonly HubChannel[],
+  channel: string,
+  threadTitle: string | null,
+): { channelName: string; threadTitle: string | null } {
+  return { channelName: channelName(channels, channel), threadTitle };
 }
 
 /** Riassunto di un thread appena letto (la riga dell'elenco); `waiting_user` lo calcola il backend, un thread nuovo non aspetta. */

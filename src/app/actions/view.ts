@@ -1,6 +1,6 @@
-// Cosa si vede: workspace selezionato, Tasks Manager, Ufficio e avviso della
-// sidebar. Funzioni di modulo (stabili): leggono lo stato dagli archivi con
-// `getState()`, nessuna copia in ref.
+// Cosa si vede: mondo (Terminali o Agents HUB), workspace selezionato, Tasks
+// Manager, Ufficio e avviso della sidebar. Funzioni di modulo (stabili):
+// leggono lo stato dagli archivi con `getState()`, nessuna copia in ref.
 
 import {
   activePaneId,
@@ -16,7 +16,11 @@ import { uiStore } from "../../stores/ui";
 import type { TasksManagerIntent } from "../../components/tasks/TasksManager";
 import { hubShown, officeShown } from "../../stores/view";
 import { hubStore } from "../../stores/hub";
+import { hubChannelIdsOf } from "../../stores/hubChannels";
+import { workspacesStore } from "../../stores/workspaces";
+import { latestWaitingChannel } from "../../lib/hub";
 import { loadBoard } from "../boards";
+import { selectChannel } from "./hub";
 
 /** Durata dell'avviso temporaneo nella sidebar. */
 const NOTICE_MS = 6000;
@@ -48,7 +52,7 @@ export function focusTerminal(key: string): void {
   const tab = tabsStore.get(key);
   if (!tab) return;
   uiStore.setOffice(false);
-  uiStore.setHub(false);
+  uiStore.setWorld("terminals");
   showTerminalsOf(tab.workspaceId);
   layoutStore.apply((l) => focusTab(l, key));
 }
@@ -70,7 +74,7 @@ export function selectGlobal(): void {
 /**
  * Apre il Tasks Manager di un workspace (lo seleziona se non è quello
  * mostrato), con un'eventuale richiesta (dettaglio di un task, "Nuovo task").
- * Solo stato: i terminali restano montati. Chiude l'Ufficio, che lo coprirebbe.
+ * Solo stato: i terminali restano montati. Porta ai terminali e chiude l'Ufficio, che lo coprirebbe.
  */
 export function openManager(id: string, intent?: Omit<TasksManagerIntent, "nonce">): void {
   const { layout } = layoutStore.getState();
@@ -88,8 +92,8 @@ export function openManager(id: string, intent?: Omit<TasksManagerIntent, "nonce
 
 /**
  * Sidebar e Ctrl+Maiusc+B: apre il manager, o lo chiude se è già aperto.
- * Con Ufficio o Agents HUB aperti apre il manager (e li chiude): non lo chiude
- * "sotto" una vista che lo copre, dove non si vedrebbe.
+ * Con Ufficio o Agents HUB aperti apre il manager (e torna ai terminali): non
+ * lo chiude "sotto" una vista che lo copre, dove non si vedrebbe.
  */
 export function toggleManager(id: string): void {
   const ui = uiStore.getState();
@@ -101,7 +105,7 @@ export function toggleManager(id: string): void {
   openManager(id);
 }
 
-/** Ufficio: Ctrl+Maiusc+O e pulsante della sidebar. */
+/** Ufficio: Ctrl+Maiusc+O e pulsante. Aprirlo dall'Agents HUB riporta ai terminali (lo fa lo store). */
 export function toggleOffice(): void {
   uiStore.toggleOffice();
 }
@@ -110,13 +114,40 @@ export function closeOffice(): void {
   uiStore.setOffice(false);
 }
 
-/** Pulsante della sidebar: apre/chiude l'Agents HUB (chiude l'Ufficio). */
-export function toggleHub(): void {
-  uiStore.toggleHub();
+/** Ctrl+Maiusc+H: passa dai terminali all'Agents HUB e viceversa (entrando chiude l'Ufficio). */
+export function toggleWorld(): void {
+  uiStore.toggleWorld();
 }
 
-export function closeHub(): void {
-  uiStore.setHub(false);
+/** Barra dei mondi: torna ai terminali (chiude anche l'Ufficio, che li coprirebbe). */
+export function showTerminals(): void {
+  uiStore.setOffice(false);
+  uiStore.setWorld("terminals");
+}
+
+/** Barra dei mondi: mondo dell'Agents HUB. */
+export function showHub(): void {
+  uiStore.setWorld("hub");
+}
+
+/** Apre l'Agents HUB sul canale dato. */
+export function openHubChannel(channel: string): void {
+  uiStore.setWorld("hub");
+  selectChannel(channel);
+}
+
+/** Apre l'Agents HUB sul canale del thread in attesa più recente, altrimenti sull'ultimo canale aperto. */
+export function openHubWaiting(): void {
+  const { threads, channel } = hubStore.getState();
+  const ids = hubChannelIdsOf(workspacesStore.getState());
+  openHubChannel(latestWaitingChannel(threads, ids) ?? channel);
+}
+
+/** Dall'Agents HUB ai terminali di un workspace: chiude il suo Tasks Manager e lo seleziona. */
+export function showWorkspaceTerminals(id: string): void {
+  uiStore.setWorld("terminals");
+  uiStore.closeManager(id);
+  selectWorkspace(id);
 }
 
 /** Ctrl+Maiusc+M: massimizza/ripristina il pannello attivo della vista mostrata. */

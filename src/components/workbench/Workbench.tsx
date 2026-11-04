@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useStore } from "../../hooks/useStore";
-import { useHubShown, useOfficeShown, useOverlayShown } from "../../hooks/useView";
+import { useActiveWorld, useOfficeShown, useOverlayShown } from "../../hooks/useView";
 import { tabsStore } from "../../stores/tabs";
 import { useStableDesks } from "../office/useStableDesks";
 import HubOverlay from "./HubOverlay";
@@ -27,7 +27,7 @@ export default function Workbench() {
   const tabs = useStore(tabsStore);
   const desks = useStableDesks(tabs);
   const officeShown = useOfficeShown();
-  const hubShown = useHubShown();
+  const hubShown = useActiveWorld() === "hub";
   useBlurTerminalsUnder(useOverlayShown());
 
   return (
