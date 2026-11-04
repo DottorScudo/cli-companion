@@ -5,7 +5,8 @@ workspace** più un canale **Generale**, e dentro ogni canale dei **thread** di 
 l'interruttore globale, il modello dati, la persistenza, i comandi Tauri, l'evento verso il frontend e gli
 **eventi della board** nei thread (vedi "Eventi della board") e la **configurazione dei segretari** (provider del
 modello, lingua, sessioni, elenco dei segretari, API key: vedi "Segretari e provider"); nel frontend la vista (vedi
-"Interfaccia"). Il motore che fa parlare i segretari e la loro interfaccia arrivano dopo.
+"Interfaccia") e il **motore dei segretari**, che li fa rispondere nei thread (vedi "Motore dei segretari").
+L'interfaccia dei segretari (chi è sveglio, "sta scrivendo") arriva dopo: il backend espone già evento e comando.
 
 Il codice sta in `src-tauri/src/hub.rs` e `src-tauri/src/hub/`. Le dipendenze e il posto del modulo nella mappa
 sono in [DESIGN.MD](DESIGN.MD), "`hub/`".
@@ -31,8 +32,8 @@ Con l'HUB **spento** (default):
 ## Segretari e provider
 
 I **segretari** sono bot con un nome che l'utente sveglia con `@nome` in un thread e che parlano con un modello
-tramite un endpoint compatibile OpenAI. Qui c'è solo la **configurazione** (codice in `hub/settings/` e
-`hub/api_key.rs`); il motore che li fa parlare legge questi dati. Tutto è in `hub_settings.json` tranne la API key.
+tramite un endpoint compatibile OpenAI. Qui la **configurazione** (codice in `hub/settings/` e
+`hub/api_key.rs`); il motore che li fa parlare (vedi "Motore dei segretari") legge questi dati. Tutto è in `hub_settings.json` tranne la API key.
 
 | Campo | Default | Regole |
 |---|---|---|
@@ -101,6 +102,7 @@ al massimo 128 caratteri). In Rust è `enum Channel { General, Workspace(String)
 | `task_ids` | task collegati (un task appartiene a un solo thread), al massimo 200 |
 | `proposal_id` | proposta collegata (una proposta appartiene a un solo thread) |
 | `created_at`, `updated_at` | millisecondi Unix |
+| `summary` | riassunto del thread (al massimo 10 righe, 1500 caratteri), scritto da un segretario alla chiusura della sua sessione; `null` finché nessuna sessione si è chiusa. Aggiornarlo non cambia `updated_at`. Facoltativo nei file scritti prima (`#[serde(default)]`) |
 | `messages` | in ordine di arrivo |
 
 I messaggi stanno dentro il thread: si leggono e si potano sempre insieme al loro thread, e il file del canale
@@ -109,13 +111,13 @@ resta uno solo. L'elenco (`hub_list_threads`) restituisce i riassunti, senza i m
 **Messaggio** (`HubMessage`): `id` (`msg-<millisecondi>-<n>`), `author`, `kind`, `body`, `reply_to`, `event`,
 `created_at`.
 
-- `author`: `{ "type": "user" }` | `{ "type": "system" }` | `{ "type": "bot", "name": "mario" }`. Il bot arriva
-  nella tappa 2, ma il formato lo prevede già.
+- `author`: `{ "type": "user" }` | `{ "type": "system" }` | `{ "type": "bot", "name": "mario" }` (un segretario:
+  `name` è il suo handle). Solo i messaggi `user` svegliano i segretari.
 - `kind`: `text` | `event`, ricavato da `event` (presente = `event`).
 - `reply_to`: id di un messaggio **dello stesso thread**; un id che non c'è è rifiutato. Se poi il messaggio
   citato viene potato, la UI lo tratta come assente.
 - `event` (`HubEvent`): dati strutturati, accanto al testo a template del messaggio, letti come dati (non come
-  testo) dai bot della tappa 2: `kind` (`task_created`, `task_started`, `task_done`, `task_failed`,
+  testo) dai segretari (`thread_read` e contesto del risveglio): `kind` (`task_created`, `task_started`, `task_done`, `task_failed`,
   `task_attention`, `task_deleted`, `proposal_created`, `proposal_accepted`, `proposal_rejected`), `workspace`
   (id del workspace della board), `task_id`, `proposal_id`, `status` (stato del task nella board), `summary`
   (riassunto del report), `verdict` (`passed` | `issues`, esito di una review), `note` (nota dell'app sul task).
@@ -215,7 +217,8 @@ Validano gli argomenti per primi e fanno l'I/O in `crate::blocking`. Wrapper nel
 | `hub_list_threads` | `channel` | `HubThreadSummary[]`, dal più recente |
 | `hub_get_thread` | `channel`, `thread_id` | `HubThread` con i messaggi |
 | `hub_create_thread` | `channel`, `title` | `HubThread` (thread libero dell'utente) |
-| `hub_send` | `channel`, `thread_id`, `body`, `reply_to?` | `HubMessage` dell'utente |
+| `hub_send` | `channel`, `thread_id`, `body`, `reply_to?` | `HubMessage` dell'utente; dopo il salvataggio il motore sveglia i segretari (in background) |
+| `hub_secretary_status` | — | `HubSecretaryStatus[]`: i segretari svegli adesso (vedi "Motore dei segretari") |
 
 Con l'HUB spento `hub_create_thread` e `hub_send` sono rifiutati; i comandi delle impostazioni funzionano sempre.
 Gli errori di validazione sono in italiano (li legge l'utente) e un comando che fallisce non cambia nulla; un
@@ -224,10 +227,15 @@ risponde «canale non trovato: il workspace non esiste più».
 
 ## Evento
 
-`hub-update`, emesso a ogni modifica di un thread (dai comandi e dagli eventi della board), con payload
+`hub-update`, emesso a ogni modifica di un thread (dai comandi, dagli eventi della board e dal motore dei
+segretari: risposte, avvisi, riassunto), con payload
 `HubThreadSummary` del thread toccato (riga in `TauriEvents`). Basta per aggiornare l'elenco dei thread e il
 badge del canale senza rileggere nulla; la conversazione aperta rilegge il thread con `hub_get_thread` quando
 `message_count` o `updated_at` cambiano.
+
+`hub-secretary-status`, emesso dal motore dei segretari a ogni cambiamento delle sessioni, con payload
+`HubSecretaryStatus[]` (l'elenco completo, vedi "Motore dei segretari"); `hub_secretary_status` lo legge all'apertura
+della vista.
 
 ## Interfaccia
 
@@ -370,3 +378,154 @@ Un passo con eventi è **una sola** modifica atomica del canale (`HubState::upda
 e dopo il controllo che il workspace esista ancora), seguita da un `hub-update` per ogni thread toccato. Un passo
 che non tocca nessun thread non scrive. Un evento che non si può riportare (per esempio un id non valido) finisce
 nel log e non ferma gli altri; un thread creato per un collegamento che fallisce viene tolto.
+
+## Motore dei segretari
+
+Il motore fa parlare i segretari: quando l'utente scrive «@mario a che punto siamo?» in un thread sveglia **solo**
+Mario, gli apre una sessione con un contesto piccolo, chiama il modello configurato con i soli tool consentiti a
+Mario, esegue i tool in Rust e scrive la risposta nel thread con autore `{ "type": "bot", "name": "mario" }`. Gli
+altri segretari restano fermi e non costano nulla. È un sottosistema del backend, staccato dai coding agents: non è
+una skill di Claude Code o OpenCode e non passa da MCP. Codice in `hub/engine/`.
+
+| File | Responsabilità |
+|---|---|
+| `chat.rs` | i tipi della conversazione (messaggi, chiamate a tool, richiesta, risposta, `ModelError`) e il trait `ChatModel` |
+| `openai.rs` | il client reale (`OpenAiModel`, `async-openai`) e la classificazione degli errori |
+| `tools.rs` | schema JSON, descrizione e validazione di ogni tool; quale board può leggere un segretario |
+| `output.rs` | board e thread in JSON compatto per il modello |
+| `context.rs` | system prompt, messaggio di apertura di un turno, richiesta e pulizia del riassunto |
+| `mentions.rs` | le menzioni `@nome` |
+| `sessions.rs` | sessioni, titolare, code dei thread, scadenze (puro, tempo passato dal chiamante) |
+| `turn.rs` | il ciclo di tool calling, la compattazione della conversazione, il riassunto |
+| `texts.rs` | i messaggi di sistema in italiano |
+| `runtime.rs` | lo stato Tauri `SecretaryEngine`, gli esecutori delle code e lo schedulatore delle scadenze |
+| `jobs.rs` | i lavori di una coda (turno, riassunto) sull'app |
+| `host.rs` | gli effetti reali: thread, board, portachiavi |
+| `status.rs` | `HubSecretaryStatus`, l'evento `hub-secretary-status` e il comando `hub_secretary_status` |
+
+La logica (menzioni, sessioni, ciclo, contesto, tool) è pura o generica sui trait `ChatModel` e `TurnHost`: i test
+usano un modello finto (`engine/fake.rs`) che risponde con sequenze scritte a mano e un host finto, senza rete.
+
+### Menzioni e risveglio
+
+`hub_send` salva il messaggio dell'utente e poi chiama `SecretaryEngine::on_message`, che decide chi svegliare
+(`Sessions::route`, puro):
+
+- solo i messaggi dell'utente svegliano qualcuno: quelli dei bot e di sistema mai (niente catene bot-bot); gli
+  eventi della board non svegliano ancora nessuno;
+- una menzione è `@` a inizio testo o dopo un carattere che non può stare in un nome (`posta@mario.it` non lo è),
+  seguita dal nome (lettere, cifre, `-`; il `-` finale non conta; minuscolo); un token che prosegue con altri
+  caratteri di parola (`@màrio`, `@mario_1`) non è una menzione. Una menzione di un nome che non è un segretario si
+  ignora;
+- le menzioni di segretari **configurati** (con `system_prompt`) e **ammessi** nel canale svegliano quei
+  segretari, nell'ordine del testo, ciascuno con la sua sessione (una sessione aperta sullo stesso thread si
+  riprende). Un segretario non configurato o non ammesso produce un messaggio di sistema che lo spiega, in
+  risposta al messaggio («@anna non è configurato: …», «@luca non può essere menzionato in questo canale.»);
+- un messaggio **senza menzioni di segretari** va al **titolare** del thread: il segretario con la sessione attiva
+  più recente in quel thread (che sia ancora configurato e ammesso). Senza sessioni attive non sveglia nessuno e
+  resta come nota. Un messaggio che menziona solo segretari non svegliabili non passa al titolare.
+
+### Code dei thread
+
+Ogni thread ha una **coda** di lavori eseguiti uno alla volta, nell'ordine di arrivo, da un task di
+`tauri::async_runtime` (un esecutore per thread con lavori, che si ferma a coda vuota). Un messaggio che arriva
+mentre un segretario lavora su quel thread viene accodato e trattato dopo; due menzioni nello stesso messaggio
+fanno due turni in fila. Thread diversi lavorano in parallelo. Anche il riassunto di una sessione scaduta passa
+dalla coda, così un risveglio successivo sullo stesso thread legge il riassunto già aggiornato. Se un esecutore
+si fermasse senza svuotare la coda (un panico in un lavoro), il messaggio successivo che sveglia un segretario nel
+thread ne avvia un altro.
+
+### Sessioni
+
+Le sessioni stanno solo in memoria (un riavvio dell'app le chiude); la memoria vera sono board, thread e riassunto.
+
+- **Risveglio**: il contesto si costruisce da zero. System prompt = system prompt del segretario + istruzione fissa
+  del motore (in inglese: chi è, che lavora con la board di coding agents, che non conosce il codice, che non
+  decide questioni tecniche, che usa i tool per leggere lo stato, risposte brevi) + «Always reply to the user in
+  <Language>». Il primo messaggio porta i dati del thread (titolo, canale, stato, task e proposta collegati,
+  **riassunto**), gli **ultimi 10 messaggi** prima di quello che lo ha svegliato (in JSON, con i dati degli eventi)
+  e il messaggio che lo ha svegliato.
+- **Sessione attiva**: la conversazione interna cresce solo dentro la sessione. Un turno successivo riceve i
+  messaggi comparsi nel thread dal turno precedente (tranne i suoi, al massimo 10) e il nuovo messaggio. Gli esiti
+  dei tool dei turni passati si accorciano a 600 caratteri e la conversazione tiene al massimo 40 messaggi
+  (togliendo i più vecchi fino a un messaggio dell'utente, così nessun esito resta senza la sua chiamata).
+- **Chiusura** dopo `idle_minutes` senza attività (l'attività riparte a ogni messaggio instradato e alla fine di
+  ogni turno; una sessione al lavoro o con un turno in coda non scade): il segretario chiede al modello, senza
+  tool, il **riassunto aggiornato del thread** dal riassunto precedente e dalla conversazione della sessione (al
+  massimo 10 righe, in inglese perché lo legge il modello); la risposta si ripulisce (niente caratteri di
+  controllo né righe vuote, al massimo 10 righe e 1500 caratteri) e va in `HubThread.summary`. Se la chiamata
+  fallisce, o il provider non è configurato, resta il riassunto precedente (errore nel log). Poi la conversazione
+  si butta. Una sessione senza turni completati si chiude senza riassunto.
+- **Timer**: un solo thread (`hub-secretary-sessions`) per tutte le sessioni, non uno per sessione: dorme fino
+  alla prossima scadenza (tra 200 ms e 30 s, così un cambio di `idle_minutes` vale entro 30 secondi), chiude le
+  sessioni scadute accodandone il riassunto e si ferma quando non ci sono più sessioni (riparte con la prossima).
+  Il controllo è anche **pigro**: una sessione scaduta che lo schedulatore non ha ancora raccolto non fa da
+  titolare, e una nuova menzione la chiude (riassunto in coda) prima di aprirne una nuova.
+
+**Impostazioni cambiate durante una sessione.** Le sessioni aperte non si rompono: ogni turno rilegge le
+impostazioni, quindi provider, modello, API key, lingua, system prompt, tool e `max_steps` valgono **dal turno
+successivo** (il turno in corso finisce con quelli con cui è partito). Un segretario eliminato, rinominato,
+svuotato del system prompt o escluso dal canale chiude la sua sessione al turno successivo, senza riassunto, con
+«@mario non è più disponibile in questo canale: la sua sessione è chiusa.».
+
+**Spegnere l'HUB** (`hub_set_enabled(false)`) chiude tutte le sessioni senza riassunto e annulla i lavori in corso
+(`abort` degli esecutori). L'epoca del motore cresce: un lavoro già oltre l'ultimo punto di attesa non scrive più
+nei thread. **Rimuovere un workspace** butta le sessioni e i lavori del suo canale.
+
+### Ciclo di tool calling (`turn.rs`)
+
+Un turno: conversazione → chiamata al modello con i soli tool del segretario → se il modello chiede dei tool, per
+ognuno il codice controlla che sia nella lista del segretario, valida gli argomenti contro lo schema, lo esegue e
+restituisce l'esito (JSON, al massimo 6000 caratteri); altrimenti il testo è la risposta del segretario, che si
+scrive nel thread (ripulita, al massimo 7999 caratteri). Al massimo `max_steps` chiamate al modello per turno.
+
+| Caso | Esito per il modello | Nel thread |
+|---|---|---|
+| Tool non nella lista (o inesistente) | errore «Tool `x` is not available to you…», il turno continua | «@mario ha chiesto il tool «x», che non gli è consentito: richiesta rifiutata.» |
+| Argomenti non validi (JSON non valido, non un oggetto, campi sconosciuti o mancanti, valori fuori dai limiti) | errore «Invalid arguments for `x`: …», il turno continua | «@mario ha chiamato «x» con argomenti non validi: richiesta rifiutata.» |
+| Errore di esecuzione (workspace inesistente, board non ammessa) | errore con il motivo, il turno continua | — |
+| Ultimo passo con altre chiamate a tool | le chiamate non si eseguono e non entrano nella conversazione | «@mario si è fermato dopo N passi senza una risposta finale. …» |
+| Endpoint irraggiungibile, timeout, HTTP d'errore, risposta non valida o vuota, provider non configurato, API key illeggibile | il turno finisce | «@mario non può rispondere: <motivo>.» |
+
+Gli errori tornano al modello come `{"error": "…"}`. Nessun caso va in panico né lascia la coda bloccata: ogni
+lavoro finisce e la coda passa al successivo. La conversazione resta valida anche dopo un errore (ogni chiamata a
+tool ha il suo esito).
+
+### Tool
+
+Schema JSON e descrizione (in inglese: li legge il modello) sono scritti in `tools.rs` accanto alla struttura degli
+argomenti in cui si validano (`#[serde(deny_unknown_fields)]`); un test verifica che le proprietà dello schema e i
+campi della struttura coincidano. Gli argomenti vuoti valgono `{}`. Nessun tool scrive sulla board in questa tappa.
+
+| Tool | Argomenti | Effetto |
+|---|---|---|
+| `board_status` | `workspace?` (id di un workspace) | la board del workspace del canale, o di quello indicato se il segretario ha quel canale: conteggi per stato, task con `id`, `title`, `status`, `attention`, `waiting_on`, riassunto del report (300 caratteri) e nota (200), proposte pendenti (`BoardView::to_list_json`); al massimo 40 task, poi `omitted_tasks`. Nel Generale senza `workspace` l'errore elenca i workspace leggibili |
+| `thread_read` | — | titolo, canale, stato, task e proposta collegati, riassunto e ultimi 20 messaggi (autore, ora UTC, testo tagliato a 1000 caratteri, dati dell'evento senza i campi vuoti), più `older_messages` |
+| `post_message` | `body` (1..8000 caratteri) | un messaggio intermedio del segretario nel thread; la risposta finale è comunque il testo del modello |
+
+Il segretario non vede mai la API key né file del disco: i tool leggono solo board (dalla sorgente delle viste che
+`lib.rs` registra con `automation::board_views`) e thread. Nessun lock dei thread o della board è tenuto durante
+una chiamata al modello: i tool prendono i lock solo per leggere o scrivere, fuori dal main thread.
+
+### Client del modello
+
+`OpenAiModel` (`openai.rs`) usa `async-openai` 0.43 (MIT; feature `chat-completion` e `rustls-no-provider`) verso
+`provider.base_url` + `provider.model`, con la API key letta dal portachiavi a ogni turno (`Authorization: Bearer`).
+reqwest è la 0.13 già presente per l'updater, con timeout di 120 s per chiamata e 10 s per la connessione; il
+provider crittografico di rustls è `ring`, come per l'updater (installato se manca), così non si compila
+`aws-lc`. `OpenAIConfig` legge `OPENAI_*` dall'ambiente: ogni campo si sovrascrive, quindi nessuna variabile
+dell'ambiente (per esempio una chiave OpenAI dell'utente) arriva all'endpoint scelto. Niente streaming.
+
+Gli errori si classificano (`ModelError`) e diventano un messaggio di sistema in italiano: non raggiungibile,
+tempo scaduto, HTTP 401/403 (API key), 404 (indirizzo o modello), 429, altri codici, risposta non valida o vuota.
+Nel log va solo la classe dell'errore (e per gli errori di rete il messaggio di reqwest), mai il corpo della
+risposta: alcuni provider ripetono parte della chiave in un 401. La feature `byot` (parametri extra di llama.cpp
+come grammatica o `json_schema`) si aggiungerà quando il motore vincolerà l'output.
+
+### Stato verso il frontend
+
+`HubSecretaryStatus`: `channel`, `thread_id`, `secretary`, `expires_at` (millisecondi Unix: quando la sessione si
+chiude se non succede nulla, con l'`idle_minutes` corrente) e `working` (sta lavorando sul thread o ha un turno in
+coda: "sta scrivendo"). L'evento `hub-secretary-status` porta l'elenco completo, ordinato per canale, thread e nome,
+a ogni cambiamento (risveglio, inizio e fine di un lavoro, scadenza, spegnimento); `hub_secretary_status` lo legge
+all'avvio della vista. I messaggi dei segretari passano dal normale `hub-update`.

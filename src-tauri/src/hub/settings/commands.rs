@@ -10,6 +10,7 @@ use super::session::SessionSettings;
 use super::{secretaries, HubSettings, HubSettingsStore, HubSettingsView};
 use crate::bots::validate_image;
 use crate::hub::api_key::ApiKey;
+use crate::hub::engine::SecretaryEngine;
 use crate::hub::events::HubFeed;
 use crate::store::data_dir;
 use crate::workspaces::WorkspaceStore;
@@ -24,7 +25,8 @@ pub async fn hub_get_settings(app: AppHandle) -> Result<HubSettingsView, String>
     .await
 }
 
-/// Spegnere l'HUB butta le istantanee delle board. Accenderlo (solo il
+/// Spegnere l'HUB butta le istantanee delle board e chiude le sessioni dei
+/// segretari, annullando i lavori in corso. Accenderlo (solo il
 /// passaggio da spento ad acceso) fissa subito come base la vista corrente di
 /// ogni board, senza messaggi ne' scritture: gia' la prima modifica successiva
 /// produce i suoi eventi.
@@ -40,7 +42,10 @@ pub async fn hub_set_enabled(app: AppHandle, enabled: bool) -> Result<HubSetting
         let feed = app.state::<HubFeed>();
         match (was_enabled, saved.enabled) {
             (false, true) => feed.baseline(&app),
-            (_, false) => feed.reset(),
+            (_, false) => {
+                feed.reset();
+                app.state::<SecretaryEngine>().shutdown(&app);
+            }
             (true, true) => {}
         }
         Ok(view(&app, saved))

@@ -274,3 +274,21 @@ fn a_file_without_optional_fields_is_read() {
     assert!(t.messages[0].reply_to.is_none() && t.messages[0].event.is_none());
     assert_eq!(serde_json::from_str::<ChannelThreads>("{}").unwrap(), ChannelThreads::default());
 }
+
+#[test]
+fn the_summary_is_replaced_without_touching_the_thread() {
+    let mut list = with_thread("t1", 3);
+    assert!(list.thread("t1").unwrap().summary.is_none());
+    assert!(list.set_summary("t1", "Il task t-1 è in corso.".to_string()).unwrap());
+    assert!(!list.set_summary("t1", "Il task t-1 è in corso.".to_string()).unwrap());
+    let t = list.thread("t1").unwrap();
+    assert_eq!((t.summary.as_deref(), t.updated_at), (Some("Il task t-1 è in corso."), 3));
+    assert_eq!(list.set_summary("nope", "x".to_string()).unwrap_err(), THREAD_NOT_FOUND);
+}
+
+#[test]
+fn threads_written_before_the_summary_read_without_it() {
+    let raw = r#"{"threads":[{"id":"t1","channel":"ws-1","title":"x","state":"open","created_at":1,"updated_at":1}]}"#;
+    let list: ChannelThreads = serde_json::from_str(raw).unwrap();
+    assert!(list.thread("t1").unwrap().summary.is_none());
+}

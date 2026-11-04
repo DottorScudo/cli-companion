@@ -107,7 +107,7 @@ test esclusi) sono queste:
 | `pty` | `ipc` (nomi delle variabili e `is_valid_tab_id`), `platform`, `wsl`, `workspaces`, `automation` (credenziale di sessione e `user_input`) | `board` |
 | `automation` | `board`, `workspaces`, `agents`, `ipc` (tipi e trait), `platform`, `validate`, `wsl`, `schedule`, `user_skills`, `store`, `awake`, `pty` (solo `workspace_of_tab`, in `TauriHost`), `hub` (solo `board_published`, in `TauriHost`; `lib.rs` registra `board_views` come sorgente di `hub::set_board_source`) | — |
 | `mcp` | `automation` (`Role`, `lock`, nomi dei metodi), `agents`, `workspaces`, `ipc` (client RPC) | `tauri` |
-| `hub` | `store`, `secrets` (API key del provider nel portachiavi), `bots` (validazione delle immagini dei segretari), `board` (`valid_id` e `BoardView` per gli eventi della board), `validate` (+ `workspaces` nei comandi e negli eventi della board, per sapere se il canale di un workspace esiste, anche nei canali di un segretario; le viste correnti delle board all'accensione arrivano da una sorgente `BoardSource` registrata da `lib.rs`) | `automation`, `agents`, `ipc`, `pty`, `mcp` |
+| `hub` | `store`, `secrets` (API key del provider nel portachiavi), `bots` (validazione delle immagini dei segretari), `board` (`valid_id` e `BoardView` per gli eventi della board), `validate` (+ `workspaces` nei comandi e negli eventi della board, per sapere se il canale di un workspace esiste, anche nei canali di un segretario; le viste correnti delle board all'accensione e per il tool `board_status` dei segretari arrivano da una sorgente `BoardSource` registrata da `lib.rs`); crate esterni `async-openai` e `reqwest` solo nel client del modello (`hub/engine/openai.rs`) | `automation`, `agents`, `ipc`, `pty`, `mcp` |
 
 Le regole che questa tabella racchiude, e come sono garantite:
 
@@ -166,7 +166,7 @@ emette `board-update` né salva file.
 | `session.rs` | `session.json` e `scrollback/` |
 | `schedule.rs`, `awake.rs` | fasce orarie (logica pura + `schedule.json`) e blocco dello standby |
 | `launch_settings.rs`, `bots.rs` | impostazioni globali degli avvii e nomi/avatar dei bot (su `store/`) |
-| `hub.rs`, `hub/` | Agents HUB (spento di default): impostazioni globali (provider del modello, lingua, sessioni, segretari), canali, thread e messaggi su `store/`, comandi ed evento `hub-update`, eventi della board nei thread |
+| `hub.rs`, `hub/` | Agents HUB (spento di default): impostazioni globali (provider del modello, lingua, sessioni, segretari), canali, thread e messaggi su `store/`, comandi ed evento `hub-update`, eventi della board nei thread, motore dei segretari (`hub/engine/`: menzioni, sessioni, tool calling verso un endpoint compatibile OpenAI, evento `hub-secretary-status`) |
 | `secrets.rs` | segreti nel portachiavi del sistema operativo (crate `keyring`) dietro il trait `SecretStore`; un finto in memoria per i test |
 | `user_skills.rs`, `user_skills/` | skill globali dell'utente: archivio e sincronizzazione nelle cartelle degli agenti |
 | `toast.rs`, `updater.rs`, `net.rs`, `ttl_cache.rs`, `logging.rs` | toast cliccabile (Windows), controllo aggiornamenti da CLI, client HTTP via `curl`, cache con scadenza, log su file |
@@ -178,7 +178,7 @@ emette `board-update` né salva file.
 1. `main.rs` esce subito per i rami da riga di comando; altrimenti `run()` (`lib.rs`) costruisce
    l'app: prima il plugin di log (`logging::plugin()`), poi opener, dialog, clipboard, notification,
    updater, process, e gli stati gestiti (`WorkspaceStore`, `PtyState`, store delle impostazioni degli avvii, dei bot e
-   dell'HUB, `hub::ApiKey` sul portachiavi del sistema, `HubState`, `AutomationState`).
+   dell'HUB, `hub::ApiKey` sul portachiavi del sistema, `HubState`, `HubFeed`, `hub::SecretaryEngine` con le sessioni dei segretari, `AutomationState`).
 2. `setup`, in quest'ordine: `store::install_emitter` (da qui un avviso dello store diventa un evento
    `store-warning`), `store::legacy::migrate_legacy_data` (copia dei vecchi identifier), caricamento di
    `workspaces.json`, `launch_settings.json`, `bots.json`, `hub_settings.json` (i thread dell'HUB no: si leggono alla
@@ -299,7 +299,8 @@ dettagliati qui o, per la coda dei task, in [BOARD.MD](BOARD.MD).
   `list_wsl_distros`, `check_wsl_path` (verifica live del form di aggiunta).
 - `validate/`: predicati puri e `ValidationError` (vedi regola 5 della mappa). Un `ErrorCode` porta nella stessa riga
   della tabella il modello italiano e quello inglese: un codice senza i due messaggi non compila.
-- `net.rs` (HTTP via un sottoprocesso `curl`, senza un crate di rete in più) e `ttl_cache.rs` (cache con scadenza per
+- `net.rs` (HTTP via un sottoprocesso `curl`, senza un crate di rete in più: l'unica eccezione è il client del
+  modello dei segretari, `async-openai` sul reqwest 0.13 già presente per l'updater, vedi HUB.MD) e `ttl_cache.rs` (cache con scadenza per
   risultati di processi lenti, come il rilevamento degli agenti) sono helper condivisi.
 
 ### `workspaces/` — i workspace
@@ -1001,12 +1002,18 @@ file, `commands`), `api_key` (la API key del provider nel portachiavi, tramite `
 ne vede solo la presenza), `commands` ed `events` (eventi della
 board nei thread: istantanea compatta, diff e instradamento puri, `HubFeed` con un thread dedicato che riceve le
 viste da `Host::board_published` e scrive fuori dai lock della board; all'accensione fissa come base le viste
-correnti di tutte le board, chieste alla sorgente registrata da `lib.rs`). Comandi
+correnti di tutte le board, chieste alla sorgente registrata da `lib.rs`), `append` (un messaggio di testo con
+salvataggio ed evento, per `hub_send` e per il motore) ed `engine` (il motore dei segretari: menzioni e titolare,
+sessioni in memoria con una coda per thread e uno schedulatore unico delle scadenze, ciclo di tool calling con i tool
+`board_status`, `thread_read`, `post_message`, riassunto del thread alla chiusura; logica pura o generica sui trait
+`ChatModel` e `TurnHost`, con un modello finto nei test; client reale `async-openai`). Comandi
 `hub_get_settings`, `hub_set_enabled`, `hub_set_provider`, `hub_set_api_key`, `hub_clear_api_key`,
 `hub_set_language`, `hub_set_session`, `hub_create_secretary`, `hub_update_secretary`, `hub_delete_secretary`,
-`hub_set_secretary_image`, `hub_remove_secretary_image`, `hub_list_threads`, `hub_get_thread`, `hub_create_thread`, `hub_send`;
-evento `hub-update` (riassunto del thread toccato). La rimozione di un workspace cancella il suo file dei thread
-(`hub::forget_workspace`, chiamato da `remove_workspace` dopo la board) e l'istantanea della sua board. Modello, file, limiti e scelte:
+`hub_set_secretary_image`, `hub_remove_secretary_image`, `hub_list_threads`, `hub_get_thread`, `hub_create_thread`, `hub_send`,
+`hub_secretary_status`; eventi `hub-update` (riassunto del thread toccato) e `hub-secretary-status` (segretari svegli).
+Spegnere l'HUB chiude le sessioni dei segretari e annulla i loro lavori. La rimozione di un workspace cancella il suo file dei thread
+(`hub::forget_workspace`, chiamato da `remove_workspace` dopo la board), l'istantanea della sua board e le sessioni dei
+segretari nel suo canale. Modello, file, limiti e scelte:
 [HUB.MD](HUB.MD).
 
 ### Altri moduli

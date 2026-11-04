@@ -56,7 +56,6 @@ impl ApiKey {
     }
 
     /// La chiave in chiaro, solo per il backend (il client del modello).
-    #[cfg_attr(not(test), expect(dead_code, reason = "read by the bot engine of the next stage"))]
     pub fn read(&self) -> Result<Option<String>, String> {
         let mut present = self.present.lock().unwrap();
         let key = self.store.get(ACCOUNT)?;

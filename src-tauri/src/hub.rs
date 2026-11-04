@@ -3,7 +3,7 @@
 //! Porta l'impostazione globale, il modello dati, la persistenza, i comandi
 //! Tauri, l'evento `hub-update`, gli eventi della board nei thread e la
 //! configurazione dei segretari (provider, lingua, sessioni, elenco, API key nel
-//! portachiavi); il motore dei segretari arriva dopo. Documentazione: docs/HUB.MD.
+//! portachiavi) e il motore che li fa parlare. Documentazione: docs/HUB.MD.
 //!
 //! Dipendenze: `store` (persistenza), `secrets` (portachiavi), `bots` (validazione
 //! delle immagini), `board` (`valid_id` per gli id dei task e
@@ -13,7 +13,8 @@
 //! (`TauriHost::board_published` -> `board_published`). Per la base delle board
 //! all'accensione `hub` riceve da `lib.rs` una sorgente delle viste
 //! (`set_board_source`, con `automation::board_views`), senza dipendere da
-//! `automation`.
+//! `automation`. Il motore dei segretari (`engine`) chiama il modello con
+//! `async-openai` e legge le board dalla stessa sorgente.
 //!
 //! Un file per responsabilita':
 //! - `channel`: il canale (`general` o l'id di un workspace);
@@ -26,12 +27,16 @@
 //! - `settings`: `hub_settings.json` (interruttore, provider, lingua, sessioni,
 //!   segretari) e i suoi comandi;
 //! - `api_key`: la API key del provider nel portachiavi del sistema;
+//! - `append`: l'aggiunta di un messaggio di testo con salvataggio ed evento;
 //! - `commands`: i comandi dei thread e l'evento;
-//! - `events`: gli eventi della board nei thread (diff, instradamento, `HubFeed`).
+//! - `events`: gli eventi della board nei thread (diff, instradamento, `HubFeed`);
+//! - `engine`: il motore dei segretari (menzioni, sessioni, tool calling).
 
 mod api_key;
+mod append;
 mod channel;
 pub mod commands;
+pub mod engine;
 mod events;
 mod files;
 mod model;
@@ -42,6 +47,7 @@ mod threads;
 mod waiting;
 
 pub use api_key::ApiKey;
+pub use engine::SecretaryEngine;
 pub use events::{BoardSource, HubFeed};
 pub use settings::{load_from_disk, new_store as new_settings_store};
 pub use state::HubState;
@@ -76,6 +82,7 @@ pub fn forget_workspace(app: &AppHandle, ws_id: &str) {
             return;
         }
     };
+    app.state::<SecretaryEngine>().forget_channel(app, &channel);
     match crate::store::data_dir(app) {
         Ok(dir) => app.state::<HubState>().forget(&files::threads_dir(&dir), &channel),
         Err(e) => log::error!("hub {ws_id}: cartella dati non disponibile, thread non eliminati: {e}"),

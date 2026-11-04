@@ -3,12 +3,14 @@
 //! riassunto aggiornato del thread toccato. Le letture funzionano anche con
 //! l'HUB spento (non creano file); le scritture sono rifiutate.
 
+use super::append::{append_text, TextMessage};
 use super::channel::Channel;
+use super::engine::SecretaryEngine;
 use super::files::threads_dir;
 use super::model::{Author, Message, Thread, ThreadSummary};
 use super::settings::is_enabled;
-use super::state::{HubState, MESSAGE_ID_PREFIX, THREAD_ID_PREFIX};
-use super::threads::{summary, NewMessage, THREAD_NOT_FOUND};
+use super::state::{HubState, THREAD_ID_PREFIX};
+use super::threads::{summary, THREAD_NOT_FOUND};
 use crate::store::data_dir;
 use crate::workspaces::WorkspaceStore;
 use std::path::PathBuf;
@@ -66,7 +68,9 @@ pub async fn hub_create_thread(app: AppHandle, channel: String, title: String) -
     .await
 }
 
-/// Messaggio dell'utente in un thread; `reply_to` deve essere dello stesso thread.
+/// Messaggio dell'utente in un thread; `reply_to` deve essere dello stesso
+/// thread. Dopo il salvataggio il motore dei segretari decide chi svegliare
+/// (menzioni o titolare della sessione) e lavora in background.
 #[tauri::command]
 pub async fn hub_send(
     app: AppHandle,
@@ -78,18 +82,8 @@ pub async fn hub_send(
     let channel = Channel::parse(&channel)?;
     ensure_enabled(&app)?;
     crate::blocking(move || {
-        let dir = threads_dir_of(&app)?;
-        let state = app.state::<HubState>();
-        let now = chrono::Utc::now().timestamp_millis();
-        let new =
-            NewMessage { id: state.next_id(MESSAGE_ID_PREFIX, now), author: Author::User, body, reply_to, event: None };
-        let (message, touched) = state.update(&dir, &channel, |list| {
-            ensure_channel(&app, &channel)?;
-            let message = list.add_message(&thread_id, new, now)?.clone();
-            let thread = list.thread(&thread_id).ok_or_else(|| THREAD_NOT_FOUND.to_string())?;
-            Ok((message, summary(thread)))
-        })?;
-        emit_update(&app, &touched);
+        let message = append_text(&app, &channel, &thread_id, TextMessage { author: Author::User, body, reply_to })?;
+        app.state::<SecretaryEngine>().on_message(&app, &channel, &thread_id, &message);
         Ok(message)
     })
     .await

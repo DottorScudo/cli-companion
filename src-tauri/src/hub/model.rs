@@ -20,8 +20,7 @@ pub enum ThreadState {
     Closed,
 }
 
-/// Chi ha scritto un messaggio. `bot` arrivera' con i segretari (tappa 2): il
-/// formato lo prevede gia', cosi' i file non cambiano.
+/// Chi ha scritto un messaggio. `bot` e' un segretario (`name` = il suo handle).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(export, rename = "HubAuthor")]
@@ -35,7 +34,7 @@ pub enum Author {
 #[serde(rename_all = "snake_case")]
 #[ts(export, rename = "HubMessageKind")]
 pub enum MessageKind {
-    /// Testo libero (dell'utente o, in futuro, di un bot).
+    /// Testo libero (dell'utente, di un segretario o un avviso dell'app).
     Text,
     /// Generato dall'app a partire da un evento della board: `event` e' presente.
     Event,
@@ -171,6 +170,11 @@ pub struct Thread {
     pub proposal_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+    /// Riassunto del thread scritto da un segretario alla chiusura della sua
+    /// sessione (poche righe, vedi `engine::context::clean_summary`); lo legge
+    /// il segretario che si sveglia dopo.
+    #[serde(default)]
+    pub summary: Option<String>,
     /// In ordine di arrivo, dal piu' vecchio.
     #[serde(default)]
     pub messages: Vec<Message>,

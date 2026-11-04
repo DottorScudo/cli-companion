@@ -67,6 +67,7 @@ impl ChannelThreads {
             proposal_id: None,
             created_at: now,
             updated_at: now,
+            summary: None,
             messages: Vec::new(),
         });
         Ok(self.threads.last().expect("thread appena aggiunto"))
@@ -105,6 +106,18 @@ impl ChannelThreads {
         thread.messages.drain(..excess);
         thread.updated_at = now;
         Ok(thread.messages.last().expect("messaggio appena aggiunto"))
+    }
+
+    /// Sostituisce il riassunto del thread (gia' ripulito dal chiamante). Non
+    /// tocca `updated_at`: e' un dato interno dei segretari, non una novita'
+    /// per l'utente. Ritorna se e' cambiato.
+    pub fn set_summary(&mut self, thread_id: &str, summary: String) -> Result<bool, String> {
+        let thread = self.thread_mut(thread_id)?;
+        if thread.summary.as_deref() == Some(summary.as_str()) {
+            return Ok(false);
+        }
+        thread.summary = Some(summary);
+        Ok(true)
     }
 
     /// Toglie i thread che non sono del canale (un file spostato o modificato a

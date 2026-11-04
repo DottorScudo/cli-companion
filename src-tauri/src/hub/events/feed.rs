@@ -84,6 +84,19 @@ impl HubFeed {
         }
     }
 
+    /// Le viste correnti di tutte le board, dalla sorgente registrata (vuoto se
+    /// non c'e'). Le legge `board_status` dei segretari; fuori dal main thread
+    /// e senza lock dell'HUB (legge il registro dell'automazione).
+    pub fn current_views(&self, app: &AppHandle) -> Vec<BoardView> {
+        match self.source.get() {
+            Some(source) => source(app),
+            None => {
+                log::warn!("hub: nessuna sorgente delle board registrata");
+                Vec::new()
+            }
+        }
+    }
+
     /// L'HUB e' stato spento: via le istantanee.
     pub fn reset(&self) {
         self.send_if_running(FeedMsg::Reset);

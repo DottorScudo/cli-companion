@@ -1,6 +1,6 @@
 //! Un segretario: un bot con un nome che l'utente sveglia con `@nome` in un
 //! thread. Qui il dato e la validazione dei suoi campi; le operazioni
-//! sull'elenco sono in `secretaries`. Lo fa parlare il motore (tappa successiva):
+//! sull'elenco sono in `secretaries`. Lo fa parlare il motore (`hub::engine`):
 //! un segretario senza system prompt esiste ma non risponde.
 
 use super::tolerant;
@@ -90,11 +90,25 @@ fn channels_or_none<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Secretary
     tolerant::or_else(de, || SecretaryChannels::Only { channels: Vec::new() })
 }
 
+impl SecretaryChannels {
+    /// Il segretario puo' essere menzionato nel canale (e leggerne la board).
+    pub fn allows(&self, channel: &Channel) -> bool {
+        match self {
+            Self::All => true,
+            Self::Only { channels } => channels.contains(channel),
+        }
+    }
+}
+
 impl Secretary {
     /// Ha un system prompt: il motore lo fa rispondere.
-    #[cfg_attr(not(test), expect(dead_code, reason = "read by the bot engine of the next stage"))]
     pub fn is_configured(&self) -> bool {
         !self.system_prompt.is_empty()
+    }
+
+    /// Il segretario puo' usare il tool.
+    pub fn may_use(&self, tool: SecretaryTool) -> bool {
+        self.tools.contains(&tool)
     }
 }
 
@@ -271,6 +285,17 @@ mod tests {
         let too_many: Vec<String> = (0..=CHANNELS_MAX).map(|i| format!("ws-{i}")).collect();
         let refs: Vec<&str> = too_many.iter().map(String::as_str).collect();
         assert!(draft("m", "", &[], Some(&refs)).is_err());
+    }
+
+    #[test]
+    fn channels_and_tools_grant_only_what_was_chosen() {
+        let ws = Channel::Workspace("ws-1".into());
+        assert!(SecretaryChannels::All.allows(&Channel::General) && SecretaryChannels::All.allows(&ws));
+        let only = SecretaryChannels::Only { channels: vec![Channel::General] };
+        assert!(only.allows(&Channel::General) && !only.allows(&ws));
+        assert!(!SecretaryChannels::Only { channels: vec![] }.allows(&Channel::General));
+        let s: Secretary = serde_json::from_str(r#"{"name":"mario","tools":["thread_read"]}"#).unwrap();
+        assert!(s.may_use(SecretaryTool::ThreadRead) && !s.may_use(SecretaryTool::BoardStatus));
     }
 
     #[test]

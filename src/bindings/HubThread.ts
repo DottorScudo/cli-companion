@@ -4,6 +4,12 @@ import type { HubThreadState } from "./HubThreadState";
 
 export type HubThread = { id: string, channel: string, title: string, state: HubThreadState, task_ids: Array<string>, proposal_id: string | null, created_at: number, updated_at: number, 
 /**
+ * Riassunto del thread scritto da un segretario alla chiusura della sua
+ * sessione (poche righe, vedi `engine::context::clean_summary`); lo legge
+ * il segretario che si sveglia dopo.
+ */
+summary: string | null, 
+/**
  * In ordine di arrivo, dal piu' vecchio.
  */
 messages: Array<HubMessage>, };

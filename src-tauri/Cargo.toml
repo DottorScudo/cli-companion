@@ -33,6 +33,12 @@ log = "0.4"
 tauri-plugin-log = "2"
 ts-rs = { version = "12", features = ["serde-compat", "no-serde-warnings"] }
 keyring = { version = "4.2", default-features = false, features = ["v1"] }
+# Client dei segretari dell'Agents HUB verso un endpoint compatibile OpenAI (solo la
+# chat). reqwest e' la stessa 0.13 dell'updater: serve per il timeout del client.
+async-openai = { version = "0.43", default-features = false, features = ["rustls-no-provider", "chat-completion"] }
+reqwest = { version = "0.13", default-features = false }
+# Provider crittografico di rustls: `ring`, come l'updater (niente aws-lc, che compila C).
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 [target.'cfg(windows)'.dependencies]
 tauri-winrt-notification = "0.8"

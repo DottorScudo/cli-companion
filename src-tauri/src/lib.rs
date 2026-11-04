@@ -59,6 +59,7 @@ pub fn run() {
         .manage(hub::ApiKey::new(Box::new(secrets::OsKeyring)))
         .manage(hub::HubState::default())
         .manage(hub::HubFeed::default())
+        .manage(hub::SecretaryEngine::default())
         .manage(AutomationState::default())
         .setup(|app| {
             startup::mark("setup started");
@@ -124,6 +125,7 @@ pub fn run() {
             hub::commands::hub_get_thread,
             hub::commands::hub_create_thread,
             hub::commands::hub_send,
+            hub::engine::status::hub_secretary_status,
             agents::builtin_launches,
             workspaces::open_workspace_folder,
             wsl::list_wsl_distros,

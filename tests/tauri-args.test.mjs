@@ -32,6 +32,7 @@ function rustCommands() {
     "bots.rs",
     "hub/settings/commands.rs",
     "hub/commands.rs",
+    "hub/engine/status.rs",
     "store/warnings.rs",
   ]) {
     const src = readFileSync(path.join(RS, file), "utf8");

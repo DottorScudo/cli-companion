@@ -33,7 +33,6 @@ impl Language {
     }
 
     /// Nome inglese della lingua, per il prompt (lo legge il modello).
-    #[cfg_attr(not(test), expect(dead_code, reason = "read by the bot engine of the next stage"))]
     pub fn english_name(self) -> &'static str {
         match self {
             Self::It => "Italian",

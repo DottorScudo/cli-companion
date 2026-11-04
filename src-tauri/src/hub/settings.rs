@@ -21,12 +21,15 @@ mod secretary;
 mod session;
 mod tolerant;
 
+pub use language::Language;
+pub use provider::Provider;
+#[cfg(test)]
+pub use secretary::SecretaryChannels;
+pub use secretary::{normalize_name, Secretary, SecretaryTool};
+pub use session::SessionSettings;
+
 use crate::store::{adopt_envelope, data_dir, JsonFile, JsonStore};
-use language::Language;
-use provider::Provider;
-use secretary::Secretary;
 use serde::{Deserialize, Serialize};
-use session::SessionSettings;
 use tauri::{AppHandle, Manager};
 use ts_rs::TS;
 

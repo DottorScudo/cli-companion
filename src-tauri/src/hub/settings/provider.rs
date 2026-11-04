@@ -28,7 +28,6 @@ impl Provider {
     }
 
     /// Indirizzo e modello presenti: il motore puo' chiamare il modello.
-    #[cfg_attr(not(test), expect(dead_code, reason = "read by the bot engine of the next stage"))]
     pub fn is_configured(&self) -> bool {
         !self.base_url.is_empty() && !self.model.is_empty()
     }

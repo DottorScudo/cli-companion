@@ -14,6 +14,7 @@ import type { HubLanguage } from "../bindings/HubLanguage.ts";
 import type { HubMessage } from "../bindings/HubMessage.ts";
 import type { HubSecretary } from "../bindings/HubSecretary.ts";
 import type { HubSecretaryChannels } from "../bindings/HubSecretaryChannels.ts";
+import type { HubSecretaryStatus } from "../bindings/HubSecretaryStatus.ts";
 import type { HubSecretaryTool } from "../bindings/HubSecretaryTool.ts";
 import type { HubSettings } from "../bindings/HubSettings.ts";
 import type { HubSettingsView } from "../bindings/HubSettingsView.ts";
@@ -56,6 +57,7 @@ export type {
   HubMessage,
   HubSecretary,
   HubSecretaryChannels,
+  HubSecretaryStatus,
   HubSecretaryTool,
   HubSettings,
   HubSettingsView,
@@ -241,6 +243,9 @@ export const api = {
   hubSend: (channel: string, threadId: string, body: string, replyTo: string | null = null) =>
     invoke<HubMessage>("hub_send", { channel, threadId, body, replyTo }),
 
+  /** Segretari svegli adesso, per canale e thread (poi `hub-secretary-status`). */
+  hubSecretaryStatus: () => invoke<HubSecretaryStatus[]>("hub_secretary_status"),
+
   agentUsageLimits: (agentId: string, env: string) => invoke<UsageLimitsReply>("agent_usage_limits", { agentId, env }),
 
   agentSessionUsage: (agentId: string, env: string, transcriptPath: string) =>
@@ -356,4 +361,5 @@ export interface TauriEvents {
   "integrations-changed": IntegrationsState;
   "store-warning": StoreWarning;
   "hub-update": HubThreadSummary;
+  "hub-secretary-status": HubSecretaryStatus[];
 }
