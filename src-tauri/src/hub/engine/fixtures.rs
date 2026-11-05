@@ -38,6 +38,7 @@ pub fn msg(id: &str, author: Author, body: &str, at: i64) -> Message {
         body: body.to_string(),
         reply_to: None,
         event: None,
+        attachments: Vec::new(),
         created_at: at,
     }
 }

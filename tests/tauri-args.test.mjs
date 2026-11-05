@@ -8,7 +8,8 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const RS = path.join(root, "src-tauri", "src");
 
 // Tipi iniettati da Tauri (non arrivano dal JSON): esclusi dal confronto.
-const INJECTED = new Set(["AppHandle", "App", "Window", "WebviewWindow", "Webview", "State", "EventId"]);
+// `Request` porta il corpo raw e gli header della chiamata (comandi con payload binario).
+const INJECTED = new Set(["AppHandle", "App", "Window", "WebviewWindow", "Webview", "State", "EventId", "Request"]);
 
 const toCamel = (s) => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
@@ -32,6 +33,7 @@ function rustCommands() {
     "bots.rs",
     "hub/settings/commands.rs",
     "hub/commands.rs",
+    "hub/attachments/commands.rs",
     "hub/engine/status.rs",
     "store/warnings.rs",
   ]) {
@@ -69,6 +71,8 @@ function frontendInvokes() {
     }
     out.set(m[1], keys.sort());
   }
+  // Payload binario: `invoke<T>("nome", byte, { headers })`, nessun argomento con nome.
+  for (const m of src.matchAll(/invoke<[^>]*>\(\s*"([^"]+)"\s*,\s*\w+\s*,/g)) out.set(m[1], []);
   return out;
 }
 

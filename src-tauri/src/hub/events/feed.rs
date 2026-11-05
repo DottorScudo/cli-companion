@@ -24,7 +24,7 @@ use super::route::route;
 use super::snapshot::BoardSnapshot;
 use crate::board::BoardView;
 use crate::hub::channel::Channel;
-use crate::hub::commands::{emit_update, ensure_channel, threads_dir_of};
+use crate::hub::commands::{emit_update, ensure_channel, hub_dirs_of};
 use crate::hub::engine::SecretaryEngine;
 use crate::hub::notify::HubNotifier;
 use crate::hub::settings::is_enabled;
@@ -174,11 +174,11 @@ fn apply(app: &AppHandle, board: &BoardSnapshot, events: &[BoardEvent]) -> Resul
         channel @ Channel::Workspace(_) => channel,
         Channel::General => return Err("una board non puo' scrivere nel Generale".to_string()),
     };
-    let dir = threads_dir_of(app)?;
+    let dirs = hub_dirs_of(app)?;
     let state = app.state::<HubState>();
     let now = chrono::Utc::now().timestamp_millis();
     let routed = state.update_when(
-        &dir,
+        &dirs,
         &channel,
         |list| {
             // Sotto il lock dell'HUB, come i comandi: niente file per un

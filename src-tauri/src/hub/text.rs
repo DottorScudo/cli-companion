@@ -25,10 +25,16 @@ pub fn bot_name(raw: &str) -> Result<String, String> {
 /// Testo di un messaggio: trim, non vuoto, al massimo `BODY_MAX` caratteri.
 /// Sono ammessi a capo e tabulazioni, non gli altri caratteri di controllo.
 pub fn body(raw: &str) -> Result<String, String> {
-    let text = raw.trim();
+    let text = optional_body(raw)?;
     if text.is_empty() {
         return Err("il messaggio è vuoto".to_string());
     }
+    Ok(text)
+}
+
+/// Come `body`, ma il testo puo' essere vuoto (un messaggio con allegati).
+pub fn optional_body(raw: &str) -> Result<String, String> {
+    let text = raw.trim();
     if text.chars().count() > BODY_MAX {
         return Err(format!("il messaggio supera i {BODY_MAX} caratteri"));
     }
@@ -94,6 +100,14 @@ mod tests {
         assert!(body(&"x".repeat(BODY_MAX + 1)).unwrap_err().contains("8000"));
         assert!(body("a\u{0}b").is_err());
         assert!(body("a\u{1b}[31mb").is_err());
+    }
+
+    #[test]
+    fn optional_bodies_may_be_empty_but_keep_the_other_rules() {
+        assert_eq!(optional_body(" \n ").unwrap(), "");
+        assert_eq!(optional_body(" ciao ").unwrap(), "ciao");
+        assert!(optional_body(&"x".repeat(BODY_MAX + 1)).is_err());
+        assert!(optional_body("a\u{0}b").is_err());
     }
 
     #[test]

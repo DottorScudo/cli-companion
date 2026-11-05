@@ -11,7 +11,7 @@
 use super::actions::AppAnswers;
 use super::append::{append_text, TextMessage};
 use super::channel::Channel;
-use super::commands::threads_dir_of;
+use super::commands::hub_dirs_of;
 use super::model::{Author, Message, Thread};
 use super::questions::{replied_question, QuestionBoard};
 use super::state::HubState;
@@ -69,9 +69,9 @@ pub fn deliver_if_answer(app: &AppHandle, channel: &Channel, thread_id: &str, me
 }
 
 fn load_thread(app: &AppHandle, channel: &Channel, thread_id: &str) -> Result<Thread, String> {
-    let dir = threads_dir_of(app)?;
+    let dirs = hub_dirs_of(app)?;
     app.state::<HubState>()
-        .read(&dir, channel, |list| list.thread(thread_id).cloned())
+        .read(&dirs, channel, |list| list.thread(thread_id).cloned())
         .ok_or_else(|| THREAD_NOT_FOUND.to_string())
 }
 

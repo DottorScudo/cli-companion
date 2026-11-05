@@ -1,5 +1,6 @@
 use super::lifecycle::{CLOSED_THREADS_MAX, TASKS_PER_THREAD_MAX};
 use super::*;
+use crate::hub::attachments::ATTACHMENTS_MAX;
 use crate::hub::model::HubEventKind;
 
 fn ws() -> Channel {
@@ -340,4 +341,44 @@ fn the_owner_is_set_replaced_and_validated() {
     // Un file scritto prima del titolare si legge senza.
     let raw = r#"{"threads":[{"id":"t1","channel":"ws-1","title":"x","state":"open","created_at":1,"updated_at":1}]}"#;
     assert!(serde_json::from_str::<ChannelThreads>(raw).unwrap().thread("t1").unwrap().owner.is_none());
+}
+
+fn attachment(id: &str) -> Attachment {
+    Attachment { id: id.to_string(), name: "foto.png".to_string(), mime: "image/png".to_string(), size: 10 }
+}
+
+#[test]
+fn a_user_message_with_attachments_may_have_no_text() {
+    let mut list = with_thread("t1", 1);
+    let m = list.add_message_with_attachments("t1", user_text("m1", "  "), vec![attachment("att-1-1")], 2).unwrap();
+    assert_eq!((m.body.as_str(), m.attachments.len()), ("", 1));
+    assert_eq!(list.attachment("t1", "att-1-1").unwrap().name, "foto.png");
+    assert_eq!(
+        list.add_message_with_attachments("t1", user_text("m2", " "), vec![], 3).unwrap_err(),
+        "il messaggio è vuoto"
+    );
+    assert!(list.add_message("t1", user_text("m3", "solo testo"), 4).unwrap().attachments.is_empty());
+}
+
+#[test]
+fn only_the_user_attaches_files_within_the_limits() {
+    let mut list = with_thread("t1", 1);
+    let bot = NewMessage { author: Author::Bot { name: "mario".to_string() }, ..user_text("m1", "ciao") };
+    assert!(list
+        .add_message_with_attachments("t1", bot, vec![attachment("att-1-1")], 2)
+        .unwrap_err()
+        .contains("utente"));
+    let too_many: Vec<Attachment> = (0..=ATTACHMENTS_MAX).map(|i| attachment(&format!("att-1-{i}"))).collect();
+    assert!(list.add_message_with_attachments("t1", user_text("m2", "x"), too_many, 2).is_err());
+    let bad_name = Attachment { name: "../x".to_string(), ..attachment("att-1-1") };
+    assert!(list.add_message_with_attachments("t1", user_text("m3", "x"), vec![bad_name], 2).is_err());
+    assert!(list.thread("t1").unwrap().messages.is_empty());
+}
+
+#[test]
+fn looking_up_an_attachment_needs_its_thread() {
+    let mut list = with_thread("t1", 1);
+    list.add_message_with_attachments("t1", user_text("m1", ""), vec![attachment("att-1-1")], 2).unwrap();
+    assert_eq!(list.attachment("t2", "att-1-1").unwrap_err(), THREAD_NOT_FOUND);
+    assert_eq!(list.attachment("t1", "att-1-2").unwrap_err(), attachments::NOT_FOUND);
 }

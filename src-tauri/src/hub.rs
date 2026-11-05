@@ -35,6 +35,7 @@
 //!   segretari) e i suoi comandi;
 //! - `api_key`: la API key del provider nel portachiavi del sistema;
 //! - `append`: l'aggiunta di un messaggio di testo con salvataggio ed evento;
+//! - `attachments`: gli allegati dei messaggi dell'utente (staging, file, pulizia, comandi);
 //! - `commands`: i comandi dei thread e l'evento;
 //! - `events`: gli eventi della board nei thread (diff, instradamento, `HubFeed`);
 //! - `engine`: il motore dei segretari (menzioni, sessioni, tool calling);
@@ -43,6 +44,7 @@
 mod actions;
 mod api_key;
 mod append;
+pub mod attachments;
 mod channel;
 pub mod commands;
 mod direct_answer;
@@ -60,6 +62,7 @@ mod waiting;
 
 pub use actions::{BoardActions, HubBoardActions};
 pub use api_key::ApiKey;
+pub use attachments::commands::purge_staging_in_background as purge_attachment_staging;
 pub use engine::SecretaryEngine;
 pub use events::{BoardSource, HubFeed};
 pub use notify::{validate_thread_ref, HubNotifier};
@@ -105,7 +108,7 @@ pub fn forget_workspace(app: &AppHandle, ws_id: &str) {
     };
     app.state::<SecretaryEngine>().forget_channel(app, &channel);
     match crate::store::data_dir(app) {
-        Ok(dir) => app.state::<HubState>().forget(&files::threads_dir(&dir), &channel),
+        Ok(dir) => app.state::<HubState>().forget(&files::HubDirs::in_data_dir(&dir), &channel),
         Err(e) => log::error!("hub {ws_id}: cartella dati non disponibile, thread non eliminati: {e}"),
     }
 }

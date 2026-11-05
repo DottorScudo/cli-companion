@@ -5,10 +5,14 @@
 //! Limiti (vedi docs/HUB.MD): testo di un messaggio 1..=8000 caratteri, titolo
 //! 1..=120, al massimo 500 messaggi per thread (si tolgono i piu' vecchi), al
 //! massimo 200 thread chiusi per canale (si tolgono i chiusi aggiornati da piu'
-//! tempo), al massimo 200 task collegati a un thread.
+//! tempo), al massimo 200 task collegati a un thread; gli allegati hanno i limiti
+//! di `attachments` (con almeno un allegato il testo puo' essere vuoto).
 
+use super::attachments;
 use super::channel::Channel;
-use super::model::{Author, HubEvent, HubQuestion, Message, MessageKind, Thread, ThreadState, ThreadSummary};
+use super::model::{
+    Attachment, Author, HubEvent, HubQuestion, Message, MessageKind, Thread, ThreadState, ThreadSummary,
+};
 use super::text::{self, BODY_MAX};
 use super::waiting::waiting_user;
 use crate::board::{valid_id, OPTIONS_MAX, OPTION_MAX, QUESTION_MAX};
@@ -45,6 +49,17 @@ impl ChannelThreads {
         self.threads.iter_mut().find(|t| t.id == id).ok_or_else(|| THREAD_NOT_FOUND.to_string())
     }
 
+    /// L'allegato `attachment_id` di un messaggio del thread.
+    pub fn attachment(&self, thread_id: &str, attachment_id: &str) -> Result<&Attachment, String> {
+        let thread = self.thread(thread_id).ok_or_else(|| THREAD_NOT_FOUND.to_string())?;
+        thread
+            .messages
+            .iter()
+            .flat_map(|m| &m.attachments)
+            .find(|a| a.id == attachment_id)
+            .ok_or_else(|| attachments::NOT_FOUND.to_string())
+    }
+
     /// Riassunti dei thread, dal piu' recente.
     pub fn summaries(&self) -> Vec<ThreadSummary> {
         let mut list: Vec<ThreadSummary> = self.threads.iter().map(summary).collect();
@@ -79,7 +94,24 @@ impl ChannelThreads {
     /// Un thread chiuso accetta messaggi (per esempio gli eventi dei suoi task)
     /// e resta chiuso.
     pub fn add_message(&mut self, thread_id: &str, new: NewMessage, now: i64) -> Result<&Message, String> {
-        let body = text::body(&new.body)?;
+        self.add_message_with_attachments(thread_id, new, Vec::new(), now)
+    }
+
+    /// Come `add_message`, con gli allegati (solo i metadati, gia' nella
+    /// cartella del thread). Solo l'utente puo' allegare; con almeno un
+    /// allegato il testo puo' essere vuoto.
+    pub fn add_message_with_attachments(
+        &mut self,
+        thread_id: &str,
+        new: NewMessage,
+        attachments: Vec<Attachment>,
+        now: i64,
+    ) -> Result<&Message, String> {
+        let body = if attachments.is_empty() { text::body(&new.body)? } else { text::optional_body(&new.body)? };
+        if !attachments.is_empty() && new.author != Author::User {
+            return Err("solo i messaggi dell'utente possono avere allegati".to_string());
+        }
+        attachments::validate(&attachments)?;
         let author = validated_author(new.author)?;
         if let Some(event) = &new.event {
             validate_event(event)?;
@@ -101,6 +133,7 @@ impl ChannelThreads {
             body,
             reply_to: new.reply_to,
             event: new.event,
+            attachments,
             created_at: now,
         });
         let excess = thread.messages.len().saturating_sub(MESSAGES_MAX);
@@ -192,7 +225,7 @@ fn validate_question(question: &HubQuestion) -> Result<(), String> {
     Ok(())
 }
 
-mod lifecycle;
+pub(super) mod lifecycle;
 
 pub use lifecycle::TASKS_PER_THREAD_MAX;
 

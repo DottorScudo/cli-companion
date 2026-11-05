@@ -639,6 +639,7 @@ dependencies = [
  "getrandom 0.3.4",
  "keyring",
  "log",
+ "percent-encoding",
  "portable-pty",
  "quick-xml 0.42.0",
  "reqwest",

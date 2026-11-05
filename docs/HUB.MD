@@ -139,7 +139,7 @@ I messaggi stanno dentro il thread: si leggono e si potano sempre insieme al lor
 resta uno solo. L'elenco (`hub_list_threads`) restituisce i riassunti, senza i messaggi.
 
 **Messaggio** (`HubMessage`): `id` (`msg-<millisecondi>-<n>`), `author`, `kind`, `body`, `reply_to`, `event`,
-`created_at`.
+`attachments`, `created_at`.
 
 - `author`: `{ "type": "user" }` | `{ "type": "system" }` | `{ "type": "bot", "name": "mario" }` (un segretario:
   `name` è il suo handle). Solo i messaggi `user` svegliano i segretari.
@@ -159,6 +159,12 @@ resta uno solo. L'elenco (`hub_list_threads`) restituisce i riassunti, senza i m
   Ogni evento deve nominare il suo soggetto: `task_id` per gli eventi dei task, `proposal_id` per quelli delle
   proposte. `workspace` deve essere l'id di un workspace (non `general`); `summary` e `note` al massimo 8000
   caratteri. Nuovi tipi e campi si aggiungono come varianti e campi facoltativi (compatibile in lettura).
+- `attachments` (`HubAttachment[]`): gli allegati, solo nei messaggi `user` (vuoto negli altri e nei file scritti
+  prima, `#[serde(default)]`). Ogni allegato porta solo i metadati: `id` (`att-<millisecondi>-<n>`), `name` (il
+  nome originale ripulito, vedi "Allegati"), `mime` (dedotto dalle firme dei primi byte, poi dall'estensione;
+  `application/octet-stream` se ignoto: serve alla UI per l'anteprima, non filtra nulla) e `size` (byte). Nessun
+  percorso: si ricava da cartella dati, canale, thread, `id` e `name`, e i byte non finiscono mai nel JSON. Con
+  almeno un allegato `body` può essere vuoto.
 
 **Riassunto** (`HubThreadSummary`): `id`, `channel`, `title`, `state`, `task_count`, `message_count`,
 `waiting_user`, `owner` (il titolare del thread, `null` se non ne ha), `created_at`, `updated_at`; elenco dal più recente.
@@ -176,6 +182,8 @@ Gli eventi potati dal limite dei messaggi non contano più.
 | `<app_data>/hub_settings.json` | `HubSettings` |
 | `<app_data>/threads/<workspace_id>.json` | i thread del canale del workspace |
 | `<app_data>/threads/general.json` | i thread del Generale |
+| `<app_data>/hub_attachments/staging/<attachment_id>/<nome>` | allegato caricato e non ancora inviato |
+| `<app_data>/hub_attachments/channels/<canale>/<thread_id>/<attachment_id>/<nome>` | allegato di un messaggio |
 
 Mai nella repository dell'utente. I file dei thread contengono `{ "threads": [...] }` nella busta di `store/`
 (migrazioni, backup datati dei file corrotti, scrittura atomica, avvisi `store-warning`); la catena di migrazioni è
@@ -195,17 +203,55 @@ board) e non girano mai sul main thread né sotto un lock della board.
 
 **Rimozione di un workspace**: `workspaces::remove_workspace`, dopo la board, chiama `hub::forget_workspace`, che
 toglie il canale dalla memoria, butta l'istantanea della sua board e cancella `threads/<workspace_id>.json`
-(nessun errore se non esiste). `board` non dipende da `hub`; `automation` solo dall'host reale (vedi "Eventi della
+(nessun errore se non esiste) e poi, fuori dal lock, `hub_attachments/channels/<workspace_id>/`. `board` non dipende da `hub`; `automation` solo dall'host reale (vedi "Eventi della
 board"). I comandi e gli eventi della board verificano, sotto il lock dell'HUB, che il workspace del canale
 esista ancora: un id inventato o un workspace appena rimosso non lasciano file orfani.
 
+### Allegati
+
+Codice in `hub/attachments/` (`name`, `mime`, `layout`, `garbage` puri; `storage` per il disco; `commands`). I
+file stanno solo in `<app_data>/hub_attachments/`, mai nella repository dell'utente; una cartella per allegato,
+così il nome resta quello ripulito e l'allegato si sposta o si cancella con la sua cartella. Ogni componente del
+percorso si valida (`layout`): canale come sopra, thread e id dell'allegato con `text::valid_ref_id` (lettere,
+cifre, `-`, `_`), nome uguale alla sua versione ripulita: nessun percorso può uscire dalla cartella degli allegati,
+nemmeno da un file dei thread modificato a mano.
+
+- **Nomi** (`name::clean`): solo l'ultimo componente del percorso; `<>:"/\|?*` e i caratteri di controllo
+  diventano `_`; via gli spazi iniziali e i punti e spazi finali; i nomi riservati di Windows (`CON`, `PRN`, `AUX`,
+  `NUL`, `COM1`..`COM9`, `LPT1`..`LPT9`, anche con le cifre in apice, con o senza estensione) prendono un `_` davanti;
+  l'estensione resta. Vuoto o più lungo di 120 caratteri: rifiutato.
+- **Caricamento in due fasi.** Il frontend carica il file nello staging (`hub_stage_attachment_file` da un
+  percorso, `hub_stage_attachment_bytes` dai byte) e riceve `HubAttachment` con l'id; poi `hub_send` riceve gli
+  id. La copia nello staging gira senza il lock dell'HUB; il limite di dimensione vale anche per un file che
+  cresce durante la copia.
+- **Invio** (`append::append_user_message`): validati gli id (al massimo 5, senza doppioni), controllati canale e
+  thread, gli allegati si spostano (`rename`, atomico: due invii con lo stesso id non possono prenderlo entrambi)
+  da `staging/` alla cartella del thread e solo poi si salva il messaggio; se il salvataggio fallisce tornano
+  nello staging e l'utente può riprovare con gli stessi id. Senza allegati `hub_send` fa esattamente quello di prima.
+- **Pulizia.** `HubState::update_when`, dopo ogni salvataggio riuscito, confronta i thread di prima e di dopo
+  (`attachments::garbage`, puro) e, fuori dal lock, cancella le cartelle degli allegati dei messaggi potati
+  (`MESSAGES_MAX`) e dei thread spariti (thread chiusi potati): vale per qualunque operazione, compresi gli eventi
+  della board che spingono fuori un messaggio dell'utente. Un salvataggio fallito non cancella nulla. La rimozione
+  del workspace cancella la cartella del canale. Gli errori di cancellazione vanno nel log e non bloccano.
+- **Staging orfano**: all'avvio, in background, si tolgono le voci dello staging precedenti all'avvio (il
+  frontend perde gli id alla chiusura e non deve conservarli); a ogni caricamento quelle più vecchie di 24 ore.
+  Senza staging non si crea nulla.
+- **Lettura**: `hub_read_attachment` e `hub_attachment_path` trovano l'allegato solo tra quelli dei messaggi del
+  thread; la funzione Rust `attachments::commands::attachment_path(app, channel, thread_id, attachment_id)`
+  restituisce il percorso assoluto, ed è quella da usare per gli agenti.
+
 ## Limiti
 
-Assunzioni di questa tappa, tutte in costanti di `hub/text.rs` e `hub/threads.rs`:
+Assunzioni di questa tappa, tutte in costanti di `hub/text.rs`, `hub/threads.rs` e `hub/attachments.rs`
+(`hub/attachments/name.rs` per il nome):
 
 | Limite | Valore | Comportamento |
 |---|---|---|
-| Testo di un messaggio | 1..8000 caratteri dopo il trim | rifiutato se vuoto o troppo lungo; ammessi a capo e tabulazioni, non gli altri caratteri di controllo |
+| Testo di un messaggio | 1..8000 caratteri dopo il trim (0..8000 con almeno un allegato) | rifiutato se vuoto o troppo lungo; ammessi a capo e tabulazioni, non gli altri caratteri di controllo |
+| Allegati di un messaggio | 5 | rifiutato oltre; solo i messaggi dell'utente |
+| Dimensione di un allegato | 10 MB | rifiutato al caricamento |
+| Nome di un allegato | 1..120 caratteri dopo la pulizia | rifiutato (vedi "Allegati") |
+| Allegato nello staging | 24 ore | tolto, insieme a quelli di un avvio precedente |
 | Titolo di un thread | 1..120 caratteri dopo il trim | rifiutato; una riga sola |
 | Messaggi per thread | 500 | si tolgono i più vecchi |
 | Thread chiusi per canale | 200 | alla chiusura si tolgono i chiusi aggiornati da più tempo (mai quello appena chiuso); gli aperti non si potano |
@@ -223,6 +269,8 @@ id: tempo e id li passa il chiamante. La usano i comandi e gli eventi della boar
 |---|---|
 | Creare un thread | `create_thread(channel, id, title, now)` |
 | Aggiungere un messaggio | `add_message(thread_id, NewMessage { id, author, body, reply_to, event }, now)` |
+| Aggiungere un messaggio con allegati | `add_message_with_attachments(thread_id, new, attachments, now)` (solo `user`) |
+| Allegato di un thread | `attachment(thread_id, attachment_id)` |
 | Chiudere / riaprire | `set_state(thread_id, ThreadState::Closed \| Open, now)` |
 | Collegare task | `link_tasks(thread_id, task_ids, now)` (tutto o niente) |
 | Collegare una proposta | `link_proposal(thread_id, proposal_id, now)` |
@@ -257,11 +305,16 @@ Validano gli argomenti per primi e fanno l'I/O in `crate::blocking`. Wrapper nel
 | `hub_list_threads` | `channel` | `HubThreadSummary[]`, dal più recente |
 | `hub_get_thread` | `channel`, `thread_id` | `HubThread` con i messaggi |
 | `hub_create_thread` | `channel`, `title` | `HubThread` (thread libero dell'utente) |
-| `hub_send` | `channel`, `thread_id`, `body`, `reply_to?` | `HubMessage` dell'utente; dopo il salvataggio, una risposta a una domanda di un worker ancora in attesa va al worker così com'è (vedi "Domande dei worker"), altrimenti il motore sveglia i segretari (in background) |
+| `hub_send` | `channel`, `thread_id`, `body`, `reply_to?`, `attachments?` (id dallo staging) | `HubMessage` dell'utente; gli allegati passano dallo staging alla cartella del thread (vedi "Allegati"); dopo il salvataggio, una risposta a una domanda di un worker ancora in attesa va al worker così com'è (vedi "Domande dei worker"), altrimenti il motore sveglia i segretari (in background) |
+| `hub_stage_attachment_file` | `path` (assoluto, dal dialog) | `HubAttachment` nello staging |
+| `hub_stage_attachment_bytes` | corpo raw (`InvokeBody::Raw`), nome nell'header `x-hub-file-name` (`encodeURIComponent`) | `HubAttachment` nello staging (immagine incollata, file trascinato) |
+| `hub_read_attachment` | `channel`, `thread_id`, `attachment_id` | i byte (`ArrayBuffer`), per l'anteprima |
+| `hub_attachment_path` | `channel`, `thread_id`, `attachment_id` | percorso assoluto, per aprirlo con l'opener |
 | `show_hub_notification` | `channel`, `thread_id`, `title`, `body` | toast cliccabile (solo Windows) per un thread, definito in `toast.rs`; al click `hub-notification-activated` (vedi "Notifiche") |
 | `hub_secretary_status` | — | `HubSecretaryStatus[]`: i segretari svegli adesso (vedi "Motore dei segretari") |
 
-Con l'HUB spento `hub_create_thread` e `hub_send` sono rifiutati; i comandi delle impostazioni funzionano sempre.
+Con l'HUB spento `hub_create_thread`, `hub_send` e i due `hub_stage_attachment_*` sono rifiutati (prima di creare
+cartelle); letture, `hub_read_attachment`, `hub_attachment_path` e i comandi delle impostazioni funzionano sempre.
 Gli errori di validazione sono in italiano (li legge l'utente) e un comando che fallisce non cambia nulla; un
 segretario che non c'è risponde «segretario non trovato». Un canale di un workspace che non esiste
 risponde «canale non trovato: il workspace non esiste più».

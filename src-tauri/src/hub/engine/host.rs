@@ -27,7 +27,7 @@ use crate::hub::actions::{AppAnswers, BoardActions, HubBoardActions};
 use crate::hub::api_key::ApiKey;
 use crate::hub::append::{append_text, TextMessage};
 use crate::hub::channel::Channel;
-use crate::hub::commands::{emit_update, ensure_channel, threads_dir_of};
+use crate::hub::commands::{emit_update, ensure_channel, hub_dirs_of};
 use crate::hub::events::HubFeed;
 use crate::hub::model::{Author, Thread};
 use crate::hub::questions::QuestionRef;
@@ -55,9 +55,9 @@ impl ThreadIo {
     pub async fn load_thread(&self) -> Result<Thread, String> {
         let (app, key) = (self.app.clone(), self.key.clone());
         crate::blocking(move || {
-            let dir = threads_dir_of(&app)?;
+            let dirs = hub_dirs_of(&app)?;
             app.state::<HubState>()
-                .read(&dir, &key.channel, |list| list.thread(&key.thread_id).cloned())
+                .read(&dirs, &key.channel, |list| list.thread(&key.thread_id).cloned())
                 .ok_or_else(|| THREAD_NOT_FOUND.to_string())
         })
         .await
@@ -89,9 +89,9 @@ impl ThreadIo {
             if !app.state::<SecretaryEngine>().is_current(epoch) {
                 return Err(STALE.to_string());
             }
-            let dir = threads_dir_of(&app)?;
+            let dirs = hub_dirs_of(&app)?;
             let touched = app.state::<HubState>().update_when(
-                &dir,
+                &dirs,
                 &key.channel,
                 |list| {
                     ensure_channel(&app, &key.channel)?;
@@ -118,7 +118,7 @@ impl ThreadIo {
                 return Err(STALE.to_string());
             }
             let actions = app.state::<HubBoardActions>().get()?;
-            let dir = threads_dir_of(&app)?;
+            let dirs = hub_dirs_of(&app)?;
             let now = chrono::Utc::now().timestamp_millis();
             let ticket = PlanTicket {
                 channel: &key.channel,
@@ -127,7 +127,7 @@ impl ThreadIo {
                 secretary: &secretary,
                 goal: &goal,
             };
-            let (value, touched) = app.state::<HubState>().update(&dir, &key.channel, |list| {
+            let (value, touched) = app.state::<HubState>().update(&dirs, &key.channel, |list| {
                 ensure_channel(&app, &key.channel)?;
                 let value =
                     planning::open_plan(list, &ticket, now, |ws_id, order| (actions.create_plan)(&app, ws_id, order))?;

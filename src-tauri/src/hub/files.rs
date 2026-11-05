@@ -1,7 +1,8 @@
 //! I file dei thread: `<app_data>/threads/<workspace_id>.json` per ogni
 //! workspace e `<app_data>/threads/general.json` per il Generale, nella busta
-//! di `store` (migrazioni, backup dei file corrotti, scrittura atomica). Mai
-//! nella repository dell'utente.
+//! di `store` (migrazioni, backup dei file corrotti, scrittura atomica), e la
+//! cartella degli allegati `<app_data>/hub_attachments/` (struttura in
+//! `attachments::layout`). Mai nella repository dell'utente.
 
 use super::channel::Channel;
 use super::threads::ChannelThreads;
@@ -11,12 +12,24 @@ use std::path::{Path, PathBuf};
 
 /// Cartella dei thread dentro la cartella dati dell'app.
 const THREADS_DIR: &str = "threads";
+/// Cartella degli allegati dei messaggi dentro la cartella dati dell'app.
+const ATTACHMENTS_DIR: &str = "hub_attachments";
 
 /// Catena di migrazioni dei file dei thread: un passo in coda per ogni cambio di formato.
 static STEPS: [Migration; 1] = [adopt_envelope];
 
-pub fn threads_dir(data_dir: &Path) -> PathBuf {
-    data_dir.join(THREADS_DIR)
+/// Le cartelle dell'HUB nella cartella dati dell'app: i file dei thread e gli
+/// allegati dei loro messaggi.
+#[derive(Debug, Clone)]
+pub struct HubDirs {
+    pub threads: PathBuf,
+    pub attachments: PathBuf,
+}
+
+impl HubDirs {
+    pub fn in_data_dir(data_dir: &Path) -> Self {
+        Self { threads: data_dir.join(THREADS_DIR), attachments: data_dir.join(ATTACHMENTS_DIR) }
+    }
 }
 
 /// Il `JsonFile` del canale: va tenuto vivo finche' il canale e' in memoria,

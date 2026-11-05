@@ -174,7 +174,28 @@ pub struct Message {
     pub reply_to: Option<String>,
     #[serde(default)]
     pub event: Option<HubEvent>,
+    /// Gli allegati di un messaggio dell'utente (solo i metadati: i file sono in
+    /// `hub_attachments/`, vedi `attachments`). Vuoto negli altri messaggi e nei
+    /// file scritti prima.
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
     pub created_at: i64,
+}
+
+/// Un file allegato a un messaggio. Il percorso non si salva: si ricava da
+/// cartella dati, canale, thread, `id` e `name` (`attachments::layout`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, rename = "HubAttachment")]
+pub struct Attachment {
+    /// `att-<millisecondi>-<n>`.
+    pub id: String,
+    /// Il nome originale ripulito per Windows (`attachments::name::clean`).
+    pub name: String,
+    /// Dedotto da contenuto ed estensione; `application/octet-stream` se ignoto.
+    pub mime: String,
+    /// In byte.
+    #[ts(type = "number")]
+    pub size: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

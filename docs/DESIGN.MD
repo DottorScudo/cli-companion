@@ -1028,7 +1028,9 @@ viste da `Host::board_published` e scrive fuori dai lock della board; all'accens
 correnti di tutte le board, chieste alla sorgente registrata da `lib.rs`; l'instradamento porta la proposta di un
 piano nel thread del piano e indica quali eventi svegliano il segretario titolare del thread), `actions` (le azioni
 sulla board registrate da `lib.rs`), `append` (un messaggio di testo con
-salvataggio ed evento, per `hub_send` e per il motore) ed `engine` (il motore dei segretari: menzioni e titolare,
+salvataggio ed evento, per `hub_send` e per il motore), `attachments` (gli allegati dei messaggi dell'utente: metadati
+nel messaggio, file in `hub_attachments/`, caricamento in due fasi con lo staging, pulizia dei file di messaggi e
+thread potati calcolata da `HubState::update_when` con una funzione pura, comandi) ed `engine` (il motore dei segretari: menzioni e titolare,
 risvegli da evento della board, sessioni in memoria con una coda per thread e uno schedulatore unico delle scadenze,
 ciclo di tool calling con i tool `board_status`, `thread_read`, `post_message`, `open_plan_task` e `decide_proposal`
 (`engine/planning.rs`: la proposta si lega solo alla risposta dell'utente al suo evento), riassunto del thread alla
@@ -1037,8 +1039,9 @@ finti nei test; client reale `async-openai`). Comandi
 `hub_get_settings`, `hub_set_enabled`, `hub_set_provider`, `hub_set_api_key`, `hub_clear_api_key`,
 `hub_set_language`, `hub_set_session`, `hub_create_secretary`, `hub_update_secretary`, `hub_delete_secretary`,
 `hub_set_secretary_image`, `hub_remove_secretary_image`, `hub_list_threads`, `hub_get_thread`, `hub_create_thread`, `hub_send`,
+`hub_stage_attachment_file`, `hub_stage_attachment_bytes`, `hub_read_attachment`, `hub_attachment_path`,
 `hub_secretary_status`; eventi `hub-update` (riassunto del thread toccato) e `hub-secretary-status` (segretari svegli).
-Spegnere l'HUB chiude le sessioni dei segretari e annulla i loro lavori. La rimozione di un workspace cancella il suo file dei thread
+Spegnere l'HUB chiude le sessioni dei segretari e annulla i loro lavori. La rimozione di un workspace cancella il suo file dei thread e i suoi allegati
 (`hub::forget_workspace`, chiamato da `remove_workspace` dopo la board), l'istantanea della sua board e le sessioni dei
 segretari nel suo canale. Modello, file, limiti e scelte:
 [HUB.MD](HUB.MD).

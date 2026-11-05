@@ -44,6 +44,7 @@ mod tests {
                 proposal_id: proposal.map(str::to_string),
                 ..HubEvent::new(kind)
             }),
+            attachments: Vec::new(),
             created_at: 0,
         }
     }
@@ -56,6 +57,7 @@ mod tests {
             body: "ciao".to_string(),
             reply_to: None,
             event: None,
+            attachments: Vec::new(),
             created_at: 0,
         }
     }

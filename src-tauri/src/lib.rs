@@ -72,6 +72,7 @@ pub fn run() {
             startup::timed("launch settings loaded", || launch_settings::load_from_disk(app));
             startup::timed("bots loaded", || bots::load_from_disk(app));
             startup::timed("hub settings loaded", || hub::load_from_disk(app));
+            hub::purge_attachment_staging(app.handle());
             startup::timed("boards loaded", || automation::load_boards(app));
             startup::timed("automation started", || automation::auto::init(app));
             // `hub` non dipende da `automation`: la base delle board all'accensione
@@ -141,6 +142,10 @@ pub fn run() {
             hub::commands::hub_get_thread,
             hub::commands::hub_create_thread,
             hub::commands::hub_send,
+            hub::attachments::commands::hub_stage_attachment_file,
+            hub::attachments::commands::hub_stage_attachment_bytes,
+            hub::attachments::commands::hub_read_attachment,
+            hub::attachments::commands::hub_attachment_path,
             hub::engine::status::hub_secretary_status,
             agents::builtin_launches,
             workspaces::open_workspace_folder,

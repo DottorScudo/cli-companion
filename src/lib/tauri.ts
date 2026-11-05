@@ -9,6 +9,7 @@ import type { BotSettings } from "../bindings/BotSettings.ts";
 import type { BuiltinLaunch } from "../bindings/BuiltinLaunch.ts";
 import type { Delivery } from "../bindings/Delivery.ts";
 import type { E2eEvent as E2eUpdateEvent } from "../bindings/E2eEvent.ts";
+import type { HubAttachment } from "../bindings/HubAttachment.ts";
 import type { HubEvent } from "../bindings/HubEvent.ts";
 import type { HubLanguage } from "../bindings/HubLanguage.ts";
 import type { HubMessage } from "../bindings/HubMessage.ts";
@@ -55,6 +56,7 @@ export type {
   BotSettings,
   BuiltinLaunch,
   Delivery,
+  HubAttachment,
   HubEvent,
   HubLanguage,
   HubMessage,
@@ -93,6 +95,9 @@ export interface NewWorkspace {
   distro?: string;
   shell?: string;
 }
+
+/** Header con il nome del file di `hub_stage_attachment_bytes` (`FILE_NAME_HEADER` in `hub/attachments/commands.rs`). */
+const HUB_FILE_NAME_HEADER = "x-hub-file-name";
 
 export const api = {
   listWorkspaces: () => invoke<Workspace[]>("list_workspaces"),
@@ -262,9 +267,34 @@ export const api = {
 
   hubCreateThread: (channel: string, title: string) => invoke<HubThread>("hub_create_thread", { channel, title }),
 
-  /** Messaggio dell'utente; `replyTo` = id di un messaggio dello stesso thread. */
-  hubSend: (channel: string, threadId: string, body: string, replyTo: string | null = null) =>
-    invoke<HubMessage>("hub_send", { channel, threadId, body, replyTo }),
+  /**
+   * Messaggio dell'utente; `replyTo` = id di un messaggio dello stesso thread; `attachments` = id degli allegati
+   * già caricati con `hubStageAttachment*` (con almeno uno il testo può essere vuoto).
+   */
+  hubSend: (
+    channel: string,
+    threadId: string,
+    body: string,
+    replyTo: string | null = null,
+    attachments: string[] = [],
+  ) => invoke<HubMessage>("hub_send", { channel, threadId, body, replyTo, attachments }),
+
+  /** Carica nello staging il file scelto con il dialog (percorso assoluto); poi l'id va a `hubSend`. */
+  hubStageAttachmentFile: (path: string) => invoke<HubAttachment>("hub_stage_attachment_file", { path }),
+
+  /** Carica nello staging i byte di un file senza percorso (immagine incollata, file trascinato). */
+  hubStageAttachmentBytes: (name: string, bytes: Uint8Array) =>
+    invoke<HubAttachment>("hub_stage_attachment_bytes", bytes, {
+      headers: { [HUB_FILE_NAME_HEADER]: encodeURIComponent(name) },
+    }),
+
+  /** I byte di un allegato (per l'anteprima con un Blob URL). */
+  hubReadAttachment: (channel: string, threadId: string, attachmentId: string) =>
+    invoke<ArrayBuffer>("hub_read_attachment", { channel, threadId, attachmentId }),
+
+  /** Percorso assoluto di un allegato (per aprirlo con l'app predefinita). */
+  hubAttachmentPath: (channel: string, threadId: string, attachmentId: string) =>
+    invoke<string>("hub_attachment_path", { channel, threadId, attachmentId }),
 
   /** Segretari svegli adesso, per canale e thread (poi `hub-secretary-status`). */
   hubSecretaryStatus: () => invoke<HubSecretaryStatus[]>("hub_secretary_status"),

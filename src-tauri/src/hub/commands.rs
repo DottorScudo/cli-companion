@@ -3,18 +3,17 @@
 //! riassunto aggiornato del thread toccato. Le letture funzionano anche con
 //! l'HUB spento (non creano file); le scritture sono rifiutate.
 
-use super::append::{append_text, TextMessage};
+use super::append::{append_user_message, TextMessage};
 use super::channel::Channel;
 use super::direct_answer::deliver_if_answer;
 use super::engine::SecretaryEngine;
-use super::files::threads_dir;
+use super::files::HubDirs;
 use super::model::{Author, Message, Thread, ThreadSummary};
 use super::settings::is_enabled;
 use super::state::{HubState, THREAD_ID_PREFIX};
 use super::threads::{summary, THREAD_NOT_FOUND};
 use crate::store::data_dir;
 use crate::workspaces::WorkspaceStore;
-use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Evento verso il frontend a ogni modifica di un thread (payload: `ThreadSummary`).
@@ -27,9 +26,9 @@ const CHANNEL_NOT_FOUND: &str = "canale non trovato: il workspace non esiste piÃ
 pub async fn hub_list_threads(app: AppHandle, channel: String) -> Result<Vec<ThreadSummary>, String> {
     let channel = Channel::parse(&channel)?;
     crate::blocking(move || {
-        let dir = threads_dir_of(&app)?;
+        let dirs = hub_dirs_of(&app)?;
         ensure_channel(&app, &channel)?;
-        Ok(app.state::<HubState>().read(&dir, &channel, |list| list.summaries()))
+        Ok(app.state::<HubState>().read(&dirs, &channel, |list| list.summaries()))
     })
     .await
 }
@@ -38,10 +37,10 @@ pub async fn hub_list_threads(app: AppHandle, channel: String) -> Result<Vec<Thr
 pub async fn hub_get_thread(app: AppHandle, channel: String, thread_id: String) -> Result<Thread, String> {
     let channel = Channel::parse(&channel)?;
     crate::blocking(move || {
-        let dir = threads_dir_of(&app)?;
+        let dirs = hub_dirs_of(&app)?;
         ensure_channel(&app, &channel)?;
         app.state::<HubState>()
-            .read(&dir, &channel, |list| list.thread(&thread_id).cloned())
+            .read(&dirs, &channel, |list| list.thread(&thread_id).cloned())
             .ok_or_else(|| THREAD_NOT_FOUND.to_string())
     })
     .await
@@ -53,11 +52,11 @@ pub async fn hub_create_thread(app: AppHandle, channel: String, title: String) -
     let channel = Channel::parse(&channel)?;
     ensure_enabled(&app)?;
     crate::blocking(move || {
-        let dir = threads_dir_of(&app)?;
+        let dirs = hub_dirs_of(&app)?;
         let state = app.state::<HubState>();
         let now = chrono::Utc::now().timestamp_millis();
         let id = state.next_id(THREAD_ID_PREFIX, now);
-        let thread = state.update(&dir, &channel, |list| {
+        let thread = state.update(&dirs, &channel, |list| {
             // Sotto il lock dell'HUB: una rimozione del workspace in corso aspetta
             // e poi cancella anche questo file.
             ensure_channel(&app, &channel)?;
@@ -70,10 +69,12 @@ pub async fn hub_create_thread(app: AppHandle, channel: String, title: String) -
 }
 
 /// Messaggio dell'utente in un thread; `reply_to` deve essere dello stesso
-/// thread. Dopo il salvataggio, una risposta a una domanda di un worker ancora
-/// in attesa va al worker cosi' com'e' (`direct_answer`, senza modello);
-/// altrimenti il motore dei segretari decide chi svegliare (menzioni o
-/// titolare della sessione) e lavora in background.
+/// thread. `attachments` sono gli id degli allegati gia' nello staging
+/// (`hub_stage_attachment_*`; assente o vuoto = nessuno): con almeno un
+/// allegato il testo puo' essere vuoto. Dopo il salvataggio, una risposta a una
+/// domanda di un worker ancora in attesa va al worker cosi' com'e'
+/// (`direct_answer`, senza modello); altrimenti il motore dei segretari decide
+/// chi svegliare (menzioni o titolare della sessione) e lavora in background.
 #[tauri::command]
 pub async fn hub_send(
     app: AppHandle,
@@ -81,11 +82,14 @@ pub async fn hub_send(
     thread_id: String,
     body: String,
     reply_to: Option<String>,
+    attachments: Option<Vec<String>>,
 ) -> Result<Message, String> {
     let channel = Channel::parse(&channel)?;
     ensure_enabled(&app)?;
+    let attachments = attachments.unwrap_or_default();
     crate::blocking(move || {
-        let message = append_text(&app, &channel, &thread_id, TextMessage { author: Author::User, body, reply_to })?;
+        let text = TextMessage { author: Author::User, body, reply_to };
+        let message = append_user_message(&app, &channel, &thread_id, text, &attachments)?;
         if !deliver_if_answer(&app, &channel, &thread_id, &message) {
             app.state::<SecretaryEngine>().on_message(&app, &channel, &thread_id, &message);
         }
@@ -94,7 +98,7 @@ pub async fn hub_send(
     .await
 }
 
-fn ensure_enabled(app: &AppHandle) -> Result<(), String> {
+pub(super) fn ensure_enabled(app: &AppHandle) -> Result<(), String> {
     if is_enabled(app) {
         Ok(())
     } else {
@@ -112,9 +116,9 @@ pub(super) fn ensure_channel(app: &AppHandle, channel: &Channel) -> Result<(), S
     }
 }
 
-/// La cartella dei thread nella cartella dati dell'app.
-pub(super) fn threads_dir_of(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(threads_dir(&data_dir(app)?))
+/// Le cartelle dell'HUB (thread e allegati) nella cartella dati dell'app.
+pub(super) fn hub_dirs_of(app: &AppHandle) -> Result<HubDirs, String> {
+    Ok(HubDirs::in_data_dir(&data_dir(app)?))
 }
 
 pub(super) fn emit_update(app: &AppHandle, summary: &ThreadSummary) {
