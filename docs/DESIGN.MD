@@ -235,7 +235,9 @@ domanda (`hub/direct_answer.rs`, senza passare dal modello) e il tool `relay_ans
 5. Dopo che il core ha elaborato l'hook, il server emette l'evento Tauri `agent-event` verso il frontend, se può
    arrivarci (`forwards_to_frontend`: non uno `finished` bloccato o con lavoro in background); il segreto è già stato
    tolto dal cancello. Lì `app/events.ts` (`onAgentEvent`) aggiorna lo stato del tab in
-   `tabRuntime`, suona e, a finestra senza focus, mostra la notifica di sistema.
+   `tabRuntime`, suona e, a finestra senza focus, mostra la notifica di sistema. Con l'Agents HUB acceso e le sue
+   «Notifiche di sistema» attive (`hubCoversAgentEvent`, letto all'arrivo dell'evento) suono e notifica di sistema
+   non partono: restano lo stato del tab (✓/❗) e i contatori, e le notifiche sono solo quelle dell'HUB.
 
 ### Task: dalla proposta alla consegna
 

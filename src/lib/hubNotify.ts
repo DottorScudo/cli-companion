@@ -65,3 +65,12 @@ export function hubNotifies(hub: HubNotifySettings): boolean {
 export function hubCoversTaskNotice(hub: HubNotifySettings, kind: string): boolean {
   return hubNotifies(hub) && HUB_COVERED_TASK_NOTICES.has(kind);
 }
+
+/**
+ * Gli eventi dei coding agent (`agent-event`) non danno ne' toast ne' suono:
+ * con le notifiche dell'HUB attive le uniche notifiche sono quelle dell'HUB
+ * (che include la fine di un agente di un worker). Resta lo stato del tab.
+ */
+export function hubCoversAgentEvent(hub: HubNotifySettings): boolean {
+  return hubNotifies(hub);
+}

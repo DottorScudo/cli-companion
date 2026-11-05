@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  hubCoversAgentEvent,
   hubCoversTaskNotice,
   hubNotifies,
   shouldShowHubNotice,
@@ -57,5 +58,23 @@ describe("doppioni con task-notify", () => {
     assert.equal(hubNotifies(hub(true, false)), false);
     assert.equal(hubNotifies({ enabled: true, settings: null }), false);
     assert.equal(hubCoversTaskNotice({ enabled: false, settings: null }, "failed"), false);
+  });
+});
+
+describe("terminali silenziati dall'HUB", () => {
+  it("HUB e notifiche accesi: gli eventi dei coding agent non notificano", () => {
+    assert.equal(hubCoversAgentEvent(hub(true)), true);
+  });
+
+  it("notifiche spente: gli eventi dei coding agent notificano come prima", () => {
+    assert.equal(hubCoversAgentEvent(hub(false)), false);
+  });
+
+  it("HUB spento: gli eventi dei coding agent notificano come prima", () => {
+    assert.equal(hubCoversAgentEvent(hub(true, false)), false);
+  });
+
+  it("impostazioni non ancora lette: gli eventi dei coding agent notificano come prima", () => {
+    assert.equal(hubCoversAgentEvent({ enabled: true, settings: null }), false);
   });
 });

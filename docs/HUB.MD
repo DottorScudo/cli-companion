@@ -618,6 +618,14 @@ dall'HUB (che apre il thread) e il frontend **salta** `task-notify` (guarda `ena
 impostazioni). Spento l'interruttore, o l'HUB, `task-notify` torna come prima. Il backend di `task-notify` non
 cambia.
 
+### Terminali silenziati
+
+Con la stessa condizione (HUB acceso **e** `notifications` acceso) il frontend non fa partire nemmeno suono e
+notifica di sistema degli eventi dei coding agent (`agent-event`, `hubCoversAgentEvent`): né per i terminali
+dell'utente né per i worker, che altrimenti suonerebbero due volte (suono dell'evento + ding dell'HUB). Le
+notifiche sono solo quelle dell'HUB. Lo stato del tab (✓/❗) e i contatori restano; il self-test delle Impostazioni
+suona sempre. Lo stato si legge all'arrivo dell'evento: l'interruttore ha effetto subito.
+
 ## Motore dei segretari
 
 Il motore fa parlare i segretari: quando l'utente scrive «@mario a che punto siamo?» in un thread sveglia **solo**

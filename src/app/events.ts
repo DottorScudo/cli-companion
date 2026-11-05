@@ -6,6 +6,7 @@ import { api } from "../lib/tauri";
 import type { AgentEvent, AutomationClose, AutomationSpawn, AutomationTabInfo } from "../lib/tauri";
 import { report } from "../lib/errors";
 import { notificationBody, shouldSystemNotify, soundForEvent } from "../lib/agents";
+import { hubCoversAgentEvent } from "../lib/hubNotify";
 import { openTabBackground } from "../lib/layout";
 import { playAttention, playDing } from "../lib/notifySound";
 import { notifyIfUnfocused } from "../lib/systemNotify";
@@ -22,8 +23,9 @@ import { onAgentEventUsage } from "./usage";
 
 /**
  * Eventi dei coding agent: stato del tab, suono e notifica di sistema.
- * `test` è il self-test delle Impostazioni: solo il suono. Gli eventi il cui
- * tab non esiste (più) sono ignorati.
+ * Con le notifiche dell'HUB attive restano solo lo stato (✓/❗) e l'uso: suono
+ * e toast sono quelli dell'HUB. `test` è il self-test delle Impostazioni: solo
+ * il suono, sempre. Gli eventi il cui tab non esiste (più) sono ignorati.
  */
 export function onAgentEvent(ev: AgentEvent): void {
   if (ev.event === "test") {
@@ -34,6 +36,8 @@ export function onAgentEvent(ev: AgentEvent): void {
   if (!tab) return;
   runtimeStore.agentEvent(tab.key, ev);
   onAgentEventUsage(tab.key, ev.event, ev.transcript_path, ev.agent);
+  // Con le notifiche dell'HUB attive, suono e toast sono solo i suoi.
+  if (hubCoversAgentEvent(hubStore.getState())) return;
   const sound = soundForEvent(ev.event);
   if (sound === "attention") playAttention();
   else if (sound === "ding") playDing();
