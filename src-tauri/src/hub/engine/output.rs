@@ -13,9 +13,11 @@ use crate::hub::model::{Attachment, Author, Message, Thread};
 use crate::validate::clip_with_ellipsis;
 use serde_json::{json, Map, Value};
 
+mod message_body;
 mod overview;
 mod task_details;
 
+pub use message_body::message_body;
 pub use overview::board_overview;
 pub use task_details::task_details;
 
@@ -53,8 +55,12 @@ fn task_row(v: &TaskView) -> Value {
 /// Il thread per `thread_read`: titolo, stato, task collegati, riassunto e una
 /// pagina di `THREAD_PAGE_SIZE` messaggi (`page`). `older_messages` conta i
 /// messaggi prima della pagina e `next_before` e' l'id da passare a `before`
-/// per leggerli; `newer_messages` conta quelli dopo.
+/// per leggerli; `newer_messages` conta quelli dopo. Con `ThreadPage::Body` il
+/// risultato e' un pezzo del testo di un solo messaggio (vedi `message_body`).
 pub fn thread(thread: &Thread, names: &WorkspaceNames, page: &ThreadPage) -> Result<Value, String> {
+    if let ThreadPage::Body { message_id, offset } = page {
+        return message_body(&thread.messages, message_id, *offset);
+    }
     let range = thread_page::window(&thread.messages, page)?;
     let mut out = header(thread, names);
     out["messages"] = messages(&thread.messages[range.clone()], names);
@@ -107,6 +113,11 @@ pub fn message(m: &Message, names: &WorkspaceNames) -> Value {
         "at": timestamp(m.created_at),
         "body": clip_with_ellipsis(&m.body, BODY_KEPT),
     });
+    // Un testo tagliato lo dice, con la lunghezza intera: `thread_read` con `message_id` lo legge tutto.
+    let body_chars = m.body.chars().count();
+    if body_chars > BODY_KEPT {
+        out["body_truncated"] = json!({ "total_chars": body_chars });
+    }
     // Il testo di un autore esterno e' un dato non fidato: il modello lo vede marcato.
     if matches!(m.author, Author::External { .. }) {
         out["untrusted"] = Value::Bool(true);
@@ -283,6 +294,36 @@ mod tests {
     fn long_bodies_are_clipped() {
         let v = message(&msg("m", Author::User, &"é".repeat(BODY_KEPT + 50), 0), &names());
         assert_eq!(v["body"].as_str().unwrap().chars().count(), BODY_KEPT + 1);
+        assert_eq!(v["body_truncated"], json!({ "total_chars": BODY_KEPT + 50 }));
+    }
+
+    #[test]
+    fn short_bodies_have_no_truncation_marker() {
+        let v = message(&msg("m", Author::User, &"é".repeat(BODY_KEPT), 0), &names());
+        assert_eq!(v["body"].as_str().unwrap().chars().count(), BODY_KEPT);
+        assert!(v.get("body_truncated").is_none());
+    }
+
+    #[test]
+    fn a_page_marks_the_long_message_and_the_message_id_reads_it_whole() {
+        let body: String =
+            (0..8000).map(|i| if i % 97 == 0 { '\n' } else { char::from(b'a' + (i % 26) as u8) }).collect();
+        let mut t = thread_with(3);
+        t.messages[1].body = format!("{body}è🙂");
+        let page = latest(&t, &names());
+        assert_eq!(page["messages"][1]["body_truncated"]["total_chars"], 8002);
+        assert!(page["messages"][0].get("body_truncated").is_none());
+        let mut text = String::new();
+        let mut offset = 0;
+        loop {
+            let part = thread(&t, &names(), &ThreadPage::Body { message_id: "m1".into(), offset }).unwrap();
+            text.push_str(part["content"].as_str().unwrap());
+            match part["next_offset"].as_u64() {
+                Some(next) => offset = next as usize,
+                None => break,
+            }
+        }
+        assert_eq!(text, t.messages[1].body);
     }
 
     #[test]

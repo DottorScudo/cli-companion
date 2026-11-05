@@ -15,7 +15,7 @@ use crate::board::TaskView;
 use pieces::{fit, size, Content, Pageable};
 use serde_json::{json, Map, Value};
 
-mod pieces;
+pub(super) mod pieces;
 #[cfg(test)]
 mod tests;
 

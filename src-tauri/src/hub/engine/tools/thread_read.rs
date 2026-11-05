@@ -14,7 +14,11 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
         description: "Read this thread: its title, its summary and a page of its messages, including the data of the \
             board events reported in it. By default you get the latest messages. When `older_messages` is present, \
             earlier messages exist: call the tool again with `before` set to the `next_before` of the result (or with \
-            an `offset`) to read the page before. Use only one of `before` and `offset`.",
+            an `offset`) to read the page before. Use only one of `before` and `offset`. The text of a long message \
+            is cut in the page: its `body_truncated.total_chars` gives its full length. To read all of it call the \
+            tool with that message's `message_id` and an `offset` in characters (0, then the `next_offset` of each \
+            part) until `next_offset` is absent. The task data of events is shortened too: read a task in full with \
+            `task_details`.",
         parameters: json!({
             "type": "object",
             "properties": {
@@ -27,11 +31,19 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
                     "minLength": 1,
                     "maxLength": MESSAGE_ID_MAX
                 },
+                "message_id": {
+                    "type": "string",
+                    "description": "Id of a message of this thread: read its full text in parts, from `offset`. Not \
+                        with `before`.",
+                    "minLength": 1,
+                    "maxLength": MESSAGE_ID_MAX
+                },
                 "offset": {
                     "type": "integer",
                     "description": format!(
-                        "How many of the latest messages to skip before reading {THREAD_PAGE_SIZE}. Default 0 (the \
-                        latest messages)."
+                        "Without `message_id`: how many of the latest messages to skip before reading \
+                        {THREAD_PAGE_SIZE}. Default 0 (the latest messages). With `message_id`: the character of \
+                        the message to start from (the `next_offset` of the previous part). Default 0."
                     ),
                     "minimum": 0
                 }
@@ -47,19 +59,31 @@ struct Args {
     #[serde(default)]
     before: Option<String>,
     #[serde(default)]
+    message_id: Option<String>,
+    #[serde(default)]
     offset: Option<usize>,
 }
 
-/// La pagina chiesta; l'errore e' in inglese, per il modello.
+/// Cosa si legge (una pagina o un messaggio); l'errore e' in inglese, per il modello.
 pub fn parse(raw: &str) -> Result<ThreadPage, String> {
     let args: Args = arguments(raw)?;
-    match (args.before.as_deref().map(str::trim), args.offset) {
-        (Some(_), Some(_)) => Err("pass only one of `before` and `offset`".to_string()),
-        (Some(id), None) if id.is_empty() || id.chars().count() > MESSAGE_ID_MAX => {
-            Err(format!("`before` must be a message id of 1 to {MESSAGE_ID_MAX} characters"))
+    let before = args.before.as_deref().map(str::trim);
+    let message_id = args.message_id.as_deref().map(str::trim);
+    match (before, message_id, args.offset) {
+        (Some(_), Some(_), _) => Err("pass only one of `before` and `message_id`".to_string()),
+        (Some(_), None, Some(_)) => Err("pass only one of `before` and `offset`".to_string()),
+        (Some(id), None, None) => Ok(ThreadPage::Before(valid_id("before", id)?)),
+        (None, Some(id), offset) => {
+            Ok(ThreadPage::Body { message_id: valid_id("message_id", id)?, offset: offset.unwrap_or(0) })
         }
-        (Some(id), None) => Ok(ThreadPage::Before(id.to_string())),
-        (None, Some(skipped)) => Ok(ThreadPage::Offset(skipped)),
-        (None, None) => Ok(ThreadPage::Latest),
+        (None, None, Some(skipped)) => Ok(ThreadPage::Offset(skipped)),
+        (None, None, None) => Ok(ThreadPage::Latest),
     }
+}
+
+fn valid_id(name: &str, id: &str) -> Result<String, String> {
+    if id.is_empty() || id.chars().count() > MESSAGE_ID_MAX {
+        return Err(format!("`{name}` must be a message id of 1 to {MESSAGE_ID_MAX} characters"));
+    }
+    Ok(id.to_string())
 }

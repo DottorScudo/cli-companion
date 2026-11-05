@@ -20,6 +20,8 @@ pub enum ThreadPage {
     Before(String),
     /// I messaggi prima degli ultimi `n`, che si saltano.
     Offset(usize),
+    /// Il testo di un solo messaggio, a partire dal carattere `offset` (non e' una pagina di messaggi).
+    Body { message_id: String, offset: usize },
 }
 
 /// L'intervallo dei messaggi della pagina; l'errore e' in inglese, per il modello.
@@ -34,6 +36,7 @@ pub fn window(messages: &[Message], page: &ThreadPage) -> Result<Range<usize>, S
             .iter()
             .position(|m| m.id == *id)
             .ok_or_else(|| "`before` is not the id of a message of this thread".to_string())?,
+        ThreadPage::Body { .. } => return Err("`message_id` reads one message, not a page".to_string()),
     };
     Ok(end.saturating_sub(THREAD_PAGE_SIZE)..end)
 }
@@ -57,6 +60,12 @@ mod tests {
         assert_eq!(window(&numbered(5), &ThreadPage::Offset(0)), Ok(0..5));
         assert!(window(&numbered(5), &ThreadPage::Offset(5)).unwrap_err().contains("beyond"));
         assert!(window(&[], &ThreadPage::Offset(1)).is_err());
+    }
+
+    #[test]
+    fn a_message_body_is_not_a_page() {
+        let body = ThreadPage::Body { message_id: "m1".into(), offset: 0 };
+        assert!(window(&numbered(5), &body).unwrap_err().contains("not a page"));
     }
 
     #[test]

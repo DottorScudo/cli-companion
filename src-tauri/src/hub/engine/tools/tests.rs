@@ -363,8 +363,18 @@ fn thread_read_chooses_the_page_by_message_id_or_offset() {
     assert_eq!(thread_page(r#"{"offset":40}"#), Ok(ThreadPage::Offset(40)));
     assert_eq!(thread_page(r#"{"offset":0}"#), Ok(ThreadPage::Offset(0)));
     let schema = spec(SecretaryTool::ThreadRead).parameters;
-    assert_eq!(sorted(schema["properties"].as_object().unwrap().keys().cloned().collect()), ["before", "offset"]);
+    assert_eq!(
+        sorted(schema["properties"].as_object().unwrap().keys().cloned().collect()),
+        ["before", "message_id", "offset"]
+    );
     assert_eq!(schema["properties"]["offset"]["minimum"], 0);
+}
+
+#[test]
+fn thread_read_reads_one_message_in_characters_from_its_id() {
+    let body = |id: &str, offset| ThreadPage::Body { message_id: id.into(), offset };
+    assert_eq!(thread_page(r#"{"message_id":" m12 "}"#), Ok(body("m12", 0)));
+    assert_eq!(thread_page(r#"{"message_id":"m12","offset":1000}"#), Ok(body("m12", 1000)));
 }
 
 #[test]
@@ -372,6 +382,10 @@ fn thread_read_rejects_a_bad_page_with_a_clear_reason() {
     let long = json!({ "before": "m".repeat(MESSAGE_ID_MAX + 1) }).to_string();
     let cases = [
         (r#"{"before":"m1","offset":3}"#, "only one of"),
+        (r#"{"before":"m1","message_id":"m2"}"#, "only one of `before` and `message_id`"),
+        (r#"{"before":"m1","message_id":"m2","offset":3}"#, "only one of `before` and `message_id`"),
+        (r#"{"message_id":"   "}"#, "`message_id` must be a message id"),
+        (r#"{"message_id":"m1","offset":-1}"#, "schema"),
         (r#"{"before":"   "}"#, "`before` must be a message id"),
         (long.as_str(), "`before` must be a message id"),
         (r#"{"offset":-1}"#, "schema"),
