@@ -50,11 +50,13 @@ pub enum SecretaryTool {
     /// Chiede di cambiare titolo, specifica, dipendenze o modello di un task: la applica solo l'utente,
     /// con un clic su «Conferma».
     RequestTaskUpdate,
+    /// Chiude o riapre il thread in cui lavora.
+    SetThreadState,
 }
 
 impl SecretaryTool {
     /// Tutti i tool, nell'ordine canonico in cui si salvano.
-    pub const ALL: [SecretaryTool; 12] = [
+    pub const ALL: [SecretaryTool; 13] = [
         Self::BoardStatus,
         Self::BoardOverview,
         Self::TaskDetails,
@@ -67,6 +69,7 @@ impl SecretaryTool {
         Self::BoardControl,
         Self::RequestTaskAction,
         Self::RequestTaskUpdate,
+        Self::SetThreadState,
     ];
 
     /// Nome sul filo e su disco.
@@ -84,6 +87,7 @@ impl SecretaryTool {
             Self::BoardControl => "board_control",
             Self::RequestTaskAction => "request_task_action",
             Self::RequestTaskUpdate => "request_task_update",
+            Self::SetThreadState => "set_thread_state",
         }
     }
 
@@ -97,7 +101,8 @@ impl SecretaryTool {
             | Self::DecideProposal
             | Self::RelayAnswer
             | Self::TaskAction
-            | Self::BoardControl => ToolClass::Write,
+            | Self::BoardControl
+            | Self::SetThreadState => ToolClass::Write,
             Self::RequestTaskAction | Self::RequestTaskUpdate => ToolClass::Destructive,
         }
     }
@@ -380,6 +385,7 @@ mod tests {
                 (SecretaryTool::BoardControl, ToolClass::Write),
                 (SecretaryTool::RequestTaskAction, ToolClass::Destructive),
                 (SecretaryTool::RequestTaskUpdate, ToolClass::Destructive),
+                (SecretaryTool::SetThreadState, ToolClass::Write),
             ]
         );
     }

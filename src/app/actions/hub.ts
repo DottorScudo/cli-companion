@@ -124,6 +124,14 @@ export function onHubUpdate(summary: HubThreadSummary): void {
 }
 
 /**
+ * Chiude (`closed`) o riapre il thread e ne aggiorna subito riga e conversazione,
+ * senza aspettare `hub-update`. Rifiuta con l'errore del backend.
+ */
+export async function setThreadClosed(channel: string, threadId: string, closed: boolean): Promise<void> {
+  onHubUpdate(await api.hubSetThreadState(channel, threadId, closed));
+}
+
+/**
  * Risponde a una domanda di un worker con `text` (un'opzione suggerita) e rilegge
  * subito il thread: la consegna è sincrona, quindi l'esito ("Risposta inviata" o
  * l'errore con il suggerimento del terminale) è già scritto e la scheda lo mostra

@@ -65,6 +65,7 @@ pub mod send;
 pub mod settings;
 mod state;
 mod text;
+pub mod thread_state;
 mod threads;
 mod waiting;
 

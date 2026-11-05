@@ -194,3 +194,27 @@ export function connectorLabel(connector: string): string {
 export function viaLabel(connector: string): string {
   return `via ${connectorLabel(connector)}`;
 }
+
+/** L'azione manuale sullo stato di un thread: chiude un thread aperto, riapre uno chiuso. */
+export interface ThreadStateAction {
+  /** Lo stato che l'azione imposta (`true` = chiuso), come lo chiede `hubSetThreadState`. */
+  closed: boolean;
+  label: string;
+  hint: string;
+}
+
+export const CLOSE_THREAD_ACTION: ThreadStateAction = {
+  closed: true,
+  label: "Chiudi thread",
+  hint: "Segna il thread come chiuso: non cancella nulla e non ferma i task",
+};
+
+export const REOPEN_THREAD_ACTION: ThreadStateAction = {
+  closed: false,
+  label: "Riapri thread",
+  hint: "Segna di nuovo il thread come aperto: non sveglia nessun segretario",
+};
+
+export function threadStateAction(state: HubThread["state"]): ThreadStateAction {
+  return state === "open" ? CLOSE_THREAD_ACTION : REOPEN_THREAD_ACTION;
+}

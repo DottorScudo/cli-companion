@@ -24,6 +24,7 @@ const PRESETS = [
       "board_control",
       "request_task_action",
       "request_task_update",
+      "set_thread_state",
     ],
   }),
 ];
@@ -56,6 +57,7 @@ describe("draftOfPreset", () => {
       "board_control",
       "request_task_action",
       "request_task_update",
+      "set_thread_state",
     ]);
   });
 });

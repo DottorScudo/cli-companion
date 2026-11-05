@@ -31,7 +31,7 @@ use crate::hub::attachments::commands::agent_paths;
 use crate::hub::channel::Channel;
 use crate::hub::commands::{emit_update, ensure_channel, hub_dirs_of};
 use crate::hub::events::HubFeed;
-use crate::hub::model::{Author, RequestedAction, Thread};
+use crate::hub::model::{Author, RequestedAction, Thread, ThreadState};
 use crate::hub::questions::QuestionRef;
 use crate::hub::settings::{Provider, Secretary};
 use crate::hub::state::HubState;
@@ -347,6 +347,10 @@ impl TurnHost for AppTurnHost<'_> {
         self.request_update(task_id, patch, reason).await
     }
 
+    async fn set_thread_state(&self, state: ThreadState) -> Result<Value, String> {
+        self.change_thread_state(state).await
+    }
+
     async fn notice(&self, text: String) {
         self.io.notice(text).await;
     }
@@ -354,3 +358,4 @@ impl TurnHost for AppTurnHost<'_> {
 
 mod board_writes;
 mod requests;
+mod thread_state;

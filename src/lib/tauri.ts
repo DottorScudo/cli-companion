@@ -310,6 +310,10 @@ export const api = {
   hubResolveActionRequest: (channel: string, threadId: string, messageId: string, confirm: boolean) =>
     invoke<HubActionRequest>("hub_resolve_action_request", { channel, threadId, messageId, confirm }),
 
+  /** Chiude (`closed`) o riapre il thread; riaprire non sveglia nessun segretario. Torna il thread aggiornato. */
+  hubSetThreadState: (channel: string, threadId: string, closed: boolean) =>
+    invoke<HubThreadSummary>("hub_set_thread_state", { channel, threadId, closed }),
+
   /** Carica nello staging il file scelto con il dialog (percorso assoluto); poi l'id va a `hubSend`. */
   hubStageAttachmentFile: (path: string) => invoke<HubAttachment>("hub_stage_attachment_file", { path }),
 

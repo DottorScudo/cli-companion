@@ -15,6 +15,7 @@ import HubMessageItem from "./HubMessageItem";
 import ThreadOwner from "./ThreadOwner";
 import LinkedSourcesButton from "./LinkedSourcesButton";
 import ThreadSession from "./ThreadSession";
+import ThreadStateButton from "./ThreadStateButton";
 import WorkspaceTerminalsButton from "./WorkspaceTerminalsButton";
 import TypingIndicator from "./TypingIndicator";
 
@@ -90,6 +91,7 @@ export default function HubConversation({ channel, channelName, messenger }: Pro
         <LinkedSourcesButton channel={channel} threadId={thread.id} />
         <ThreadOwner owner={thread.owner} />
         <ThreadSession channel={channel} threadId={thread.id} now={now} />
+        <ThreadStateButton thread={thread} />
         <span className="rounded border px-1.5 py-px text-[10px] text-muted-foreground">
           {thread.state === "open" ? "Aperto" : "Chiuso"}
         </span>

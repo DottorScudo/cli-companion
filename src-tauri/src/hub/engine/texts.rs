@@ -6,6 +6,7 @@ use super::audit::MAX_MUTATIONS_PER_TURN;
 use super::board_ops::TaskOp;
 use super::chat::ModelError;
 use super::tools::ToolRejection;
+use crate::hub::model::ThreadState;
 
 const SETTINGS: &str = "Impostazioni › Agents HUB";
 
@@ -81,6 +82,14 @@ pub fn board_changed(name: &str, workspace: &str, paused: Option<bool>, max_para
         (Some(p), Some(n)) => format!("{} la board di {workspace} e {}", pause(p), parallel(n)),
     };
     Some(format!("@{name} ha {what}."))
+}
+
+/// Il segretario ha chiuso o riaperto il thread (`set_thread_state`).
+pub fn thread_state_changed(name: &str, state: ThreadState) -> String {
+    match state {
+        ThreadState::Closed => format!("@{name} ha chiuso il thread."),
+        ThreadState::Open => format!("@{name} ha riaperto il thread."),
+    }
 }
 
 /// La chiamata al modello e' fallita.

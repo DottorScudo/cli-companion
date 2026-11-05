@@ -152,6 +152,7 @@ pub fn run() {
             hub::commands::hub_get_thread,
             hub::commands::hub_create_thread,
             hub::commands::hub_send,
+            hub::thread_state::hub_set_thread_state,
             connectors::commands::instances::connector_list_descriptors,
             connectors::commands::instances::connector_list_instances,
             connectors::commands::instances::connector_status,

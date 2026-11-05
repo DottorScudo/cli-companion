@@ -35,6 +35,7 @@ struct FakeHost {
     board_changes: Mutex<Vec<(Option<String>, BoardChange)>>,
     requests: Mutex<Vec<(String, RequestedAction, String)>>,
     updates: Mutex<Vec<(String, Value, String)>>,
+    states: Mutex<Vec<ThreadState>>,
 }
 
 impl FakeHost {
@@ -122,6 +123,14 @@ impl TurnHost for FakeHost {
         Ok(json!({ "request_id": "msg-1", "task_id": task_id, "status": "awaiting_confirmation" }))
     }
 
+    async fn set_thread_state(&self, state: ThreadState) -> Result<Value, String> {
+        let mut states = self.states.lock().unwrap();
+        // Il thread del finto host parte aperto: richiudere o riaprire a vuoto non cambia nulla.
+        let before = states.last().copied().unwrap_or(ThreadState::Open);
+        states.push(state);
+        Ok(json!({ "state": state, "changed": before != state }))
+    }
+
     async fn notice(&self, text: String) {
         self.notices.lock().unwrap().push(text);
     }
@@ -170,7 +179,8 @@ fn a_text_reply_ends_the_turn() {
             "task_action",
             "board_control",
             "request_task_action",
-            "request_task_update"
+            "request_task_update",
+            "set_thread_state"
         ]
     );
 }
@@ -502,6 +512,20 @@ fn a_request_to_update_a_task_reaches_the_host_with_the_patch_and_leaves_no_noti
         [("t-1".to_string(), json!({ "title": "Login page", "model": null }), "Clearer title".to_string())]
     );
     assert!(host.notices.lock().unwrap().is_empty(), "la scheda e' gia' l'audit");
+}
+
+#[test]
+fn closing_the_thread_reaches_the_host_and_leaves_a_notice_only_when_it_changed() {
+    let state = |id: &str, state: &str| call(id, "set_thread_state", &format!(r#"{{"state":"{state}"}}"#));
+    let model = FakeModel::new(vec![
+        calls(vec![state("c1", "closed"), state("c2", "closed"), state("c3", "open")]),
+        text("Fatto."),
+    ]);
+    let host = FakeHost::default();
+    run(&model, &host, &secretary("ugo"), 8);
+    assert_eq!(*host.states.lock().unwrap(), [ThreadState::Closed, ThreadState::Closed, ThreadState::Open]);
+    assert_eq!(*host.notices.lock().unwrap(), ["@ugo ha chiuso il thread.", "@ugo ha riaperto il thread."]);
+    assert_eq!(tool_result(&model, 1), r#"{"changed":true,"state":"open"}"#);
 }
 
 #[test]

@@ -20,6 +20,7 @@ import {
   resolveChannel,
   sortThreads,
   summarizeThread,
+  threadStateAction,
   threadNeedsReload,
   totalWaiting,
   upsertSummary,
@@ -353,5 +354,21 @@ describe("titolare nel riassunto", () => {
     const next = upsertSummary(list, summary("b", { owner: "giorgio", updated_at: 2 }));
     assert.equal(next.find((t) => t.id === "b").owner, "giorgio");
     assert.equal(next.find((t) => t.id === "a").owner, null);
+  });
+});
+
+describe("azione sullo stato del thread", () => {
+  it("un thread aperto si chiude, uno chiuso si riapre", () => {
+    assert.deepEqual(threadStateAction("open"), {
+      closed: true,
+      label: "Chiudi thread",
+      hint: "Segna il thread come chiuso: non cancella nulla e non ferma i task",
+    });
+    assert.equal(threadStateAction("closed").closed, false);
+    assert.equal(threadStateAction("closed").label, "Riapri thread");
+  });
+
+  it("la riapertura promette di non svegliare nessuno", () => {
+    assert.match(threadStateAction("closed").hint, /non sveglia/);
   });
 });

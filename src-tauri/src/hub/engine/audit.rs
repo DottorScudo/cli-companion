@@ -70,6 +70,10 @@ pub fn notice(secretary: &str, invocation: &Invocation, outcome: &Value) -> Opti
         Invocation::TaskAction { op, .. } => {
             Some(texts::task_changed(secretary, op, text_of(outcome, "title"), text_of(outcome, "before_title")))
         }
+        // Solo se lo stato e' cambiato davvero (`thread_state::apply`).
+        Invocation::SetThreadState { state } => {
+            outcome["changed"].as_bool().unwrap_or(false).then(|| texts::thread_state_changed(secretary, *state))
+        }
         // Solo cio' che e' cambiato davvero (`board_ops::control_board`).
         Invocation::BoardControl { .. } => texts::board_changed(
             secretary,
@@ -91,11 +95,11 @@ mod tests {
     use crate::hub::engine::board_ops::{BoardChange, TaskOp};
     use crate::hub::engine::board_query::BoardQuery;
     use crate::hub::engine::relay::QuestionSelector;
-    use crate::hub::model::RequestedAction;
+    use crate::hub::model::{RequestedAction, ThreadState};
     use serde_json::json;
 
     /// Una chiamata valida per ogni tool, nell'ordine canonico.
-    fn one_of_each() -> [Invocation; 12] {
+    fn one_of_each() -> [Invocation; 13] {
         [
             Invocation::BoardStatus { workspace: None, query: BoardQuery::default() },
             Invocation::BoardOverview,
@@ -120,6 +124,7 @@ mod tests {
                 patch: json!({ "title": "Login page" }),
                 reason: "Clearer title".into(),
             },
+            Invocation::SetThreadState { state: ThreadState::Closed },
         ]
     }
 
@@ -140,7 +145,8 @@ mod tests {
                 SecretaryTool::TaskAction,
                 SecretaryTool::BoardControl,
                 SecretaryTool::RequestTaskAction,
-                SecretaryTool::RequestTaskUpdate
+                SecretaryTool::RequestTaskUpdate,
+                SecretaryTool::SetThreadState
             ]
         );
     }
@@ -188,6 +194,7 @@ mod tests {
                 Some("@mario ha messo in pausa la board di Sito Web.".into()),
                 None,
                 None,
+                None,
             ]
         );
     }
@@ -209,6 +216,19 @@ mod tests {
             budget.admit(SecretaryTool::RequestTaskAction),
             Err(ToolRejection::TurnLimit(SecretaryTool::RequestTaskAction))
         );
+    }
+
+    #[test]
+    fn closing_or_reopening_a_thread_leaves_a_notice_only_when_the_state_changed() {
+        let close = Invocation::SetThreadState { state: ThreadState::Closed };
+        let reopen = Invocation::SetThreadState { state: ThreadState::Open };
+        let changed = json!({ "state": "closed", "changed": true });
+        let unchanged = json!({ "state": "closed", "changed": false });
+        assert_eq!(notice("mario", &close, &changed), Some("@mario ha chiuso il thread.".into()));
+        assert_eq!(notice("mario", &reopen, &changed), Some("@mario ha riaperto il thread.".into()));
+        assert_eq!(notice("mario", &close, &unchanged), None);
+        assert_eq!(notice("mario", &close, &json!({})), None);
+        assert!(counts_toward_limit(SecretaryTool::SetThreadState));
     }
 
     #[test]

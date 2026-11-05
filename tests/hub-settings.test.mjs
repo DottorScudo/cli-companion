@@ -188,6 +188,7 @@ describe("segretari", () => {
         "board_control",
         "request_task_action",
         "request_task_update",
+        "set_thread_state",
       ],
     );
     assert.ok(SECRETARY_TOOLS.every((t) => t.description.length > 0));
@@ -205,6 +206,7 @@ describe("segretari", () => {
       text.request_task_update,
       "Ti chiede di cambiare titolo, specifica, dipendenze o modello di un task: lo confermi tu con un clic",
     );
+    assert.equal(text.set_thread_state, "Chiude o riapre questo thread, quando glielo chiedi");
     assert.deepEqual(EMPTY_DRAFT.tools, []);
   });
 

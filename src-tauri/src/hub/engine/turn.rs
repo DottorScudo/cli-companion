@@ -18,7 +18,7 @@ use super::relay::QuestionSelector;
 use super::texts;
 use super::thread_page::ThreadPage;
 use super::tools::{self, Invocation};
-use crate::hub::model::RequestedAction;
+use crate::hub::model::{RequestedAction, ThreadState};
 use crate::hub::settings::Secretary;
 use crate::validate::clip_with_ellipsis;
 use serde_json::{json, Value};
@@ -95,6 +95,8 @@ pub trait TurnHost: Send + Sync {
         patch: Value,
         reason: String,
     ) -> impl Future<Output = Result<Value, String>> + Send;
+    /// Chiude o riapre il thread del turno (vedi `thread_state::apply`).
+    fn set_thread_state(&self, state: ThreadState) -> impl Future<Output = Result<Value, String>> + Send;
     /// Scrive un messaggio di sistema (in italiano) nel thread.
     fn notice(&self, text: String) -> impl Future<Output = ()> + Send;
 }
@@ -202,6 +204,7 @@ async fn invoke<H: TurnHost>(host: &H, invocation: Invocation) -> Result<Value, 
         Invocation::RequestTaskUpdate { task_id, patch, reason } => {
             host.request_task_update(task_id, patch, reason).await
         }
+        Invocation::SetThreadState { state } => host.set_thread_state(state).await,
     }
 }
 

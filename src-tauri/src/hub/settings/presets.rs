@@ -64,6 +64,7 @@ pub const PRESETS: [SecretaryPreset; 4] = [
             SecretaryTool::OpenPlanTask,
             SecretaryTool::DecideProposal,
             SecretaryTool::RelayAnswer,
+            SecretaryTool::SetThreadState,
         ],
         seeded: true,
     },
@@ -107,6 +108,7 @@ pub const PRESETS: [SecretaryPreset; 4] = [
             SecretaryTool::BoardControl,
             SecretaryTool::RequestTaskAction,
             SecretaryTool::RequestTaskUpdate,
+            SecretaryTool::SetThreadState,
         ],
         seeded: false,
     },
@@ -205,7 +207,8 @@ mod tests {
                 PostMessage,
                 OpenPlanTask,
                 DecideProposal,
-                RelayAnswer
+                RelayAnswer,
+                SetThreadState
             ]
         );
         assert_eq!(find("analyst").unwrap().tools, [ThreadRead, PostMessage, OpenPlanTask]);
@@ -221,7 +224,8 @@ mod tests {
                 TaskAction,
                 BoardControl,
                 RequestTaskAction,
-                RequestTaskUpdate
+                RequestTaskUpdate,
+                SetThreadState
             ]
         );
         assert!(find("unknown").is_none());

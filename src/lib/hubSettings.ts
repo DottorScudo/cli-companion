@@ -58,6 +58,7 @@ export const SECRETARY_TOOLS: readonly { id: HubSecretaryTool; description: stri
     id: "request_task_update",
     description: "Ti chiede di cambiare titolo, specifica, dipendenze o modello di un task: lo confermi tu con un clic",
   },
+  { id: "set_thread_state", description: "Chiude o riapre questo thread, quando glielo chiedi" },
 ];
 
 function languageLabel(language: HubLanguage): string {
