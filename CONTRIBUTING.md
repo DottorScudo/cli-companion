@@ -162,6 +162,17 @@ registrata. L'integrazione compare agli utenti solo se la abilitano (Impostazion
 funzione (preset, worker, modelli) solo se dichiara il contratto relativo. La procedura completa, la checklist e un esempio sviluppato (OpenCode) sono nella guida:
 [docs/wiki/integrare-un-coding-agent.md](docs/wiki/integrare-un-coding-agent.md).
 
+### Aggiungere un connettore
+
+Una cartella `src-tauri/src/connectors/<nome>/` con un descrittore `static` (campi, azioni, host e capacità verso
+l'HUB, `version`) e una struct che implementa `Connector` più `SourceConnector` (fonte) o `ContactConnector` (canale
+di contatto); il connettore traduce servizio ↔ DTO, non consegna nell'HUB e usa solo `ctx.http()` per la rete. Una
+riga in `CONNECTORS` di `connectors/registry.rs`, una in `KNOWN` di `connectors/architecture.rs` e una in
+`tests/architecture.test.mjs`; tolti gli `expect(dead_code)` che clippy segnala come non più soddisfatti. I comandi
+Tauri, il runtime e l'interfaccia sono generici e non si toccano; `cargo test conformance` verifica da solo ogni
+connettore registrato. Procedura, errori da usare e checklist: [docs/wiki/integrare-un-connettore.md](docs/wiki/integrare-un-connettore.md);
+progetto: [docs/CONNECTORS.MD](docs/CONNECTORS.MD).
+
 ### Aggiungere un preset
 
 Una voce in `PRESETS` (`agents/presets.rs`) e un file `agents/presets/<id>.md` (SKILL.md completo, in inglese). Ogni

@@ -39,6 +39,8 @@ keyring = { version = "4.2", default-features = false, features = ["v1"] }
 # chat). reqwest e' la stessa 0.13 dell'updater: serve per il timeout del client.
 async-openai = { version = "0.43", default-features = false, features = ["rustls-no-provider", "chat-completion"] }
 reqwest = { version = "0.13", default-features = false }
+# Solo sleep/timeout/canali dei supervisori dei connettori (gia' nel grafo via tauri e reqwest).
+tokio = { version = "1", default-features = false, features = ["time", "sync", "macros"] }
 # Provider crittografico di rustls: `ring`, come l'updater (niente aws-lc, che compila C).
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 

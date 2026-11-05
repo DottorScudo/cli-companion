@@ -1,9 +1,11 @@
 # Connettori dell'Agents HUB
 
-Documento di progetto (nessun codice ancora): i **connettori** estendono l'[Agents HUB](HUB.MD) verso l'esterno.
-È il riferimento dei task che li realizzeranno (vedi "Fasi"). Dove una decisione cambia un comportamento descritto in
-HUB.MD lo si dice esplicitamente come **cambiamento previsto**; finché la fase che lo introduce non è consegnata vale
-HUB.MD.
+Documento di progetto e riferimento del codice di `src-tauri/src/connectors/`: i **connettori** estendono
+l'[Agents HUB](HUB.MD) verso l'esterno. Le fasi 1 (fondamenta nell'HUB) e 2 (runtime, registro, comandi Tauri) sono
+consegnate; il registro di produzione è ancora vuoto (primi connettori reali: fasi 4 e 5) e l'interfaccia generica è
+la fase 3 (vedi "Fasi"). Dove una decisione cambia un comportamento descritto in HUB.MD lo si dice esplicitamente
+come **cambiamento previsto**; finché la fase che lo introduce non è consegnata vale HUB.MD. La ricetta per
+aggiungere un connettore è in [wiki/integrare-un-connettore.md](wiki/integrare-un-connettore.md).
 
 Due tipi, distinti nel modello, nel codice e nell'interfaccia:
 
@@ -43,8 +45,8 @@ Due percorsi, che finiscono entrambi in `Sessions` (`hub/engine/sessions.rs`, pu
    `route` esce subito se `message.author != Author::User`. Il turno si accoda con
    `WakeCause::Message`.
 
-La logica di questi tre passi oggi vive **dentro il comando Tauri**: non c'è una funzione Rust riusabile da chi non
-è il frontend.
+Prima della fase 1 la logica di questi tre passi viveva **dentro il comando Tauri**; oggi `hub_send` è un adattatore
+su `hub::send::send_user_message`, riusabile dai canali di contatto.
 
 **(b) Eventi della board.** `automation::AutomationState::publish` → `Host::board_published` (`TauriHost`) →
 `hub::board_published` → istantanea compatta (`events/snapshot.rs`) in coda a `HubFeed` (`events/feed.rs`, thread
@@ -59,9 +61,12 @@ Tauri): raggruppa per thread nella finestra `GROUP_WINDOW` (3 s), poi emette l'e
 `HubNotice { channel, thread_id, title, body, sound }`. Lo fa **solo verso il frontend** e solo se
 `enabled && notifications` (`notifications_on`); `body` è già ridotto a due righe da 120 caratteri.
 
-### Cosa manca
+### Cosa mancava
 
-| Manca | Perché serve |
+Tutto consegnato nelle fasi 1 e 2 (`Author::External`, `hub::ingress`, `hub::send`, `set_notice_sink`,
+`set_lifecycle_listener`, il modulo `connectors/`).
+
+| Mancava | Perché serve |
 |---|---|
 | Un autore non-agente esterno | `Author` è `user \| system \| bot` (`hub/model.rs`): un'email non è dell'utente né di un segretario |
 | Un'API Rust per depositare un messaggio esterno in un thread | con allegati da byte (non dallo staging del frontend), dedupe e risveglio secondo una regola, non secondo le menzioni |
@@ -97,7 +102,7 @@ Gmail. Ce ne possono essere più d'una per connettore.
 | Campo | Regole |
 |---|---|
 | `id` | `con-<millisecondi>-<n>`, come gli id di thread e messaggi; valido per `text::valid_ref_id` (finisce in un nome di file e nel conto del portachiavi) |
-| `connector` | id di un connettore del registro; un id sconosciuto (connettore tolto da una versione successiva) lascia l'istanza su disco, ferma, con stato `error` «connettore non disponibile» |
+| `connector` | id di un connettore del registro; un id sconosciuto (connettore tolto da una versione successiva) lascia l'istanza su disco com'è, ferma, con stato `unavailable` («connettore non disponibile in questa versione»): non si abilita e non perde né config né segreti |
 | `label` | 1..60 caratteri, una riga; scelto dall'utente (es. «Gmail lavoro») |
 | `enabled` | `false` alla creazione: si abilita dopo la configurazione e il test |
 | `config_version` | la `version` del descrittore con cui la config è stata scritta |
@@ -117,7 +122,7 @@ e chi svegliano.
 |---|---|
 | `id` | `rte-<millisecondi>-<n>` |
 | `instance` | un'istanza di tipo `source` |
-| `label` | facoltativa, 0..60 caratteri |
+| `label` | 1..60 caratteri, una riga |
 | `filter` | oggetto JSON validato dal connettore (`validate_filter`) contro i campi del filtro del descrittore (Gmail: `{ "query": "from:mario@gmail.com" }`) |
 | `channel` | `general` o l'id di un workspace esistente (`Channel`) |
 | `thread` | `{ "mode": "existing", "thread_id": "thr-…" }` (un thread scelto dall'utente; gli elementi vanno tutti lì) \| `{ "mode": "new_per_item" }` (un thread nuovo per elemento, intitolato con il titolo dell'elemento) \| `{ "mode": "per_conversation" }` (la chiave di conversazione esterna dell'elemento, es. il `threadId` di Gmail, sceglie il thread; la mappa chiave → thread la tiene il connettore nel suo stato, vedi §6) |
@@ -204,41 +209,52 @@ di default che nasconda una lacuna.
 ```rust
 pub trait Connector: Send + Sync {
     fn descriptor(&self) -> &'static ConnectorDescriptor;
-    /// Pura: config salvata con `from` -> config della `version` corrente.
+    /// Pura: config salvata con `from` -> config della `from + 1`; il runtime la chiama passo per passo fino alla `version` corrente.
     fn migrate_config(&self, from: u32, config: Value) -> Result<Value, String>;
     fn validate_config(&self, config: &Value) -> Result<(), String>;
-    fn action<'a>(&'a self, ctx: &'a ActionContext, action: ActionId) -> BoxFuture<'a, Result<ActionOutcome, ConnectorError>>;
+    /// Solo le azioni dichiarate nel descrittore (`authorize`, `pair`, `test`) arrivano qui.
+    fn action<'a>(&'a self, ctx: &'a ConnectorContext, action: ActionId) -> BoxFuture<'a, Result<ActionOutcome, ConnectorError>>;
 }
 
 pub trait SourceConnector: Connector {
     fn validate_filter(&self, filter: &Value) -> Result<(), String>;
-    /// Un giro: legge dal servizio gli elementi nuovi per le regole abilitate,
-    /// partendo dai cursori dello stato. Non consegna: restituisce.
-    fn poll<'a>(&'a self, ctx: &'a SourceContext, routes: &'a [ActiveRoute]) -> BoxFuture<'a, Result<PollBatch, ConnectorError>>;
+    /// Un giro: legge dal servizio gli elementi nuovi per le regole attive a partire dal cursore
+    /// (`None` = da "adesso"). Non consegna: restituisce gli elementi e il cursore nuovo.
+    fn poll<'a>(&'a self, ctx: &'a ConnectorContext, routes: &'a [ActiveRoute], cursor: Option<Value>) -> BoxFuture<'a, Result<PollBatch, ConnectorError>>;
 }
 
 pub trait ContactConnector: Connector {
-    /// Long polling: aspetta (con timeout) i messaggi in entrata.
-    fn receive<'a>(&'a self, ctx: &'a ContactContext) -> BoxFuture<'a, Result<Vec<InboundMessage>, ConnectorError>>;
+    /// Long polling: aspetta (con timeout) i messaggi in entrata e restituisce anche il cursore nuovo.
+    fn receive<'a>(&'a self, ctx: &'a ConnectorContext, cursor: Option<Value>) -> BoxFuture<'a, Result<ReceiveBatch, ConnectorError>>;
     /// Manda un messaggio a una chat collegata; ritorna l'id esterno.
-    fn send<'a>(&'a self, ctx: &'a ContactContext, out: &'a OutboundMessage) -> BoxFuture<'a, Result<String, ConnectorError>>;
+    fn send<'a>(&'a self, ctx: &'a ConnectorContext, out: &'a OutboundMessage) -> BoxFuture<'a, Result<String, ConnectorError>>;
+    /// Un account ha presentato un codice di abbinamento: il connettore risponde come crede (benvenuto, errore generico).
+    fn pairing_reply<'a>(&'a self, ctx: &'a ConnectorContext, outcome: &'a PairingOutcome, chat: &'a str) -> BoxFuture<'a, Result<(), ConnectorError>>;
 }
+
+/// Un connettore registrato, col suo tipo.
+pub enum ConnectorImpl { Source(&'static dyn SourceConnector), Contact(&'static dyn ContactConnector) }
 ```
 
 `ConnectorError` è la classificazione che il supervisore usa per il backoff (§7): `Transient(String)`,
 `RateLimited { retry_after: Option<Duration> }`, `Auth(String)` (→ `needs_auth`), `Config(String)` (configurazione
 non valida: si ferma con `error`), `Fatal(String)`. I messaggi sono già ripuliti (mai segreti né contenuti).
 
-I contesti (`SourceContext`, `ContactContext`, `ActionContext`) danno al connettore solo:
+Il contesto (`ConnectorContext`, uno solo per fonti, canali di contatto e azioni) dà al connettore solo:
 
 - `config()` già migrata e validata, `secret(slot)` / `set_secret(slot, ..)` limitati ai suoi slot;
 - `http()`: un **client HTTP del contesto** (`connectors/runtime/http.rs`) costruito sul `reqwest::Client`
   condiviso, che **rifiuta ogni richiesta verso un host non dichiarato** in `permissions.hosts` (confronto esatto
   dell'host dopo il parsing dell'URL, solo `https`, redirect seguiti solo verso host dichiarati), con timeout per
   chiamata e tetto della dimensione della risposta. Il connettore non costruisce un suo client;
-- `state()`: lo stato persistente dell'istanza (cursori, id visti, mappe, §6), salvato dal runtime;
-- per le fonti, le regole attive; per i contatti, i collegamenti e i codici di abbinamento in corso;
-- `now()` e `random()` iniettati, così la logica del connettore si prova senza rete né orologio.
+- `state_get(chiave)` / `state_set(chiave, valore)`: i valori privati del connettore nello stato dell'istanza (§6),
+  che il runtime salva; cursori, id visti e mappe li gestisce il runtime, non il connettore;
+- le regole attive di una fonte e il cursore arrivano come argomenti di `poll`, il cursore di `receive`; il
+  codice di abbinamento emesso dal runtime per l'azione `pair` è `pairing_code()` (vale solo in quell'azione);
+- `now()` e `random_bytes(n)` iniettati, così la logica del connettore si prova senza rete né orologio;
+- l'accesso all'HUB (`deliver`, `send_as_user`, `send_as_user_files`) solo con la capacità dichiarata
+  (`deliver_messages`, `send_as_user`): senza, risponde «permesso non dichiarato». Il supervisore consegna da sé gli
+  elementi di `poll` e di `receive`; i metodi del contesto servono alle azioni.
 
 La **consegna** nell'HUB non è del connettore: il supervisore prende il `PollBatch` / gli `InboundMessage` e li passa
 alla porta verso l'HUB. Così il connettore è un traduttore servizio ↔ DTO, e le garanzie (dedupe, limiti, risvegli,
@@ -254,7 +270,8 @@ permessi) stanno in un posto solo.
 | `hub::send::send_user_message(app, UserMessage) -> Result<Message, String>` | lo stesso percorso di `hub_send` per un messaggio dell'utente arrivato da un canale di contatto (§8, §10); `UserMessage { channel, thread_id, body, reply_to, attachment_ids, origin }` |
 | `hub::send::send_user_files(app, UserMessage, Vec<IncomingFile>) -> Result<Message, String>` | come sopra, con gli allegati come byte (`IncomingFile { name, bytes }`): staging con i limiti dell'app, file saltati raccontati in una riga «Allegati non importati: …» in fondo al testo, staging ripulito se l'invio fallisce |
 | `hub::set_notice_sink(app, Arc<dyn NoticeSink>)` | registra un destinatario in più delle notifiche, accanto al frontend (§10); `NoticeSink::deliver(&HubNotice)`, vedi `docs/HUB.MD` «Notifiche» |
-| `hub::set_lifecycle_listener(listener)` | **non costruito in fase 1, resta alla fase 2**: avvisa quando l'HUB si spegne o si accende e quando un workspace o un thread spariscono, così il runtime ferma i supervisori e toglie le regole |
+| `hub::set_lifecycle_listener(app, Arc<dyn HubLifecycle>)` | **fase 2, costruito**: `HubLifecycle { hub_enabled_changed(app, enabled), workspace_removed(app, ws_id) }`. `hub_enabled_changed` parte da `hub_set_enabled` dopo il salvataggio, solo sulle transizioni vere; `workspace_removed` da `hub::forget_workspace` (chiamata da `workspaces::remove_workspace`) anche con l'HUB spento. Il runtime lo implementa in `connectors/lifecycle.rs` e lo registra `connectors::start`, chiamata da `lib.rs`. Un thread sparito non ha un avviso: lo scopre il giro (regola `existing`, §5) |
+| `hub::thread_exists(app, &Channel, thread_id) -> Result<bool, String>` | il thread esiste ancora? Errore con l'HUB spento (non è «no»); un canale sparito risponde `false`. Lo usano i giri delle regole `existing` e i comandi delle regole |
 
 `ExternalDelivery { channel, target: DeliveryTarget, author, body, files: Vec<IncomingFile>, origin: MessageOrigin, wake: ExternalWake }`,
 con `DeliveryTarget::{ Existing(thread_id), New { title } }`, `ExternalWake::{ None, Owner, Secretary(nome) }` e
@@ -278,32 +295,41 @@ composizione conosce entrambi i moduli.
 
 | Modulo | Dipende da | Non dipende da |
 |---|---|---|
-| `connectors` | `hub` (solo `hub::ingress`, i DTO del modello e `HubNotice`), `store`, `secrets`, `workspaces` (nomi dei workspace nei comandi e nei comandi `/ws`), `validate`; crate `reqwest` | `automation`, `agents`, `board`, `ipc`, `pty`, `mcp` |
+| `connectors` | `hub` (API pubblica: `ingress`, `send`, `attachments`, i DTO del modello, `HubNotice`, `HubLifecycle`, `thread_exists`, `Channel`), `store`, `secrets`, `workspaces` (solo `WorkspaceStore`, per sapere se il canale di una regola esiste); crate `reqwest` (solo `runtime/http.rs`) e `tokio` (`time`, `sync`, `macros`) | `automation`, `agents`, `board`, `ipc`, `pty`, `mcp` |
 | `hub` | come oggi | `connectors` (mai: solo sink e listener registrati da `lib.rs`) |
 
 **Regola architetturale** (test in `connectors/architecture.rs`, come `agents/architecture.rs`): fuori da
 `connectors/<id>/` nessun file nomina un connettore specifico; solo `connectors/registry.rs` lo fa. I connettori non
 importano `hub::` se non `hub::ingress` e i tipi pubblici del modello, e non usano `reqwest` direttamente (solo il
-client del contesto). Lato frontend `tests/architecture.test.mjs` verificherà che nessun componente nomini `telegram`
-o `gmail`.
+client del contesto). Le cartelle del nucleo (`commands`, `contracts`, `descriptor`, `files`, `model`, `registry`,
+`runtime`, `testing`) non sono connettori: la lista `CORE_FOLDERS` e la lista dei connettori noti (`KNOWN`) stanno in
+`connectors/architecture.rs`. Lato frontend `tests/architecture.test.mjs` verifica che nessun componente nomini un
+connettore.
 
-### Struttura dei file prevista
+### Struttura dei file
 
 ```text
-src-tauri/src/connectors.rs            modulo, stati gestiti, registrazione dei comandi
+src-tauri/src/connectors.rs            modulo, load_from_disk / start / stop_all (chiamate da lib.rs)
 src-tauri/src/connectors/
-  contracts/        Connector, SourceConnector, ContactConnector, ConnectorError, DTO dei contesti
-  descriptor/       ConnectorDescriptor, campi, permessi; validate.rs (puro)
-  registry.rs       CONNECTORS: l'unico punto che nomina i connettori
-  model.rs          ConnectorInstance, ConnectorRoute, ContactLink (DTO ts-rs, prefisso `Connector`)
-  files.rs          connectors.json e connector_state/ su store/
-  runtime/          supervisor.rs, backoff.rs (puro), health.rs, http.rs, notices.rs (uscita), pairing.rs
-  commands.rs       comandi Tauri
-  conformance.rs    test di conformità comuni a ogni connettore
+  contracts/        Connector, SourceConnector, ContactConnector, ConnectorImpl, ConnectorError, DTO, ConnectorContext (+ HubPort, Clock)
+  descriptor/       ConnectorDescriptor, campi, permessi; validate.rs (valori di config e filtro, puro); validate/check.rs (descrittore, solo test)
+  registry.rs       CONNECTORS: l'unico punto che nomina i connettori (+ registry/test_registry.rs per i test)
+  model.rs          ConnectorInstance, ConnectorRoute, ConnectorLink, ConnectorsFile (DTO ts-rs, prefisso `Connector`)
+  ids.rs, limits.rs  generazione e validazione degli id; i tetti
+  files.rs          connectors.json e connector_state/ su store/ (decoder tollerante)
+  state.rs          InstanceState: cursori, id visti, mappe, valori privati; tutto limitato (puro)
+  secrets.rs        i segreti di un'istanza nel portachiavi (conti `connector-<istanza>-<slot>`)
+  lifecycle.rs      il runtime come ascoltatore di `HubLifecycle`
+  runtime/          manager.rs (ConnectorsRuntime), supervisor.rs, round.rs (un giro di una fonte), contact.rs e
+                    contact_loop.rs (canali di contatto), notices.rs (uscita), pairing.rs, health.rs, backoff.rs (puro),
+                    http.rs, hub_port.rs, store.rs, migrate.rs, time.rs
+  commands/         comandi Tauri: instances.rs, actions.rs, routes.rs; checks.rs (verifiche pure), view.rs (DTO)
+  conformance.rs    test di conformità comuni a ogni connettore registrato
   architecture.rs   test architetturali
-  telegram/         connettore di riferimento `contact`
-  gmail/            connettore di riferimento `source`
-src-tauri/src/hub/ingress.rs, hub/send.rs   deliver_external, send_user_message, send_user_files (lato HUB)
+  testing.rs        connettori finti, HUB finto, orologio finto (solo test)
+  telegram/         connettore di riferimento `contact` (fase 4)
+  gmail/            connettore di riferimento `source` (fase 5)
+src-tauri/src/hub/ingress.rs, hub/send.rs, hub/lifecycle.rs   deliver_external, send_user_message, send_user_files, HubLifecycle (lato HUB)
 ```
 
 ## 5. Ciclo di vita
@@ -347,9 +373,12 @@ non si crea nessun file. Tetti (costanti in `connectors/runtime/`):
 | Istanze | 20 |
 | Regole per istanza | 50 |
 | Collegamenti per istanza | 5 |
-| Id già visti per istanza (dedupe) | 2000, i più vecchi escono per primi |
-| Voci di `per_conversation` per regola | 1000, le meno recenti escono (un elemento successivo della conversazione apre un thread nuovo) |
-| Mappa id esterno ↔ messaggio HUB per collegamento | 500 |
+| Id già visti per istanza (dedupe) | 5000, i più vecchi escono per primi |
+| Voci di `per_conversation` per istanza (chiave di conversazione → thread) | 2000, le meno recenti escono (un elemento successivo della conversazione apre un thread nuovo) |
+| Mappe id esterno ↔ messaggio HUB per istanza | 2000 voci ciascuna (le due direzioni), le meno recenti escono |
+| Intervallo di polling di una fonte | dalla config (`interval_secs`), almeno 60 s |
+| Elementi per giro | 20 (`more` → il giro dopo parte subito) |
+| Valori privati del connettore nello stato | 64 chiavi, 64 KB ciascuno |
 
 Un file di stato corrotto segue `store/` (backup, avviso `store-warning`) e l'istanza riparte dai cursori di
 default, cioè da *adesso*: si perdono al più gli elementi del periodo, mai si duplica in massa.
@@ -388,13 +417,49 @@ come gli eventi della board, per contenere i costi del modello (il contesto port
 | `disabled` | istanza disabilitata, o HUB spento |
 | `starting` | supervisore avviato, primo giro in corso |
 | `ok` | ultimo giro riuscito (`last_ok_at`) |
-| `backoff` | errore transitorio, riprova a `retry_at` |
+| `backoff` | errore transitorio, riprova a `next_retry_at` |
 | `needs_auth` | credenziali rifiutate: serve l'utente |
 | `error` | fermo per configurazione, migrazione o errore non recuperabile |
+| `unavailable` | il connettore dell'istanza non è nel registro di questa versione dell'app |
 
-Con `last_error` **ripulito** (classe dell'errore e messaggio generico in italiano, mai corpi di risposta, URL con
-token o contenuti). Evento `connector-status` con `{ instance, health, last_error, last_ok_at, retry_at }` a ogni
-cambiamento; comando `connector_status` per la lettura iniziale.
+Il DTO è `ConnectorStatus { instance, state, last_ok_at, last_error, next_retry_at }`, con `last_error` **ripulito**:
+un testo fisso scelto dalla classe dell'errore (il tipo `&'static str` impedisce che vi arrivino corpi di risposta,
+URL con token o contenuti). Evento `connector-status` con l'**elenco completo** a ogni cambiamento; comando
+`connector_status` per la lettura iniziale.
+
+**Epoca di esecuzione.** Ogni avvio di un'istanza apre un'epoca (`StatusRegistry::begin_run`); fermare l'istanza
+(disabilitazione, eliminazione, HUB spento, riavvio) la invalida. Solo l'esecuzione corrente scrive lo stato di
+salute: un task interrotto ma ancora in volo non può sovrascrivere il `disabled` deciso dal manager con un «ok»
+tardivo.
+
+## Comandi
+
+I comandi Tauri (`connectors/commands/`) validano gli argomenti per primi (`checks.rs`, puro), fanno l'I/O in
+`crate::blocking`, rispondono con errori in italiano e non restituiscono né registrano mai un segreto. Funzionano
+anche con l'HUB spento (salvo la verifica di un thread esistente, che lo richiede).
+
+| Comando | Cosa fa |
+|---|---|
+| `connector_list_descriptors()` | i descrittori dei connettori compilati |
+| `connector_list_instances()` | `ConnectorInstanceView { instance, secrets: [{ slot, set }], status }`: mai i valori dei segreti |
+| `connector_status()` | l'elenco completo dei `ConnectorStatus` (lo stesso dell'evento) |
+| `connector_create_instance(connector, label, config)` | crea un'istanza **disabilitata**: etichetta, config validata (generica contro i campi del descrittore e semantica con `validate_config`); i campi `secret` nella config sono rifiutati; al massimo 20 istanze |
+| `connector_update_instance(id, label, config)` | rivalida e salva; se la config cambia l'istanza riparte (esce da `needs_auth` e da `error`). Una config salvata con un'altra versione del descrittore non si modifica |
+| `connector_delete_instance(id)` | ferma il task, toglie istanza, regole e collegamenti, cancella il file di stato e tutti gli slot del portachiavi; un errore del portachiavi o del file di stato non annulla l'eliminazione e torna in `ConnectorDeleteOutcome.warning` |
+| `connector_set_enabled(id, enabled)` | abilita o disabilita; un connettore non disponibile non si abilita |
+| `connector_set_secret(id, slot, value)` | lo slot deve essere dichiarato dal descrittore e il valore valido; se l'istanza era in `needs_auth` riparte |
+| `connector_clear_secret(id, slot)` | toglie il segreto di uno slot dichiarato |
+| `connector_test(id)` | esegue l'azione `test`, se dichiarata |
+| `connector_run_action(id, action)` | solo le azioni dichiarate (`authorize`, `pair`, `test`); esito `ConnectorActionOutcome { message, detail, pairing_code }`. Con `pair` il runtime emette il codice monouso (`issue_pairing_code`), lo mette nel contesto (`ConnectorContext::pairing_code()`) e lo restituisce; richiede l'istanza in esecuzione. Tetto di 5 minuti. Un errore del connettore arriva come messaggio generico della sua classe |
+| `connector_list_routes(channel, threadId)` | le regole, filtrabili per canale e per thread (quelle che puntano a quel thread esistente) |
+| `connector_create_route(instance, route)` | `route: ConnectorRouteInput { label, filter, channel, thread, wake, enabled }`. L'istanza deve essere una fonte; al massimo 50 regole per istanza; il canale deve essere Generale o un workspace esistente; un thread `existing` deve esistere nell'HUB; `wake` diverso da `none` richiede la capacità `wake_secretaries`; il filtro è validato contro i campi del descrittore e con `validate_filter` |
+| `connector_update_route(id, route)` | come la creazione; il thread si cerca di nuovo solo se cambia thread o canale o la regola si riabilita. Una regola riabilitata o ricollocata perde l'errore «thread non più disponibile» |
+| `connector_delete_route(id)` | elimina la regola |
+| `connector_list_links(instance)` | gli account esterni collegati a un'istanza di contatto |
+| `connector_delete_link(id)` | revoca un collegamento |
+
+Evento `connector-status`: `ConnectorStatus[]`. Lato frontend: `api.connector*` in `src/lib/tauri.ts`, lo store
+`src/stores/connectors.ts` (descrittori, istanze, stati) e `app/actions/connectors.ts`; l'interfaccia generica è la fase 3.
 
 **Log**: solo id dell'istanza, classe dell'errore, conteggi («gmail con-…: 3 elementi consegnati»). Mai segreti,
 indirizzi, oggetti, testi o nomi di allegati. Il token del bot Telegram sta nell'URL della Bot API: il client del
@@ -637,15 +702,29 @@ successiva, con lo stesso contratto `ContactConnector`.
 
 | Fase | Contenuto | Fatto quando |
 |---|---|---|
-| **1. Fondamenta HUB** | `Author::External`, `origin` e `external_id` dei messaggi (ts-rs, compatibilità in lettura), allegati da byte per `external`; `hub::send::send_user_message` e `send_user_files` (con `hub_send` adattatore), `hub::ingress::deliver_external`; `WakeCause::ExternalItem` e `Sessions::route_external`, contenuto non fidato nel contesto; `NoticeKind::External`, destinatari multipli in `HubNotifier` (`set_notice_sink`, `message_id` in `HubNotice`); resa dei messaggi esterni nella conversazione. **`set_lifecycle_listener` non è in questa fase: passa alla fase 2** | test unitari dei nuovi percorsi, `hub_send` invariato |
-| **2. Runtime e registro** | `hub::set_lifecycle_listener` (HUB spento o acceso, workspace o thread spariti); `connectors/`: contratti, descrittore e validazione, registro, `connectors.json` e `connector_state/`, supervisori, backoff, salute (`connector-status`), client HTTP con allowlist, segreti, abbinamento, comandi Tauri; un connettore finto nei test, conformance e test architetturali | un connettore finto consegna e riceve end-to-end nei test |
+| **1. Fondamenta HUB** (consegnata) | `Author::External`, `origin` e `external_id` dei messaggi (ts-rs, compatibilità in lettura), allegati da byte per `external`; `hub::send::send_user_message` e `send_user_files` (con `hub_send` adattatore), `hub::ingress::deliver_external`; `WakeCause::ExternalItem` e `Sessions::route_external`, contenuto non fidato nel contesto; `NoticeKind::External`, destinatari multipli in `HubNotifier` (`set_notice_sink`, `message_id` in `HubNotice`); resa dei messaggi esterni nella conversazione. **`set_lifecycle_listener` non è in questa fase: passa alla fase 2** | test unitari dei nuovi percorsi, `hub_send` invariato |
+| **2. Runtime e registro** (consegnata) | `hub::set_lifecycle_listener` (HUB spento o acceso, workspace rimosso); `connectors/`: contratti, descrittore e validazione, registro, `connectors.json` e `connector_state/`, supervisori, backoff, salute (`connector-status`), client HTTP con allowlist, segreti, abbinamento, comandi Tauri; un connettore finto nei test, conformance e test architetturali | un connettore finto consegna e riceve end-to-end nei test |
 | **3. Interfaccia generica** | Impostazioni › Connettori (disponibili, istanze, stato, azioni, permessi), editor delle regole, «Fonti collegate» nel thread, collegamenti dei canali di contatto, tutto dal descrittore | nessun componente nomina un connettore |
 | **4. Telegram** | connettore `contact` di riferimento | abbinamento, notifiche, risposte, comandi, allegati |
 | **5. Gmail** | connettore `source` di riferimento | OAuth, regole, consegna, risveglio |
 | poi | Discord (gateway WebSocket), adattatore sidecar (B), altre fonti (calendario, RSS, issue tracker…) | |
 
-Alla fine della fase 2 una ricetta «Aggiungere un connettore» entra in `CONTRIBUTING.md` e una guida in `docs/wiki/`,
-sul modello di [wiki/integrare-un-coding-agent.md](wiki/integrare-un-coding-agent.md).
+Alla fine della fase 2 la ricetta «Aggiungere un connettore» è in `CONTRIBUTING.md` e la guida in
+[wiki/integrare-un-connettore.md](wiki/integrare-un-connettore.md), sul modello di
+[wiki/integrare-un-coding-agent.md](wiki/integrare-un-coding-agent.md).
+
+**Rinviato dalla fase 2** (non ancora fatto, da riprendere con la fase 4 che è la prima a usarli):
+
+- il DTO `ContactNotice` con il **testo completo** della notifica: oggi `NoticeRouter` inoltra ai canali di contatto
+  l'`HubNotice` così com'è (titolo e testo ridotto a due righe);
+- gli interruttori **per tipo** di notifica (`notices.replies`, `questions`, …): oggi conta solo `notices.all`, perché
+  `HubNotice` non porta il tipo; i campi esistono già in `ConnectorNotices` e `connector_update_instance` non li
+  modifica ancora;
+- i test dei **timeout** delle singole chiamate (30 s) e del giro (2 min): `with_timeout` e il tetto del giro sono nel
+  supervisore ma coperti solo dai test di logica con l'attesa finta, non da test che scadono davvero;
+- finché il registro di produzione è vuoto, i pezzi raggiungibili solo da un connettore (contesto, client HTTP,
+  stato privato, alcune varianti dei contratti) hanno un `expect(dead_code)` mirato; l'aggiunta del primo connettore
+  fa fallire clippy sugli `expect` non più soddisfatti, e vanno tolti.
 
 ## Domande aperte
 

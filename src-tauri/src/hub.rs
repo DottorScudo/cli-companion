@@ -37,6 +37,7 @@
 //! - `append`: l'aggiunta di un messaggio di testo con salvataggio ed evento;
 //! - `send`: l'invio di un messaggio dell'utente (app e canali di contatto);
 //! - `ingress`: la consegna dei messaggi di mittenti esterni (connettori);
+//! - `lifecycle`: gli ascoltatori di acceso/spento e della rimozione di un workspace;
 //! - `attachments`: gli allegati dei messaggi dell'utente (staging, file, pulizia, comandi);
 //! - `commands`: i comandi dei thread e l'evento;
 //! - `events`: gli eventi della board nei thread (diff, instradamento, `HubFeed`);
@@ -55,6 +56,7 @@ pub mod engine;
 mod events;
 mod files;
 pub mod ingress;
+mod lifecycle;
 mod model;
 mod notify;
 mod questions;
@@ -68,15 +70,19 @@ mod waiting;
 pub use actions::{BoardActions, HubBoardActions};
 pub use api_key::ApiKey;
 pub use attachments::commands::purge_staging_in_background as purge_attachment_staging;
+pub use channel::Channel;
+pub use commands::thread_exists;
 pub use engine::SecretaryEngine;
 pub use events::{BoardSource, HubFeed};
-#[expect(unused_imports, reason = "API dei connettori: la usera' connectors (fase 2)")]
-pub use model::{Author, Message, MessageOrigin};
-#[expect(unused_imports, reason = "API dei connettori: la usera' connectors (fase 2)")]
-pub use notify::HubNotice;
-pub use notify::{validate_thread_ref, HubNotifier, NoticeSink};
+pub use lifecycle::{HubLifecycle, HubLifecycleListeners};
+pub use model::Message;
+pub use model::{Author, MessageOrigin};
+#[cfg(test)]
+pub use notify::HubNoticeSound;
+pub use notify::{validate_thread_ref, HubNotice, HubNotifier, NoticeSink};
 pub use settings::{load_from_disk, new_store as new_settings_store};
 pub use state::HubState;
+pub use text::{valid_ref_id, BOT_NAME_MAX};
 
 use crate::board::BoardView;
 use std::sync::Arc;
@@ -99,9 +105,15 @@ pub fn set_board_actions(app: &AppHandle, actions: BoardActions) {
 /// Registra un destinatario delle notifiche raggruppate dell'HUB oltre al
 /// frontend (un connettore che le gira a un canale di contatto). Lo registra
 /// chi lo possiede, una volta; vale finche' l'app gira.
-#[expect(dead_code, reason = "API dei connettori: la usera' connectors (fase 2)")]
 pub fn set_notice_sink(app: &AppHandle, sink: Arc<dyn NoticeSink>) {
     app.state::<HubNotifier>().add_sink(sink);
+}
+
+/// Registra un ascoltatore del ciclo di vita dell'HUB (acceso o spento, workspace
+/// rimosso), per esempio il runtime dei connettori che ferma i suoi supervisori.
+/// Lo registra chi lo possiede, una volta; vale finche' l'app gira.
+pub fn set_lifecycle_listener(app: &AppHandle, listener: Arc<dyn HubLifecycle>) {
+    app.state::<HubLifecycleListeners>().add(listener);
 }
 
 /// Una vista della board e' stata appena pubblicata (revisione nuova). Con
@@ -116,6 +128,9 @@ pub fn board_published(app: &AppHandle, view: &BoardView) {
 /// non succede nulla. Gli errori sono nel log: la rimozione del workspace e'
 /// gia' avvenuta.
 pub fn forget_workspace(app: &AppHandle, ws_id: &str) {
+    // Gli ascoltatori (le regole dei connettori) si avvisano sempre, anche con
+    // l'HUB spento e prima dei ritorni anticipati.
+    app.state::<HubLifecycleListeners>().workspace_removed(app, ws_id);
     app.state::<HubFeed>().forget(ws_id);
     let channel = match channel::Channel::parse(ws_id) {
         Ok(channel @ channel::Channel::Workspace(_)) => channel,

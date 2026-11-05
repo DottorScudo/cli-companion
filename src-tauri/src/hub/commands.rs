@@ -91,6 +91,19 @@ pub async fn hub_send(
     .await
 }
 
+/// Il thread esiste ancora nel canale? Errore con l'HUB spento o la cartella dati
+/// non disponibile; un canale sparito (workspace rimosso) risponde `false`. Per chi
+/// lavora per conto dell'HUB (i connettori) senza conoscerne lo stato interno.
+/// Bloccante: va chiamata fuori dal main thread.
+pub fn thread_exists(app: &AppHandle, channel: &Channel, thread_id: &str) -> Result<bool, String> {
+    ensure_enabled(app)?;
+    if ensure_channel(app, channel).is_err() {
+        return Ok(false);
+    }
+    let dirs = hub_dirs_of(app)?;
+    Ok(app.state::<HubState>().read(&dirs, channel, |list| list.thread(thread_id).is_some()))
+}
+
 pub(super) fn ensure_enabled(app: &AppHandle) -> Result<(), String> {
     if is_enabled(app) {
         Ok(())

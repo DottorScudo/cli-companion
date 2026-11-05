@@ -51,7 +51,6 @@ pub fn send_user_message(app: &AppHandle, message: UserMessage) -> Result<Messag
 /// dell'app finiscono nello staging, gli altri si saltano e il messaggio finisce
 /// con una riga "Allegati non importati: ..." (il testo si taglia per farle
 /// posto). Se l'invio fallisce, i file nello staging si cancellano.
-#[expect(dead_code, reason = "API dei connettori: la usera' connectors (fase 2)")]
 pub fn send_user_files(app: &AppHandle, message: UserMessage, files: Vec<IncomingFile>) -> Result<Message, String> {
     ensure_enabled(app)?;
     if !message.attachment_ids.is_empty() {

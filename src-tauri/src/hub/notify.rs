@@ -30,5 +30,7 @@ mod text;
 
 pub use dispatch::HubNotifier;
 pub use kind::NoticeKind;
+#[cfg(test)]
+pub use notice::HubNoticeSound;
 pub use notice::{validate_thread_ref, HubNotice};
 pub use sinks::NoticeSink;

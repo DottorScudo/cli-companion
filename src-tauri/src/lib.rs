@@ -3,6 +3,7 @@ pub mod automation;
 mod awake;
 pub mod board;
 mod bots;
+mod connectors;
 mod hub;
 pub mod ipc;
 mod launch_settings;
@@ -60,8 +61,10 @@ pub fn run() {
         .manage(hub::HubState::default())
         .manage(hub::HubFeed::default())
         .manage(hub::HubNotifier::default())
+        .manage(hub::HubLifecycleListeners::default())
         .manage(hub::HubBoardActions::default())
         .manage(hub::SecretaryEngine::default())
+        .manage(connectors::runtime::manager::ConnectorsRuntime::default())
         .manage(AutomationState::default())
         .setup(|app| {
             startup::mark("setup started");
@@ -73,6 +76,8 @@ pub fn run() {
             startup::timed("bots loaded", || bots::load_from_disk(app));
             startup::timed("hub settings loaded", || hub::load_from_disk(app));
             hub::purge_attachment_staging(app.handle());
+            startup::timed("connectors loaded", || connectors::load_from_disk(app.handle()));
+            connectors::start(app.handle());
             startup::timed("boards loaded", || automation::load_boards(app));
             startup::timed("automation started", || automation::auto::init(app));
             // `hub` non dipende da `automation`: la base delle board all'accensione
@@ -145,6 +150,23 @@ pub fn run() {
             hub::commands::hub_get_thread,
             hub::commands::hub_create_thread,
             hub::commands::hub_send,
+            connectors::commands::instances::connector_list_descriptors,
+            connectors::commands::instances::connector_list_instances,
+            connectors::commands::instances::connector_status,
+            connectors::commands::instances::connector_create_instance,
+            connectors::commands::instances::connector_update_instance,
+            connectors::commands::instances::connector_delete_instance,
+            connectors::commands::instances::connector_set_enabled,
+            connectors::commands::instances::connector_set_secret,
+            connectors::commands::instances::connector_clear_secret,
+            connectors::commands::actions::connector_test,
+            connectors::commands::actions::connector_run_action,
+            connectors::commands::routes::connector_list_routes,
+            connectors::commands::routes::connector_create_route,
+            connectors::commands::routes::connector_update_route,
+            connectors::commands::routes::connector_delete_route,
+            connectors::commands::routes::connector_list_links,
+            connectors::commands::routes::connector_delete_link,
             hub::attachments::commands::hub_stage_attachment_file,
             hub::attachments::commands::hub_stage_attachment_bytes,
             hub::attachments::commands::hub_read_attachment,
@@ -206,6 +228,8 @@ pub fn run() {
                 automation::flush_on_exit(app);
                 // Nessuna shell resta viva dopo la chiusura della finestra.
                 pty::close_all_on_exit(app);
+                // I supervisori dei connettori non sopravvivono all'app.
+                connectors::stop_all(app);
             }
         });
 }

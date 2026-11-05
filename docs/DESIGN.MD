@@ -86,7 +86,7 @@ avviare la GUI, smista i rami da riga di comando: `--help`, `--version`, `--noti
 
 ```text
  5  lib.rs · main.rs      composizione: plugin, stati gestiti, `setup`, comandi, rami da riga di comando
- 4  automation   mcp      orchestrazione dei worker (registro, scheduler, git, E2E) / shim MCP verso l'app
+ 4  automation   mcp   connectors   orchestrazione dei worker (registro, scheduler, git, E2E) / shim MCP verso l'app / connettori esterni dell'HUB
  3  pty          ipc      canali con terminali e agenti
  2  board  workspaces  hub     dominio: coda dei task (pura) / cartelle di lavoro / thread dell'Agents HUB
  1  agents                integrazioni dei coding agent: contratti + registro + `claude_code/`
@@ -108,6 +108,7 @@ test esclusi) sono queste:
 | `automation` | `board`, `workspaces`, `agents`, `ipc` (tipi e trait), `platform`, `validate`, `wsl`, `schedule`, `user_skills`, `store`, `awake`, `pty` (solo `workspace_of_tab`, in `TauriHost`), `hub` (solo `board_published`, in `TauriHost`; `lib.rs` registra `board_views` come sorgente di `hub::set_board_source` e `queue_hub_plan_task` / `decide_hub_proposal` / `answer_question` come azioni di `hub::set_board_actions`) | — |
 | `mcp` | `automation` (`Role`, `lock`, nomi dei metodi), `agents`, `workspaces`, `ipc` (client RPC) | `tauri` |
 | `hub` | `store`, `secrets` (API key del provider nel portachiavi), `bots` (validazione delle immagini dei segretari), `board` (`valid_id` e `BoardView` per gli eventi della board), `validate` (+ `workspaces` nei comandi e negli eventi della board, per sapere se il canale di un workspace esiste, anche nei canali di un segretario; le viste correnti delle board all'accensione e per il tool `board_status` dei segretari arrivano da una sorgente `BoardSource` registrata da `lib.rs`, e le azioni dei segretari sulla board, task di pianificazione, decisione di una proposta e risposta a una domanda di un worker, da `BoardActions` registrate allo stesso modo); crate esterni `async-openai` e `reqwest` solo nel client del modello (`hub/engine/openai.rs`) | `automation`, `agents`, `ipc`, `pty`, `mcp` |
+| `connectors` | `hub` (solo la sua API pubblica: `ingress`, `send`, `attachments`, i tipi del modello, `HubNotice`, `HubLifecycle`, `thread_exists`, `Channel`), `store`, `secrets` (i segreti di ogni istanza nel portachiavi), `workspaces` (solo `WorkspaceStore`, nei comandi delle regole, per sapere se il canale esiste); crate esterni `reqwest` (solo il client del contesto, `connectors/runtime/http.rs`) e `tokio` (`time`, `sync`, `macros`) | `automation`, `agents`, `board`, `ipc`, `pty`, `mcp`; `hub` non dipende da `connectors` (gli arrivano solo il `NoticeSink` e il `HubLifecycle` registrati da `lib.rs`) |
 
 Le regole che questa tabella racchiude, e come sono garantite:
 
@@ -172,7 +173,7 @@ domanda (`hub/direct_answer.rs`, senza passare dal modello) e il tool `relay_ans
 | `schedule.rs`, `awake.rs` | fasce orarie (logica pura + `schedule.json`) e blocco dello standby |
 | `launch_settings.rs`, `bots.rs` | impostazioni globali degli avvii e nomi/avatar dei bot (su `store/`) |
 | `hub.rs`, `hub/` | Agents HUB (spento di default): impostazioni globali (provider del modello, lingua, sessioni, segretari), canali, thread e messaggi su `store/`, comandi ed evento `hub-update`, eventi della board nei thread, motore dei segretari (`hub/engine/`: menzioni, sessioni, tool calling verso un endpoint compatibile OpenAI, evento `hub-secretary-status`) |
-| `connectors.rs`, `connectors/` | **pianificato**: connettori dell'Agents HUB, Fonti (`source`, es. Gmail) e Canali di contatto (`contact`, es. Telegram), compilati dietro contratti con registro, runtime in background e configurazione in `connectors.json`; progetto in [CONNECTORS.MD](CONNECTORS.MD) |
+| `connectors.rs`, `connectors/` | connettori dell'Agents HUB, Fonti (`source`, es. Gmail) e Canali di contatto (`contact`, es. Telegram), compilati dietro contratti con registro, supervisori in background, comandi Tauri e configurazione in `connectors.json`; il registro di produzione è ancora vuoto (nessun connettore reale prima delle fasi 4 e 5); progetto e fasi in [CONNECTORS.MD](CONNECTORS.MD) |
 | `secrets.rs` | segreti nel portachiavi del sistema operativo (crate `keyring`) dietro il trait `SecretStore`; un finto in memoria per i test |
 | `user_skills.rs`, `user_skills/` | skill globali dell'utente: archivio e sincronizzazione nelle cartelle degli agenti |
 | `toast.rs`, `updater.rs`, `net.rs`, `ttl_cache.rs`, `logging.rs` | toast cliccabile (Windows), controllo aggiornamenti da CLI, client HTTP via `curl`, cache con scadenza, log su file |
@@ -309,7 +310,8 @@ dettagliati qui o, per la coda dei task, in [BOARD.MD](BOARD.MD).
   della tabella il modello italiano e quello inglese: un codice senza i due messaggi non compila.
 - `net.rs` (HTTP via un sottoprocesso `curl`, senza un crate di rete in più: l'unica eccezione è il client del
   modello dei segretari, `async-openai` sul reqwest 0.13 già presente per l'updater, vedi HUB.MD) e `ttl_cache.rs` (cache con scadenza per
-  risultati di processi lenti, come il rilevamento degli agenti) sono helper condivisi.
+  risultati di processi lenti, come il rilevamento degli agenti) sono helper condivisi. I connettori fanno eccezione per la rete: il loro
+  client è un `reqwest` condiviso che passa solo da `connectors/runtime/http.rs` (allowlist degli host dichiarati).
 
 ### `workspaces/` — i workspace
 
@@ -1055,15 +1057,33 @@ Spegnere l'HUB chiude le sessioni dei segretari e annulla i loro lavori. La rimo
 segretari nel suo canale. Modello, file, limiti e scelte:
 [HUB.MD](HUB.MD).
 
-### `connectors/` — connettori dell'Agents HUB (pianificato)
+### `connectors/` — connettori dell'Agents HUB
 
-Non ancora nel codice. Estenderà l'HUB con due tipi di connettori: le **Fonti** (`source`), che portano elementi
-esterni (es. email di Gmail filtrate da una regola) nei thread di un canale e possono svegliare un segretario, e i
-**Canali di contatto** (`contact`, es. Telegram), che portano fuori le notifiche dei thread e riportano dentro i
-messaggi dell'utente. Livello 4 accanto ad `automation` e `mcp`: dipenderà da `hub` solo attraverso una porta
-d'ingresso (`hub::ingress`) e da destinatari delle notifiche e listener registrati da `lib.rs`; `hub` non dipenderà
-da `connectors`. Come per gli agenti, nessun file fuori da `connectors/<id>/` nominerà un connettore, salvo il
-registro. Contratti, file, affidabilità, sicurezza, alternative valutate e fasi: [CONNECTORS.MD](CONNECTORS.MD).
+Estende l'HUB con due tipi di connettori: le **Fonti** (`source`), che portano elementi esterni (es. email di Gmail
+filtrate da una regola) nei thread di un canale e possono svegliare un segretario, e i **Canali di contatto**
+(`contact`, es. Telegram), che portano fuori le notifiche dei thread e riportano dentro i messaggi dell'utente.
+Consegnati le fondamenta nell'HUB e il runtime (fasi 1 e 2); i connettori reali e l'interfaccia generica seguono.
+Livello 4 accanto ad `automation` e `mcp`: dipende da `hub` solo attraverso la sua API pubblica (`hub::ingress`,
+`hub::send`, `HubLifecycle`, `thread_exists`) e riceve le notifiche come `NoticeSink` registrato da `lib.rs` in `setup`
+(`connectors::start`); `hub` non dipende da `connectors`. Come per gli agenti, nessun file fuori da
+`connectors/<id>/` nomina un connettore, salvo il registro (`connectors/architecture.rs` e `tests/architecture.test.mjs`).
+
+- **Un supervisore per istanza** (`runtime/supervisor.rs`): un task su `tauri::async_runtime`, solo con l'HUB acceso e
+  l'istanza abilitata, fermato con `JoinHandle::abort`. `ConnectorsRuntime` (`runtime/manager.rs`, stato gestito)
+  tiene `connectors.json` in memoria, gli stati di salute e i task; il suo `reconcile` allinea i task al file.
+- **File**: `connectors.json` (istanze, regole, collegamenti) e `connector_state/<istanza>.json` (cursori, id visti,
+  mappe, tutto limitato) su `store/`; i segreti solo nel portachiavi, mai nei file né nei DTO.
+- **Pura e I/O separate**: backoff, stato, validazione, decisioni dei comandi (`commands/checks.rs`), un giro di
+  una fonte (`runtime/round.rs`) sono generici su `HubPort`, `Clock` e `Sleeper`; i test li guidano con finti
+  (`connectors/testing.rs`), senza rete né `AppHandle`.
+- **`tokio` come dipendenza diretta** (`default-features = false`, `time`, `sync`, `macros`): serve a `sleep` e
+  `timeout` dei supervisori, ai canali limitati delle notifiche e a `select!`. È già nel grafo via tauri e reqwest:
+  non aggiunge nessun crate.
+- **Comandi Tauri** in `connectors/commands/` (istanze, segreti, azioni, regole, collegamenti, stato) ed evento
+  `connector-status`; frontend in `src/stores/connectors.ts`.
+
+Contratti, file, affidabilità, comandi, sicurezza, alternative valutate e fasi: [CONNECTORS.MD](CONNECTORS.MD);
+ricetta per un connettore nuovo: [wiki/integrare-un-connettore.md](wiki/integrare-un-connettore.md).
 
 ### Altri moduli
 

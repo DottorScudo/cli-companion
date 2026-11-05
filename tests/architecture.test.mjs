@@ -235,3 +235,47 @@ describe("architettura: il frontend non nomina un agente specifico", () => {
     assert.ok(!TEST_OR_FIXTURE.test("src/lib/agents.ts"));
   });
 });
+
+/**
+ * Connettori noti: il frontend e' generico e si costruisce dal descrittore, quindi non ne
+ * nomina nessuno. Aggiungendo un connettore: una riga qui (e in `connectors/architecture.rs`).
+ * @type {{ id: string }[]}
+ */
+const CONNECTORS = [];
+
+/** Un connettore nella forma attesa da `violationsIn` (modulo = id con underscore). */
+const asIntegration = ({ id }) => ({ module: id.replaceAll("-", "_"), id, commands: [], models: [] });
+
+describe("architettura: il frontend non nomina un connettore specifico", () => {
+  it("nessun riferimento a un connettore in src/", () => {
+    const connectors = CONNECTORS.map(asIntegration);
+    const found = sourceFiles(SRC).flatMap((file) =>
+      violationsIn(path.relative(SRC, file).replaceAll("\\", "/"), tokenize(readFileSync(file, "utf8")), connectors),
+    );
+    const lines = found.map((v) => `  src/${v.file}:${v.line}: ${v.what}`);
+    assert.deepEqual(
+      found,
+      [],
+      `Il frontend nomina un connettore specifico (costruisce l'interfaccia dal descrittore).\n${lines.join("\n")}\n` +
+        "Leggi il dato dal descrittore invece di nominare il connettore. Guida: docs/CONNECTORS.MD",
+    );
+  });
+
+  it("il controllo trova un connettore nelle stringhe e come identificatore (caso sintetico)", () => {
+    const connectors = [asIntegration({ id: "fake-mail" })];
+    const source = [
+      '// "fake-mail" nei commenti non conta',
+      'const a = "fake-mail";',
+      "const fake_mail = 1;",
+      'const ok = "fakemail";',
+    ].join("\n");
+    const found = violationsIn("a.ts", tokenize(source), connectors);
+    assert.deepEqual(
+      found.map((v) => [v.line, v.what]),
+      [
+        [2, 'la stringa "fake-mail" (id `fake-mail`)'],
+        [3, "il modulo `fake_mail`"],
+      ],
+    );
+  });
+});

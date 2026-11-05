@@ -32,7 +32,6 @@ use tauri::{AppHandle, Manager};
 
 /// Dove va il messaggio.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "API dei connettori: la usera' connectors (fase 2)"))]
 pub enum DeliveryTarget {
     /// Un thread esistente del canale (se chiuso, si riapre).
     Existing(String),
@@ -42,7 +41,6 @@ pub enum DeliveryTarget {
 
 /// Chi svegliare dopo la consegna.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "API dei connettori: la usera' connectors (fase 2)"))]
 pub enum ExternalWake {
     None,
     /// Il segretario titolare del thread, se c'e'.
@@ -75,7 +73,6 @@ pub struct DeliveryOutcome {
 
 /// Consegna il messaggio. Errore con l'HUB spento, il canale o il thread
 /// mancanti, un autore o un'origine non validi, un testo vuoto senza allegati.
-#[expect(dead_code, reason = "API dei connettori: la usera' connectors (fase 2)")]
 pub fn deliver_external(app: &AppHandle, delivery: ExternalDelivery) -> Result<DeliveryOutcome, String> {
     ensure_enabled(app)?;
     check::check(&delivery)?;

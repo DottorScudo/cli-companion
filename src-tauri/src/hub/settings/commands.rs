@@ -13,6 +13,7 @@ use crate::bots::validate_image;
 use crate::hub::api_key::ApiKey;
 use crate::hub::engine::SecretaryEngine;
 use crate::hub::events::HubFeed;
+use crate::hub::lifecycle::HubLifecycleListeners;
 use crate::hub::notify::HubNotifier;
 use crate::store::data_dir;
 use crate::workspaces::WorkspaceStore;
@@ -54,6 +55,7 @@ pub async fn hub_set_enabled(app: AppHandle, enabled: bool) -> Result<HubSetting
             }
             (true, true) => {}
         }
+        app.state::<HubLifecycleListeners>().enabled_changed(&app, was_enabled, saved.enabled);
         Ok(view(&app, saved))
     })
     .await

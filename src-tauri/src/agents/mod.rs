@@ -22,7 +22,7 @@
 //! `registry::resolve_agent`.
 
 #[cfg(test)]
-mod architecture;
+pub(crate) mod architecture;
 mod claude_code;
 mod commands;
 #[cfg(test)]

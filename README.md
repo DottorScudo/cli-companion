@@ -54,7 +54,8 @@ La versione corrente è quella dell'ultimo tag git `v*`.
   `latest.json` e chiavi di firma.
 - [docs/DESIGN.MD](docs/DESIGN.MD) — note di design del progetto.
 - [docs/BOARD.MD](docs/BOARD.MD) — il Tasks Manager: coda di task, consegna, scheduler, fasce orarie, tool MCP.
-- [docs/wiki/integrare-un-coding-agent.md](docs/wiki/integrare-un-coding-agent.md) — come integrare un nuovo coding agent (contratti, procedura, OpenCode come seconda integrazione di riferimento).
+- [docs/wiki/integrare-un-coding-agent.md](docs/wiki/integrare-un-coding-agent.md) — come integrare un nuovo coding agent (contratti, procedura, OpenCode come seconda integrazione di riferimento)
+- [docs/wiki/integrare-un-connettore.md](docs/wiki/integrare-un-connettore.md) — come aggiungere un connettore dell'Agents HUB (descrittore, contratti, registro, test di conformità).
 
 Notifiche dopo un aggiornamento: dalla v0.9.2 l'identifier è `cli-companion` e
 Windows recapita i toast solo se il collegamento nel menu Start ha lo stesso

@@ -35,6 +35,9 @@ function rustCommands() {
     "hub/commands.rs",
     "hub/attachments/commands.rs",
     "hub/engine/status.rs",
+    "connectors/commands/instances.rs",
+    "connectors/commands/actions.rs",
+    "connectors/commands/routes.rs",
     "store/warnings.rs",
   ]) {
     const src = readFileSync(path.join(RS, file), "utf8");

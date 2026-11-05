@@ -7,7 +7,7 @@
 //! restano fuori commenti, test e moduli dichiarati `#[cfg(test)] mod x;`.
 //! Come aggiungere un agente: `docs/wiki/integrare-un-coding-agent.md`.
 
-mod scanner;
+pub(crate) mod scanner;
 
 use super::registry;
 use scanner::{scan, Token, TokenKind};

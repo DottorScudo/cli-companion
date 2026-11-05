@@ -7,6 +7,15 @@ import type { SpawnEvent as AutomationSpawn } from "../bindings/SpawnEvent.ts";
 import type { AutomationTabInfo } from "../bindings/AutomationTabInfo.ts";
 import type { BotSettings } from "../bindings/BotSettings.ts";
 import type { BuiltinLaunch } from "../bindings/BuiltinLaunch.ts";
+import type { ConnectorActionId } from "../bindings/ConnectorActionId.ts";
+import type { ConnectorActionOutcome } from "../bindings/ConnectorActionOutcome.ts";
+import type { ConnectorDeleteOutcome } from "../bindings/ConnectorDeleteOutcome.ts";
+import type { ConnectorDescriptor } from "../bindings/ConnectorDescriptor.ts";
+import type { ConnectorInstanceView } from "../bindings/ConnectorInstanceView.ts";
+import type { ConnectorLink } from "../bindings/ConnectorLink.ts";
+import type { ConnectorRoute } from "../bindings/ConnectorRoute.ts";
+import type { ConnectorRouteInput } from "../bindings/ConnectorRouteInput.ts";
+import type { ConnectorStatus } from "../bindings/ConnectorStatus.ts";
 import type { Delivery } from "../bindings/Delivery.ts";
 import type { E2eEvent as E2eUpdateEvent } from "../bindings/E2eEvent.ts";
 import type { HubAttachment } from "../bindings/HubAttachment.ts";
@@ -56,6 +65,15 @@ export type {
   AutomationTabInfo,
   BotSettings,
   BuiltinLaunch,
+  ConnectorActionId,
+  ConnectorActionOutcome,
+  ConnectorDeleteOutcome,
+  ConnectorDescriptor,
+  ConnectorInstanceView,
+  ConnectorLink,
+  ConnectorRoute,
+  ConnectorRouteInput,
+  ConnectorStatus,
   Delivery,
   HubAttachment,
   HubEvent,
@@ -301,6 +319,57 @@ export const api = {
   /** Segretari svegli adesso, per canale e thread (poi `hub-secretary-status`). */
   hubSecretaryStatus: () => invoke<HubSecretaryStatus[]>("hub_secretary_status"),
 
+  // Connettori dell'Agents HUB (backend: src-tauri/src/connectors/commands). I segreti
+  // passano solo da `connectorSetSecret` e non tornano mai: si vede se uno slot è impostato.
+  connectorListDescriptors: () => invoke<ConnectorDescriptor[]>("connector_list_descriptors"),
+
+  connectorListInstances: () => invoke<ConnectorInstanceView[]>("connector_list_instances"),
+
+  /** Lo stato di salute di tutte le istanze (poi `connector-status`). */
+  connectorStatus: () => invoke<ConnectorStatus[]>("connector_status"),
+
+  /** Crea un'istanza disabilitata; i segreti si impostano dopo. */
+  connectorCreateInstance: (connector: string, label: string, config: Record<string, unknown>) =>
+    invoke<ConnectorInstanceView>("connector_create_instance", { connector, label, config }),
+
+  connectorUpdateInstance: (id: string, label: string, config: Record<string, unknown>) =>
+    invoke<ConnectorInstanceView>("connector_update_instance", { id, label, config }),
+
+  connectorDeleteInstance: (id: string) => invoke<ConnectorDeleteOutcome>("connector_delete_instance", { id }),
+
+  connectorSetEnabled: (id: string, enabled: boolean) =>
+    invoke<ConnectorInstanceView>("connector_set_enabled", { id, enabled }),
+
+  connectorSetSecret: (id: string, slot: string, value: string) =>
+    invoke<ConnectorInstanceView>("connector_set_secret", { id, slot, value }),
+
+  connectorClearSecret: (id: string, slot: string) =>
+    invoke<ConnectorInstanceView>("connector_clear_secret", { id, slot }),
+
+  /** Prova di credenziali e rete (azione `test`, se il connettore la dichiara). */
+  connectorTest: (id: string) => invoke<ConnectorActionOutcome>("connector_test", { id }),
+
+  /** Un'azione dichiarata dal connettore; con `pair` l'esito porta il codice di abbinamento. */
+  connectorRunAction: (id: string, action: ConnectorActionId) =>
+    invoke<ConnectorActionOutcome>("connector_run_action", { id, action }),
+
+  /** Le regole, filtrabili per canale e per thread (quelle che puntano a quel thread). */
+  connectorListRoutes: (channel: string | null, threadId: string | null) =>
+    invoke<ConnectorRoute[]>("connector_list_routes", { channel, threadId }),
+
+  connectorCreateRoute: (instance: string, route: ConnectorRouteInput) =>
+    invoke<ConnectorRoute>("connector_create_route", { instance, route }),
+
+  connectorUpdateRoute: (id: string, route: ConnectorRouteInput) =>
+    invoke<ConnectorRoute>("connector_update_route", { id, route }),
+
+  connectorDeleteRoute: (id: string) => invoke<void>("connector_delete_route", { id }),
+
+  /** Gli account esterni collegati a un'istanza di contatto. */
+  connectorListLinks: (instance: string) => invoke<ConnectorLink[]>("connector_list_links", { instance }),
+
+  connectorDeleteLink: (id: string) => invoke<void>("connector_delete_link", { id }),
+
   agentUsageLimits: (agentId: string, env: string) => invoke<UsageLimitsReply>("agent_usage_limits", { agentId, env }),
 
   agentSessionUsage: (agentId: string, env: string, transcriptPath: string) =>
@@ -419,4 +488,5 @@ export interface TauriEvents {
   "hub-notify": HubNotice;
   "hub-notification-activated": HubThreadRef;
   "hub-secretary-status": HubSecretaryStatus[];
+  "connector-status": ConnectorStatus[];
 }
