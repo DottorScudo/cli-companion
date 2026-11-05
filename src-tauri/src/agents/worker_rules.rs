@@ -6,7 +6,7 @@ use super::contracts::{AgentIntegration, RuleFormat};
 use super::registry;
 use crate::platform::TargetKind;
 use crate::validate::{ErrorCode, ValidationError};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Valida e normalizza una lista di regole con il contratto dell'agente
 /// `agent_id`. Senza contratto una lista vuota resta vuota e una lista con
@@ -26,17 +26,20 @@ pub fn worker_rule_format(agent_id: &str) -> Option<RuleFormat> {
 }
 
 /// File di regole per l'agente `agent_id` del task, nel formato di path del
-/// target; `None` = nessuna regola o agente che non le applica.
+/// target, con la sola lettura delle cartelle `readable` (vedi
+/// `WorkerPermissions::prepare`); `None` = niente da applicare o agente che
+/// non applica regole.
 pub fn worker_permissions_file(
     agent_id: &str,
     data_dir: &Path,
     workspace_id: &str,
     env_kind: TargetKind,
     allow_deny: (&[String], &[String]),
+    readable: &[PathBuf],
 ) -> Result<Option<String>, String> {
     // Errori letti dal modello via RPC: in inglese.
     let integration = registry::find(agent_id).map_err(|_| format!("unknown agent: {agent_id}"))?;
-    prepare_with(integration, data_dir, workspace_id, env_kind, allow_deny)
+    prepare_with(integration, data_dir, workspace_id, env_kind, allow_deny, readable)
 }
 
 fn validate_with(integration: &dyn AgentIntegration, rules: &[String]) -> Result<Vec<String>, ValidationError> {
@@ -53,9 +56,10 @@ fn prepare_with(
     workspace_id: &str,
     env_kind: TargetKind,
     (allow, deny): (&[String], &[String]),
+    readable: &[PathBuf],
 ) -> Result<Option<String>, String> {
     match integration.capabilities().worker_permissions {
-        Some(permissions) => permissions.prepare(data_dir, workspace_id, env_kind, allow, deny),
+        Some(permissions) => permissions.prepare(data_dir, workspace_id, env_kind, allow, deny, readable),
         None => Ok(None),
     }
 }
@@ -82,7 +86,8 @@ mod tests {
         let data_dir = std::env::temp_dir();
         let allow = rules(&["Bash(git:*)"]);
         let deny = rules(&["Edit"]);
-        assert_eq!(prepare_with(&bare, &data_dir, "ws-1", TargetKind::Windows, (&allow, &deny)), Ok(None));
+        let readable = [PathBuf::from("hub_attachments")];
+        assert_eq!(prepare_with(&bare, &data_dir, "ws-1", TargetKind::Windows, (&allow, &deny), &readable), Ok(None));
         assert_eq!(validate_with(&bare, &[]), Ok(Vec::new()));
         assert_eq!(validate_with(&bare, &rules(&["  ", ""])), Ok(Vec::new()));
         let err = validate_with(&bare, &allow).unwrap_err();
@@ -95,15 +100,20 @@ mod tests {
         let full = FakeIntegration::full("full");
         let allow = rules(&["a"]);
         assert_eq!(
-            prepare_with(&full, &std::env::temp_dir(), "ws-1", TargetKind::Wsl, (&allow, &[])),
+            prepare_with(&full, &std::env::temp_dir(), "ws-1", TargetKind::Wsl, (&allow, &[]), &[]),
             Ok(Some("rules/ws-1.json".to_string()))
         );
-        assert_eq!(prepare_with(&full, &std::env::temp_dir(), "ws-1", TargetKind::Wsl, (&[], &[])), Ok(None));
+        assert_eq!(prepare_with(&full, &std::env::temp_dir(), "ws-1", TargetKind::Wsl, (&[], &[]), &[]), Ok(None));
+        // Le sole cartelle da leggere passano al contratto.
+        let readable = [PathBuf::from("hub_attachments")];
+        let only_readable = prepare_with(&full, &std::env::temp_dir(), "ws-1", TargetKind::Wsl, (&[], &[]), &readable);
+        assert_eq!(only_readable, Ok(Some("rules/ws-1.json".to_string())));
     }
 
     #[test]
     fn an_unknown_agent_is_an_error_not_a_silent_skip() {
-        let result = worker_permissions_file("nope", &std::env::temp_dir(), "ws-1", TargetKind::Windows, (&[], &[]));
+        let result =
+            worker_permissions_file("nope", &std::env::temp_dir(), "ws-1", TargetKind::Windows, (&[], &[]), &[]);
         assert_eq!(result, Err("unknown agent: nope".to_string()));
     }
 

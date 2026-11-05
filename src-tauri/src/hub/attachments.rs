@@ -30,9 +30,11 @@ pub use garbage::{garbage, Garbage};
 pub use layout::stored_file;
 pub use storage::{discard, forget_channel, Claimed, NOT_FOUND};
 
+use super::files::HubDirs;
 use super::model::Attachment;
 use super::text::valid_ref_id;
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 /// Allegati di un messaggio.
 pub const ATTACHMENTS_MAX: usize = 5;
@@ -74,6 +76,14 @@ pub fn validate(list: &[Attachment]) -> Result<(), String> {
     Ok(())
 }
 
+/// La sola cartella degli allegati che i worker del workspace leggono: quella
+/// del suo canale (`<data_dir>/hub_attachments/channels/<workspace_id>/`), dove
+/// stanno i thread a cui sono collegati i loro task. Mai lo staging, gli altri
+/// canali o il resto della cartella dati.
+pub fn workers_readable_dir(data_dir: &Path, workspace_id: &str) -> Result<PathBuf, String> {
+    layout::workspace_channel_dir(&HubDirs::in_data_dir(data_dir).attachments, workspace_id)
+}
+
 fn too_many() -> String {
     format!("un messaggio può avere al massimo {ATTACHMENTS_MAX} allegati")
 }
@@ -98,6 +108,17 @@ mod tests {
         assert!(validate_ids(&["att-1-1".to_string(), "att-1-1".to_string()]).unwrap_err().contains("due volte"));
         for bad in ["", "..", "../x", "a/b", "a\\b", "a.b"] {
             assert!(validate_ids(&[bad.to_string()]).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn workers_read_only_the_attachments_of_their_channel() {
+        let data = Path::new("data");
+        let dir = workers_readable_dir(data, "ws-1").unwrap();
+        assert_eq!(dir, data.join("hub_attachments").join("channels").join("ws-1"));
+        assert!(dir.starts_with(data.join("hub_attachments").join("channels")));
+        for bad in ["general", "../ws-2", "", "a\\..\\b"] {
+            assert!(workers_readable_dir(data, bad).is_err(), "{bad:?}");
         }
     }
 

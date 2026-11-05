@@ -6,7 +6,7 @@
 use crate::platform::TargetKind;
 use crate::validate::ValidationError;
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use ts_rs::TS;
 
 /// Forma delle liste di regole accettate dall'agente.
@@ -46,8 +46,15 @@ pub trait WorkerPermissions: Sync {
 
     /// Scrive (solo se cambia) le regole del workspace e ritorna cio' che va
     /// in `AutomationRequest::permissions_file`, nel formato di path del
-    /// target. `None` = nessuna regola. `Err` se il risultato non e' usabile
-    /// in modo sicuro in una riga di comando.
+    /// target. `None` = nessuna regola e nessuna cartella da leggere. `Err` se
+    /// il risultato non e' usabile in modo sicuro in una riga di comando.
+    ///
+    /// `readable` sono cartelle dell'host fuori dalla cartella di lavoro che il
+    /// worker deve poter leggere senza conferme (gli allegati dell'Agents HUB
+    /// del suo workspace): l'integrazione concede la sola lettura di quelle
+    /// cartelle e del loro contenuto, mai la scrittura. Una cartella che non sa
+    /// esprimere in modo sicuro nel suo formato la salta (il worker chiedera'
+    /// il permesso), senza fermare l'avvio.
     fn prepare(
         &self,
         data_dir: &Path,
@@ -55,5 +62,6 @@ pub trait WorkerPermissions: Sync {
         env_kind: TargetKind,
         allow: &[String],
         deny: &[String],
+        readable: &[PathBuf],
     ) -> Result<Option<String>, String>;
 }

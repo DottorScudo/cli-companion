@@ -7,7 +7,11 @@
 //! Code unisce le regole di `--settings` a quelle degli altri livelli (le
 //! liste `allow`/`deny` si sommano; `deny` vince sempre su `allow`, anche in
 //! `bypassPermissions`).
+//!
+//! Allo stesso file si aggiungono le regole che danno ai worker la sola
+//! lettura delle cartelle `readable` (vedi `readable_dirs`).
 
+use super::readable_dirs;
 use super::ClaudeCode;
 use crate::agents::{is_shell_safe_path, PermissionsGuide, RuleFormat, WorkerPermissions};
 use crate::platform::{windows_to_wsl_path, TargetKind};
@@ -66,10 +70,13 @@ impl WorkerPermissions for ClaudeCode {
     }
 
     /// Scrive (solo se cambia) il file settings del workspace e ritorna il path
-    /// per `--settings`, o `None` se non ci sono regole. Il path finisce in una
-    /// riga digitata nella shell del tab: se contiene caratteri che nessuna
-    /// shell tra PowerShell, cmd e bash tratta in modo letterale tra doppi apici
-    /// il worker non parte (errore chiaro invece di un comando rotto).
+    /// per `--settings`, o `None` se non ci sono regole ne' cartelle da
+    /// leggere. Le regole di lettura vanno dopo quelle del workspace: un
+    /// Vietato dell'utente vince comunque, perche' `deny` batte `allow`. Il
+    /// path finisce in una riga digitata nella shell del tab: se contiene
+    /// caratteri che nessuna shell tra PowerShell, cmd e bash tratta in modo
+    /// letterale tra doppi apici il worker non parte (errore chiaro invece di
+    /// un comando rotto).
     fn prepare(
         &self,
         data_dir: &Path,
@@ -77,13 +84,17 @@ impl WorkerPermissions for ClaudeCode {
         env_kind: TargetKind,
         allow: &[String],
         deny: &[String],
+        readable: &[PathBuf],
     ) -> Result<Option<String>, String> {
+        let grants = readable_dirs::grants(readable, env_kind);
+        let allow: Vec<String> = allow.iter().cloned().chain(grants.allow).collect();
+        let deny: Vec<String> = deny.iter().cloned().chain(grants.deny).collect();
         if allow.is_empty() && deny.is_empty() {
             return Ok(None);
         }
         let dir = settings_dir(data_dir);
         let file = dir.join(file_name(workspace_id));
-        let content = settings_json(allow, deny);
+        let content = settings_json(&allow, &deny);
         if std::fs::read_to_string(&file).ok().as_deref() != Some(content.as_str()) {
             std::fs::create_dir_all(&dir).map_err(|e| format!("cartella delle regole dei worker: {e}"))?;
             let tmp = file.with_extension("json.tmp");
@@ -109,7 +120,7 @@ fn clip_for_error(rule: &str) -> String {
     s
 }
 
-fn check_rule(rule: &str) -> Result<(), ErrorCode> {
+pub(super) fn check_rule(rule: &str) -> Result<(), ErrorCode> {
     if rule.chars().count() > MAX_RULE_CHARS {
         return Err(ErrorCode::PermissionRuleTooLong);
     }
@@ -185,7 +196,7 @@ mod tests {
         allow: &[String],
         deny: &[String],
     ) -> Result<Option<String>, String> {
-        ClaudeCode.prepare(dir, id, kind, allow, deny)
+        ClaudeCode.prepare(dir, id, kind, allow, deny, &[])
     }
 
     #[test]
@@ -303,6 +314,36 @@ mod tests {
         let p2 = prepare(&dir, "ws-1", TargetKind::Windows, &allow, &v(&["Edit"])).unwrap().unwrap();
         assert_eq!(p, p2);
         assert!(std::fs::read_to_string(&p).unwrap().contains("Edit"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn readable_folders_alone_write_a_read_only_settings_file() {
+        let dir = std::env::temp_dir().join(format!("cc-readable-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let channel = PathBuf::from(r"C:\data\hub_attachments\channels\ws-1");
+        let p = ClaudeCode
+            .prepare(
+                &dir,
+                "ws-1",
+                TargetKind::Windows,
+                &v(&["Bash(git:*)"]),
+                &v(&["Bash(rm:*)"]),
+                std::slice::from_ref(&channel),
+            )
+            .unwrap()
+            .unwrap();
+        let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        let pattern = "//c/data/hub_attachments/channels/ws-1/**";
+        assert_eq!(j["permissions"]["allow"], serde_json::json!(["Bash(git:*)", format!("Read({pattern})")]));
+        assert_eq!(j["permissions"]["deny"], serde_json::json!(["Bash(rm:*)", format!("Edit({pattern})")]));
+        // Nessuna regola del workspace: il file serve comunque, per la lettura.
+        let only = ClaudeCode.prepare(&dir, "ws-2", TargetKind::Windows, &[], &[], &[channel]).unwrap();
+        let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(only.unwrap()).unwrap()).unwrap();
+        assert_eq!(j["permissions"]["allow"], serde_json::json!([format!("Read({pattern})")]));
+        // Una cartella che non diventa una regola sicura non lascia nulla da scrivere.
+        let skipped = ClaudeCode.prepare(&dir, "ws-3", TargetKind::Windows, &[], &[], &[PathBuf::from("rel")]);
+        assert_eq!(skipped, Ok(None));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

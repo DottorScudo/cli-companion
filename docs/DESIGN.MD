@@ -337,7 +337,8 @@ riportato senza far perdere gli altri).
   - `worker_agents[<agente>].allow` / `.deny`: regole di permesso pre-approvate / vietate, nella sintassi dell'agente
     (`Bash(git:*)`, `Edit`, ...), validate dal contratto `WorkerPermissions` (`agents/worker_rules.rs`). All'avvio
     di un worker la risorsa `<app_data>/worker-settings/<workspace_id>.json` viene scritta (solo se cambiata) e il
-    comando la riceve con `--settings`. Il rifiuto dell'agente prevale anche in `bypass`; le regole `deny` non sono
+    comando la riceve con `--settings` (con l'Agents HUB acceso il file c'è sempre: contiene anche la sola lettura
+    degli allegati del canale del workspace, vedi il punto 4 dell'avvio dei worker più sotto). Il rifiuto dell'agente prevale anche in `bypass`; le regole `deny` non sono
     un confine di sicurezza (altre forme di invocazione possono aggirarle): la UI lo avvisa.
   - `worker_agents[<agente>].model`: modello di default dei worker di quell'agente, usato quando il task non indica
     `model` (poi vale quello del catalogo dell'agente).
@@ -709,7 +710,14 @@ portano `restore_command` (l'interattivo: il tab riprende la conversazione, non 
 4. All'avvio (`automation/worktrees/start.rs`) il modello è `task.model`, poi `Workspace.worker_agents[<agente>].model`,
    poi il predefinito del catalogo dell'agente (`None` = non si passa il modello); le regole allow/deny sono quelle di
    `worker_agents[<agente>]`, preparate dal contratto `WorkerPermissions` *dello stesso agente*
-   (`worker_permissions_file`), e il comando viene da `automation_command(agente del task, …)`.
+   (`worker_permissions_file`), e il comando viene da `automation_command(agente del task, …)`. Con l'Agents HUB
+   acceso lo stesso contratto riceve anche le cartelle che il worker legge senza conferme (`readable`: solo
+   `hub_attachments/channels/<workspace_id>/`, da `hub::attachments::workers_readable_dir`), e ne concede la sola
+   lettura: Claude Code `Read(//<cartella>/**)` tra i consentiti e `Edit(//<cartella>/**)` tra i vietati del file
+   `--settings` (forma POSIX `/c/...` su Windows, `/mnt/c/...` in WSL; non `--add-dir`, che consentirebbe anche di
+   modificare e carica la configurazione della cartella); OpenCode `external_directory(<cartella>/*)` consentita
+   prima e `edit(<cartella>/*)` vietata dopo tutte le regole. Una cartella non esprimibile in modo sicuro (caratteri
+   jolly, percorso non su un drive) si salta con un avviso nel log. Con l'HUB spento il comando resta quello di prima.
 5. Il worker nasce con `agent_id` del task; il resto (hook, `get_task`, `complete_task`) non dipende dall'agente.
 
 ### `board/` — modello, ciclo di vita e scheduler della coda

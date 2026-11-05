@@ -26,6 +26,7 @@ use crate::board::BoardView;
 use crate::hub::actions::{AppAnswers, BoardActions, HubBoardActions};
 use crate::hub::api_key::ApiKey;
 use crate::hub::append::{append_text, TextMessage};
+use crate::hub::attachments::commands::agent_paths;
 use crate::hub::channel::Channel;
 use crate::hub::commands::{emit_update, ensure_channel, hub_dirs_of};
 use crate::hub::events::HubFeed;
@@ -126,7 +127,7 @@ impl ThreadIo {
                 trigger_id: &trigger,
                 secretary: &secretary,
                 goal: &goal,
-                attachments_root: &dirs.attachments,
+                attachments: agent_paths(&app, &dirs.attachments, &key.channel),
             };
             let (value, touched) = app.state::<HubState>().update(&dirs, &key.channel, |list| {
                 ensure_channel(&app, &key.channel)?;

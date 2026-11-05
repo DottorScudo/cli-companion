@@ -3,6 +3,7 @@ use crate::hub::engine::fixtures::{bot, numbered, proposal_event, reply_to, thre
 use crate::hub::model::Attachment;
 use crate::hub::model::HubEvent;
 use crate::hub::threads::NewMessage;
+use crate::platform::TargetKind;
 use std::cell::RefCell;
 use std::path::Path;
 
@@ -120,6 +121,10 @@ fn channel_with(messages: Vec<Message>) -> ChannelThreads {
     list
 }
 
+fn windows_root() -> AttachmentPaths<'static> {
+    AttachmentPaths { root: Path::new("root"), env: TargetKind::Windows }
+}
+
 fn ticket<'a>(channel: &'a Channel, trigger: &'a str) -> PlanTicket<'a> {
     PlanTicket {
         channel,
@@ -127,7 +132,7 @@ fn ticket<'a>(channel: &'a Channel, trigger: &'a str) -> PlanTicket<'a> {
         trigger_id: trigger,
         secretary: "giorgio",
         goal: GOAL,
-        attachments_root: Path::new("root"),
+        attachments: windows_root(),
     }
 }
 
@@ -228,13 +233,13 @@ fn a_new_plan_after_the_questions_carries_the_answers_and_changes_owner() {
 fn the_plan_title_is_the_first_line_of_the_goal_clipped() {
     let t = thread(numbered(15));
     let long = format!("  \n{}\nsecond line", "a".repeat(200));
-    let order = plan_order(&long, &t, "m14", "giorgio", Path::new("root"));
+    let order = plan_order(&long, &t, "m14", "giorgio", windows_root());
     assert_eq!(order.title.chars().count(), TITLE_KEPT + 1);
     assert!(order.title.chars().count() <= crate::board::TITLE_MAX);
     // Solo i 10 messaggi prima di quello del turno.
     assert!(!order.task.contains("- [user] messaggio 3\n") && order.task.contains("- [user] messaggio 4\n"));
     assert!(order.task.contains("> messaggio 14"));
-    assert_eq!(plan_order("\u{7}", &t, "m14", "giorgio", Path::new("root")).title, FALLBACK_TITLE);
+    assert_eq!(plan_order("\u{7}", &t, "m14", "giorgio", windows_root()).title, FALLBACK_TITLE);
 }
 
 #[test]
@@ -244,9 +249,9 @@ fn an_event_wake_quotes_the_last_request_of_the_user() {
         bot("m2", "giorgio", "Apro un piano."),
         proposal_event("e1", "p-1"),
     ]);
-    let order = plan_order("Login", &t, "e1", "giorgio", Path::new("root"));
+    let order = plan_order("Login", &t, "e1", "giorgio", windows_root());
     assert!(order.task.contains("## User request (verbatim)\n\n> @giorgio aggiungi il login"), "{}", order.task);
-    let none = plan_order("Login", &thread(vec![proposal_event("e1", "p-1")]), "e1", "giorgio", Path::new("root"));
+    let none = plan_order("Login", &thread(vec![proposal_event("e1", "p-1")]), "e1", "giorgio", windows_root());
     assert!(none.task.contains("(no message from the user)"));
 }
 
@@ -265,7 +270,7 @@ fn the_attachments_of_the_request_are_listed_with_absolute_paths_and_the_instruc
     let mut request = user("m2", "@giorgio fai come nello screenshot");
     request.attachments = vec![attachment("att-1-1", "login.png")];
     let t = thread(vec![user("m1", "ciao"), request]);
-    let task = plan_order("Login", &t, "m2", "giorgio", Path::new("root")).task;
+    let task = plan_order("Login", &t, "m2", "giorgio", windows_root()).task;
     let line = format!("- {} — login.png (image/png, 2.0 KB)", stored("att-1-1", "login.png"));
     assert!(task.contains("## Attachments\n\n"), "{task}");
     assert!(task.contains(&line), "{task}");
@@ -278,7 +283,7 @@ fn the_attachments_of_the_request_are_listed_with_absolute_paths_and_the_instruc
 #[test]
 fn without_attachments_there_is_no_section() {
     let t = thread(vec![user("m1", "ciao"), user("m2", "@giorgio aggiungi il login")]);
-    let task = plan_order("Login", &t, "m2", "giorgio", Path::new("root")).task;
+    let task = plan_order("Login", &t, "m2", "giorgio", windows_root()).task;
     assert!(!task.contains("Attachments") && !task.contains("[attached"), "{task}");
 }
 
@@ -289,7 +294,7 @@ fn recent_messages_with_attachments_show_them_once_and_in_the_section() {
     let mut request = user("m2", "@giorgio analizzalo");
     request.attachments = vec![attachment("att-1-3", "nota.txt")];
     let t = thread(vec![earlier, request]);
-    let task = plan_order("Analisi", &t, "m2", "giorgio", Path::new("root")).task;
+    let task = plan_order("Analisi", &t, "m2", "giorgio", windows_root()).task;
     assert!(task.contains("- [user] ecco il log [attached: log.txt, dump.txt]\n"), "{task}");
     for (id, name) in [("att-1-1", "log.txt"), ("att-1-2", "dump.txt"), ("att-1-3", "nota.txt")] {
         assert_eq!(task.matches(&stored(id, name)).count(), 1, "{name}: {task}");
@@ -301,6 +306,18 @@ fn an_event_wake_lists_the_attachments_of_the_quoted_request_once() {
     let mut request = user("m1", "@giorgio aggiungi il login");
     request.attachments = vec![attachment("att-1-1", "login.png")];
     let t = thread(vec![request, proposal_event("e1", "p-1")]);
-    let task = plan_order("Login", &t, "e1", "giorgio", Path::new("root")).task;
+    let task = plan_order("Login", &t, "e1", "giorgio", windows_root()).task;
     assert_eq!(task.matches(&stored("att-1-1", "login.png")).count(), 1, "{task}");
+}
+
+#[test]
+fn in_a_wsl_workspace_the_planner_reads_mounted_drive_paths() {
+    let mut request = user("m1", "@giorgio fai come nello screenshot");
+    request.attachments = vec![attachment("att-1-1", "login.png")];
+    let t = thread(vec![request]);
+    let root = Path::new(r"D:\data\hub_attachments");
+    let task = plan_order("Login", &t, "m1", "giorgio", AttachmentPaths { root, env: TargetKind::Wsl }).task;
+    let line = "- /mnt/d/data/hub_attachments/channels/ws-1/t1/att-1-1/login.png — login.png (image/png, 2.0 KB)";
+    assert!(task.contains(line), "{task}");
+    assert!(!task.contains(r"D:\"), "{task}");
 }

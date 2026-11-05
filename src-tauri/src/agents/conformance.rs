@@ -378,7 +378,7 @@ fn worker_permissions(permissions: &dyn WorkerPermissions, data_dir: &Path) -> V
             v.push(format!("worker_permissions: l'esempio {:?} non e' una regola valida: {other:?}", format.example))
         }
     }
-    match permissions.prepare(data_dir, "ws-conformance", TargetKind::Windows, &[], &[]) {
+    match permissions.prepare(data_dir, "ws-conformance", TargetKind::Windows, &[], &[], &[]) {
         Ok(None) => {}
         other => v.push(format!("worker_permissions: senza regole atteso Ok(None), ottenuto {other:?}")),
     }

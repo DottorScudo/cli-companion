@@ -1,7 +1,12 @@
 use super::*;
 use crate::hub::model::{Attachment, HubEventKind};
 use crate::hub::questions::fixtures::{question_event, question_ref, task_event, thread, user, FakeAnswers};
+use crate::platform::TargetKind;
 use std::path::Path;
+
+fn windows_root() -> AttachmentPaths<'static> {
+    AttachmentPaths { root: Path::new("root"), env: TargetKind::Windows }
+}
 
 #[test]
 fn a_reply_to_a_pending_question_reaches_the_worker_as_written() {
@@ -9,7 +14,7 @@ fn a_reply_to_a_pending_question_reaches_the_worker_as_written() {
     let reply = user("m1", body, Some("e1"));
     let t = thread(vec![question_event("e1", "a", "q-1-1"), reply.clone()]);
     let board = FakeAnswers::default();
-    assert_eq!(answer_reply(&t, &reply, &board, Path::new("root")).as_deref(), Some(ANSWER_SENT));
+    assert_eq!(answer_reply(&t, &reply, &board, windows_root()).as_deref(), Some(ANSWER_SENT));
     assert_eq!(board.delivered(), [(question_ref("a", "q-1-1"), body.to_string())]);
 }
 
@@ -18,7 +23,7 @@ fn a_delivery_error_is_reported_with_the_terminal_hint() {
     let reply = user("m1", "sì", Some("e1"));
     let t = thread(vec![question_event("e1", "a", "q-1-1"), reply.clone()]);
     let board = FakeAnswers::refusing("Il worker sta ancora lavorando.");
-    let outcome = answer_reply(&t, &reply, &board, Path::new("root")).unwrap();
+    let outcome = answer_reply(&t, &reply, &board, windows_root()).unwrap();
     assert_eq!(outcome, format!("Risposta non inviata: Il worker sta ancora lavorando. {TERMINAL_HINT}"));
 }
 
@@ -28,7 +33,7 @@ fn a_question_that_no_longer_waits_is_a_clear_error_without_delivery() {
     for next in [HubEventKind::TaskQuestionAnswered, HubEventKind::TaskDone, HubEventKind::TaskFailed] {
         let reply = user("m1", "sì", Some("e1"));
         let t = thread(vec![question_event("e1", "a", "q-1-1"), task_event("e2", next, "a"), reply.clone()]);
-        assert_eq!(answer_reply(&t, &reply, &board, Path::new("root")).as_deref(), Some(NOT_PENDING), "{next:?}");
+        assert_eq!(answer_reply(&t, &reply, &board, windows_root()).as_deref(), Some(NOT_PENDING), "{next:?}");
     }
     assert!(board.delivered().is_empty());
 }
@@ -37,11 +42,11 @@ fn a_question_that_no_longer_waits_is_a_clear_error_without_delivery() {
 fn other_messages_follow_the_normal_path() {
     let board = FakeAnswers::default();
     let t = thread(vec![question_event("e1", "a", "q-1-1"), user("m0", "ciao", None)]);
-    assert_eq!(answer_reply(&t, &user("m1", "@mario stato?", None), &board, Path::new("root")), None);
-    assert_eq!(answer_reply(&t, &user("m2", "ok", Some("m0")), &board, Path::new("root")), None);
+    assert_eq!(answer_reply(&t, &user("m1", "@mario stato?", None), &board, windows_root()), None);
+    assert_eq!(answer_reply(&t, &user("m2", "ok", Some("m0")), &board, windows_root()), None);
     let mut by_bot = user("m3", "sì", Some("e1"));
     by_bot.author = Author::Bot { name: "mario".into() };
-    assert_eq!(answer_reply(&t, &by_bot, &board, Path::new("root")), None, "solo l'utente risponde direttamente");
+    assert_eq!(answer_reply(&t, &by_bot, &board, windows_root()), None, "solo l'utente risponde direttamente");
     assert!(board.delivered().is_empty());
 }
 
@@ -56,7 +61,8 @@ fn the_attachments_of_a_reply_reach_the_worker_as_absolute_paths_after_the_text(
     let t = thread(vec![question_event("e1", "a", "q-1-1"), reply.clone()]);
     let board = FakeAnswers::default();
     let root = Path::new("data").join("hub_attachments");
-    assert_eq!(answer_reply(&t, &reply, &board, &root).as_deref(), Some(ANSWER_SENT));
+    let paths = AttachmentPaths { root: &root, env: TargetKind::Windows };
+    assert_eq!(answer_reply(&t, &reply, &board, paths).as_deref(), Some(ANSWER_SENT));
     let stored = |id: &str, name: &str| root.join("channels").join("ws-1").join("t1").join(id).join(name);
     let expected = format!(
         "Ecco lo screenshot.\n\n{ATTACHMENTS_HEADER}\n- {} — errore.png (image/png, 2.0 KB)\n- {} — log.png (image/png, 2.0 KB)",
@@ -72,7 +78,22 @@ fn a_reply_with_only_attachments_delivers_just_the_list() {
     reply.attachments = vec![attachment("att-1-1", "errore.png")];
     let t = thread(vec![question_event("e1", "a", "q-1-1"), reply.clone()]);
     let board = FakeAnswers::default();
-    answer_reply(&t, &reply, &board, Path::new("root")).unwrap();
+    answer_reply(&t, &reply, &board, windows_root()).unwrap();
     let delivered = board.delivered();
     assert!(delivered[0].1.starts_with(ATTACHMENTS_HEADER) && delivered[0].1.contains("errore.png"), "{delivered:?}");
+}
+
+#[test]
+fn in_a_wsl_workspace_the_worker_receives_mounted_drive_paths() {
+    let mut reply = user("m1", "Ecco.", Some("e1"));
+    reply.attachments = vec![attachment("att-1-1", "errore.png")];
+    let t = thread(vec![question_event("e1", "a", "q-1-1"), reply.clone()]);
+    let board = FakeAnswers::default();
+    let paths = AttachmentPaths { root: Path::new(r"C:\Users\Me\AppData\hub_attachments"), env: TargetKind::Wsl };
+    answer_reply(&t, &reply, &board, paths).unwrap();
+    let expected = format!(
+        "Ecco.\n\n{ATTACHMENTS_HEADER}\n- /mnt/c/Users/Me/AppData/hub_attachments/channels/ws-1/t1/att-1-1/errore.png — \
+         errore.png (image/png, 2.0 KB)"
+    );
+    assert_eq!(board.delivered(), [(question_ref("a", "q-1-1"), expected)]);
 }

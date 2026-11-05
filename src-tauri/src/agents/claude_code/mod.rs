@@ -12,6 +12,7 @@ mod package;
 mod permissions;
 mod plugin;
 mod presets;
+mod readable_dirs;
 mod resume;
 mod session_usage;
 mod skills;

@@ -10,14 +10,15 @@
 
 use super::actions::AppAnswers;
 use super::append::{append_text, TextMessage};
-use super::attachments::listing;
+use super::attachments::commands::agent_paths;
+use super::attachments::listing::{self, AttachmentPaths};
 use super::channel::Channel;
 use super::commands::hub_dirs_of;
 use super::model::{Author, Message, Thread};
 use super::questions::{replied_question, QuestionBoard};
 use super::state::HubState;
 use super::threads::THREAD_NOT_FOUND;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
 pub const ANSWER_SENT: &str = "Risposta inviata al worker.";
@@ -30,12 +31,12 @@ const ATTACHMENTS_HEADER: &str = "Attached files (read them at these absolute pa
 /// L'esito della risposta diretta, se `message` risponde a una domanda del
 /// thread: `None` se non e' una risposta a una domanda (il messaggio segue la
 /// strada normale, segretari compresi). Gli allegati di `message` arrivano al
-/// worker come percorsi assoluti sotto `attachments_root`, dopo il testo.
+/// worker come percorsi assoluti nella forma di `attachments`, dopo il testo.
 pub fn answer_reply(
     thread: &Thread,
     message: &Message,
     board: &impl QuestionBoard,
-    attachments_root: &Path,
+    attachments: AttachmentPaths<'_>,
 ) -> Option<String> {
     if message.author != Author::User {
         return None;
@@ -44,7 +45,7 @@ pub fn answer_reply(
         Ok(target) => target,
         Err(_) => return Some(NOT_PENDING.to_string()),
     };
-    let answer = with_attachment_paths(thread, message, attachments_root);
+    let answer = with_attachment_paths(thread, message, attachments);
     Some(match board.answer(&target, &answer) {
         Ok(()) => ANSWER_SENT.to_string(),
         Err(e) => undelivered(&e),
@@ -53,14 +54,14 @@ pub fn answer_reply(
 
 /// Il testo della risposta cosi' com'e', e se ha allegati l'elenco dei loro
 /// percorsi assoluti: il worker li legge dal disco. Senza allegati e' il testo.
-fn with_attachment_paths(thread: &Thread, message: &Message, attachments_root: &Path) -> String {
+fn with_attachment_paths(thread: &Thread, message: &Message, attachments: AttachmentPaths<'_>) -> String {
     if message.attachments.is_empty() {
         return message.body.clone();
     }
     let lines: Vec<String> = message
         .attachments
         .iter()
-        .map(|a| format!("- {}", listing::describe_with_path(attachments_root, &thread.channel, &thread.id, a)))
+        .map(|a| format!("- {}", listing::describe_with_path(attachments, &thread.channel, &thread.id, a)))
         .collect();
     let list = format!("{ATTACHMENTS_HEADER}\n{}", lines.join("\n"));
     if message.body.trim().is_empty() {
@@ -88,7 +89,10 @@ pub fn deliver_if_answer(app: &AppHandle, channel: &Channel, thread_id: &str, me
             return false;
         }
     };
-    let Some(outcome) = answer_reply(&thread, message, &AppAnswers { app }, &attachments_root) else {
+    // Le domande di un thread sono dei task del suo workspace: il worker che
+    // riceve la risposta gira nell'ambiente del canale.
+    let attachments = agent_paths(app, &attachments_root, channel);
+    let Some(outcome) = answer_reply(&thread, message, &AppAnswers { app }, attachments) else {
         return false;
     };
     let notice = TextMessage { author: Author::System, body: outcome, reply_to: Some(message.id.clone()) };

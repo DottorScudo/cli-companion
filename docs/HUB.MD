@@ -239,6 +239,21 @@ nemmeno da un file dei thread modificato a mano.
 - **Lettura**: `hub_read_attachment` e `hub_attachment_path` trovano l'allegato solo tra quelli dei messaggi del
   thread; la funzione Rust `attachments::commands::attachment_path(app, channel, thread_id, attachment_id)`
   restituisce il percorso assoluto, ed è quella da usare per gli agenti.
+- **Percorsi per gli agenti** (`listing::describe_with_path`, puro): pianificatore e worker ricevono i percorsi
+  nella forma del loro ambiente, da `AttachmentPaths { root, env }`. `env` è il `TargetKind` del workspace del
+  canale (`attachments::commands::agent_paths`; i task di un thread sono sempre del workspace del suo canale):
+  Windows lascia il percorso dell'host, WSL lo traduce con `platform::windows_to_wsl_path` (`/mnt/c/...`). Un
+  percorso che WSL non raggiunge diventa «(path unavailable)», mai inventato.
+- **Accesso dei worker.** La cartella degli allegati è fuori dal repository in cui parte il worker: senza un
+  permesso Claude Code chiederebbe all'utente di leggerla (anche in plan mode) e un worker automatico si
+  fermerebbe. Con l'HUB acceso l'avvio di ogni worker (`TauriHost::worker_permissions_file`) concede la **sola
+  lettura** della sola cartella del canale del workspace, `hub_attachments/channels/<workspace_id>/`
+  (`attachments::workers_readable_dir`: mai lo staging, gli altri canali o il resto della cartella dati, che
+  contiene impostazioni e API key), tramite il contratto `WorkerPermissions` dell'agente (vedi
+  [DESIGN.MD](DESIGN.MD), avvio dei worker): con Claude Code `Read(//<cartella>/**)` consentito e
+  `Edit(//<cartella>/**)` vietato nel file `--settings`. Limiti: un worker avviato con l'HUB spento non ha il
+  permesso (se poi riceve un allegato, chiede); per OpenCode su Windows la corrispondenza dei percorsi nativi nelle
+  regole `external_directory` non è documentata da OpenCode.
 
 ## Limiti
 
@@ -961,7 +976,8 @@ diretta «… le azioni sulla board non sono disponibili.».
   e gli ultimi 10 messaggi prima del turno (autore e testo, 1000 caratteri ciascuno).
 - Allegati: se la richiesta citata o uno di quei messaggi ne ha, una sezione `## Attachments` (tra la richiesta e il
   goal) li elenca con **percorso assoluto**, nome, tipo e dimensione (`engine/planning/attachments.rs`, puro; il
-  percorso lo ricava `attachments::layout::stored_file` dalla radice `hub_attachments/`, passata a `plan_order`) e
+  percorso lo ricava `attachments::layout::stored_file` dalla radice `hub_attachments/`, passata a `plan_order`
+  con l'ambiente del workspace: `/mnt/<d>/...` in un workspace WSL, vedi "Allegati") e
   chiede al pianificatore di leggerli e di riportare i percorsi utili nelle specifiche dei task che propone, perché
   i worker vedono solo la specifica. Ogni allegato compare una volta; nelle righe dei messaggi recenti resta
   ` [attached: nome, ...]`. Mai il contenuto dei file. Senza allegati il testo è identico a prima; la sezione sta
@@ -1016,7 +1032,8 @@ deterministico, gratuito e funziona anche nei thread senza segretario titolare.
   in attesa; nessun lock dell'HUB è in mano durante la consegna).
 - Se il messaggio ha allegati, al testo si aggiunge (dopo una riga vuota) «Attached files (read them at these absolute
   paths):» e una riga per allegato con percorso assoluto, nome, tipo e dimensione (`direct_answer::answer_reply`,
-  che riceve la radice degli allegati); un messaggio con soli allegati consegna solo quell'elenco. Senza allegati
+  che riceve la radice degli allegati e l'ambiente del workspace del canale, cioè del worker: `/mnt/<d>/...` in
+  WSL); un messaggio con soli allegati consegna solo quell'elenco. Senza allegati
   il testo resta quello scritto. Il limite di 4000 caratteri della board vale sul testo completo.
 - La domanda deve essere ancora in attesa **nel thread**: per il suo task l'ultimo evento è proprio quella domanda,
   del workspace del canale. Una domanda già risposta, o di un task concluso, fallito o ripartito, dà «Risposta non

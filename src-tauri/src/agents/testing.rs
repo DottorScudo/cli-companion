@@ -264,8 +264,9 @@ impl WorkerPermissions for FakeIntegration {
         _: TargetKind,
         allow: &[String],
         deny: &[String],
+        readable: &[PathBuf],
     ) -> Result<Option<String>, String> {
-        let any = !allow.is_empty() || !deny.is_empty();
+        let any = !allow.is_empty() || !deny.is_empty() || !readable.is_empty();
         Ok(any.then(|| format!("rules/{workspace_id}.json")))
     }
 }

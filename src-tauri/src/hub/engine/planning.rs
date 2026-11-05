@@ -15,6 +15,7 @@
 
 use super::sessions::WakeCause;
 use crate::hub::actions::PlanOrder;
+use crate::hub::attachments::listing::AttachmentPaths;
 use crate::hub::channel::Channel;
 use crate::hub::model::{Author, HubEventKind, Message, Subject, Thread};
 use crate::hub::text::clean_line;
@@ -22,7 +23,6 @@ use crate::hub::threads::{ChannelThreads, TASKS_PER_THREAD_MAX};
 use crate::hub::waiting::subject_waiting;
 use crate::validate::clip_with_ellipsis;
 use serde_json::{json, Value};
-use std::path::Path;
 
 mod attachments;
 
@@ -103,8 +103,9 @@ pub struct PlanTicket<'a> {
     pub trigger_id: &'a str,
     pub secretary: &'a str,
     pub goal: &'a str,
-    /// La radice degli allegati (`HubDirs::attachments`), da cui ricavare i percorsi.
-    pub attachments_root: &'a Path,
+    /// Gli allegati (`HubDirs::attachments`) e l'ambiente del workspace del piano,
+    /// da cui ricavare i percorsi che legge il pianificatore.
+    pub attachments: AttachmentPaths<'a>,
 }
 
 /// `open_plan_task` sui thread del canale: crea il task `plan` con `create`
@@ -123,7 +124,7 @@ pub fn open_plan(
     if thread.task_ids.len() >= TASKS_PER_THREAD_MAX {
         return Err(THREAD_FULL.to_string());
     }
-    let order = plan_order(ticket.goal, thread, ticket.trigger_id, ticket.secretary, ticket.attachments_root);
+    let order = plan_order(ticket.goal, thread, ticket.trigger_id, ticket.secretary, ticket.attachments);
     let task_id = create(workspace, &order).map_err(|e| format!("The planning task could not be created: {e}"))?;
     let attached = list
         .link_tasks(ticket.thread_id, std::slice::from_ref(&task_id), now)
@@ -148,13 +149,13 @@ pub fn open_plan(
 /// Titolo e testo del task `plan`. Il testo e' in inglese (lo legge il
 /// pianificatore) e cita la richiesta dell'utente cosi' com'e'; gli allegati
 /// della richiesta e dei messaggi recenti hanno la loro sezione, con i percorsi
-/// sotto `attachments_root`.
+/// di `attachments`.
 pub fn plan_order(
     goal: &str,
     thread: &Thread,
     trigger_id: &str,
     secretary: &str,
-    attachments_root: &Path,
+    attachments: AttachmentPaths<'_>,
 ) -> PlanOrder {
     let first_line = goal.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
     let title = clean_line(first_line, TITLE_KEPT);
@@ -166,7 +167,7 @@ pub fn plan_order(
     let recent_messages = &before[before.len().saturating_sub(CONTEXT_MESSAGES)..];
     let recent: Vec<String> = recent_messages.iter().map(context_line).collect();
     let recent = if recent.is_empty() { "(none)".to_string() } else { recent.join("\n") };
-    let attachments = attachments::section(attachments_root, thread, request_message, recent_messages);
+    let attachments = attachments::section(attachments, thread, request_message, recent_messages);
     let task = format!(
         "Plan the following request. The user made it in a thread of the Agents HUB of cli-companion, and the \
 secretary @{secretary} handed it over to you.\n\n## User request (verbatim)\n\n{request}\n\n{attachments}## Goal\n\n\

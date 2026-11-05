@@ -220,6 +220,25 @@ mod timer {
 #[derive(Clone)]
 pub struct TauriHost(pub AppHandle);
 
+impl TauriHost {
+    /// Cartelle fuori dal repository che i worker del workspace leggono senza
+    /// conferme: con l'HUB acceso, gli allegati del canale del workspace, dove
+    /// stanno i file citati nel piano e nelle risposte dirette. Con l'HUB
+    /// spento nessuna (il comando di avvio resta quello di prima).
+    fn worker_readable_dirs(&self, data_dir: &std::path::Path, ws: &Workspace) -> Vec<std::path::PathBuf> {
+        if !self.hub_enabled() {
+            return Vec::new();
+        }
+        match crate::hub::attachments::workers_readable_dir(data_dir, &ws.id) {
+            Ok(dir) => vec![dir],
+            Err(e) => {
+                log::warn!("worker: allegati dell'HUB non leggibili per il workspace {}: {e}", ws.id);
+                Vec::new()
+            }
+        }
+    }
+}
+
 impl Host for TauriHost {
     fn tab_workspace(&self, tab_id: &str) -> Option<Workspace> {
         let id = crate::pty::workspace_of_tab(&self.0, tab_id)?;
@@ -253,7 +272,8 @@ impl Host for TauriHost {
 
     fn worker_permissions_file(&self, ws: &Workspace, agent: &str) -> Result<Option<String>, String> {
         let data_dir = auto::data_dir(&self.0)?;
-        agents::worker_permissions_file(agent, &data_dir, &ws.id, ws.kind, ws.worker.rules_for(agent))
+        let readable = self.worker_readable_dirs(&data_dir, ws);
+        agents::worker_permissions_file(agent, &data_dir, &ws.id, ws.kind, ws.worker.rules_for(agent), &readable)
     }
 
     fn emit_spawn(&self, ev: &SpawnEvent) {

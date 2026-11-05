@@ -30,6 +30,7 @@ mod package;
 mod permissions;
 mod plugin;
 mod presets;
+mod readable_dirs;
 mod resume;
 mod skills;
 mod version;

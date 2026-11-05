@@ -1,8 +1,10 @@
-//! Comandi Tauri degli allegati e il percorso assoluto di un allegato, che usa
-//! anche il motore. Il caricamento e' una scrittura (rifiutato con l'HUB spento,
-//! prima di creare cartelle); lettura e percorso funzionano sempre. L'I/O e'
-//! in `crate::blocking`, la copia nello staging senza il lock dell'HUB.
+//! Comandi Tauri degli allegati, il percorso assoluto di un allegato e la forma
+//! dei percorsi per gli agenti di un canale, che usa anche il motore. Il
+//! caricamento e' una scrittura (rifiutato con l'HUB spento, prima di creare
+//! cartelle); lettura e percorso funzionano sempre. L'I/O e' in
+//! `crate::blocking`, la copia nello staging senza il lock dell'HUB.
 
+use super::listing::AttachmentPaths;
 use super::storage::{self, NOT_FOUND};
 use super::stored_file;
 use super::{too_large, ATTACHMENT_SIZE_MAX};
@@ -11,6 +13,8 @@ use crate::hub::commands::{ensure_channel, ensure_enabled, hub_dirs_of};
 use crate::hub::files::HubDirs;
 use crate::hub::model::Attachment;
 use crate::hub::state::{HubState, ATTACHMENT_ID_PREFIX};
+use crate::platform::TargetKind;
+use crate::workspaces::WorkspaceStore;
 use percent_encoding::percent_decode_str;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -104,6 +108,17 @@ pub fn attachment_path(
     let attachment =
         app.state::<HubState>().read(&dirs, channel, |list| list.attachment(thread_id, attachment_id).cloned())?;
     existing_file(&dirs, channel, thread_id, &attachment)
+}
+
+/// Come vedono gli allegati del canale gli agenti che ci lavorano: dalla
+/// radice `root`, nella forma dell'ambiente del workspace del canale (Windows
+/// nel Generale, dove non girano worker, o se il workspace non c'e' piu').
+pub fn agent_paths<'a>(app: &AppHandle, root: &'a Path, channel: &Channel) -> AttachmentPaths<'a> {
+    let env = match channel {
+        Channel::Workspace(id) => app.state::<WorkspaceStore>().find(id).map_or(TargetKind::Windows, |ws| ws.kind),
+        Channel::General => TargetKind::Windows,
+    };
+    AttachmentPaths { root, env }
 }
 
 fn existing_file(

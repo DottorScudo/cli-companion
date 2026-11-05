@@ -34,6 +34,15 @@ pub fn channel_dir(root: &Path, channel: &Channel) -> PathBuf {
     root.join(CHANNELS_DIR).join(channel.as_str())
 }
 
+/// La cartella del canale del workspace `workspace_id`: un id che non e' il
+/// nome di un canale di workspace (vuoto, `general`, con separatori) e' rifiutato.
+pub fn workspace_channel_dir(root: &Path, workspace_id: &str) -> Result<PathBuf, String> {
+    match Channel::parse(workspace_id)? {
+        channel @ Channel::Workspace(_) => Ok(channel_dir(root, &channel)),
+        Channel::General => Err("il Generale non e' il canale di un workspace".to_string()),
+    }
+}
+
 pub fn thread_dir(root: &Path, channel: &Channel, thread_id: &str) -> Result<PathBuf, String> {
     Ok(channel_dir(root, channel).join(checked(thread_id, INVALID_THREAD)?))
 }
@@ -84,6 +93,15 @@ mod tests {
         let file = stored_file(&root, &ws(), "thr-1-1", &attachment("att-1-2", "a b.txt")).unwrap();
         assert_eq!(file, root.join("channels").join("ws-1").join("thr-1-1").join("att-1-2").join("a b.txt"));
         assert_eq!(channel_dir(&root, &Channel::General), root.join("channels").join("general"));
+    }
+
+    #[test]
+    fn a_workspace_channel_dir_stays_under_the_channels_dir() {
+        let root = Path::new("data").join("hub_attachments");
+        assert_eq!(workspace_channel_dir(&root, "ws-1").unwrap(), root.join("channels").join("ws-1"));
+        for bad in ["", "general", "..", "../x", "a/b", "a\\b", "C:"] {
+            assert!(workspace_channel_dir(&root, bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]
