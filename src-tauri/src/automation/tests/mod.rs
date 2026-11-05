@@ -25,6 +25,7 @@ mod reconcile;
 mod reconcile_git;
 mod review;
 mod roles;
+mod root_plan;
 mod schedule;
 mod second_agent;
 mod session_end;

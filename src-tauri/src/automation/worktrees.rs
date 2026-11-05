@@ -189,7 +189,7 @@ pub(super) fn ensure_repos<'a, H: Host>(
 }
 
 /// `dir` e' dentro un repository git? Errore se git non c'e'.
-fn is_git_repo<H: Host>(host: &H, ws: &Workspace, dir: &str) -> Result<bool, String> {
+pub(super) fn is_git_repo<H: Host>(host: &H, ws: &Workspace, dir: &str) -> Result<bool, String> {
     let inside =
         host.git(ws, dir, &["rev-parse", "--is-inside-work-tree"]).map_err(|e| format!("git is not available: {e}"))?;
     Ok(inside.ok && inside.stdout.trim() == "true")

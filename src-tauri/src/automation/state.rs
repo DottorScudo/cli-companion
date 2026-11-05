@@ -222,6 +222,10 @@ impl AutomationState {
                     let (st, h) = (self.clone(), host.clone());
                     host.defer(Duration::ZERO, Box::new(move || worktrees::run_start_job(&st, &h, *job)));
                 }
+                Effect::ReadOnlyCheck(check) => {
+                    let (st, h) = (self.clone(), host.clone());
+                    host.defer(Duration::ZERO, Box::new(move || planner::root::run_read_only_check(&st, &h, *check)));
+                }
                 Effect::Cleanup(target) => {
                     let (st, h) = (self.clone(), host.clone());
                     host.defer(CLEANUP_DELAY, Box::new(move || worktrees::run_cleanup(&st, &h, *target)));

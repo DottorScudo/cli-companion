@@ -154,6 +154,7 @@ impl Registry {
                 w.tab_open = false;
             }
             self.close_worker(&s, "the worker never called get_task: the agent did not start", FailCause::Other, now);
+            self.queue_read_only_check(&s);
             self.effects.push(Effect::Close { tab_id: s, delay: Duration::ZERO });
         }
     }

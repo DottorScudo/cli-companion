@@ -66,6 +66,9 @@ pub enum Effect {
         ws_id: String,
         task_id: Option<String>,
     },
+    /// Confrontare lo stato dei repository di un pianificatore alla root con
+    /// quello dell'avvio (git: su un thread).
+    ReadOnlyCheck(Box<planner::root::ReadOnlyCheck>),
 }
 
 /// Cio' che `complete_task` porta oltre stato e riassunto: i campi del report e
@@ -258,6 +261,7 @@ impl Registry {
             branch: env.branch.as_deref(),
             base: env.base.as_deref(),
             repo_cfg: ws.repos.get(&board::repo_key(t.repo.as_deref())),
+            root_repos: env.root_plan.as_ref().map(|p| p.repos.as_slice()),
         };
         let mut out = match t.kind {
             TaskKind::Review => review::get_task_json(&info, &ws.worker.rules, b),

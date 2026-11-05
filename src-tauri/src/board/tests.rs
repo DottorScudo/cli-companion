@@ -755,6 +755,7 @@ fn env<'a>(d: &'a Delivery, task: &'a Task, cfg: Option<&'a RepoConfig>) -> EnvI
         branch: branches.then_some("task/a"),
         base: branches.then_some("main"),
         repo_cfg: cfg,
+        root_repos: None,
     }
 }
 

@@ -23,6 +23,9 @@ pub const REVIEWER_INSTRUCTIONS: &str = include_str!("prompts/reviewer_instructi
 /// Istruzioni del pianificatore di un task `plan` (niente standard di ingegneria ne' consegna).
 pub const PLANNER_INSTRUCTIONS: &str = include_str!("prompts/planner_instructions.md");
 
+/// Aggiunta alle istruzioni del pianificatore alla root senza git; `{repos}` = i repository rilevati.
+pub const PLANNER_ROOT: &str = include_str!("prompts/planner_root.md");
+
 /// Passo di consegna dei task con `e2e`: gli E2E li esegue l'app, non il worker.
 pub const E2E_STEP: &str = "Run the E2E tests through the app: call run_e2e, then call get_e2e_result with wait_seconds 25 until the status is no longer \"running\". \
 Only the app's run counts: running the E2E command yourself does not. Continue only if the status is \"passed\"; otherwise fix the code, commit, \
@@ -52,6 +55,8 @@ pub struct EnvInfo<'a> {
     pub base: Option<&'a str>,
     /// Configurazione del repository (setup gia' eseguito dall'app nel worktree).
     pub repo_cfg: Option<&'a RepoConfig>,
+    /// Pianificatore alla root senza git: i repository rilevati (cartelle relative).
+    pub root_repos: Option<&'a [String]>,
 }
 
 impl EnvInfo<'_> {
@@ -101,7 +106,8 @@ pub fn reviewer_instructions(e: &EnvInfo, workspace_rules: &str, reviewed_e2e: b
 }
 
 /// Istruzioni del pianificatore di un task `plan`: cartella di lavoro, regole
-/// del pianificatore e del workspace (contesto per le specifiche). Con `ask_user`
+/// del pianificatore e del workspace (contesto per le specifiche). Alla root
+/// senza git segue la sezione con i repository e la sola lettura. Con `ask_user`
 /// la sezione sulle domande all'utente precede le regole del workspace.
 pub fn planner_instructions(e: &EnvInfo, workspace_rules: &str, ask_user: bool) -> String {
     let mut s = format!(
@@ -109,6 +115,10 @@ pub fn planner_instructions(e: &EnvInfo, workspace_rules: &str, ask_user: bool) 
         dir = e.workdir
     );
     s.truncate(s.trim_end().len());
+    if let Some(repos) = e.root_repos {
+        s.push_str("\n\n");
+        s.push_str(PLANNER_ROOT.trim_end().replace("{repos}", &repos.join(", ")).as_str());
+    }
     if ask_user {
         s.push_str("\n\n");
         s.push_str(PLANNER_ASK_USER.trim_end());
@@ -120,6 +130,9 @@ pub fn planner_instructions(e: &EnvInfo, workspace_rules: &str, ask_user: bool) 
 /// Testo `environment` di `get_task` per un task `plan`: dove legge il codice,
 /// senza modalita' di consegna.
 pub fn planner_environment(e: &EnvInfo) -> String {
+    if let Some(repos) = e.root_repos {
+        return root_planner_environment(e, repos);
+    }
     let mut s = String::from("Environment of this task\n");
     s.push_str(&format!("- Workspace root: {}\n", e.root));
     if let Some(r) = &e.task.repo {
@@ -135,6 +148,20 @@ pub fn planner_environment(e: &EnvInfo) -> String {
         ));
     }
     s
+}
+
+/// `environment` del pianificatore alla root senza git: la cartella del
+/// workspace, i repository rilevati, nessun worktree.
+fn root_planner_environment(e: &EnvInfo, repos: &[String]) -> String {
+    format!(
+        "Environment of this task\n\
+         - Workspace root: {root} (not a git repository)\n\
+         - Git repositories of the workspace (folders relative to the root): {list}. Every proposed task sets `repo` to one of them.\n\
+         - Your working folder: {dir}, the workspace root itself: no worktree and no branch. Read-only: do not modify anything.\n",
+        root = e.root,
+        list = repos.join(", "),
+        dir = e.workdir
+    )
 }
 
 /// Accoda alle istruzioni le regole del workspace, se ci sono.

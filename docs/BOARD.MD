@@ -341,6 +341,7 @@ riuso al retry, guardiano dei 5 minuti, timeout git 120 s, WSL via `wsl.exe -e`.
 - I **task di pianificazione** (`kind: "plan"`) hanno un worktree `task/<id>` dalla base **in ogni
   modalità**, anche in quelle senza worktree (vedi "Task di pianificazione"): niente hook `setup`
   (leggono solo il codice), niente precondizione `local_merge` sul checkout, stessa pulizia a `done`.
+  Unica eccezione la pianificazione alla root senza git: nessun worktree, nessun branch, niente da ripulire.
 - `pr`: prima della creazione `git fetch origin <base>` (cache 60 s, come oggi) e worktree da
   `origin/<base>` se esiste, altrimenti dal `<base>` locale.
 - `local_merge`: worktree dal `<base>` locale. **Precondizione** all'avvio: il checkout del
@@ -420,7 +421,8 @@ accodate come al solito. Vedi "Task di review".
 **Istruzioni del pianificatore.** Per i task `plan` `get_task` non restituisce `delivery` né lo
 standard di ingegneria: restituisce le istruzioni di `src-tauri/src/board/prompts/planner_instructions.md`
 (inglese, derivate dal preset Task Intake), un `environment` proprio (`planner_environment`: senza
-modalità di consegna, con il worktree di sola lettura) e le regole del workspace. Vedi "Task di pianificazione".
+modalità di consegna, con il worktree di sola lettura) e le regole del workspace. Vedi "Task di pianificazione"
+(e "Pianificazione alla root senza git" per la sezione in più di `planner_root.md`).
 
 **Task marcati E2E** (`e2e: true`, `work`). Il testo cambia solo per loro; per gli altri è
 identico a prima. Il passo `E2E_STEP` (`board/texts.rs`) dice di lanciare `run_e2e`, poi
@@ -917,14 +919,20 @@ consegna codice: niente branch da integrare, niente istruzioni di consegna. Rego
   l'id generato dal titolo come `task_create` e l'agente del workspace; `model` assente = quello dei
   worker del workspace. Titolo, testo, modello e repo si validano come ogni task; il workspace non deve
   essere archiviato e il repository deve essere un repository git in qualunque modalità ("… is not a
-  git repository: planning reads the code in a git worktree and needs one").
+  git repository: planning reads the code in a git worktree and needs one"). Senza `repo` (la root) basta
+  che sia git la root **oppure** almeno una sottocartella diretta (`Host::list_repos`): vedi
+  "Pianificazione alla root senza git". Se non lo è nessuna l'errore è "this workspace has no git
+  repository: neither its folder nor its direct subfolders; planning needs at least one. Ask the user to
+  run git init in the project folder", mai quello di `ensure_repos` ("… ask the user to run git init
+  there", che resta per i task normali).
 - **Mai da fuori**: `propose_tasks` (Intake, revisore, pianificatore), `update_task`, `task_create` e
   `task_update` rifiutano `kind: "plan"`. `task_create` non lo espone di proposito: un piano ha senso
   solo con chi ne consuma l'esito (l'HUB, che lega proposta e domande al suo thread); creato a mano
   sarebbe un Intake senza utente. Un `plan` in coda si modifica (titolo, testo, modello…) ma non
   cambia tipo e non accetta `e2e: true` ("a plan task cannot require E2E tests"). `depends_on` è
   ammesso ma non obbligatorio.
-- **Esecuzione**: sempre in un worktree `task/<id>` dalla base, anche nelle modalità senza worktree:
+- **Esecuzione**: sempre in un worktree `task/<id>` dalla base (tranne alla root senza git, vedi
+  "Pianificazione alla root senza git"), anche nelle modalità senza worktree:
   il pianificatore non tocca mai la copia di lavoro dell'utente, e un worktree è più semplice da
   garantire di un "non scrivere" affidato alle istruzioni. Niente hook `setup`, niente precondizione
   `local_merge`. Lo scheduler lo conta in `max_parallel` ma **non occupa il repository**: nelle
@@ -944,6 +952,39 @@ consegna codice: niente branch da integrare, niente istruzioni di consegna. Rego
   `done` → tab chiuso → worktree rimosso e branch cancellato (`-D` in `pr`, `-d` altrimenti), mai
   merge, push o PR. Un piano `failed` tiene il worktree per il retry, come ogni task; eliminarlo lo
   ripulisce.
+
+### Pianificazione alla root senza git
+
+Un workspace può contenere più progetti: la root non è un repository git, le sottocartelle dirette sì
+(per esempio `backend/` e `frontend/`). Un piano della root (`repo` assente) lì non ha un worktree da
+creare. Codice in `automation/planner/root.rs`.
+
+- **Quando**: si decide all'avvio (`prepare_start` → `planner::root::start`), in modo deterministico:
+  task `plan` senza `repo` e senza worktree già registrato, root che non risponde `true` a
+  `git rev-parse --is-inside-work-tree`, almeno un repository in `list_repos` diverso da ".". Lo stesso
+  controllo c'è alla creazione; se all'avvio i repository non ci sono più il task fallisce con l'errore
+  "this workspace has no git repository: …". Con la root git tutto resta com'è (worktree).
+- **Avvio**: `cwd` = la root del workspace; nessun worktree, branch, base, fetch né setup, e nessun
+  controllo sul checkout o sulla modalità di consegna. Lo scheduler lo tratta come ogni `plan` (non
+  occupa il repository).
+- **Cosa sa** (`get_task`): alle istruzioni del pianificatore si aggiunge `prompts/planner_root.md`
+  (inglese) con i repository rilevati: lavora nella cartella principale, che non è un repository git;
+  **sola lettura** stretta (niente file creati, modificati o cancellati, niente git commit/checkout/stash,
+  installazioni o build che scrivono nei repository); **ogni task proposto ha `repo`** uguale a uno dei
+  repository, e un obiettivo su più repository diventa un task per repository collegato con `depends_on`.
+  L'`environment` (`planner_environment`) dice root, repository e cartella di lavoro, senza worktree.
+- **Proposta**: un task senza `repo` (o con "."), o con un `repo` fuori dall'elenco, è rifiutato al modello
+  ("task '<id>': repo is required. The workspace root is not a git repository: …" / "task '<id>': repo
+  '<r>' is not one of the detected repositories (…)"); poi valgono i controlli di sempre (`ensure_repos`).
+  Le proposte dell'Intake non cambiano.
+- **Controllo di sola lettura**: all'avvio l'app salva per ogni repository `HEAD` e
+  `git status --porcelain --untracked-files=all`. Alla chiusura del tab (dopo `complete_task`, completato o
+  fallito, o a un tab chiuso prima; anche per il worker che non è mai partito) rilegge lo stato su un
+  thread (`Effect::ReadOnlyCheck`) e confronta. Se un repository è cambiato il task resta concluso com'è
+  ma riceve la nota "il pianificatore ha modificato file in: backend, frontend (doveva lavorare in sola
+  lettura)" (accodata a quella che c'è) e un avviso `attention`. Nulla si annulla. Un repository che non
+  si legge (git assente, errore) si scrive nei log e non si confronta.
+- **Fine**: niente diffstat, niente worktree da rimuovere né branch da cancellare.
 
 ## Proposte (approvazione)
 

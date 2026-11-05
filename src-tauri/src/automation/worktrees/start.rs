@@ -4,6 +4,7 @@
 use super::{git, is_abs, join_path, repo_cfg, repo_dir, task_branch, FetchCache, StartJob, WORKTREES_DIR};
 use crate::agents::{registry, AutomationLaunch, AutomationRequest};
 use crate::automation::hooks;
+use crate::automation::planner::root::RootPlan;
 use crate::automation::*;
 use crate::board::{repo_key, Task, WorktreeInfo};
 use crate::validate::valid_branch;
@@ -270,30 +271,54 @@ fn catalog_default_model(agent_id: &str) -> Option<&'static str> {
     registry::find(agent_id).ok()?.capabilities().models?.default_model()
 }
 
+/// Dove lavora il worker: worktree (con gli avvisi della preparazione), branch
+/// e base del task, pianificatore alla root.
+#[derive(Default)]
+struct Placement {
+    worktree: Option<WorktreeInfo>,
+    warnings: Vec<String>,
+    branch: Option<String>,
+    base: Option<String>,
+    root_plan: Option<RootPlan>,
+}
+
+/// Prepara il repository del task: worktree e setup, oppure (in place) solo i
+/// controlli e la base per le istruzioni.
+fn place_in_repo<H: Host>(st: &AutomationState, host: &H, job: &StartJob, dir: &str) -> Result<Placement, String> {
+    let (ws, task) = (&job.ws, &job.task);
+    let delivery = ws.delivery;
+    // Un task `isolated` ha sempre il suo worktree e non consegna: niente vincoli sul checkout.
+    let isolated = task.kind.isolated();
+    let branch = (delivery.uses_branches() || isolated).then(|| task_branch(&task.id));
+    if delivery.worktrees() || isolated {
+        let base = task_base(host, job, dir)?;
+        if delivery.mode == DeliveryMode::LocalMerge && !isolated {
+            require_checkout_on_base(host, ws, dir, &base)?;
+        }
+        let (wt, warnings) = prepare_and_setup(st, host, job, &base)?;
+        return Ok(Placement { worktree: Some(wt), warnings, branch, base: Some(base), root_plan: None });
+    }
+    if let Some(r) = &task.repo {
+        if !host.dir_exists(ws, dir) {
+            return Err(format!("the repository folder '{r}' ({dir}) does not exist in the workspace"));
+        }
+    }
+    // Senza worktree l'app non tocca git: legge solo la base per le istruzioni.
+    let base = if delivery.uses_branches() { Some(task_base(host, job, dir)?) } else { None };
+    Ok(Placement { branch, base, ..Placement::default() })
+}
+
 fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Result<Prepared, String> {
     let (ws, task) = (&job.ws, &job.task);
     let delivery = ws.delivery;
     let dir = repo_dir(ws, task.repo.as_deref());
-    // Un task `isolated` ha sempre il suo worktree e non consegna: niente vincoli sul checkout.
-    let isolated = task.kind.isolated();
-    let branch = (delivery.uses_branches() || isolated).then(|| task_branch(&task.id));
-    let (worktree, warnings, base) = if delivery.worktrees() || isolated {
-        let base = task_base(host, job, &dir)?;
-        if delivery.mode == DeliveryMode::LocalMerge && !isolated {
-            require_checkout_on_base(host, ws, &dir, &base)?;
-        }
-        let (wt, w) = prepare_and_setup(st, host, job, &base)?;
-        (Some(wt), w, Some(base))
-    } else {
-        if let Some(r) = &task.repo {
-            if !host.dir_exists(ws, &dir) {
-                return Err(format!("the repository folder '{r}' ({dir}) does not exist in the workspace"));
-            }
-        }
-        // Senza worktree l'app non tocca git: legge solo la base per le istruzioni.
-        let base = if delivery.uses_branches() { Some(task_base(host, job, &dir)?) } else { None };
-        (None, Vec::new(), base)
+    // Il pianificatore alla root lavora nella cartella del workspace: niente
+    // worktree, branch, setup ne' controlli sul checkout.
+    let place = match planner::root::start(host, ws, task)? {
+        Some(plan) => Placement { root_plan: Some(plan), ..Placement::default() },
+        None => place_in_repo(st, host, job, &dir)?,
     };
+    let Placement { worktree, warnings, branch, base, root_plan } = place;
     let workdir = worktree.as_ref().map_or_else(|| dir.clone(), |w| w.path.clone());
     let permissions_file = host.worker_permissions_file(ws, &task.agent)?;
     let req = AutomationRequest {
@@ -315,7 +340,7 @@ fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Res
             env: launch_env,
             kind: task.kind,
         },
-        env: WorkerEnv { delivery, repo_dir: dir, workdir, branch, base },
+        env: WorkerEnv { delivery, repo_dir: dir, workdir, branch, base, root_plan },
     })
 }
 
