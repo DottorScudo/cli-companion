@@ -18,6 +18,7 @@ use super::planning::{self, PlanTicket, ProposalBoard, ProposalRef};
 use super::relay;
 use super::runtime::SecretaryEngine;
 use super::sessions::ThreadKey;
+use super::thread_page::ThreadPage;
 use super::tools::{board_workspace, BoardAccessError};
 use super::turn::TurnHost;
 use super::workspace_names::WorkspaceNames;
@@ -33,12 +34,15 @@ use crate::hub::model::{Author, Thread};
 use crate::hub::questions::QuestionRef;
 use crate::hub::settings::{Provider, Secretary};
 use crate::hub::state::HubState;
+use crate::hub::text::clean_line;
 use crate::hub::threads::{summary, THREAD_NOT_FOUND};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
 
 /// Il lavoro e' di un'epoca passata: l'HUB e' stato spento.
 const STALE: &str = "sessione chiusa: l'Agents HUB è stato spento";
+/// Caratteri tenuti dell'id di un task nei messaggi di errore.
+const TASK_ID_KEPT: usize = 64;
 
 /// Il thread di un lavoro del motore.
 pub struct ThreadIo {
@@ -231,14 +235,15 @@ impl AppTurnHost<'_> {
     }
 }
 
-impl TurnHost for AppTurnHost<'_> {
-    async fn board_status(&self, workspace: Option<String>, query: BoardQuery) -> Result<Value, String> {
+impl AppTurnHost<'_> {
+    /// La board del workspace chiesto (`None` = quello del canale del thread),
+    /// se il segretario puo' leggerla; l'errore e' in inglese, per il modello.
+    async fn readable_board(&self, workspace: Option<String>) -> Result<BoardView, String> {
         let requested = workspace.map(|reference| self.names.find_for_model(&reference, self.secretary)).transpose()?;
         match board_workspace(requested, self.channel(), self.secretary) {
             Ok(id) => {
                 let views = self.views().await?;
-                let view = views.iter().find(|v| v.workspace_id == id);
-                view.map(|v| output::board_status(v, self.names, &query)).ok_or_else(|| "That workspace was not found.".to_string())
+                views.into_iter().find(|v| v.workspace_id == id).ok_or_else(|| "That workspace was not found.".to_string())
             }
             Err(BoardAccessError::NoChannelBoard) => Err(format!(
                 "This thread is in the General channel, which has no board: pass `workspace` with the name of one of: {}.",
@@ -250,12 +255,37 @@ impl TurnHost for AppTurnHost<'_> {
             )),
         }
     }
+}
 
-    async fn thread_read(&self) -> Result<Value, String> {
-        self.io.load_thread().await.map(|t| output::thread(&t, self.names)).map_err(|e| {
+impl TurnHost for AppTurnHost<'_> {
+    async fn board_status(&self, workspace: Option<String>, query: BoardQuery) -> Result<Value, String> {
+        let view = self.readable_board(workspace).await?;
+        Ok(output::board_status(&view, self.names, &query))
+    }
+
+    async fn board_overview(&self) -> Result<Value, String> {
+        let views = self.views().await?;
+        Ok(output::board_overview(&views, self.names, self.secretary))
+    }
+
+    async fn task_details(&self, workspace: Option<String>, task_id: String) -> Result<Value, String> {
+        let view = self.readable_board(workspace).await?;
+        let task = view.tasks.iter().find(|v| v.task.id == task_id).ok_or_else(|| {
+            format!(
+                "No task with id \"{}\" on the board of workspace \"{}\". Use `board_status` to find task ids.",
+                clean_line(&task_id, TASK_ID_KEPT),
+                self.names.name_of(&view.workspace_id).unwrap_or("unknown")
+            )
+        })?;
+        Ok(output::task_details(task, &view.workspace_id, self.names))
+    }
+
+    async fn thread_read(&self, page: ThreadPage) -> Result<Value, String> {
+        let thread = self.io.load_thread().await.map_err(|e| {
             log::warn!("hub: thread_read fallito: {e}");
             "The thread could not be read.".to_string()
-        })
+        })?;
+        output::thread(&thread, self.names, &page)
     }
 
     async fn post_message(&self, body: String) -> Result<(), String> {

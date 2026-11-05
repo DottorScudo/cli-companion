@@ -38,7 +38,12 @@ export const LANGUAGES: readonly { id: HubLanguage; label: string }[] = [
 /** Tool del motore, nell'ordine canonico del backend, con la descrizione breve mostrata all'utente. */
 export const SECRETARY_TOOLS: readonly { id: HubSecretaryTool; description: string }[] = [
   { id: "board_status", description: "Legge task e stati della board" },
-  { id: "thread_read", description: "Legge il riassunto e gli ultimi messaggi del thread" },
+  {
+    id: "board_overview",
+    description: "Riepiloga in una volta tutti i workspace: conteggi, task e domande che aspettano te",
+  },
+  { id: "task_details", description: "Legge un task per intero: specifica, report, commit e domanda in attesa" },
+  { id: "thread_read", description: "Legge il riassunto e i messaggi del thread, anche i più vecchi" },
   { id: "post_message", description: "Scrive nel thread" },
   { id: "open_plan_task", description: "Apre un task di pianificazione" },
   { id: "decide_proposal", description: "Accetta o scarta la proposta a cui rispondi" },

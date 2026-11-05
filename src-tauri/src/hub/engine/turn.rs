@@ -14,6 +14,7 @@ use super::board_query::BoardQuery;
 use super::chat::{ChatMessage, ChatModel, ChatRequest, ModelError, ModelReply, ToolCall};
 use super::context;
 use super::texts;
+use super::thread_page::ThreadPage;
 use super::tools::{self, Invocation};
 use crate::hub::settings::Secretary;
 use crate::validate::clip_with_ellipsis;
@@ -37,8 +38,16 @@ pub trait TurnHost: Send + Sync {
         workspace: Option<String>,
         query: BoardQuery,
     ) -> impl Future<Output = Result<Value, String>> + Send;
-    /// Il thread compatto.
-    fn thread_read(&self) -> impl Future<Output = Result<Value, String>> + Send;
+    /// Il riepilogo di tutti i workspace che il segretario puo' consultare.
+    fn board_overview(&self) -> impl Future<Output = Result<Value, String>> + Send;
+    /// Un task per intero, della board del workspace (`None` = quella del canale del thread).
+    fn task_details(
+        &self,
+        workspace: Option<String>,
+        task_id: String,
+    ) -> impl Future<Output = Result<Value, String>> + Send;
+    /// Il thread compatto, con la pagina di messaggi chiesta.
+    fn thread_read(&self, page: ThreadPage) -> impl Future<Output = Result<Value, String>> + Send;
     /// Scrive un messaggio del segretario nel thread.
     fn post_message(&self, body: String) -> impl Future<Output = Result<(), String>> + Send;
     /// Apre un task di pianificazione collegato al thread (vedi `planning::open_plan`).
@@ -139,7 +148,9 @@ async fn execute<H: TurnHost>(host: &H, secretary: &Secretary, call: &ToolCall, 
 async fn invoke<H: TurnHost>(host: &H, invocation: Invocation) -> Result<Value, String> {
     match invocation {
         Invocation::BoardStatus { workspace, query } => host.board_status(workspace, query).await,
-        Invocation::ThreadRead => host.thread_read().await,
+        Invocation::BoardOverview => host.board_overview().await,
+        Invocation::TaskDetails { workspace, task_id } => host.task_details(workspace, task_id).await,
+        Invocation::ThreadRead { page } => host.thread_read(page).await,
         Invocation::PostMessage { body } => host.post_message(body).await.map(|()| json!({ "posted": true })),
         Invocation::OpenPlanTask { goal } => host.open_plan_task(goal).await,
         Invocation::DecideProposal { accept } => host.decide_proposal(accept).await,

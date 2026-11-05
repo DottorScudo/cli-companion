@@ -9,6 +9,8 @@ use super::audit::MAX_MUTATIONS_PER_TURN;
 use super::board_query::BoardQuery;
 use super::chat::{ToolCall, ToolSpec};
 use super::planning::GOAL_MAX;
+use super::thread_page::ThreadPage;
+use super::workspace_names::REFERENCE_MAX;
 use crate::board::ANSWER_MAX;
 use crate::hub::channel::Channel;
 use crate::hub::settings::{Secretary, SecretaryTool};
@@ -28,7 +30,15 @@ pub enum Invocation {
         workspace: Option<String>,
         query: BoardQuery,
     },
-    ThreadRead,
+    BoardOverview,
+    TaskDetails {
+        /// `None` = la board del canale del thread.
+        workspace: Option<String>,
+        task_id: String,
+    },
+    ThreadRead {
+        page: ThreadPage,
+    },
     PostMessage {
         body: String,
     },
@@ -48,7 +58,9 @@ impl Invocation {
     pub fn tool(&self) -> SecretaryTool {
         match self {
             Self::BoardStatus { .. } => SecretaryTool::BoardStatus,
-            Self::ThreadRead => SecretaryTool::ThreadRead,
+            Self::BoardOverview => SecretaryTool::BoardOverview,
+            Self::TaskDetails { .. } => SecretaryTool::TaskDetails,
+            Self::ThreadRead { .. } => SecretaryTool::ThreadRead,
             Self::PostMessage { .. } => SecretaryTool::PostMessage,
             Self::OpenPlanTask { .. } => SecretaryTool::OpenPlanTask,
             Self::DecideProposal { .. } => SecretaryTool::DecideProposal,
@@ -95,12 +107,9 @@ pub fn specs(secretary: &Secretary) -> Vec<ToolSpec> {
 pub fn spec(tool: SecretaryTool) -> ToolSpec {
     match tool {
         SecretaryTool::BoardStatus => board_status::spec(tool),
-        SecretaryTool::ThreadRead => ToolSpec {
-            name: tool.code(),
-            description: "Read this thread: its title, its summary and its latest messages, including the data \
-                of the board events reported in it.",
-            parameters: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
-        },
+        SecretaryTool::BoardOverview => board_overview::spec(tool),
+        SecretaryTool::TaskDetails => task_details::spec(tool),
+        SecretaryTool::ThreadRead => thread_read::spec(tool),
         SecretaryTool::PostMessage => ToolSpec {
             name: tool.code(),
             description: "Post an intermediate message in this thread, for example to say what you are checking. \
@@ -188,7 +197,7 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ThreadReadArgs {}
+struct BoardOverviewArgs {}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -227,9 +236,17 @@ pub fn parse(call: &ToolCall, secretary: &Secretary) -> Result<Invocation, ToolR
             let (workspace, query) = board_status::parse(&call.arguments).map_err(invalid)?;
             Ok(Invocation::BoardStatus { workspace, query })
         }
+        SecretaryTool::BoardOverview => {
+            let _: BoardOverviewArgs = arguments(&call.arguments).map_err(invalid)?;
+            Ok(Invocation::BoardOverview)
+        }
+        SecretaryTool::TaskDetails => {
+            let (workspace, task_id) = task_details::parse(&call.arguments).map_err(invalid)?;
+            Ok(Invocation::TaskDetails { workspace, task_id })
+        }
         SecretaryTool::ThreadRead => {
-            let _: ThreadReadArgs = arguments(&call.arguments).map_err(invalid)?;
-            Ok(Invocation::ThreadRead)
+            let page = thread_read::parse(&call.arguments).map_err(invalid)?;
+            Ok(Invocation::ThreadRead { page })
         }
         SecretaryTool::PostMessage => {
             let args: PostMessageArgs = arguments(&call.arguments).map_err(invalid)?;
@@ -285,6 +302,18 @@ pub fn board_workspace(
     }
 }
 
+/// Il riferimento a un workspace in un tool, ripulito (`None` = quello del
+/// canale del thread); l'errore e' in inglese, per il modello.
+fn workspace_reference(raw: Option<&str>) -> Result<Option<String>, String> {
+    match raw.map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(reference) if reference.chars().count() > REFERENCE_MAX => {
+            Err(format!("`workspace` must be at most {REFERENCE_MAX} characters"))
+        }
+        Some(reference) => Ok(Some(reference.to_string())),
+    }
+}
+
 /// Argomenti vuoti valgono `{}` (alcuni endpoint mandano "" per un tool senza
 /// parametri); il resto deve essere un oggetto JSON della forma attesa.
 fn arguments<T: DeserializeOwned>(raw: &str) -> Result<T, String> {
@@ -300,7 +329,10 @@ fn arguments<T: DeserializeOwned>(raw: &str) -> Result<T, String> {
     serde_json::from_value(value).map_err(|e| format!("arguments do not match the schema ({e})"))
 }
 
+mod board_overview;
 mod board_status;
+pub(super) mod task_details;
+mod thread_read;
 
 #[cfg(test)]
 mod tests;

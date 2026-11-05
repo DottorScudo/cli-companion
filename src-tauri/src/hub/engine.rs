@@ -44,6 +44,7 @@ mod runtime;
 mod sessions;
 pub mod status;
 mod texts;
+mod thread_page;
 mod tools;
 mod turn;
 mod workspace_names;

@@ -7,4 +7,4 @@
  * perdere il resto. Un tool nuovo non si aggiunge da solo ai segretari
  * esistenti: lo sceglie l'utente.
  */
-export type HubSecretaryTool = "board_status" | "thread_read" | "post_message" | "open_plan_task" | "decide_proposal" | "relay_answer";
+export type HubSecretaryTool = "board_status" | "board_overview" | "task_details" | "thread_read" | "post_message" | "open_plan_task" | "decide_proposal" | "relay_answer";

@@ -5,6 +5,7 @@ use crate::hub::engine::fixtures::{secretary, FakeBoard, WS};
 use crate::hub::engine::planning::{self, ProposalBoard, ProposalRef};
 use crate::hub::engine::relay::{self, relay_target};
 use crate::hub::engine::sessions::WakeCause;
+use crate::hub::engine::thread_page::ThreadPage;
 use crate::hub::model::HubEventKind;
 use crate::hub::questions::fixtures::{question_event, question_ref, task_event, thread, FakeAnswers};
 use crate::hub::questions::QuestionRef;
@@ -20,6 +21,9 @@ struct FakeHost {
     posted: Mutex<Vec<String>>,
     notices: Mutex<Vec<String>>,
     boards: Mutex<Vec<Option<String>>>,
+    overviews: Mutex<usize>,
+    details: Mutex<Vec<(Option<String>, String)>>,
+    pages: Mutex<Vec<ThreadPage>>,
     plans: Mutex<Vec<String>>,
     proposal: Option<ProposalRef>,
     board: FakeBoard,
@@ -48,7 +52,21 @@ impl TurnHost for FakeHost {
         }
     }
 
-    async fn thread_read(&self) -> Result<Value, String> {
+    async fn board_overview(&self) -> Result<Value, String> {
+        *self.overviews.lock().unwrap() += 1;
+        Ok(json!({ "workspaces": [] }))
+    }
+
+    async fn task_details(&self, workspace: Option<String>, task_id: String) -> Result<Value, String> {
+        self.details.lock().unwrap().push((workspace, task_id.clone()));
+        match task_id.as_str() {
+            "t-404" => Err("No task with id \"t-404\" on the board of workspace \"Muse Companion\".".to_string()),
+            _ => Ok(json!({ "id": task_id, "status": "done", "report": { "commit": "abc1234" } })),
+        }
+    }
+
+    async fn thread_read(&self, page: ThreadPage) -> Result<Value, String> {
+        self.pages.lock().unwrap().push(page);
         Ok(json!({ "title": "Login", "big": "x".repeat(TOOL_RESULT_MAX * 2) }))
     }
 
@@ -107,7 +125,16 @@ fn a_text_reply_ends_the_turn() {
     assert_eq!(requests[0].system, "system");
     assert_eq!(
         requests[0].tools,
-        ["board_status", "thread_read", "post_message", "open_plan_task", "decide_proposal", "relay_answer"]
+        [
+            "board_status",
+            "board_overview",
+            "task_details",
+            "thread_read",
+            "post_message",
+            "open_plan_task",
+            "decide_proposal",
+            "relay_answer"
+        ]
     );
 }
 
@@ -424,4 +451,73 @@ fn the_summary_comes_from_the_model_or_is_kept() {
     for reply in [Err(ModelError::Unreachable), calls(vec![call("c", "thread_read", "")]), text("   ")] {
         assert_eq!(block_on(updated_summary(&FakeModel::new(vec![reply]), Some("Old."), &conversation)), None);
     }
+}
+
+#[test]
+fn the_read_tools_reach_the_host_without_notices_and_without_using_the_change_limit() {
+    let plans = (0..MAX_MUTATIONS_PER_TURN).map(|i| call(&format!("p{i}"), "open_plan_task", r#"{"goal":"Add X"}"#));
+    let reads = vec![
+        call("r1", "board_overview", ""),
+        call("r2", "task_details", r#"{"task_id":"t-1","workspace":"Sito Web"}"#),
+        call("r3", "thread_read", r#"{"before":"m9"}"#),
+        call("r4", "thread_read", r#"{"offset":20}"#),
+    ];
+    let model = FakeModel::new(vec![calls(plans.chain(reads).collect()), text("Fatto.")]);
+    let host = FakeHost::default();
+    let (end, _) = run(&model, &host, &secretary("mario"), 8);
+    assert_eq!(end, TurnEnd::Reply("Fatto.".into()));
+    assert_eq!(*host.overviews.lock().unwrap(), 1);
+    assert_eq!(*host.details.lock().unwrap(), [(Some("Sito Web".to_string()), "t-1".to_string())]);
+    assert_eq!(*host.pages.lock().unwrap(), [ThreadPage::Before("m9".into()), ThreadPage::Offset(20)]);
+    assert!(host.notices.lock().unwrap().is_empty());
+    let messages = &model.requests()[1].messages;
+    let result = |i: usize| match &messages[i] {
+        ChatMessage::Tool { content, .. } => content.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert!(result(2 + MAX_MUTATIONS_PER_TURN + 1).contains("abc1234"));
+}
+
+#[test]
+fn a_task_that_does_not_exist_is_an_error_for_the_model_and_not_a_notice() {
+    let model =
+        FakeModel::new(vec![calls(vec![call("c1", "task_details", r#"{"task_id":"t-404"}"#)]), text("Non c'è.")]);
+    let host = FakeHost::default();
+    let (end, _) = run(&model, &host, &secretary("mario"), 8);
+    assert_eq!(end, TurnEnd::Reply("Non c'è.".into()));
+    assert!(tool_result(&model, 1).contains(r#""error":"No task with id"#));
+    assert!(host.notices.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_read_tool_the_secretary_does_not_have_is_refused_with_a_notice() {
+    let mut s = secretary("mario");
+    s.tools = vec![SecretaryTool::BoardStatus, SecretaryTool::ThreadRead];
+    let model = FakeModel::new(vec![
+        calls(vec![call("c1", "task_details", r#"{"task_id":"t-1"}"#), call("c2", "board_overview", "{}")]),
+        text("Non posso."),
+    ]);
+    let host = FakeHost::default();
+    run(&model, &host, &s, 8);
+    assert!(host.details.lock().unwrap().is_empty() && *host.overviews.lock().unwrap() == 0);
+    assert_eq!(host.notices.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn invalid_dates_and_pages_never_reach_the_host() {
+    let model = FakeModel::new(vec![
+        calls(vec![
+            call("c1", "board_status", r#"{"updated_since":"yesterday"}"#),
+            call("c2", "thread_read", r#"{"before":"m1","offset":2}"#),
+        ]),
+        text("Scusa."),
+    ]);
+    let host = FakeHost::default();
+    run(&model, &host, &secretary("mario"), 8);
+    assert!(host.boards.lock().unwrap().is_empty() && host.pages.lock().unwrap().is_empty());
+    let messages = &model.requests()[1].messages;
+    assert!(
+        matches!(&messages[2], ChatMessage::Tool { content, .. } if content.contains("`updated_since` must be an ISO 8601"))
+    );
+    assert!(matches!(&messages[3], ChatMessage::Tool { content, .. } if content.contains("only one of")));
 }

@@ -52,7 +52,10 @@ impl MutationBudget {
 /// `None` se non modifica nulla o se il suo effetto si vede gia' nel thread.
 pub fn notice(secretary: &str, invocation: &Invocation) -> Option<String> {
     match invocation {
-        Invocation::BoardStatus { .. } | Invocation::ThreadRead => None,
+        Invocation::BoardStatus { .. }
+        | Invocation::BoardOverview
+        | Invocation::TaskDetails { .. }
+        | Invocation::ThreadRead { .. } => None,
         // Gia' visibili: il messaggio stesso, l'evento del task creato, gli
         // eventi della proposta decisa.
         Invocation::PostMessage { .. } | Invocation::OpenPlanTask { .. } | Invocation::DecideProposal { .. } => None,
@@ -66,10 +69,12 @@ mod tests {
     use crate::hub::engine::board_query::BoardQuery;
 
     /// Una chiamata valida per ogni tool, nell'ordine canonico.
-    fn one_of_each() -> [Invocation; 6] {
+    fn one_of_each() -> [Invocation; 8] {
         [
             Invocation::BoardStatus { workspace: None, query: BoardQuery::default() },
-            Invocation::ThreadRead,
+            Invocation::BoardOverview,
+            Invocation::TaskDetails { workspace: None, task_id: "t-1".into() },
+            Invocation::ThreadRead { page: Default::default() },
             Invocation::PostMessage { body: "Controllo.".into() },
             Invocation::OpenPlanTask { goal: "Add a login page".into() },
             Invocation::DecideProposal { accept: true },
@@ -100,7 +105,13 @@ mod tests {
             Err(ToolRejection::TurnLimit(SecretaryTool::DecideProposal))
         );
         // Letture e messaggi restano liberi, e non consumano il limite.
-        for tool in [SecretaryTool::BoardStatus, SecretaryTool::ThreadRead, SecretaryTool::PostMessage] {
+        for tool in [
+            SecretaryTool::BoardStatus,
+            SecretaryTool::BoardOverview,
+            SecretaryTool::TaskDetails,
+            SecretaryTool::ThreadRead,
+            SecretaryTool::PostMessage,
+        ] {
             assert_eq!(budget.admit(tool), Ok(()));
         }
         let mut fresh = MutationBudget::default();
@@ -112,7 +123,16 @@ mod tests {
     fn only_changes_not_visible_in_the_thread_leave_a_notice() {
         assert_eq!(
             one_of_each().map(|i| notice("mario", &i)),
-            [None, None, None, None, None, Some("@mario ha inviato al worker questa risposta:\nUse Postgres.".into())]
+            [
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some("@mario ha inviato al worker questa risposta:\nUse Postgres.".into())
+            ]
         );
     }
 }

@@ -1,6 +1,8 @@
 use super::*;
 use crate::board::{TaskKind, TaskStatus};
 use crate::hub::engine::board_query::{PAGE_DEFAULT, PAGE_MAX, QUERY_MAX};
+use crate::hub::engine::thread_page::{ThreadPage, MESSAGE_ID_MAX};
+use crate::hub::engine::tools::task_details::TASK_ID_MAX;
 use crate::hub::engine::workspace_names::REFERENCE_MAX;
 use crate::hub::settings::SecretaryChannels;
 
@@ -44,9 +46,10 @@ fn schema_properties_match_the_argument_structs() {
     let samples = [
         (
             "board_status",
-            json!({"workspace": "ws-1", "status": ["failed"], "attention": true, "kind": "work", "query": "login", "offset": 0, "limit": 5}),
+            json!({"workspace": "ws-1", "status": ["failed"], "attention": true, "kind": "work", "query": "login", "updated_since": "2026-11-01", "updated_before": "2026-11-05", "offset": 0, "limit": 5}),
         ),
-        ("thread_read", json!({})),
+        ("board_overview", json!({})),
+        ("task_details", json!({"task_id": "t-1", "workspace": "ws-1"})),
         ("post_message", json!({"body": "x"})),
         ("open_plan_task", json!({"goal": "Add a dark theme"})),
         ("decide_proposal", json!({"accept": true})),
@@ -74,7 +77,7 @@ fn a_tool_outside_the_list_is_not_allowed() {
 #[test]
 fn arguments_are_validated_against_the_schema() {
     let s = secretary(&SecretaryTool::ALL);
-    assert_eq!(parse(&call("thread_read", ""), &s), Ok(Invocation::ThreadRead));
+    assert_eq!(parse(&call("thread_read", ""), &s), Ok(Invocation::ThreadRead { page: ThreadPage::Latest }));
     assert_eq!(
         parse(&call("board_status", "{}"), &s),
         Ok(Invocation::BoardStatus { workspace: None, query: BoardQuery::default() })
@@ -206,6 +209,8 @@ fn board_status_accepts_every_filter_and_the_page() {
             attention: true,
             kind: Some(TaskKind::Review),
             text: Some("Login".into()),
+            updated_since: None,
+            updated_before: None,
             offset: 40,
             limit: 5,
         }
@@ -276,4 +281,114 @@ fn the_board_status_schema_describes_every_property_and_its_bounds() {
 fn sorted(mut keys: Vec<String>) -> Vec<String> {
     keys.sort();
     keys
+}
+
+fn instant(text: &str) -> i64 {
+    chrono::DateTime::parse_from_rfc3339(text).unwrap().timestamp_millis()
+}
+
+#[test]
+fn board_status_reads_the_update_window_as_utc_milliseconds() {
+    let query =
+        board_args(r#"{"updated_since":" 2026-11-01 ","updated_before":"2026-11-05T10:30:00+01:00"}"#).unwrap().1;
+    assert_eq!(query.updated_since, Some(instant("2026-11-01T00:00:00Z")));
+    assert_eq!(query.updated_before, Some(instant("2026-11-05T09:30:00Z")));
+    let open = board_args(r#"{"updated_before":"2026-11-05"}"#).unwrap().1;
+    assert_eq!((open.updated_since, open.updated_before.is_some()), (None, true));
+}
+
+#[test]
+fn board_status_rejects_an_invalid_or_inverted_window() {
+    let cases = [
+        (r#"{"updated_since":"yesterday"}"#, "`updated_since` must be an ISO 8601"),
+        (r#"{"updated_before":"2026-13-01"}"#, "`updated_before` must be an ISO 8601"),
+        (r#"{"updated_since":""}"#, "`updated_since` must be an ISO 8601"),
+        (r#"{"updated_since":5}"#, "schema"),
+        (r#"{"updated_since":"2026-11-05","updated_before":"2026-11-05"}"#, "earlier than"),
+        (r#"{"updated_since":"2026-11-06","updated_before":"2026-11-05"}"#, "earlier than"),
+    ];
+    for (args, reason) in cases {
+        let Err(ToolRejection::InvalidArguments { tool, reason: got }) = board_args(args) else {
+            panic!("{args} should be rejected");
+        };
+        assert_eq!(tool, SecretaryTool::BoardStatus, "{args}");
+        assert!(got.contains(reason), "{args}: {got}");
+    }
+}
+
+fn thread_page(args: &str) -> Result<ThreadPage, ToolRejection> {
+    match parse(&call("thread_read", args), &secretary(&SecretaryTool::ALL))? {
+        Invocation::ThreadRead { page } => Ok(page),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn thread_read_chooses_the_page_by_message_id_or_offset() {
+    assert_eq!(thread_page("{}"), Ok(ThreadPage::Latest));
+    assert_eq!(thread_page(r#"{"before":" m12 "}"#), Ok(ThreadPage::Before("m12".into())));
+    assert_eq!(thread_page(r#"{"offset":40}"#), Ok(ThreadPage::Offset(40)));
+    assert_eq!(thread_page(r#"{"offset":0}"#), Ok(ThreadPage::Offset(0)));
+    let schema = spec(SecretaryTool::ThreadRead).parameters;
+    assert_eq!(sorted(schema["properties"].as_object().unwrap().keys().cloned().collect()), ["before", "offset"]);
+    assert_eq!(schema["properties"]["offset"]["minimum"], 0);
+}
+
+#[test]
+fn thread_read_rejects_a_bad_page_with_a_clear_reason() {
+    let long = json!({ "before": "m".repeat(MESSAGE_ID_MAX + 1) }).to_string();
+    let cases = [
+        (r#"{"before":"m1","offset":3}"#, "only one of"),
+        (r#"{"before":"   "}"#, "`before` must be a message id"),
+        (long.as_str(), "`before` must be a message id"),
+        (r#"{"offset":-1}"#, "schema"),
+        (r#"{"offset":"3"}"#, "schema"),
+        (r#"{"after":"m1"}"#, "after"),
+    ];
+    for (args, reason) in cases {
+        let Err(ToolRejection::InvalidArguments { tool, reason: got }) = thread_page(args) else {
+            panic!("{args} should be rejected");
+        };
+        assert_eq!(tool, SecretaryTool::ThreadRead, "{args}");
+        assert!(got.contains(reason), "{args}: {got}");
+    }
+}
+
+#[test]
+fn task_details_takes_a_task_id_and_an_optional_workspace() {
+    let s = secretary(&SecretaryTool::ALL);
+    assert_eq!(
+        parse(&call("task_details", r#"{"task_id":" t-7 "}"#), &s),
+        Ok(Invocation::TaskDetails { workspace: None, task_id: "t-7".into() })
+    );
+    assert_eq!(
+        parse(&call("task_details", r#"{"task_id":"t-7","workspace":" Sito Web "}"#), &s),
+        Ok(Invocation::TaskDetails { workspace: Some("Sito Web".into()), task_id: "t-7".into() })
+    );
+    let long_id = json!({ "task_id": "t".repeat(TASK_ID_MAX + 1) }).to_string();
+    let long_workspace = json!({ "task_id": "t-1", "workspace": "w".repeat(REFERENCE_MAX + 1) }).to_string();
+    for args in
+        ["{}", r#"{"task_id":"  "}"#, r#"{"task_id":4}"#, r#"{"task_id":"t-1","id":"t-1"}"#, &long_id, &long_workspace]
+    {
+        let err = parse(&call("task_details", args), &s).unwrap_err();
+        assert!(matches!(err, ToolRejection::InvalidArguments { tool: SecretaryTool::TaskDetails, .. }), "{args}");
+    }
+}
+
+#[test]
+fn board_overview_takes_no_arguments() {
+    let s = secretary(&SecretaryTool::ALL);
+    assert_eq!(parse(&call("board_overview", ""), &s), Ok(Invocation::BoardOverview));
+    assert_eq!(parse(&call("board_overview", "{}"), &s), Ok(Invocation::BoardOverview));
+    assert!(parse(&call("board_overview", r#"{"workspace":"x"}"#), &s).is_err());
+}
+
+#[test]
+fn the_new_read_tools_exist_only_for_a_secretary_who_has_them() {
+    let old = secretary(&[SecretaryTool::BoardStatus, SecretaryTool::ThreadRead]);
+    for name in ["task_details", "board_overview"] {
+        assert_eq!(parse(&call(name, r#"{"task_id":"t-1"}"#), &old), Err(ToolRejection::NotAllowed(name.into())));
+    }
+    let names: Vec<&str> = specs(&old).iter().map(|t| t.name).collect();
+    assert_eq!(names, ["board_status", "thread_read"]);
 }

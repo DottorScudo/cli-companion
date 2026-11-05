@@ -54,6 +54,8 @@ pub const PRESETS: [SecretaryPreset; 3] = [
         system_prompt: include_str!("presets/coordinator.md"),
         tools: &[
             SecretaryTool::BoardStatus,
+            SecretaryTool::BoardOverview,
+            SecretaryTool::TaskDetails,
             SecretaryTool::ThreadRead,
             SecretaryTool::PostMessage,
             SecretaryTool::OpenPlanTask,
@@ -75,7 +77,13 @@ pub const PRESETS: [SecretaryPreset; 3] = [
         description: "Ti tiene informato su com’è la situazione: cosa è fatto, cosa gira, cosa aspetta te, cosa è fallito. Non apre né decide nulla.",
         name: "luca",
         system_prompt: include_str!("presets/reporter.md"),
-        tools: &[SecretaryTool::BoardStatus, SecretaryTool::ThreadRead, SecretaryTool::PostMessage],
+        tools: &[
+            SecretaryTool::BoardStatus,
+            SecretaryTool::BoardOverview,
+            SecretaryTool::TaskDetails,
+            SecretaryTool::ThreadRead,
+            SecretaryTool::PostMessage,
+        ],
     },
 ];
 
@@ -148,10 +156,19 @@ mod tests {
         use SecretaryTool::*;
         assert_eq!(
             find("coordinator").unwrap().tools,
-            [BoardStatus, ThreadRead, PostMessage, OpenPlanTask, DecideProposal, RelayAnswer]
+            [
+                BoardStatus,
+                BoardOverview,
+                TaskDetails,
+                ThreadRead,
+                PostMessage,
+                OpenPlanTask,
+                DecideProposal,
+                RelayAnswer
+            ]
         );
         assert_eq!(find("analyst").unwrap().tools, [ThreadRead, PostMessage, OpenPlanTask]);
-        assert_eq!(find("reporter").unwrap().tools, [BoardStatus, ThreadRead, PostMessage]);
+        assert_eq!(find("reporter").unwrap().tools, [BoardStatus, BoardOverview, TaskDetails, ThreadRead, PostMessage]);
         assert!(find("unknown").is_none());
     }
 

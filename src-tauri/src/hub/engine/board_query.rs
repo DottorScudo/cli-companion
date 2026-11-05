@@ -24,6 +24,10 @@ pub struct BoardQuery {
     /// Testo da cercare (senza distinguere maiuscole e minuscole), gia' ripulito;
     /// `None` = nessuna ricerca.
     pub text: Option<String>,
+    /// Solo i task aggiornati da questo istante in poi (ms UTC, incluso).
+    pub updated_since: Option<i64>,
+    /// Solo i task aggiornati prima di questo istante (ms UTC, escluso).
+    pub updated_before: Option<i64>,
     pub offset: usize,
     /// Task della pagina, tra 1 e `PAGE_MAX`.
     pub limit: usize,
@@ -31,7 +35,16 @@ pub struct BoardQuery {
 
 impl Default for BoardQuery {
     fn default() -> Self {
-        Self { statuses: Vec::new(), attention: false, kind: None, text: None, offset: 0, limit: PAGE_DEFAULT }
+        Self {
+            statuses: Vec::new(),
+            attention: false,
+            kind: None,
+            text: None,
+            updated_since: None,
+            updated_before: None,
+            offset: 0,
+            limit: PAGE_DEFAULT,
+        }
     }
 }
 
@@ -61,6 +74,8 @@ fn matches(v: &TaskView, query: &BoardQuery, needle: Option<&str>) -> bool {
     (query.statuses.is_empty() || query.statuses.contains(&v.task.status()))
         && (!query.attention || needs_user(v))
         && query.kind.is_none_or(|k| v.task.kind == k)
+        && query.updated_since.is_none_or(|since| v.task.updated_at >= since)
+        && query.updated_before.is_none_or(|before| v.task.updated_at < before)
         && needle.is_none_or(|n| mentions(v, n))
 }
 

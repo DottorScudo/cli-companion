@@ -132,3 +132,22 @@ fn the_total_counts_the_filtered_tasks_not_the_page() {
     let page = select(&v.tasks, &query);
     assert_eq!((ids(&page), page.total, page.next_offset), (vec!["t-4".to_string()], 3, Some(1)));
 }
+
+#[test]
+fn the_update_window_includes_its_start_and_excludes_its_end() {
+    let window =
+        |since, before| run(BoardQuery { updated_since: since, updated_before: before, ..BoardQuery::default() });
+    assert_eq!(window(Some(200), Some(300)), ["t-3", "t-2"]);
+    assert_eq!(window(Some(300), None), ["t-4"]);
+    assert_eq!(window(None, Some(100)), ["t-5"]);
+    assert_eq!(window(Some(301), None), Vec::<String>::new());
+    assert_eq!(window(None, Some(i64::MAX)).len(), 5);
+}
+
+#[test]
+fn the_update_window_combines_with_the_other_filters_and_the_total_follows_it() {
+    let query = BoardQuery { updated_since: Some(200), attention: true, ..BoardQuery::default() };
+    let v = view();
+    let page = select(&v.tasks, &query);
+    assert_eq!((ids(&page), page.total), (["t-4", "t-3"].map(String::from).to_vec(), 2));
+}

@@ -27,6 +27,10 @@ pub const CHANNELS_MAX: usize = 200;
 pub enum SecretaryTool {
     /// Legge lo stato della board del canale.
     BoardStatus,
+    /// Legge, in una chiamata, un riepilogo di ogni workspace che il segretario puo' consultare.
+    BoardOverview,
+    /// Legge un task per intero: specifica, stato, dipendenze, domanda e report.
+    TaskDetails,
     /// Legge i messaggi del thread.
     ThreadRead,
     /// Scrive un messaggio nel thread.
@@ -41,8 +45,10 @@ pub enum SecretaryTool {
 
 impl SecretaryTool {
     /// Tutti i tool, nell'ordine canonico in cui si salvano.
-    pub const ALL: [SecretaryTool; 6] = [
+    pub const ALL: [SecretaryTool; 8] = [
         Self::BoardStatus,
+        Self::BoardOverview,
+        Self::TaskDetails,
         Self::ThreadRead,
         Self::PostMessage,
         Self::OpenPlanTask,
@@ -54,6 +60,8 @@ impl SecretaryTool {
     pub fn code(self) -> &'static str {
         match self {
             Self::BoardStatus => "board_status",
+            Self::BoardOverview => "board_overview",
+            Self::TaskDetails => "task_details",
             Self::ThreadRead => "thread_read",
             Self::PostMessage => "post_message",
             Self::OpenPlanTask => "open_plan_task",
@@ -66,7 +74,7 @@ impl SecretaryTool {
     /// modifiche per turno (`hub::engine::audit`).
     pub fn class(self) -> ToolClass {
         match self {
-            Self::BoardStatus | Self::ThreadRead => ToolClass::Read,
+            Self::BoardStatus | Self::BoardOverview | Self::TaskDetails | Self::ThreadRead => ToolClass::Read,
             Self::PostMessage | Self::OpenPlanTask | Self::DecideProposal | Self::RelayAnswer => ToolClass::Write,
         }
     }
@@ -339,6 +347,8 @@ mod tests {
             SecretaryTool::ALL.map(class),
             [
                 (SecretaryTool::BoardStatus, ToolClass::Read),
+                (SecretaryTool::BoardOverview, ToolClass::Read),
+                (SecretaryTool::TaskDetails, ToolClass::Read),
                 (SecretaryTool::ThreadRead, ToolClass::Read),
                 (SecretaryTool::PostMessage, ToolClass::Write),
                 (SecretaryTool::OpenPlanTask, ToolClass::Write),

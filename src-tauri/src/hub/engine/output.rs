@@ -4,6 +4,7 @@
 //! `thread_read`) e il contesto del risveglio (`context`).
 
 use super::board_query::{self, BoardQuery};
+use super::thread_page::{self, ThreadPage};
 use super::workspace_names::WorkspaceNames;
 use crate::board::{compact_row, BoardView, TaskView};
 use crate::hub::attachments::listing;
@@ -12,8 +13,12 @@ use crate::hub::model::{Attachment, Author, Message, Thread};
 use crate::validate::clip_with_ellipsis;
 use serde_json::{json, Map, Value};
 
-/// Messaggi riportati da `thread_read`.
-pub const THREAD_READ_MESSAGES: usize = 20;
+mod overview;
+mod task_details;
+
+pub use overview::board_overview;
+pub use task_details::task_details;
+
 /// Caratteri tenuti del testo di un messaggio.
 const BODY_KEPT: usize = 1000;
 
@@ -45,16 +50,22 @@ fn task_row(v: &TaskView) -> Value {
     row
 }
 
-/// Il thread per `thread_read`: titolo, stato, task collegati, riassunto e gli
-/// ultimi `THREAD_READ_MESSAGES` messaggi.
-pub fn thread(thread: &Thread, names: &WorkspaceNames) -> Value {
-    let skip = thread.messages.len().saturating_sub(THREAD_READ_MESSAGES);
+/// Il thread per `thread_read`: titolo, stato, task collegati, riassunto e una
+/// pagina di `THREAD_PAGE_SIZE` messaggi (`page`). `older_messages` conta i
+/// messaggi prima della pagina e `next_before` e' l'id da passare a `before`
+/// per leggerli; `newer_messages` conta quelli dopo.
+pub fn thread(thread: &Thread, names: &WorkspaceNames, page: &ThreadPage) -> Result<Value, String> {
+    let range = thread_page::window(&thread.messages, page)?;
     let mut out = header(thread, names);
-    out["messages"] = messages(&thread.messages[skip..], names);
-    if skip > 0 {
-        out["older_messages"] = Value::from(skip);
+    out["messages"] = messages(&thread.messages[range.clone()], names);
+    if range.start > 0 {
+        out["older_messages"] = Value::from(range.start);
+        out["next_before"] = Value::from(thread.messages[range.start].id.as_str());
     }
-    out
+    if range.end < thread.messages.len() {
+        out["newer_messages"] = Value::from(thread.messages.len() - range.end);
+    }
+    Ok(out)
 }
 
 /// Titolo, canale, stato, task e proposta collegati e riassunto del thread.
@@ -146,10 +157,30 @@ fn without_nulls(value: Value) -> Value {
 mod tests {
     use super::*;
     use crate::hub::engine::fixtures::{self, msg, names};
+    use crate::hub::engine::thread_page::THREAD_PAGE_SIZE;
     use crate::hub::model::{Author, HubEvent, HubEventKind, MessageKind};
 
     fn thread_with(n: usize) -> Thread {
         Thread { summary: Some("Login in progress.".into()), ..fixtures::thread(fixtures::numbered(n)) }
+    }
+
+    fn latest(t: &Thread, names: &WorkspaceNames) -> Value {
+        thread(t, names, &ThreadPage::Latest).unwrap()
+    }
+
+    #[test]
+    fn an_older_page_says_where_to_continue_and_how_many_messages_follow() {
+        let t = thread_with(50);
+        let v = thread(&t, &names(), &ThreadPage::Before("m30".into())).unwrap();
+        let list = v["messages"].as_array().unwrap();
+        assert_eq!((list[0]["id"].as_str(), list[19]["id"].as_str()), (Some("m10"), Some("m29")));
+        assert_eq!((v["older_messages"].as_u64(), v["next_before"].as_str()), (Some(10), Some("m10")));
+        assert_eq!(v["newer_messages"], 20);
+        let oldest = thread(&t, &names(), &ThreadPage::Offset(40)).unwrap();
+        assert_eq!(oldest["messages"].as_array().map(Vec::len), Some(10));
+        assert!(oldest.get("older_messages").is_none() && oldest.get("next_before").is_none());
+        assert!(thread(&t, &names(), &ThreadPage::Before("zzz".into())).is_err());
+        assert!(latest(&t, &names()).get("newer_messages").is_none());
     }
 
     #[test]
@@ -256,13 +287,13 @@ mod tests {
 
     #[test]
     fn the_thread_keeps_the_latest_messages_and_its_summary() {
-        let v = thread(&thread_with(THREAD_READ_MESSAGES + 5), &names());
+        let v = latest(&thread_with(THREAD_PAGE_SIZE + 5), &names());
         let list = v["messages"].as_array().unwrap();
-        assert_eq!(list.len(), THREAD_READ_MESSAGES);
+        assert_eq!(list.len(), THREAD_PAGE_SIZE);
         assert_eq!(list[0]["id"], "m5");
         assert_eq!((v["older_messages"].as_u64(), v["summary"].as_str()), (Some(5), Some("Login in progress.")));
         assert_eq!(v["task_ids"], json!(["t-1"]));
-        let short = thread(&thread_with(2), &names());
+        let short = latest(&thread_with(2), &names());
         assert!(short.get("older_messages").is_none());
     }
 
@@ -278,7 +309,7 @@ mod tests {
             (v["event"]["workspace"].as_str(), v["event"]["workspace_name"].as_str()),
             (Some("ws-2"), Some("Sito Web"))
         );
-        let t = thread(&thread_with(1), &names());
+        let t = latest(&thread_with(1), &names());
         assert_eq!((t["channel"].as_str(), t["workspace_name"].as_str()), (Some("ws-1"), Some("Muse Companion")));
     }
 
@@ -286,9 +317,9 @@ mod tests {
     fn a_renamed_workspace_shows_the_new_name_and_a_removed_one_none() {
         let renamed =
             crate::hub::engine::workspace_names::WorkspaceNames::new([("ws-1".to_string(), "Nuovo".to_string())]);
-        assert_eq!(thread(&thread_with(1), &renamed)["workspace_name"], "Nuovo");
+        assert_eq!(latest(&thread_with(1), &renamed)["workspace_name"], "Nuovo");
         let none = crate::hub::engine::workspace_names::WorkspaceNames::default();
-        assert!(thread(&thread_with(1), &none).get("workspace_name").is_none());
+        assert!(latest(&thread_with(1), &none).get("workspace_name").is_none());
     }
 
     #[test]
@@ -312,7 +343,7 @@ mod tests {
         let mut t = thread_with(2);
         t.messages[1].attachments =
             vec![Attachment { id: "att-1-1".into(), name: "a.png".into(), mime: "image/png".into(), size: 10 }];
-        let v = thread(&t, &names());
+        let v = latest(&t, &names());
         assert_eq!(v["messages"][1]["attachments"][0]["name"], "a.png");
         assert!(v["messages"][0].get("attachments").is_none());
     }
