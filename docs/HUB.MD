@@ -57,7 +57,33 @@ si possono salvare anche uno alla volta.
 | `image` | facoltativa, `{ png, color }` come le immagini dei bot (`bots::validate_image`: PNG base64, al massimo 64×64 pixel e 32 KB, colore `#rrggbb`) |
 | `system_prompt` | testo libero letto dal modello (di solito in inglese), al massimo 8000 caratteri, a capo e tabulazioni ammessi. Vuoto = segretario **non configurato**: esiste ma il motore non lo fa rispondere (`Secretary::is_configured`) |
 | `tools` | tool del motore che può usare (`HubSecretaryTool`): `board_status`, `thread_read`, `post_message`, `open_plan_task`, `decide_proposal`; senza ripetizioni, nell'ordine canonico. Il limite vero di cosa fa sta qui, non nel prompt. Un tool nuovo non si aggiunge da solo ai segretari esistenti: lo sceglie l'utente |
+| `preset` | facoltativo: id del preset da cui il segretario è nato (vedi "Segretari predefiniti"); assente se creato da zero o in un file scritto prima, e un valore illeggibile vale assente. Resta anche se l'utente modifica il segretario |
 | `channels` | `{ "mode": "all" }` (Generale e ogni workspace, anche quelli futuri) oppure `{ "mode": "only", "channels": [...] }` con `general` o id di workspace esistenti (`hub/channel.rs`), da 1 a 200, senza ripetizioni |
+
+### Segretari predefiniti
+
+Tre preset (`hub/settings/presets.rs`, prompt in `hub/settings/presets/<id>.md`, in inglese). Sono divisi per il modo di
+lavorare con l'utente, non per competenza tecnica: il segretario non conosce il codice. Non ripetono le regole comuni,
+che il motore aggiunge a ogni system prompt (`ENGINE_INSTRUCTIONS`): descrivono solo la mansione.
+
+| Id | Etichetta | Nome | Tool | Mansione |
+|---|---|---|---|---|
+| `coordinator` | Coordinatore | `mario` | tutti | trasforma gli obiettivi dell'utente in lavoro per gli agenti: chiarisce l'obiettivo (al massimo una domanda), apre il task di pianificazione, presenta le proposte e le decide solo se l'utente accetta o rifiuta con chiarezza, riferisce fallimenti e domande dei worker |
+| `analyst` | Analista | `giulia` | `thread_read`, `post_message`, `open_plan_task` | trasforma un'idea vaga in una richiesta completa: chiede obiettivo, criteri di completamento, vincoli ed esclusioni (mai domande tecniche sul codice), poi riassume in Goal / Done when / Constraints / Out of scope e apre la pianificazione solo dopo la conferma. Senza `decide_proposal`, se arriva una proposta la presenta e dice di rispondere sul messaggio della proposta |
+| `reporter` | Cronista | `luca` | `board_status`, `thread_read`, `post_message` | tiene informato l'utente: cosa è fatto, cosa gira, cosa aspetta lui, cosa è fallito; nel Generale una riga per workspace, prima quelli che aspettano l'utente; spiega i fallimenti dalle note dei task senza ipotesi. Non apre task e non decide: per nuovo lavoro rimanda a un segretario che può aprirli |
+
+Tutti hanno `channels` = tutti i canali.
+
+- **Creazione automatica.** Quando l'HUB passa da spento ad acceso (`hub_set_enabled`) e l'elenco dei segretari è vuoto,
+  si creano i tre preset con i nomi suggeriti (`secretaries::seed_presets`, pura). Con l'elenco non vuoto non si
+  aggiunge nulla, quindi chi ha già i suoi segretari non ne trova di nuovi e nessuna migrazione tocca quelli esistenti. Un
+  preset che non si può creare (nome già preso, tetto di 20) si salta senza errore.
+- **Aggiungi da modello.** Nella sezione Segretari, accanto a «Nuovo segretario», si sceglie un preset: l'editor si
+  apre precompilato (nome suggerito, prompt, tool, tutti i canali) e si salva con il flusso normale; il segretario
+  ricorda il preset (`hub_create_secretary` con `preset`). Se il nome suggerito è già preso l'editor lo dice subito.
+- **Ripristina predefinito.** Nell'editor di un segretario nato da un preset, con conferma, riporta prompt e tool al
+  testo del preset (`hub_restore_secretary_preset`, `secretaries::restore_preset`); nome, canali e immagine restano. Un
+  segretario creato da zero non ha il pulsante.
 
 **Nomi riservati.** I nomi dei segretari non devono mai diventare nomi delle sessioni dei terminali (`@mario` non
 può essere un terminale): il frontend li legge da `hub_get_settings` e li esclude quando sceglie il nome di una
@@ -214,13 +240,15 @@ Validano gli argomenti per primi e fanno l'I/O in `crate::blocking`. Wrapper nel
 | Comando | Argomenti | Ritorna |
 |---|---|---|
 | `hub_get_settings` | — | `HubSettingsView` (`HubSettings` + `api_key_set`) |
-| `hub_set_enabled` | `enabled` | `HubSettingsView` salvate (come `bots`: niente evento); spegnere butta le istantanee delle board |
+| `hub_set_enabled` | `enabled` | `HubSettingsView` salvate (come `bots`: niente evento); spegnere butta le istantanee delle board; accendere con l'elenco dei segretari vuoto crea i tre preset (vedi "Segretari predefiniti") |
 | `hub_set_provider` | `base_url`, `model` | `HubSettingsView` |
 | `hub_set_api_key` | `key` | `HubSettingsView` (la chiave va nel portachiavi) |
 | `hub_clear_api_key` | — | `HubSettingsView`; nessun errore se non c'era |
 | `hub_set_language` | `language` | `HubSettingsView` |
 | `hub_set_session` | `idle_minutes`, `max_steps` | `HubSettingsView` |
-| `hub_create_secretary` | `name`, `system_prompt`, `tools`, `channels` (`null` = tutti) | `HubSettingsView`; nuovo segretario in fondo, senza immagine |
+| `hub_create_secretary` | `name`, `system_prompt`, `tools`, `channels` (`null` = tutti), `preset` (`null` = da zero) | `HubSettingsView`; nuovo segretario in fondo, senza immagine; `preset` sconosciuto rifiutato |
+| `hub_list_secretary_presets` | — | `HubSecretaryPreset[]`: id, etichetta, descrizione, nome suggerito, prompt e tool dei tre preset (vedi "Segretari predefiniti") |
+| `hub_restore_secretary_preset` | `name` | `HubSettingsView`; riporta prompt e tool al preset del segretario, rifiutato se non nasce da un preset |
 | `hub_update_secretary` | `name`, `new_name`, `system_prompt`, `tools`, `channels` | `HubSettingsView`; sostituisce i campi, l'immagine resta; rinomina rifiutata se `new_name` è di un altro segretario |
 | `hub_delete_secretary` | `name` | `HubSettingsView` |
 | `hub_set_secretary_image` | `name`, `png`, `color` | `HubSettingsView` |
@@ -326,7 +354,7 @@ arrivate la pagina scrive «Impostazioni non disponibili.» e gli accordion non 
 |---|---|---|
 | **Modello** (aperto di default) | endpoint e nome del modello (un solo modulo, «Salva» attivo solo se qualcosa è cambiato, controllo prima dell'invio); sotto, la API key | «Non configurato», «Endpoint locale» / «Endpoint remoto» / «Endpoint non valido» più «API key impostata» o «nessuna API key» |
 | **Sessioni dei segretari** | minuti di inattività (1-240) e passi massimi per risveglio (1-20) | «20 min · 8 passi» |
-| **Segretari** (aperto di default) | lingua delle risposte, elenco, editor, «Nuovo segretario» (disattivato oltre 20) | «3 segretari · 2 configurati · italiano» |
+| **Segretari** (aperto di default) | lingua delle risposte, elenco, editor, «Nuovo segretario» e «Aggiungi da modello» (disattivati oltre 20) | «3 segretari · 2 configurati · italiano» |
 
 - **API key** (`ApiKeyField`): mostra solo se c'è (`api_key_set`), con Imposta/Cambia e Rimuovi. La chiave non si
   mostra mai e non sta in nessuno stato React né nello store: vive solo nel campo (non controllato, `type="password"`)

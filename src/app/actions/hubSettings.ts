@@ -28,6 +28,9 @@ export const saveSession = (idleMinutes: number, maxSteps: number): Promise<void
 
 export const deleteSecretary = (name: string): Promise<void> => apply(api.hubDeleteSecretary(name));
 
+/** Riporta prompt e tool del segretario a quelli del suo preset. */
+export const restoreSecretaryPreset = (name: string): Promise<void> => apply(api.hubRestoreSecretaryPreset(name));
+
 /** Cosa fare dell'immagine di un segretario quando si salva. */
 export type ImageChange = { kind: "keep" } | { kind: "set"; image: BotImage } | { kind: "remove" };
 
@@ -37,19 +40,21 @@ export interface SaveSecretaryResult {
 }
 
 /**
- * Crea (`original` `null`) o aggiorna il segretario, poi ne imposta o toglie
- * l'immagine. I campi rifiutano con l'errore del backend; un'immagine non
- * accettata non annulla il resto, che è già salvato.
+ * Crea (`original` `null`, da `preset` se nasce da un modello) o aggiorna il
+ * segretario, poi ne imposta o toglie l'immagine. I campi rifiutano con
+ * l'errore del backend; un'immagine non accettata non annulla il resto, che
+ * è già salvato.
  */
 export async function saveSecretary(
   original: string | null,
   draft: SecretaryDraft,
   image: ImageChange,
+  preset: string | null = null,
 ): Promise<SaveSecretaryResult> {
   const tools = [...draft.tools];
   const channels = draft.channels === null ? null : [...draft.channels];
   if (original === null) {
-    await apply(api.hubCreateSecretary(draft.name, draft.systemPrompt, tools, channels));
+    await apply(api.hubCreateSecretary(draft.name, draft.systemPrompt, tools, channels, preset));
   } else {
     await apply(api.hubUpdateSecretary(original, draft.name, draft.systemPrompt, tools, channels));
   }

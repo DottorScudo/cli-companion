@@ -100,6 +100,11 @@ pub struct Secretary {
     /// mai piu' permessi di quelli scelti.
     #[serde(default, deserialize_with = "channels_or_none")]
     pub channels: SecretaryChannels,
+    /// Id del preset (`presets`) da cui è nato: permette di ripristinarne
+    /// prompt e tool. Assente nei segretari creati da zero e nei file scritti
+    /// prima; un valore illeggibile vale assente.
+    #[serde(default, deserialize_with = "tolerant::or_default")]
+    pub preset: Option<String>,
 }
 
 /// I canali letti dal file; se non si riconoscono, nessun canale (con un avviso).
@@ -246,6 +251,7 @@ mod tests {
             system_prompt: d.system_prompt,
             tools: d.tools,
             channels: d.channels,
+            preset: None,
         };
         assert!(!s.is_configured());
         assert!(Secretary { system_prompt: "Report the status.".into(), ..s }.is_configured());
@@ -362,5 +368,16 @@ mod tests {
         assert!(s.system_prompt.is_empty());
         assert!(s.tools.is_empty());
         assert_eq!(s.channels, SecretaryChannels::All);
+        assert_eq!(s.preset, None);
+    }
+
+    #[test]
+    fn the_preset_is_read_when_present_and_ignored_when_unreadable() {
+        let s: Secretary = serde_json::from_str(r#"{"name":"mario","preset":"analyst"}"#).unwrap();
+        assert_eq!(s.preset.as_deref(), Some("analyst"));
+        let s: Secretary = serde_json::from_str(r#"{"name":"mario","preset":{"future":1}}"#).unwrap();
+        assert_eq!(s.preset, None);
+        let s: Secretary = serde_json::from_str(r#"{"name":"mario","preset":null}"#).unwrap();
+        assert_eq!(s.preset, None);
     }
 }

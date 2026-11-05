@@ -21,4 +21,10 @@ system_prompt: string, tools: Array<HubSecretaryTool>,
  * Assente = tutti; una forma sconosciuta (versione futura) = nessun canale,
  * mai piu' permessi di quelli scelti.
  */
-channels: HubSecretaryChannels, };
+channels: HubSecretaryChannels, 
+/**
+ * Id del preset (`presets`) da cui è nato: permette di ripristinarne
+ * prompt e tool. Assente nei segretari creati da zero e nei file scritti
+ * prima; un valore illeggibile vale assente.
+ */
+preset: string | null, };

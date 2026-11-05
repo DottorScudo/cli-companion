@@ -26,6 +26,7 @@ pub fn secretary(name: &str) -> Secretary {
         system_prompt: format!("You are {name}. Report the board status."),
         tools: SecretaryTool::ALL.to_vec(),
         channels: SecretaryChannels::All,
+        preset: None,
     }
 }
 

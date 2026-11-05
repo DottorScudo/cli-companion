@@ -2,22 +2,31 @@ import { useState } from "react";
 import { Plus } from "lucide-react";
 import { deleteSecretary, saveLanguage } from "../../../app/actions/hubSettings";
 import { useHubChannels } from "../../../hooks/useHubChannels";
+import { useSecretaryPresets } from "../../../hooks/useSecretaryPresets";
 import { errorMessage } from "../../../lib/errors";
 import { LANGUAGES, SECRETARIES_MAX, secretariesSummary } from "../../../lib/hubSettings";
-import type { HubLanguage, HubSettingsView } from "../../../lib/tauri";
+import type { HubLanguage, HubSecretaryPreset, HubSettingsView } from "../../../lib/tauri";
 import { Button } from "../../ui/button";
 import { selectClass } from "../shared";
 import HubAccordion from "./HubAccordion";
+import PresetPicker from "./PresetPicker";
 import SecretaryEditor from "./SecretaryEditor";
 import SecretaryRow from "./SecretaryRow";
 
-/** Secretario in modifica: il suo nome, `NEW` per uno nuovo, `null` nessuno (se ne apre uno solo alla volta). */
+/**
+ * Secretario in modifica: il suo nome, `NEW` per uno nuovo, un preset per uno
+ * nuovo precompilato, `null` nessuno (se ne apre uno solo alla volta).
+ */
 const NEW = Symbol("new-secretary");
-type Editing = string | typeof NEW | null;
+type Editing = string | typeof NEW | HubSecretaryPreset | null;
+
+const isNewSecretary = (editing: Editing): editing is typeof NEW | HubSecretaryPreset =>
+  editing === NEW || (editing !== null && typeof editing === "object");
 
 /** Accordion «Segretari»: lingua delle risposte, elenco ed editor. */
 export default function SecretariesSection({ settings }: { settings: HubSettingsView }) {
   const { channels } = useHubChannels();
+  const { presets, error: presetsError } = useSecretaryPresets();
   const [editing, setEditing] = useState<Editing>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,12 +50,15 @@ export default function SecretariesSection({ settings }: { settings: HubSettings
       setEditing((current) => (current === name ? null : current));
     });
 
-  const editorFor = (name: string | null) => (
+  const editorFor = (name: string | null, preset: HubSecretaryPreset | null = null) => (
     <SecretaryEditor
-      key={name ?? "new"}
+      key={name ?? `new-${preset?.id ?? ""}`}
       initial={name === null ? null : (secretaries.find((s) => s.name === name) ?? null)}
+      fromPreset={preset}
+      presets={presets}
       taken={secretaries.filter((s) => s.name !== name).map((s) => s.name)}
       channels={channels}
+      onRestored={() => setEditing(null)}
       onSaved={(imageError) => {
         setEditing(null);
         setError(imageError === null ? null : `Segretario salvato, ma l’immagine no: ${imageError}`);
@@ -82,9 +94,9 @@ export default function SecretariesSection({ settings }: { settings: HubSettings
         </select>
       </div>
 
-      {secretaries.length === 0 && editing !== NEW && (
+      {secretaries.length === 0 && !isNewSecretary(editing) && (
         <p className="text-xs text-muted-foreground">
-          Nessun segretario. Creane uno e scrivigli con @nome in un thread.
+          Nessun segretario. Creane uno, o parti da un modello, e scrivigli con @nome in un thread.
         </p>
       )}
       <ul className="flex flex-col gap-2">
@@ -104,17 +116,23 @@ export default function SecretariesSection({ settings }: { settings: HubSettings
         )}
       </ul>
       {editing === NEW && editorFor(null)}
-      {error && <p className="text-[11px] text-destructive">{error}</p>}
-      <div>
+      {typeof editing === "object" && editing !== null && editorFor(null, editing)}
+      {(error ?? presetsError) && <p className="text-[11px] text-destructive">{error ?? presetsError}</p>}
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
           size="sm"
           variant="outline"
-          disabled={busy || editing === NEW || secretaries.length >= SECRETARIES_MAX}
+          disabled={busy || isNewSecretary(editing) || secretaries.length >= SECRETARIES_MAX}
           onClick={() => setEditing(NEW)}
         >
           <Plus className="!size-3.5" aria-hidden="true" /> Nuovo segretario
         </Button>
+        <PresetPicker
+          presets={presets}
+          disabled={busy || isNewSecretary(editing) || secretaries.length >= SECRETARIES_MAX}
+          onPick={setEditing}
+        />
       </div>
     </HubAccordion>
   );

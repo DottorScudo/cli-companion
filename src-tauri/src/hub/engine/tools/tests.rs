@@ -8,6 +8,7 @@ fn secretary(tools: &[SecretaryTool]) -> Secretary {
         system_prompt: "Report.".into(),
         tools: tools.to_vec(),
         channels: SecretaryChannels::All,
+        preset: None,
     }
 }
 

@@ -14,6 +14,7 @@ import type { HubLanguage } from "../bindings/HubLanguage.ts";
 import type { HubMessage } from "../bindings/HubMessage.ts";
 import type { HubSecretary } from "../bindings/HubSecretary.ts";
 import type { HubSecretaryChannels } from "../bindings/HubSecretaryChannels.ts";
+import type { HubSecretaryPreset } from "../bindings/HubSecretaryPreset.ts";
 import type { HubSecretaryStatus } from "../bindings/HubSecretaryStatus.ts";
 import type { HubSecretaryTool } from "../bindings/HubSecretaryTool.ts";
 import type { HubSettings } from "../bindings/HubSettings.ts";
@@ -57,6 +58,7 @@ export type {
   HubMessage,
   HubSecretary,
   HubSecretaryChannels,
+  HubSecretaryPreset,
   HubSecretaryStatus,
   HubSecretaryTool,
   HubSettings,
@@ -213,9 +215,20 @@ export const api = {
   hubSetSession: (idleMinutes: number, maxSteps: number) =>
     invoke<HubSettingsView>("hub_set_session", { idleMinutes, maxSteps }),
 
-  /** `channels` null = tutti i canali; altrimenti "general" o id di workspace. */
-  hubCreateSecretary: (name: string, systemPrompt: string, tools: HubSecretaryTool[], channels: string[] | null) =>
-    invoke<HubSettingsView>("hub_create_secretary", { name, systemPrompt, tools, channels }),
+  /** I segretari predefiniti, con i testi per l'interfaccia. */
+  hubListSecretaryPresets: () => invoke<HubSecretaryPreset[]>("hub_list_secretary_presets"),
+
+  /** `channels` null = tutti i canali; altrimenti "general" o id di workspace. `preset` = id del preset da cui nasce. */
+  hubCreateSecretary: (
+    name: string,
+    systemPrompt: string,
+    tools: HubSecretaryTool[],
+    channels: string[] | null,
+    preset: string | null,
+  ) => invoke<HubSettingsView>("hub_create_secretary", { name, systemPrompt, tools, channels, preset }),
+
+  /** Riporta prompt e tool del segretario a quelli del suo preset; nome, immagine e canali restano. */
+  hubRestoreSecretaryPreset: (name: string) => invoke<HubSettingsView>("hub_restore_secretary_preset", { name }),
 
   /** Sostituisce i campi del segretario `name` (anche il nome); l'immagine resta. */
   hubUpdateSecretary: (

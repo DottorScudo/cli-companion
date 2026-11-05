@@ -7,16 +7,23 @@ import type { HubChannel } from "../../../lib/hub";
 import { SECRETARY_NAME_MAX } from "../../../lib/hubSecretaries";
 import { EMPTY_DRAFT, SYSTEM_PROMPT_MAX, checkDraft, draftOf } from "../../../lib/hubSettings";
 import type { SecretaryDraft } from "../../../lib/hubSettings";
-import type { HubSecretary } from "../../../lib/tauri";
+import { draftOfPreset, presetNameError, presetOf } from "../../../lib/hubPresets";
+import type { HubSecretary, HubSecretaryPreset } from "../../../lib/tauri";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Field } from "../shared";
+import PresetRestore from "./PresetRestore";
 import { ChannelsField, ToolsField } from "./SecretaryFields";
 import SecretaryImageField from "./SecretaryImageField";
 
 interface Props {
   /** Il segretario da modificare; `null` = nuovo. */
   initial: HubSecretary | null;
+  /** Il modello da cui parte un segretario nuovo; `null` = da zero. */
+  fromPreset: HubSecretaryPreset | null;
+  /** I modelli noti, per il ripristino di un segretario che ne viene da uno. */
+  presets: readonly HubSecretaryPreset[];
+  onRestored: () => void;
   /** Nomi degli altri segretari, che questo non può prendere. */
   taken: readonly string[];
   channels: readonly HubChannel[];
@@ -25,11 +32,26 @@ interface Props {
 }
 
 /** Editor di un segretario: nome, immagine, system prompt, tool e canali. Salva tutto insieme. */
-export default function SecretaryEditor({ initial, taken, channels, onSaved, onCancel }: Props) {
-  const [draft, setDraft] = useState<SecretaryDraft>(initial === null ? EMPTY_DRAFT : draftOf(initial));
+export default function SecretaryEditor({
+  initial,
+  fromPreset,
+  presets,
+  onRestored,
+  taken,
+  channels,
+  onSaved,
+  onCancel,
+}: Props) {
+  const [draft, setDraft] = useState<SecretaryDraft>(() => {
+    if (initial !== null) return draftOf(initial);
+    return fromPreset === null ? EMPTY_DRAFT : draftOfPreset(fromPreset);
+  });
   const [imageChange, setImageChange] = useState<ImageChange>({ kind: "keep" });
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() =>
+    initial === null && fromPreset !== null ? presetNameError(fromPreset, taken) : null,
+  );
+  const restorable = initial === null ? null : presetOf(initial, presets);
   const patch = (changes: Partial<SecretaryDraft>) => setDraft((d) => ({ ...d, ...changes }));
 
   const shownImage =
@@ -45,7 +67,12 @@ export default function SecretaryEditor({ initial, taken, channels, onSaved, onC
     setError(null);
     setSaving(true);
     try {
-      const { imageError } = await saveSecretary(initial?.name ?? null, checked.value, imageChange);
+      const { imageError } = await saveSecretary(
+        initial?.name ?? null,
+        checked.value,
+        imageChange,
+        fromPreset?.id ?? null,
+      );
       onSaved(imageError);
     } catch (err) {
       setError(errorMessage(err));
@@ -56,7 +83,13 @@ export default function SecretaryEditor({ initial, taken, channels, onSaved, onC
   return (
     <form
       onSubmit={(e) => void submit(e)}
-      aria-label={initial === null ? "Nuovo segretario" : `Modifica @${initial.name}`}
+      aria-label={
+        initial === null
+          ? fromPreset === null
+            ? "Nuovo segretario"
+            : `Nuovo segretario da modello ${fromPreset.label}`
+          : `Modifica @${initial.name}`
+      }
       className="flex flex-col gap-4 rounded-lg border border-primary/50 bg-background/40 p-3"
     >
       <Field label="Nome" help={`Si chiama con @nome. Minuscole, cifre e -, fino a ${SECRETARY_NAME_MAX} caratteri.`}>
@@ -96,6 +129,15 @@ export default function SecretaryEditor({ initial, taken, channels, onSaved, onC
           className="w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-xs leading-relaxed shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         />
       </Field>
+      {initial !== null && restorable !== null && (
+        <PresetRestore
+          name={initial.name}
+          preset={restorable}
+          disabled={saving}
+          onRestored={onRestored}
+          onError={setError}
+        />
+      )}
       <ToolsField draft={draft} disabled={saving} onChange={(tools) => patch({ tools })} />
       <ChannelsField draft={draft} channels={channels} disabled={saving} onChange={(c) => patch({ channels: c })} />
       <div className="flex items-center justify-end gap-2">

@@ -4,6 +4,7 @@
 //! spento: la pagina delle impostazioni le mostra e le modifica.
 
 use super::language::Language;
+use super::presets::{self, SecretaryPresetView};
 use super::provider::Provider;
 use super::secretary::SecretaryDraft;
 use super::session::SessionSettings;
@@ -36,6 +37,9 @@ pub async fn hub_set_enabled(app: AppHandle, enabled: bool) -> Result<HubSetting
         let mut was_enabled = false;
         let saved = save(&app, |s| {
             was_enabled = s.enabled;
+            if enabled && !was_enabled {
+                secretaries::seed_presets(&mut s.secretaries);
+            }
             s.enabled = enabled;
             Ok(())
         })?;
@@ -105,7 +109,14 @@ pub async fn hub_set_session(app: AppHandle, idle_minutes: u32, max_steps: u32) 
     .await
 }
 
-/// Nuovo segretario, senza immagine. `channels` `null` = tutti i canali.
+/// I segretari predefiniti, con i testi per l'interfaccia.
+#[tauri::command]
+pub fn hub_list_secretary_presets() -> Vec<SecretaryPresetView> {
+    presets::views()
+}
+
+/// Nuovo segretario, senza immagine. `channels` `null` = tutti i canali;
+/// `preset` = l'id del preset da cui nasce, se nasce da uno.
 #[tauri::command]
 pub async fn hub_create_secretary(
     app: AppHandle,
@@ -113,9 +124,21 @@ pub async fn hub_create_secretary(
     system_prompt: String,
     tools: Vec<String>,
     channels: Option<Vec<String>>,
+    preset: Option<String>,
 ) -> Result<HubSettingsView, String> {
     let draft = draft(&app, &name, &system_prompt, &tools, channels.as_deref())?;
-    save_and_view(app, move |s| secretaries::create(&mut s.secretaries, draft)).await
+    save_and_view(app, move |s| match preset {
+        Some(id) => secretaries::create_from_preset(&mut s.secretaries, draft, &id),
+        None => secretaries::create(&mut s.secretaries, draft),
+    })
+    .await
+}
+
+/// Riporta prompt e tool del segretario `name` a quelli del suo preset; nome,
+/// immagine e canali restano.
+#[tauri::command]
+pub async fn hub_restore_secretary_preset(app: AppHandle, name: String) -> Result<HubSettingsView, String> {
+    save_and_view(app, move |s| secretaries::restore_preset(&mut s.secretaries, &name)).await
 }
 
 /// Sostituisce i campi del segretario `name` (anche il nome: `new_name`);

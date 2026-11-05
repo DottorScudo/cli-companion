@@ -10,11 +10,13 @@
 //! - `provider`, `language`, `session`: i campi e la loro validazione;
 //! - `secretary`: un segretario e la validazione dei suoi campi;
 //! - `secretaries`: le operazioni pure sull'elenco;
+//! - `presets`: i segretari predefiniti, creati alla prima attivazione;
 //! - `tolerant`: la lettura che non perde il file per un valore sconosciuto;
 //! - `commands`: i comandi Tauri.
 
 pub mod commands;
 mod language;
+pub mod presets;
 mod provider;
 mod secretaries;
 mod secretary;
@@ -100,6 +102,7 @@ mod tests {
                 system_prompt: "Report the board status.".into(),
                 tools: vec![SecretaryTool::BoardStatus, SecretaryTool::PostMessage],
                 channels: SecretaryChannels::Only { channels: vec![Channel::General] },
+                preset: Some("reporter".into()),
             }],
         }
     }
