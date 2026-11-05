@@ -15,8 +15,9 @@
 //! (`set_board_source`, con `automation::board_views`), senza dipendere da
 //! `automation`. Il motore dei segretari (`engine`) chiama il modello con
 //! `async-openai` e legge le board dalla stessa sorgente; per agire sulla board
-//! (task di pianificazione, decisione di una proposta) usa le azioni che
-//! `lib.rs` registra allo stesso modo (`set_board_actions`).
+//! (task di pianificazione, decisione di una proposta, risposta alla domanda di
+//! un worker) usa le azioni che `lib.rs` registra allo stesso modo
+//! (`set_board_actions`).
 //!
 //! Un file per responsabilita':
 //! - `actions`: le azioni sulla board registrate da `lib.rs`;
@@ -25,6 +26,9 @@
 //! - `text`: validazione e pulizia di titoli, testi e id;
 //! - `threads`: le operazioni pure sui thread di un canale, con i limiti;
 //! - `waiting`: se un thread aspetta l'utente, calcolato dagli eventi;
+//! - `questions`: le domande dei worker che aspettano una risposta in un thread;
+//! - `direct_answer`: "Rispondi" su una domanda consegna il testo al worker,
+//!   senza il modello;
 //! - `files`: i file `threads/<canale>.json`;
 //! - `state`: i thread in memoria (caricamento pigro), stato gestito da Tauri;
 //! - `settings`: `hub_settings.json` (interruttore, provider, lingua, sessioni,
@@ -40,10 +44,12 @@ mod api_key;
 mod append;
 mod channel;
 pub mod commands;
+mod direct_answer;
 pub mod engine;
 mod events;
 mod files;
 mod model;
+mod questions;
 pub mod settings;
 mod state;
 mod text;

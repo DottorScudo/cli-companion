@@ -15,7 +15,8 @@
 //!
 //! Nei thread con un titolare (`Thread::owner`) alcuni eventi lo svegliano
 //! (`EventWake`): proposta pronta, pianificazione conclusa senza proposta,
-//! task fallito o in attenzione, tutti i task conclusi. Avvio e completamento
+//! domanda di un worker o del pianificatore, task fallito o in attenzione,
+//! tutti i task conclusi. Avvio e completamento
 //! di un singolo task restano solo messaggi: un risveglio costa una chiamata al
 //! modello. Al massimo un risveglio per thread a ogni passo, sull'ultimo
 //! evento che lo chiede (il contesto del risveglio porta anche i precedenti).
@@ -170,7 +171,7 @@ impl Router<'_> {
         let body = if unanswered_plan { texts::plan_without_proposal(task) } else { texts::task(change, task) };
         let event = self.task_hub_event(change, task);
         let message = self.post(&thread, body, Some(event))?;
-        if unanswered_plan || matches!(change, TaskChange::Failed | TaskChange::Attention) {
+        if unanswered_plan || matches!(change, TaskChange::Failed | TaskChange::Attention | TaskChange::Question) {
             self.wake_owner(&thread, message);
         }
         Ok(())
@@ -283,10 +284,13 @@ impl Router<'_> {
     }
 
     /// I dati del task: stato sempre; riassunto, verdetto e nota solo per un
-    /// task concluso (sono quelli del tentativo appena finito).
+    /// task concluso (sono quelli del tentativo appena finito); la domanda
+    /// solo per gli eventi della domanda.
     fn task_hub_event(&self, change: TaskChange, task: &TaskSnap) -> HubEvent {
         let concluded = matches!(change, TaskChange::Done | TaskChange::Failed);
+        let about_question = matches!(change, TaskChange::Question | TaskChange::QuestionAnswered);
         HubEvent {
+            question: task.question.clone().filter(|_| about_question),
             workspace: Some(self.board.workspace_id.clone()),
             status: Some(task.status.as_str().to_string()),
             summary: task.summary.clone().filter(|_| concluded),
@@ -304,6 +308,8 @@ fn event_kind(change: TaskChange) -> HubEventKind {
         TaskChange::Done => HubEventKind::TaskDone,
         TaskChange::Failed => HubEventKind::TaskFailed,
         TaskChange::Attention => HubEventKind::TaskAttention,
+        TaskChange::Question => HubEventKind::TaskQuestion,
+        TaskChange::QuestionAnswered => HubEventKind::TaskQuestionAnswered,
         TaskChange::Deleted => HubEventKind::TaskDeleted,
     }
 }

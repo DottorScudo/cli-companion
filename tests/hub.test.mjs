@@ -272,6 +272,8 @@ describe("hubEvents: eventLook", () => {
       task_done: ["Completato", "done", "success"],
       task_failed: ["Fallito", "failed", "danger"],
       task_attention: ["Attenzione", "attention", "warning"],
+      task_question: ["Domanda", "question", "warning"],
+      task_question_answered: ["Risposta", "question", "neutral"],
       task_deleted: ["Eliminato", "deleted", "neutral"],
     };
     for (const [kind, [label, icon, tone]] of Object.entries(kinds)) {

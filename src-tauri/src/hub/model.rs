@@ -55,6 +55,12 @@ pub enum HubEventKind {
     TaskAttention,
     /// Task tolto dalla board senza essere `done`.
     TaskDeleted,
+    /// Il worker (o il pianificatore) ha fatto una domanda all'utente
+    /// (`ask_user`): `question` porta id, testo e opzioni.
+    TaskQuestion,
+    /// La domanda in attesa del task non aspetta piu': ha avuto una risposta
+    /// (dal thread o direttamente nel terminale del worker).
+    TaskQuestionAnswered,
     ProposalCreated,
     ProposalAccepted,
     ProposalRejected,
@@ -70,7 +76,7 @@ pub enum Subject<'a> {
 impl HubEventKind {
     /// Lo stato che l'evento lascia aspetta una mossa dell'utente.
     pub fn waits_for_user(self) -> bool {
-        matches!(self, Self::TaskFailed | Self::TaskAttention | Self::ProposalCreated)
+        matches!(self, Self::TaskFailed | Self::TaskAttention | Self::TaskQuestion | Self::ProposalCreated)
     }
 
     fn is_about_proposal(self) -> bool {
@@ -102,6 +108,20 @@ pub struct HubEvent {
     /// Nota dell'app sul task (per esempio il motivo di un fallimento).
     #[serde(default)]
     pub note: Option<String>,
+    /// La domanda del worker, negli eventi `task_question`.
+    #[serde(default)]
+    pub question: Option<HubQuestion>,
+}
+
+/// La domanda di un worker all'utente riportata in un thread: l'id con cui le
+/// si risponde (`board::TaskQuestion::id`), il testo e le risposte suggerite.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, rename = "HubQuestion")]
+pub struct HubQuestion {
+    pub id: String,
+    pub text: String,
+    #[serde(default)]
+    pub options: Vec<String>,
 }
 
 impl HubEvent {
@@ -126,6 +146,7 @@ impl HubEvent {
             summary: None,
             verdict: None,
             note: None,
+            question: None,
         }
     }
 

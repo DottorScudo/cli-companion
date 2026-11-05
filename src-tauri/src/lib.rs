@@ -84,6 +84,7 @@ pub fn run() {
                         automation::queue_hub_plan_task(app, ws_id, &plan.title, &plan.task)
                     },
                     decide_proposal: automation::decide_hub_proposal,
+                    answer_question: automation::answer_question,
                 },
             );
             automation::skills::restore_in_background(automation::TauriHost(app.handle().clone()));

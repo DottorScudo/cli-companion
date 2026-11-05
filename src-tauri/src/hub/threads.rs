@@ -8,10 +8,10 @@
 //! tempo), al massimo 200 task collegati a un thread.
 
 use super::channel::Channel;
-use super::model::{Author, HubEvent, Message, MessageKind, Thread, ThreadState, ThreadSummary};
+use super::model::{Author, HubEvent, HubQuestion, Message, MessageKind, Thread, ThreadState, ThreadSummary};
 use super::text::{self, BODY_MAX};
 use super::waiting::waiting_user;
-use crate::board::valid_id;
+use crate::board::{valid_id, OPTIONS_MAX, OPTION_MAX, QUESTION_MAX};
 use serde::{Deserialize, Serialize};
 
 /// Messaggi tenuti per thread: oltre, si tolgono i piu' vecchi.
@@ -173,6 +173,21 @@ fn validate_event(event: &HubEvent) -> Result<(), String> {
         if value.as_deref().is_some_and(|s| s.chars().count() > BODY_MAX) {
             return Err(format!("{label} dell'evento supera i {BODY_MAX} caratteri"));
         }
+    }
+    event.question.as_ref().map_or(Ok(()), validate_question)
+}
+
+/// La domanda di un evento: id valido, testo e opzioni nei limiti di `ask_user`.
+fn validate_question(question: &HubQuestion) -> Result<(), String> {
+    if !text::valid_ref_id(&question.id) {
+        return Err("id della domanda non valido nell'evento".to_string());
+    }
+    if question.text.chars().count() > QUESTION_MAX {
+        return Err(format!("la domanda dell'evento supera i {QUESTION_MAX} caratteri"));
+    }
+    let option_too_long = question.options.iter().any(|o| o.chars().count() > OPTION_MAX);
+    if question.options.len() > OPTIONS_MAX || option_too_long {
+        return Err("opzioni della domanda non valide nell'evento".to_string());
     }
     Ok(())
 }

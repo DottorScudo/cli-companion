@@ -1,7 +1,8 @@
 //! I testi in italiano dei messaggi evento e dei titoli dei thread: una riga
 //! (tipo di evento e titolo del task), i dati completi sono nel campo `event`
 //! del messaggio. Fanno eccezione il piano senza proposta, che porta le domande
-//! per l'utente, e il fallimento, che aggiunge la prima riga del motivo.
+//! per l'utente, la domanda di un worker (testo, opzioni e come rispondere) e
+//! il fallimento, che aggiunge la prima riga del motivo.
 
 use super::diff::TaskChange;
 use super::snapshot::{ProposalSnap, TaskSnap};
@@ -16,6 +17,11 @@ const FALLBACK_TITLE: &str = "Obiettivo";
 const FAILURE_REASON_MAX: usize = 120;
 /// Separatore tra il titolo di un task fallito e il suo motivo.
 const REASON_SEPARATOR: &str = " — ";
+
+/// Separatore delle risposte suggerite di una domanda.
+const OPTIONS_SEPARATOR: &str = " · ";
+/// Come si risponde a una domanda dal thread.
+const QUESTION_HINT: &str = "Usa «Rispondi» su questo messaggio: la tua risposta arriva al worker così com'è.";
 
 pub const PROPOSAL_REJECTED: &str = "Proposta scartata.";
 pub const THREAD_CONCLUDED: &str = "Tutti i task sono conclusi: thread chiuso.";
@@ -53,8 +59,25 @@ pub fn task(change: TaskChange, task: &TaskSnap) -> String {
         TaskChange::Done => done_headline(task),
         TaskChange::Failed => failed_headline(task),
         TaskChange::Attention => format!("Il task richiede attenzione: {title}"),
+        TaskChange::Question => question_asked(task),
+        TaskChange::QuestionAnswered => format!("Domanda risposta: {title}"),
         TaskChange::Deleted => format!("Task eliminato: {title}"),
     }
+}
+
+/// La domanda di un worker o del pianificatore: chi la fa, il testo, le
+/// risposte suggerite e come rispondere (nel thread non si vede altrove).
+fn question_asked(task: &TaskSnap) -> String {
+    let who = if task.kind == TaskKind::Plan { "Domanda del pianificatore" } else { "Domanda del worker" };
+    let mut lines = vec![format!("{who}: {}", task.title)];
+    if let Some(question) = &task.question {
+        lines.push(question.text.clone());
+        if !question.options.is_empty() {
+            lines.push(format!("Opzioni: {}", question.options.join(OPTIONS_SEPARATOR)));
+        }
+    }
+    lines.push(QUESTION_HINT.to_string());
+    lines.join("\n")
 }
 
 /// Un task `plan` concluso senza proposta: il riassunto porta le domande del

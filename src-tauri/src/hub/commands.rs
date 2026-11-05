@@ -5,6 +5,7 @@
 
 use super::append::{append_text, TextMessage};
 use super::channel::Channel;
+use super::direct_answer::deliver_if_answer;
 use super::engine::SecretaryEngine;
 use super::files::threads_dir;
 use super::model::{Author, Message, Thread, ThreadSummary};
@@ -69,8 +70,10 @@ pub async fn hub_create_thread(app: AppHandle, channel: String, title: String) -
 }
 
 /// Messaggio dell'utente in un thread; `reply_to` deve essere dello stesso
-/// thread. Dopo il salvataggio il motore dei segretari decide chi svegliare
-/// (menzioni o titolare della sessione) e lavora in background.
+/// thread. Dopo il salvataggio, una risposta a una domanda di un worker ancora
+/// in attesa va al worker cosi' com'e' (`direct_answer`, senza modello);
+/// altrimenti il motore dei segretari decide chi svegliare (menzioni o
+/// titolare della sessione) e lavora in background.
 #[tauri::command]
 pub async fn hub_send(
     app: AppHandle,
@@ -83,7 +86,9 @@ pub async fn hub_send(
     ensure_enabled(&app)?;
     crate::blocking(move || {
         let message = append_text(&app, &channel, &thread_id, TextMessage { author: Author::User, body, reply_to })?;
-        app.state::<SecretaryEngine>().on_message(&app, &channel, &thread_id, &message);
+        if !deliver_if_answer(&app, &channel, &thread_id, &message) {
+            app.state::<SecretaryEngine>().on_message(&app, &channel, &thread_id, &message);
+        }
         Ok(message)
     })
     .await

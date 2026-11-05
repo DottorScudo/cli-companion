@@ -13,6 +13,7 @@
 //! - `output`: board e thread in JSON compatto per il modello;
 //! - `planning`: `open_plan_task` e `decide_proposal` (il task `plan`, la
 //!   proposta a cui risponde l'utente, la decisione);
+//! - `relay`: `relay_answer` (l'unica domanda in attesa del thread, la consegna);
 //! - `context`: system prompt, messaggio di apertura di un turno, riassunto;
 //! - `mentions`: le menzioni `@nome`;
 //! - `sessions`: sessioni, titolare, code dei thread e scadenze (puro);
@@ -35,6 +36,7 @@ mod mentions;
 mod openai;
 mod output;
 mod planning;
+mod relay;
 mod runtime;
 mod sessions;
 pub mod status;

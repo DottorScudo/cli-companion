@@ -135,7 +135,7 @@ pub fn open_plan(
         "title": order.title,
         "status": "queued",
         "note": "You are now the owner of this thread: you will be woken up when the proposal is ready, if the \
-            planner has questions, if a task fails or needs attention, and when all tasks are concluded."
+            planner or a worker asks a question, if a task fails or needs attention, and when all tasks are concluded."
     }))
 }
 

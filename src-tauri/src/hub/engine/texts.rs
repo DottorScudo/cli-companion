@@ -41,6 +41,12 @@ pub fn tool_rejected(name: &str, rejection: &ToolRejection) -> String {
     }
 }
 
+/// Il segretario ha consegnato al worker una risposta per conto dell'utente
+/// (`relay_answer`): il thread mostra esattamente cosa e' stato inviato.
+pub fn answer_relayed(name: &str, body: &str) -> String {
+    format!("@{name} ha inviato al worker questa risposta:\n{body}")
+}
+
 /// La chiamata al modello e' fallita.
 pub fn model_error(name: &str, error: ModelError) -> String {
     let reason = match error {
@@ -94,5 +100,9 @@ mod tests {
         let invalid = ToolRejection::InvalidArguments { tool: SecretaryTool::PostMessage, reason: "x".into() };
         assert!(tool_rejected("mario", &invalid).contains("«post_message» con argomenti non validi"));
         assert!(step_limit("mario", 8).contains("dopo 8 passi"));
+        assert_eq!(
+            answer_relayed("mario", "Usa Postgres."),
+            "@mario ha inviato al worker questa risposta:\nUsa Postgres."
+        );
     }
 }

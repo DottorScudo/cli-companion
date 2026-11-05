@@ -4,6 +4,7 @@
 
 use super::snapshot::{BoardSnapshot, ProposalSnap, TaskSnap};
 use crate::board::TaskStatus;
+use crate::hub::model::HubQuestion;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +37,12 @@ pub enum TaskChange {
     Failed,
     /// Il worker si e' messo ad aspettare l'utente.
     Attention,
+    /// Il worker ha fatto una domanda all'utente: `task.question` e' la domanda.
+    Question,
+    /// La domanda in attesa non aspetta piu' e il task e' ancora in corso (ha
+    /// avuto una risposta): `task.question` e' la domanda appena risposta, non
+    /// quella di adesso.
+    QuestionAnswered,
     /// Sparito senza essere `done` (uno sparito da `done` e' stato archiviato).
     Deleted,
 }
@@ -75,6 +82,7 @@ pub fn diff(prev: &BoardSnapshot, next: &BoardSnapshot) -> Vec<BoardEvent> {
         if task.attention && !attention {
             events.push(task_event(TaskChange::Attention, task));
         }
+        question_events(before.and_then(|b| b.question.as_ref()), task, &mut events);
     }
 
     for gone in prev.tasks.iter().filter(|t| !next_ids.contains(t.id.as_str())) {
@@ -96,6 +104,23 @@ fn status_change(before: TaskStatus, after: TaskStatus) -> Option<TaskChange> {
         TaskStatus::Running => Some(TaskChange::Started),
         TaskStatus::Done => Some(TaskChange::Done),
         TaskStatus::Failed => Some(TaskChange::Failed),
+    }
+}
+
+/// Gli eventi della domanda in attesa del task: prima la risposta a quella di
+/// prima (solo con il task ancora in corso: un task concluso ha gia' il suo
+/// evento), poi la domanda nuova.
+fn question_events(before: Option<&HubQuestion>, task: &TaskSnap, events: &mut Vec<BoardEvent>) {
+    let now = task.question.as_ref();
+    if before.map(|q| &q.id) == now.map(|q| &q.id) {
+        return;
+    }
+    if let Some(answered) = before.filter(|_| task.status == TaskStatus::Running) {
+        let task = TaskSnap { question: Some(answered.clone()), ..task.clone() };
+        events.push(BoardEvent::Task { change: TaskChange::QuestionAnswered, task });
+    }
+    if now.is_some() {
+        events.push(task_event(TaskChange::Question, task));
     }
 }
 

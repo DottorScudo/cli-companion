@@ -50,8 +50,11 @@ const EVENT_GUIDE: &str = "You are the owner of this thread because you opened i
 a few lines what happened and what, if anything, they need to do. A new proposal: present its tasks briefly and ask \
 the user to use Reply on the proposal message to accept or reject it; you cannot decide it yourself now. A plan that \
 ended without a proposal: its summary holds the planner's questions, ask them to the user; once they answer you can \
-open a new planning task with the original goal, the questions and the answers. A failed task or a task that needs \
-attention: say which one and why, if known. All tasks concluded: sum up the outcome.";
+open a new planning task with the original goal, the questions and the answers. A question from a worker or from \
+the planner: present it in a few words, with its options if any, help the user understand it if needed, and tell \
+them to use Reply on the question message: their reply reaches the worker as written. You cannot answer it yourself \
+now. A failed task or a task that needs attention: say which one and why, if known. All tasks concluded: sum up the \
+outcome.";
 
 /// Cosa ricordare quando il messaggio dell'utente risponde a una proposta pendente.
 const PROPOSAL_REPLY: &str = "This message is the user's reply to the pending task proposal {proposal}. If the user \
@@ -286,6 +289,26 @@ decide_proposal; if the intent is not clear, ask the user instead of deciding."
             "{text}"
         );
         assert!(text.contains("you cannot decide it yourself now") && !text.contains("New message from the user"));
+    }
+
+    #[test]
+    fn a_worker_question_wakes_the_owner_to_present_it_without_answering() {
+        let mut event = msg("e1", Author::System, "Domanda del worker: Login\nQuale database?", 5);
+        event.event = Some(HubEvent {
+            workspace: Some("ws-1".into()),
+            question: Some(crate::hub::model::HubQuestion {
+                id: "q-1-1".into(),
+                text: "Quale database?".into(),
+                options: vec!["Postgres".into()],
+            }),
+            ..HubEvent::of_task(HubEventKind::TaskQuestion, "t-1")
+        });
+        let t = thread(vec![user("m1", "@giorgio aggiungi il login"), event]);
+        let trigger = Trigger { id: "e1", cause: WakeCause::BoardEvent, proposal: None };
+        let text = turn_message(&t, &trigger, None, "giorgio", &names()).unwrap();
+        assert!(text.contains(r#""kind":"task_question""#) && text.contains(r#""id":"q-1-1""#), "{text}");
+        assert!(text.contains(r#""options":["Postgres"]"#), "{text}");
+        assert!(text.contains("A question from a worker or from the planner") && text.contains("cannot answer it"));
     }
 
     #[test]

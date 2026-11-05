@@ -71,6 +71,12 @@ mod tests {
         assert!(waiting_user(&[event(HubEventKind::TaskFailed, Some("a"), None)]));
         assert!(waiting_user(&[event(HubEventKind::TaskAttention, Some("a"), None)]));
         assert!(waiting_user(&[event(HubEventKind::ProposalCreated, None, Some("p-1"))]));
+        assert!(waiting_user(&[event(HubEventKind::TaskQuestion, Some("a"), None)]));
+        let answered = [
+            event(HubEventKind::TaskQuestion, Some("a"), None),
+            event(HubEventKind::TaskQuestionAnswered, Some("a"), None),
+        ];
+        assert!(!waiting_user(&answered), "una domanda risposta non aspetta piu'");
         assert!(!waiting_user(&[event(HubEventKind::TaskDone, Some("a"), None)]));
     }
 

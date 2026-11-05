@@ -1,5 +1,5 @@
 use super::*;
-use crate::hub::events::fixtures::{board, proposal, task};
+use crate::hub::events::fixtures::{asking, board, proposal, task};
 
 fn changes(events: &[BoardEvent]) -> Vec<(TaskChange, &str)> {
     events
@@ -112,4 +112,43 @@ fn proposals_come_before_tasks_and_deletions_last() {
     let events = diff(&prev, &next);
     assert!(matches!(events[0], BoardEvent::ProposalCreated(_)));
     assert_eq!(changes(&events), [(TaskChange::Created, "a"), (TaskChange::Deleted, "old")]);
+}
+
+/// La domanda che porta l'evento `at`.
+fn question_id(events: &[BoardEvent], at: usize) -> Option<&str> {
+    match &events[at] {
+        BoardEvent::Task { task, .. } => task.question.as_ref().map(|q| q.id.as_str()),
+        _ => None,
+    }
+}
+
+#[test]
+fn a_new_question_is_an_event_with_its_data() {
+    let prev = board(vec![task("a", TaskStatus::Running)], vec![]);
+    let next = board(vec![asking("a", "q-1-1", &["Postgres", "SQLite"])], vec![]);
+    let events = diff(&prev, &next);
+    assert_eq!(changes(&events), [(TaskChange::Question, "a")]);
+    let BoardEvent::Task { task, .. } = &events[0] else { panic!("{events:?}") };
+    assert_eq!(task.question.as_ref().unwrap().options, ["Postgres", "SQLite"]);
+    assert!(diff(&next, &next).is_empty(), "la stessa domanda non si ripete");
+}
+
+#[test]
+fn an_answer_closes_the_question_and_a_new_one_follows_it() {
+    let asked = board(vec![asking("a", "q-1-1", &[])], vec![]);
+    let answered = diff(&asked, &board(vec![task("a", TaskStatus::Running)], vec![]));
+    assert_eq!(changes(&answered), [(TaskChange::QuestionAnswered, "a")]);
+    assert_eq!(question_id(&answered, 0), Some("q-1-1"), "l'evento porta la domanda risposta");
+
+    let again = diff(&asked, &board(vec![asking("a", "q-1-2", &[])], vec![]));
+    assert_eq!(changes(&again), [(TaskChange::QuestionAnswered, "a"), (TaskChange::Question, "a")]);
+    assert_eq!((question_id(&again, 0), question_id(&again, 1)), (Some("q-1-1"), Some("q-1-2")));
+}
+
+#[test]
+fn a_task_that_ends_with_a_pending_question_reports_only_its_end() {
+    let asked = board(vec![asking("a", "q-1-1", &[])], vec![]);
+    let failed = diff(&asked, &board(vec![task("a", TaskStatus::Failed)], vec![]));
+    assert_eq!(changes(&failed), [(TaskChange::Failed, "a")]);
+    assert_eq!(changes(&diff(&asked, &board(vec![], vec![]))), [(TaskChange::Deleted, "a")]);
 }

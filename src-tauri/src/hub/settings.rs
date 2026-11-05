@@ -133,7 +133,7 @@ mod tests {
     fn unknown_values_of_a_future_version_keep_the_rest() {
         let future = r#"{"schema_version":1,"data":{"enabled":true,"language":"pt","future_field":1,
             "session":{"idle_minutes":5,"max_steps":2,"budget":9},
-            "secretaries":[{"name":"mario","tools":["board_status","relay_answer"]},{"bad":true}]}}"#;
+            "secretaries":[{"name":"mario","tools":["board_status","ask_user"]},{"bad":true}]}}"#;
         let s = SETTINGS_FILE.parse(future).unwrap();
         assert!(s.enabled);
         assert_eq!(s.language, Language::It);

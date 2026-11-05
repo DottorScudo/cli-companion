@@ -2,6 +2,7 @@
 
 use super::snapshot::{BoardSnapshot, ProposalSnap, ProposedTask, TaskSnap};
 use crate::board::{TaskKind, TaskStatus};
+use crate::hub::model::HubQuestion;
 
 pub const WS: &str = "ws-1";
 
@@ -16,7 +17,18 @@ pub fn task(id: &str, status: TaskStatus) -> TaskSnap {
         summary: None,
         verdict: None,
         note: None,
+        question: None,
     }
+}
+
+/// Task `id` in corso con la domanda `question_id` in attesa.
+pub fn asking(id: &str, question_id: &str, options: &[&str]) -> TaskSnap {
+    let question = HubQuestion {
+        id: question_id.to_string(),
+        text: "Quale database uso?".to_string(),
+        options: options.iter().map(|o| o.to_string()).collect(),
+    };
+    TaskSnap { question: Some(question), ..task(id, TaskStatus::Running) }
 }
 
 /// Proposta `id` con i task `ids` (titoli "Task <id>").

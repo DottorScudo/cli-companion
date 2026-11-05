@@ -1,10 +1,14 @@
 //! L'istantanea compatta di una board: solo cio' che serve a riconoscere gli
-//! eventi (stato, attenzione, titolo, tipo dei task; id e task delle proposte)
-//! e a raccontarli (riassunto, verdetto, nota). Si ricava da `BoardView` e
+//! eventi (stato, attenzione, domanda in attesa, titolo, tipo dei task; id e
+//! task delle proposte) e a raccontarli (riassunto, verdetto, nota, testo e
+//! opzioni della domanda). Si ricava da `BoardView` e
 //! resta in memoria per workspace finche' l'HUB e' acceso: i testi lunghi sono
 //! gia' ripuliti e tagliati qui.
 
-use crate::board::{BoardView, Proposal, TaskKind, TaskStatus, TaskView, Verdict};
+use crate::board::{
+    BoardView, Proposal, TaskKind, TaskQuestion, TaskStatus, TaskView, Verdict, OPTION_MAX, QUESTION_MAX,
+};
+use crate::hub::model::HubQuestion;
 use crate::hub::text::{clean_line, clean_text};
 
 /// Caratteri tenuti di un titolo: un titolo della board ne ha al massimo 80,
@@ -25,6 +29,8 @@ pub struct TaskSnap {
     pub summary: Option<String>,
     pub verdict: Option<Verdict>,
     pub note: Option<String>,
+    /// La domanda del worker in attesa di risposta.
+    pub question: Option<HubQuestion>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,6 +85,16 @@ fn task_snap(v: &TaskView) -> TaskSnap {
         summary: report.map(|r| clean_text(&r.summary, DETAIL_KEPT)).filter(|s| !s.is_empty()),
         verdict: report.and_then(|r| r.verdict),
         note: t.note().map(|n| clean_text(n, DETAIL_KEPT)).filter(|s| !s.is_empty()),
+        question: v.question.as_ref().map(question_snap),
+    }
+}
+
+/// La domanda ripulita dai caratteri di controllo (la board ne ha gia' fissato i limiti).
+fn question_snap(q: &TaskQuestion) -> HubQuestion {
+    HubQuestion {
+        id: q.id.clone(),
+        text: clean_text(&q.text, QUESTION_MAX),
+        options: q.options.iter().map(|o| clean_line(o, OPTION_MAX)).filter(|o| !o.is_empty()).collect(),
     }
 }
 
@@ -98,6 +114,23 @@ fn proposal_snap(p: &Proposal) -> ProposalSnap {
 mod tests {
     use super::*;
     use crate::board::{AgentGate, Board};
+
+    #[test]
+    fn a_pending_question_is_kept_cleaned() {
+        let q = TaskQuestion {
+            id: "q-1-1".into(),
+            attempt: 1,
+            text: " Quale\u{1b}[31m database?\nPostgres o SQLite ".into(),
+            options: vec!["Postgres\u{7}".into(), "\u{7}".into()],
+            asked_at: 1,
+            answered_at: None,
+            answer: None,
+        };
+        let snap = question_snap(&q);
+        assert_eq!(snap.id, "q-1-1");
+        assert!(!snap.text.contains('\u{1b}') && snap.text.contains('\n'), "{:?}", snap.text);
+        assert_eq!(snap.options, ["Postgres"], "un'opzione vuota dopo la pulizia si scarta");
+    }
 
     #[test]
     fn the_snapshot_keeps_what_the_events_need() {

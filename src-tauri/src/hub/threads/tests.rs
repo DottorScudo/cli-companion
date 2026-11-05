@@ -116,6 +116,31 @@ fn events_are_validated() {
 }
 
 #[test]
+fn question_events_are_validated() {
+    use crate::board::{OPTIONS_MAX, OPTION_MAX, QUESTION_MAX};
+    use crate::hub::model::HubQuestion;
+    let mut list = with_thread("t1", 0);
+    let with_question = |id: &str, question: HubQuestion| {
+        let mut m = event(id, HubEventKind::TaskQuestion, "a");
+        m.event.as_mut().unwrap().question = Some(question);
+        m
+    };
+    let good = HubQuestion { id: "q-1-1".into(), text: "Quale?".into(), options: vec!["A".into(), "B".into()] };
+    let added = list.add_message("t1", with_question("e1", good.clone()), 1).unwrap();
+    assert_eq!(added.event.as_ref().unwrap().question.as_ref(), Some(&good));
+    let bad = [
+        HubQuestion { id: "../q".into(), ..good.clone() },
+        HubQuestion { text: "x".repeat(QUESTION_MAX + 1), ..good.clone() },
+        HubQuestion { options: vec!["o".into(); OPTIONS_MAX + 1], ..good.clone() },
+        HubQuestion { options: vec!["o".repeat(OPTION_MAX + 1)], ..good.clone() },
+    ];
+    for (i, question) in bad.into_iter().enumerate() {
+        assert!(list.add_message("t1", with_question(&format!("e{}", i + 2), question), 1).is_err(), "{i}");
+    }
+    assert_eq!(list.thread("t1").unwrap().messages.len(), 1);
+}
+
+#[test]
 fn bot_authors_are_validated() {
     let mut list = with_thread("t1", 0);
     let bot = NewMessage { author: Author::Bot { name: " mario ".to_string() }, ..user_text("m1", "ciao") };

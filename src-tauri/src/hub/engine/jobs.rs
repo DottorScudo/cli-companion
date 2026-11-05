@@ -9,6 +9,7 @@ use super::chat::{ChatMessage, ModelError};
 use super::context::{self, Trigger};
 use super::host::{AppTurnHost, ThreadIo};
 use super::planning::proposal_target;
+use super::relay::relay_target;
 use super::runtime::SecretaryEngine;
 use super::sessions::{usable, Job, ThreadKey};
 use super::texts;
@@ -43,7 +44,8 @@ pub async fn run_queue(app: AppHandle, key: ThreadKey, epoch: u64) {
 }
 
 /// Un turno del segretario `name` per il messaggio `trigger`. La proposta che
-/// il turno puo' decidere si ricava qui, dal thread letto all'inizio del turno.
+/// il turno puo' decidere e la domanda a cui puo' rispondere si ricavano qui,
+/// dal thread letto all'inizio del turno.
 async fn reply(app: &AppHandle, key: &ThreadKey, name: &str, mut trigger: Trigger<'_>, epoch: u64) {
     let engine = app.state::<SecretaryEngine>();
     let settings = app.state::<HubSettingsStore>().get();
@@ -66,6 +68,7 @@ async fn reply(app: &AppHandle, key: &ThreadKey, name: &str, mut trigger: Trigge
     };
     let names = current_workspace_names(app);
     let proposal = proposal_target(&thread, trigger.id, trigger.cause);
+    let question = relay_target(&thread, trigger.cause);
     trigger.proposal = proposal.as_ref().map(|p| p.proposal_id.as_str());
     let Some(opening) = context::turn_message(&thread, &trigger, turn.last_seen.as_deref(), name, &names) else {
         log::warn!("hub: messaggio {} non piu' nel thread, turno di {name} saltato", trigger.id);
@@ -87,7 +90,8 @@ async fn reply(app: &AppHandle, key: &ThreadKey, name: &str, mut trigger: Trigge
         system: context::system_prompt(secretary, settings.language, &key.channel, &names),
         max_steps,
     };
-    let host = AppTurnHost { io: &io, secretary, trigger: trigger.id, proposal: proposal.clone(), names: &names };
+    let host =
+        AppTurnHost { io: &io, secretary, trigger: trigger.id, proposal: proposal.clone(), question, names: &names };
     match run_turn(&model, &host, &spec, &mut turn.conversation).await {
         TurnEnd::Reply(text) => post_reply(&io, name, &text).await,
         TurnEnd::StepLimit => io.notice(texts::step_limit(name, max_steps)).await,

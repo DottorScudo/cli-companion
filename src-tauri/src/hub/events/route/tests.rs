@@ -1,7 +1,7 @@
 use super::*;
 use crate::board::{TaskKind, Verdict};
 use crate::hub::events::diff::diff;
-use crate::hub::events::fixtures::{board, proposal, task, WS};
+use crate::hub::events::fixtures::{asking, board, proposal, task, WS};
 use crate::hub::model::{MessageKind, Thread};
 
 fn channel() -> Channel {
@@ -390,5 +390,50 @@ fn threads_without_an_owner_get_only_the_template_messages() {
     let failed = board(vec![plan(TaskStatus::Failed)], vec![plan_proposal("p-1", &["a"])]);
     let out = routed(&mut list, &running, &failed, 10);
     assert_eq!(bodies(only_thread(&list)).len(), 2);
+    assert!(out.wakes.is_empty());
+}
+
+#[test]
+fn a_worker_question_goes_to_its_task_thread_waits_and_wakes_the_owner() {
+    let mut list = planning_thread(Some("giorgio"));
+    list.link_tasks(PLAN_THREAD, &["a".to_string()], 1).unwrap();
+    let working = board(vec![plan(TaskStatus::Done), task("a", TaskStatus::Running)], vec![]);
+    let asked = board(vec![plan(TaskStatus::Done), asking("a", "q-1-1", &["Postgres", "SQLite"])], vec![]);
+    let out = routed(&mut list, &working, &asked, 10);
+
+    let t = only_thread(&list);
+    assert_eq!(
+        bodies(t),
+        ["Domanda del worker: Task a\nQuale database uso?\nOpzioni: Postgres · SQLite\nUsa «Rispondi» su questo \
+messaggio: la tua risposta arriva al worker così com'è."]
+    );
+    let event = last_event(t);
+    assert_eq!((event.kind, event.task_id.as_deref()), (HubEventKind::TaskQuestion, Some("a")));
+    let question = event.question.as_ref().unwrap();
+    assert_eq!((question.id.as_str(), question.options.len()), ("q-1-1", 2));
+    assert!(out.touched[0].waiting_user, "il thread aspetta la risposta");
+    assert_eq!(out.wakes, [wake(&id_of_last(&list))]);
+
+    let answered = board(vec![plan(TaskStatus::Done), task("a", TaskStatus::Running)], vec![]);
+    let out = routed(&mut list, &asked, &answered, 20);
+    let t = only_thread(&list);
+    assert_eq!(bodies(t).last(), Some(&"Domanda risposta: Task a"));
+    let event = last_event(t);
+    assert_eq!(event.kind, HubEventKind::TaskQuestionAnswered);
+    assert_eq!(event.question.as_ref().map(|q| q.id.as_str()), Some("q-1-1"));
+    assert!(!out.touched[0].waiting_user);
+    assert!(out.wakes.is_empty(), "la risposta l'ha data l'utente: nessun risveglio");
+}
+
+#[test]
+fn a_planner_question_is_named_as_such_and_a_thread_without_owner_only_waits() {
+    let mut list = planning_thread(None);
+    let running = board(vec![plan(TaskStatus::Running)], vec![]);
+    let mut asking_plan = asking(PLAN, "q-1-1", &[]);
+    asking_plan.kind = TaskKind::Plan;
+    let out = routed(&mut list, &running, &board(vec![asking_plan], vec![]), 10);
+    let t = only_thread(&list);
+    assert!(bodies(t)[0].starts_with("Domanda del pianificatore: Task plan-x\nQuale database uso?\nUsa «Rispondi»"));
+    assert!(out.touched[0].waiting_user);
     assert!(out.wakes.is_empty());
 }

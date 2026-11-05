@@ -2,6 +2,11 @@ use super::*;
 use crate::hub::engine::fake::{call, calls, text, FakeModel};
 use crate::hub::engine::fixtures::{secretary, FakeBoard, WS};
 use crate::hub::engine::planning::{self, ProposalBoard, ProposalRef};
+use crate::hub::engine::relay::{self, relay_target};
+use crate::hub::engine::sessions::WakeCause;
+use crate::hub::model::HubEventKind;
+use crate::hub::questions::fixtures::{question_event, question_ref, task_event, thread, FakeAnswers};
+use crate::hub::questions::QuestionRef;
 use crate::hub::settings::SecretaryTool;
 use std::sync::Mutex;
 use tauri::async_runtime::block_on;
@@ -17,6 +22,9 @@ struct FakeHost {
     plans: Mutex<Vec<String>>,
     proposal: Option<ProposalRef>,
     board: FakeBoard,
+    /// La domanda a cui il turno puo' rispondere (`relay::relay_target`).
+    question: Option<Result<QuestionRef, &'static str>>,
+    answers: FakeAnswers,
 }
 
 impl FakeHost {
@@ -57,6 +65,11 @@ impl TurnHost for FakeHost {
         planning::decide(&self.board, self.proposal.as_ref(), accept)
     }
 
+    async fn relay_answer(&self, body: String) -> Result<Value, String> {
+        let target = self.question.clone().unwrap_or(Err("no question for this turn"));
+        relay::relay(&self.answers, target.as_ref().map_err(|e| *e), &body)
+    }
+
     async fn notice(&self, text: String) {
         self.notices.lock().unwrap().push(text);
     }
@@ -91,7 +104,10 @@ fn a_text_reply_ends_the_turn() {
     let requests = model.requests();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].system, "system");
-    assert_eq!(requests[0].tools, ["board_status", "thread_read", "post_message", "open_plan_task", "decide_proposal"]);
+    assert_eq!(
+        requests[0].tools,
+        ["board_status", "thread_read", "post_message", "open_plan_task", "decide_proposal", "relay_answer"]
+    );
 }
 
 #[test]
@@ -224,6 +240,55 @@ fn a_secretary_without_the_planning_tools_cannot_use_them() {
     assert!(host.board.decisions.lock().unwrap().is_empty() && host.plans.lock().unwrap().is_empty());
     assert_eq!(host.notices.lock().unwrap().len(), 2);
     assert_eq!(model.requests()[0].tools, ["board_status", "thread_read", "post_message"]);
+}
+
+/// Un turno che chiama `relay_answer` con `body` e poi risponde, con la
+/// domanda ricavata dal thread `messages` per un risveglio `cause`.
+fn relay_turn(messages: Vec<crate::hub::model::Message>, cause: WakeCause) -> (FakeModel, FakeHost) {
+    let model = FakeModel::new(vec![
+        calls(vec![call("c1", "relay_answer", r#"{"body":"Use the second option."}"#)]),
+        text("Fatto."),
+    ]);
+    let host = FakeHost { question: Some(relay_target(&thread(messages), cause)), ..FakeHost::default() };
+    run(&model, &host, &secretary("mario"), 8);
+    (model, host)
+}
+
+#[test]
+fn relay_answer_delivers_to_the_only_pending_question_when_the_user_asks() {
+    let (model, host) = relay_turn(vec![question_event("e1", "a", "q-1-1")], WakeCause::Message);
+    assert_eq!(host.answers.delivered(), [(question_ref("a", "q-1-1"), "Use the second option.".to_string())]);
+    assert!(tool_result(&model, 1).contains(r#""delivered":true"#), "{}", tool_result(&model, 1));
+}
+
+#[test]
+fn relay_answer_is_refused_in_a_board_event_turn_and_with_several_questions() {
+    let (model, host) = relay_turn(vec![question_event("e1", "a", "q-1-1")], WakeCause::BoardEvent);
+    assert!(host.answers.delivered().is_empty());
+    assert!(tool_result(&model, 1).contains("never when a board event woke you up"));
+    let several = vec![question_event("e1", "a", "q-1-1"), question_event("e2", "b", "q-1-1")];
+    let (model, host) = relay_turn(several, WakeCause::Message);
+    assert!(host.answers.delivered().is_empty());
+    assert!(tool_result(&model, 1).contains("Ask the user which question"));
+    let answered = vec![question_event("e1", "a", "q-1-1"), task_event("e2", HubEventKind::TaskQuestionAnswered, "a")];
+    let (model, host) = relay_turn(answered, WakeCause::Message);
+    assert!(host.answers.delivered().is_empty());
+    assert!(tool_result(&model, 1).contains("No worker question is waiting"));
+}
+
+#[test]
+fn a_secretary_without_relay_answer_cannot_use_it() {
+    let mut s = secretary("mario");
+    s.tools.retain(|t| *t != SecretaryTool::RelayAnswer);
+    let model = FakeModel::new(vec![
+        calls(vec![call("c1", "relay_answer", r#"{"body":"Use the second option."}"#)]),
+        text("Non posso."),
+    ]);
+    let host = FakeHost { question: Some(Ok(question_ref("a", "q-1-1"))), ..FakeHost::default() };
+    run(&model, &host, &s, 8);
+    assert!(host.answers.delivered().is_empty());
+    assert_eq!(host.notices.lock().unwrap().len(), 1);
+    assert!(!model.requests()[0].tools.contains(&"relay_answer"));
 }
 
 #[test]

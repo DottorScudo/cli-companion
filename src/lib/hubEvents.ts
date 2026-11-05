@@ -6,7 +6,15 @@ import type { BoardView } from "../bindings/BoardView.ts";
 import type { HubEvent } from "../bindings/HubEvent.ts";
 
 /** Chiave dell'icona; il componente la traduce in un'icona. */
-export type HubEventIcon = "proposal" | "started" | "done" | "failed" | "attention" | "deleted" | "generic";
+export type HubEventIcon =
+  | "proposal"
+  | "started"
+  | "done"
+  | "failed"
+  | "attention"
+  | "question"
+  | "deleted"
+  | "generic";
 
 export type HubEventTone = "neutral" | "success" | "danger" | "warning";
 
@@ -27,6 +35,8 @@ const EVENT_LOOKS: Readonly<Record<string, HubEventLook>> = {
   task_done: { label: "Completato", icon: "done", tone: "success" },
   task_failed: { label: "Fallito", icon: "failed", tone: "danger" },
   task_attention: { label: "Attenzione", icon: "attention", tone: "warning" },
+  task_question: { label: "Domanda", icon: "question", tone: "warning" },
+  task_question_answered: { label: "Risposta", icon: "question", tone: "neutral" },
   task_deleted: { label: "Eliminato", icon: "deleted", tone: "neutral" },
 };
 

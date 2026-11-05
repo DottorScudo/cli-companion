@@ -175,7 +175,7 @@ describe("segretari", () => {
   it("SECRETARY_TOOLS: tutti i tool del backend, nell'ordine canonico", () => {
     assert.deepEqual(
       SECRETARY_TOOLS.map((t) => t.id),
-      ["board_status", "thread_read", "post_message", "open_plan_task", "decide_proposal"],
+      ["board_status", "thread_read", "post_message", "open_plan_task", "decide_proposal", "relay_answer"],
     );
     assert.ok(SECRETARY_TOOLS.every((t) => t.description.length > 0));
     const text = Object.fromEntries(SECRETARY_TOOLS.map((t) => [t.id, t.description]));

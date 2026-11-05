@@ -122,9 +122,12 @@ resta uno solo. L'elenco (`hub_list_threads`) restituisce i riassunti, senza i m
   citato viene potato, la UI lo tratta come assente.
 - `event` (`HubEvent`): dati strutturati, accanto al testo a template del messaggio, letti come dati (non come
   testo) dai segretari (`thread_read` e contesto del risveglio): `kind` (`task_created`, `task_started`, `task_done`, `task_failed`,
-  `task_attention`, `task_deleted`, `proposal_created`, `proposal_accepted`, `proposal_rejected`), `workspace`
+  `task_attention`, `task_question`, `task_question_answered`, `task_deleted`, `proposal_created`,
+  `proposal_accepted`, `proposal_rejected`), `workspace`
   (id del workspace della board), `task_id`, `proposal_id`, `status` (stato del task nella board), `summary`
-  (riassunto del report), `verdict` (`passed` | `issues`, esito di una review), `note` (nota dell'app sul task).
+  (riassunto del report), `verdict` (`passed` | `issues`, esito di una review), `note` (nota dell'app sul task),
+  `question` (`HubQuestion`: `id` della domanda sulla board, `text` al massimo 2000 caratteri, `options` al
+  massimo 5 da 80 caratteri; negli eventi `task_question` e `task_question_answered`).
   In `proposal_created` `task_id` è il task che ha fatto la proposta (il `plan` del pianificatore o la review),
   se c'è: il soggetto resta la proposta.
   Ogni evento deve nominare il suo soggetto: `task_id` per gli eventi dei task, `proposal_id` per quelli delle
@@ -136,7 +139,8 @@ resta uno solo. L'elenco (`hub_list_threads`) restituisce i riassunti, senza i m
 
 `waiting_user` (`hub/waiting.rs`) è **calcolato**, mai salvato, così non può divergere dai messaggi: per ogni
 soggetto (task o proposta) conta l'ultimo evento, e il thread aspetta l'utente se almeno uno è `task_failed`,
-`task_attention` o `proposal_created`. Un task fallito e poi ripartito, o una proposta decisa, non aspettano più.
+`task_attention`, `task_question` o `proposal_created`. Un task fallito e poi ripartito, una domanda risposta
+(`task_question_answered`) o una proposta decisa non aspettano più.
 Gli eventi potati dal limite dei messaggi non contano più.
 
 ## File
@@ -224,7 +228,7 @@ Validano gli argomenti per primi e fanno l'I/O in `crate::blocking`. Wrapper nel
 | `hub_list_threads` | `channel` | `HubThreadSummary[]`, dal più recente |
 | `hub_get_thread` | `channel`, `thread_id` | `HubThread` con i messaggi |
 | `hub_create_thread` | `channel`, `title` | `HubThread` (thread libero dell'utente) |
-| `hub_send` | `channel`, `thread_id`, `body`, `reply_to?` | `HubMessage` dell'utente; dopo il salvataggio il motore sveglia i segretari (in background) |
+| `hub_send` | `channel`, `thread_id`, `body`, `reply_to?` | `HubMessage` dell'utente; dopo il salvataggio, una risposta a una domanda di un worker ancora in attesa va al worker così com'è (vedi "Domande dei worker"), altrimenti il motore sveglia i segretari (in background) |
 | `hub_secretary_status` | — | `HubSecretaryStatus[]`: i segretari svegli adesso (vedi "Motore dei segretari") |
 
 Con l'HUB spento `hub_create_thread` e `hub_send` sono rifiutati; i comandi delle impostazioni funzionano sempre.
@@ -456,10 +460,15 @@ Dall'istantanea precedente e da quella nuova, in quest'ordine:
 | Task completato | stato diventato `done` | `task_done` |
 | Task fallito | stato diventato `failed` | `task_failed` |
 | Attenzione | `attention` da falso a vero | `task_attention` |
+| Domanda posta | il task ha una domanda in attesa (`TaskView.question`, tool `ask_user` di worker e pianificatore) con un id diverso da prima | `task_question` |
+| Domanda risposta | la domanda in attesa di prima non c'è più e il task è ancora `running` (risposta dal thread o nel terminale); l'evento porta la domanda risposta | `task_question_answered` |
 | Task eliminato | sparito senza essere `done` | `task_deleted` |
 
 Un task appena comparso parte da "in coda, senza attenzione" (un task accettato e già avviato dà anche
-`task_started`). Tornare in coda (Riprova, stop, archiviazione del workspace) non è un evento: si vedrà alla
+`task_started`). Nello stesso passo la risposta a una domanda viene prima della domanda successiva; un task che
+finisce, fallisce o sparisce con una domanda in attesa dà solo il suo evento (la domanda non aspetta più nessuno:
+vedi `waiting_user`). L'istantanea tiene la domanda in attesa ripulita dai caratteri di controllo (le opzioni
+vuote dopo la pulizia si scartano). Tornare in coda (Riprova, stop, archiviazione del workspace) non è un evento: si vedrà alla
 ripartenza. Un task sparito da `done` è stato archiviato e non è un evento. **Assunzione**: dalla vista non si
 distingue l'archiviazione di un task `failed` (oltre i 200 task conclusi) dalla sua eliminazione: vale come
 eliminato.
@@ -493,8 +502,11 @@ messaggio da cui parte il turno), vedi "Risvegli da evento".
 Testi (`events/texts.rs`), una riga ciascuno: «Task creato: <titolo>», «Task avviato: <titolo>», «Task finito:
 <titolo>», «Revisione finita: <titolo> (esito: superata | problemi trovati)», «Task fallito: <titolo>» (con
 ` — ` e la prima riga non vuota della nota, o del riassunto se manca, tagliata a 120 caratteri con «…»), «Il task
-richiede attenzione: <titolo>», «Task eliminato: <titolo>». Fa eccezione «Pianificazione conclusa senza proposta:
-<titolo>», che porta sotto le domande del pianificatore (nel thread non si vedono altrove). Il riassunto del worker
+richiede attenzione: <titolo>», «Domanda risposta: <titolo>», «Task eliminato: <titolo>». Fa eccezione
+«Pianificazione conclusa senza proposta: <titolo>», che porta sotto le domande del pianificatore (nel thread non si
+vedono altrove), e la domanda: «Domanda del worker: <titolo>» (o «Domanda del pianificatore: …» per un task `plan`),
+poi il testo, «Opzioni: a · b» se ci sono e «Usa «Rispondi» su questo messaggio: la tua risposta arriva al worker
+così com'è.». Il riassunto del worker
 non è nel testo: il campo `event` porta i dati completi (`workspace`, `task_id`/`proposal_id`, `status` e, per
 `task_done`/`task_failed`, `summary`, `verdict` e `note` del tentativo concluso) e li legge il segretario. La riga
 nell'interfaccia (`HubEventRow`) mostra solo il testo, più il link «apri il task nel Tasks Manager» se il task è
@@ -522,6 +534,7 @@ una skill di Claude Code o OpenCode e non passa da MCP. Codice in `hub/engine/`.
 | `context.rs` | system prompt, messaggio di apertura di un turno, richiesta e pulizia del riassunto |
 | `mentions.rs` | le menzioni `@nome` |
 | `planning.rs` | `open_plan_task` (testo del task `plan`, collegamento, titolare) e `decide_proposal` (a quale proposta si lega e la decisione), generici sulla board |
+| `relay.rs` | `relay_answer` (a quale domanda si lega e la consegna), generico sulla board |
 | `sessions.rs` | sessioni, titolare, code dei thread, scadenze (puro, tempo passato dal chiamante) |
 | `turn.rs` | il ciclo di tool calling, la compattazione della conversazione, il riassunto |
 | `texts.rs` | i messaggi di sistema in italiano |
@@ -537,7 +550,8 @@ finto e una board finta (`engine/fixtures.rs`), senza rete.
 ### Menzioni e risveglio
 
 `hub_send` salva il messaggio dell'utente e poi chiama `SecretaryEngine::on_message`, che decide chi svegliare
-(`Sessions::route`, puro):
+(`Sessions::route`, puro). Fa eccezione la risposta («Rispondi») a un evento `task_question`: è la risposta
+diretta al worker e non sveglia nessun segretario, nemmeno con una menzione (vedi "Domande dei worker").
 
 - solo i messaggi dell'utente svegliano qualcuno: quelli dei bot e di sistema mai (niente catene bot-bot); gli
   eventi della board svegliano solo il titolare del thread, con le regole di "Risvegli da evento";
@@ -562,13 +576,14 @@ che vi ha aperto la pianificazione) questi eventi della board lo svegliano (`eve
 |---|---|
 | proposta pronta | «Nuova proposta: …» |
 | pianificazione conclusa senza proposta | «Pianificazione conclusa senza proposta: …» (il riassunto porta le domande) |
+| domanda di un worker o del pianificatore (`ask_user`) | «Domanda del worker: …» / «Domanda del pianificatore: …» |
 | task fallito | «Task fallito: …» |
 | task in attenzione | «Il task richiede attenzione: …» |
 | tutti i task del thread conclusi | «Tutti i task sono conclusi: thread chiuso.» |
 
 **Assunzione** (per contenere i costi: ogni risveglio è una chiamata al modello): avvio e completamento di un singolo
-task, accettazione e scarto di una proposta (li ha decisi l'utente) e eliminazione di un task restano solo messaggi a
-template. Al massimo un risveglio per thread a ogni passo della board, dall'ultimo evento che lo chiede (il contesto
+task, accettazione e scarto di una proposta (li ha decisi l'utente), risposta a una domanda (l'ha data l'utente) e
+eliminazione di un task restano solo messaggi a template. Al massimo un risveglio per thread a ogni passo della board, dall'ultimo evento che lo chiede (il contesto
 porta anche i precedenti). Un thread senza titolare riceve solo i messaggi.
 
 Dopo aver salvato i thread (e rilasciato il loro lock) il thread degli eventi chiama `SecretaryEngine::on_events`, che
@@ -576,9 +591,11 @@ accoda il turno (`Sessions::route_event`) se il titolare è ancora configurato e
 (riga nel log). Il turno parte con una **sessione nuova** che si apre dall'evento: il primo messaggio porta i dati del
 thread, gli ultimi messaggi, l'evento in JSON e le indicazioni per il titolare (in inglese: raccontare in poche righe;
 una proposta si presenta e si chiede all'utente di usare «Rispondi» sul suo messaggio; le domande del pianificatore si
-pongono all'utente; un fallimento si spiega; la fine si riassume). Se il titolare ha già una sessione aperta sul thread
+pongono all'utente; la domanda di un worker si presenta in breve, con le opzioni, aiutando a capirla, e si chiede di
+usare «Rispondi» sul suo messaggio; un fallimento si spiega; la fine si riassume). Se il titolare ha già una sessione aperta sul thread
 l'evento diventa il suo turno successivo, con la conversazione che ha già (due sessioni dello stesso segretario sullo
-stesso thread non esistono). Un turno svegliato da un evento **non può mai** usare `decide_proposal`. Da quel momento il
+stesso thread non esistono). Un turno svegliato da un evento **non può mai** usare `decide_proposal` né
+`relay_answer`. Da quel momento il
 titolare ha una sessione attiva: la risposta dell'utente senza menzione («sì, accetta») va a lui come sempre.
 
 ### Code dei thread
@@ -653,8 +670,8 @@ tool ha il suo esito).
 
 Schema JSON e descrizione (in inglese: li legge il modello) sono scritti in `tools.rs` accanto alla struttura degli
 argomenti in cui si validano (`#[serde(deny_unknown_fields)]`); un test verifica che le proprietà dello schema e i
-campi della struttura coincidano. Gli argomenti vuoti valgono `{}`. Solo `open_plan_task` e `decide_proposal`
-scrivono sulla board (vedi "Pianificazione dal thread").
+campi della struttura coincidano. Gli argomenti vuoti valgono `{}`. Solo `open_plan_task`, `decide_proposal`
+(vedi "Pianificazione dal thread") e `relay_answer` (vedi "Domande dei worker") agiscono sulla board.
 
 | Tool | Argomenti | Effetto |
 |---|---|---|
@@ -663,6 +680,7 @@ scrivono sulla board (vedi "Pianificazione dal thread").
 | `post_message` | `body` (1..8000 caratteri) | un messaggio intermedio del segretario nel thread; la risposta finale è comunque il testo del modello |
 | `open_plan_task` | `goal` (1..4000 caratteri, ripulito dai caratteri di controllo) | crea un task `plan` in coda nel workspace del canale, collegato al thread, e rende il segretario titolare; esito `{ task_id, title, status }`. Nel Generale è un errore per il modello: deve chiedere all'utente il progetto |
 | `decide_proposal` | `accept` (bool), **nessun id** | accetta o scarta la proposta dell'evento a cui risponde il messaggio dell'utente; esito `{ proposal, decision, tasks_queued }` |
+| `relay_answer` | `body` (1..4000 caratteri, il limite delle risposte della board), **nessun id** | consegna `body` al worker come risposta all'**unica** domanda in attesa del thread, solo in un turno svegliato da un messaggio dell'utente; esito `{ task_id, question_id, delivered }` e nel thread «@mario ha inviato al worker questa risposta: …» |
 
 **Workspace per nome**: gli id restano il riferimento interno (file, eventi, comandi), ma il modello parla dei
 workspace col nome. `WorkspaceNames` (`workspace_names.rs`, puro) è l'istantanea dei workspace letta dal
@@ -687,7 +705,9 @@ e `hub/actions.rs`.
 **Azioni sulla board.** `hub` non dipende da `automation`: `lib.rs` registra `hub::BoardActions` (puntatori a
 funzione, come `BoardSource`) con `automation::queue_hub_plan_task` (crea il task `plan`) e
 `automation::decide_hub_proposal` (lo stesso `proposal_decide` dei pulsanti Accetta/Scarta del pannello Task, con la
-stessa validazione). Senza registrazione i tool rispondono al modello «The board cannot be changed right now.».
+stessa validazione) e `automation::answer_question` (la risposta a una domanda di un worker, vedi "Domande dei
+worker"). Senza registrazione i tool rispondono al modello «The board cannot be changed right now.» e la risposta
+diretta «… le azioni sulla board non sono disponibili.».
 
 **`open_plan_task { goal }`.**
 
@@ -708,7 +728,7 @@ stessa validazione). Senza registrazione i tool rispondono al modello «The boar
 - Le domande del pianificatore (pianificazione conclusa senza proposta) le pone il titolare svegliato dall'evento;
   quando l'utente risponde, il segretario può aprire un **nuovo** `open_plan_task` con il goal originale, le domande
   e le risposte (la descrizione del tool lo chiede; anche il testo del piano porta i messaggi recenti con le
-  domande). Non c'è ancora `ask_user` (tappa 4).
+  domande). Durante la pianificazione il pianificatore può anche chiedere con `ask_user` (vedi "Domande dei worker").
 
 **`decide_proposal { accept }`.** La decisione resta dell'utente e la garanzia è nel codice, non nel modello:
 
@@ -724,6 +744,45 @@ stessa validazione). Senza registrazione i tool rispondono al modello «The boar
 - il messaggio nel thread («Proposta accettata: N task in coda.» / «Proposta scartata.») lo scrivono gli eventi della
   board, come per i pulsanti; accettata, i task si collegano al thread (la proposta è sua). I pulsanti del pannello
   Task restano.
+
+### Domande dei worker
+
+Il flusso della tappa 4: un worker (o il pianificatore) con un dubbio chiama `ask_user { question, options? }`
+(vedi [BOARD.MD](BOARD.MD)) e chiude il turno → la domanda compare come evento `task_question` nel thread del suo
+task, che aspetta l'utente → l'utente usa «Rispondi» sull'evento e scrive la risposta → l'app la scrive nel
+terminale del worker, che riprende → l'evento `task_question_answered` chiude l'attesa. Codice in `hub/questions.rs`
+(puro: quali domande aspettano in un thread), `hub/direct_answer.rs`, `engine/relay.rs` e `hub/actions.rs`.
+
+**Risposta diretta.** Decisione dell'utente: rispondere a una domanda **non passa mai dal modello**. È
+deterministico, gratuito e funziona anche nei thread senza segretario titolare.
+
+- `hub_send` salva il messaggio; se ha `reply_to` su un evento `task_question` (`questions::replied_question`) il
+  messaggio è la risposta e non sveglia nessun segretario. Il thread si legge (copia, lock rilasciato) e il testo
+  del messaggio, **così com'è**, va all'azione `answer_question` registrata da `lib.rs`
+  (`automation::answer_question`: segna la domanda sulla board e la digita nel terminale del worker solo se è fermo
+  in attesa; nessun lock dell'HUB è in mano durante la consegna).
+- La domanda deve essere ancora in attesa **nel thread**: per il suo task l'ultimo evento è proprio quella domanda,
+  del workspace del canale. Una domanda già risposta, o di un task concluso, fallito o ripartito, dà «Risposta non
+  inviata: questa domanda ha già una risposta o il suo task non è più in attesa.» senza chiamare la board.
+- Esito, come messaggio di sistema in risposta al messaggio dell'utente: «Risposta inviata al worker.» oppure
+  «Risposta non inviata: <motivo della board> Se serve, apri il terminale del worker dal Tasks Manager e rispondi
+  lì.» (worker che sta ancora lavorando, permesso in attesa, tab chiuso, risposta vuota o oltre 4000 caratteri...).
+  Il link «apri il terminale del worker» è già sulla riga dell'evento finché il tab è aperto.
+
+**Il titolare.** La domanda sveglia il titolare del thread, se c'è (vedi "Risvegli da evento"): la presenta in
+breve e può aiutare a capirla, ma un risveglio da evento non può rispondere.
+
+**`relay_answer { body }`.** Per quando l'utente chiede al segretario di rispondere al posto suo («@mario digli di
+usare la seconda opzione»). Le garanzie sono nel codice:
+
+- non prende un id: all'inizio del turno il motore lo lega all'**unica** domanda in attesa del thread
+  (`relay::relay_target`), e solo in un turno svegliato da un **messaggio dell'utente**;
+- nessuna domanda in attesa, o un risveglio da evento: errore per il modello. Più di una domanda in attesa: errore
+  che chiede al modello di domandare all'utente quale, e di dirgli di usare «Rispondi» sull'evento di quella
+  domanda (che diventa una risposta diretta);
+- consegnata, il thread mostra cosa è stato inviato: «@mario ha inviato al worker questa risposta: …»; un errore
+  della board torna al modello;
+- come ogni tool nuovo, non si aggiunge da solo ai segretari esistenti: lo sceglie l'utente nelle impostazioni.
 
 ### Client del modello
 

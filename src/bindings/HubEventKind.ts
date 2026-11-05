@@ -4,4 +4,4 @@
  * Tipo di un evento della board riportato in un thread (vedi `events`). Un
  * bot (tappa 2) li legge come dati.
  */
-export type HubEventKind = "task_created" | "task_started" | "task_done" | "task_failed" | "task_attention" | "task_deleted" | "proposal_created" | "proposal_accepted" | "proposal_rejected";
+export type HubEventKind = "task_created" | "task_started" | "task_done" | "task_failed" | "task_attention" | "task_deleted" | "task_question" | "task_question_answered" | "proposal_created" | "proposal_accepted" | "proposal_rejected";
