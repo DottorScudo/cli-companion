@@ -45,11 +45,13 @@ pub enum SecretaryTool {
     TaskAction,
     /// Mette in pausa o riprende la board del workspace, o ne cambia `max_parallel`.
     BoardControl,
+    /// Chiede di fermare, eliminare o chiudere un task: la esegue solo l'utente, con un clic su «Conferma».
+    RequestTaskAction,
 }
 
 impl SecretaryTool {
     /// Tutti i tool, nell'ordine canonico in cui si salvano.
-    pub const ALL: [SecretaryTool; 10] = [
+    pub const ALL: [SecretaryTool; 11] = [
         Self::BoardStatus,
         Self::BoardOverview,
         Self::TaskDetails,
@@ -60,6 +62,7 @@ impl SecretaryTool {
         Self::RelayAnswer,
         Self::TaskAction,
         Self::BoardControl,
+        Self::RequestTaskAction,
     ];
 
     /// Nome sul filo e su disco.
@@ -75,6 +78,7 @@ impl SecretaryTool {
             Self::RelayAnswer => "relay_answer",
             Self::TaskAction => "task_action",
             Self::BoardControl => "board_control",
+            Self::RequestTaskAction => "request_task_action",
         }
     }
 
@@ -89,6 +93,7 @@ impl SecretaryTool {
             | Self::RelayAnswer
             | Self::TaskAction
             | Self::BoardControl => ToolClass::Write,
+            Self::RequestTaskAction => ToolClass::Destructive,
         }
     }
 
@@ -104,8 +109,7 @@ pub enum ToolClass {
     Read,
     /// Una modifica reversibile del thread o della board.
     Write,
-    /// Una modifica irreversibile, o che falsa lo stato della board: chiedera' conferma.
-    #[expect(dead_code, reason = "nessun tool distruttivo ancora: arriveranno con la conferma dell'utente")]
+    /// Una modifica irreversibile: il tool chiede soltanto, la esegue l'utente con la conferma.
     Destructive,
 }
 
@@ -369,6 +373,7 @@ mod tests {
                 (SecretaryTool::RelayAnswer, ToolClass::Write),
                 (SecretaryTool::TaskAction, ToolClass::Write),
                 (SecretaryTool::BoardControl, ToolClass::Write),
+                (SecretaryTool::RequestTaskAction, ToolClass::Destructive),
             ]
         );
     }
@@ -379,6 +384,14 @@ mod tests {
         assert_eq!(d.tools, [SecretaryTool::BoardStatus, SecretaryTool::TaskAction, SecretaryTool::BoardControl]);
         let s: Secretary = serde_json::from_str(r#"{"name":"mario","tools":["board_status","relay_answer"]}"#).unwrap();
         assert!(!s.may_use(SecretaryTool::TaskAction) && !s.may_use(SecretaryTool::BoardControl));
+    }
+
+    #[test]
+    fn request_task_action_is_chosen_and_never_added_to_existing_secretaries() {
+        let d = draft("m", "", &["request_task_action", "task_action"], None).unwrap();
+        assert_eq!(d.tools, [SecretaryTool::TaskAction, SecretaryTool::RequestTaskAction]);
+        let s: Secretary = serde_json::from_str(r#"{"name":"mario","tools":["task_action","board_control"]}"#).unwrap();
+        assert!(!s.may_use(SecretaryTool::RequestTaskAction));
     }
 
     #[test]

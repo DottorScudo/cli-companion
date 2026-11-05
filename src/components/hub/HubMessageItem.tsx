@@ -2,6 +2,8 @@ import { memo } from "react";
 import type { HubEvent, HubMessage, HubSecretary } from "../../lib/tauri";
 import type { ProposalStatus } from "../../lib/hubProposals";
 import type { QuestionState } from "../../lib/hubQuestions";
+import { requestOf } from "../../lib/hubActionRequests";
+import HubActionRequestCard from "./HubActionRequestCard";
 import HubBotBubble from "./HubBotBubble";
 import HubBotMessage from "./HubBotMessage";
 import HubDeliveryFailure from "./HubDeliveryFailure";
@@ -78,6 +80,10 @@ function HubMessageItem({
         now={now}
       />
     );
+  }
+  const actionRequest = requestOf(message);
+  if (message.event && actionRequest) {
+    return <HubActionRequestCard message={message} event={message.event} request={actionRequest} now={now} />;
   }
   if (failedQuestion) {
     return <HubDeliveryFailure message={message} question={failedQuestion} target={target} now={now} />;

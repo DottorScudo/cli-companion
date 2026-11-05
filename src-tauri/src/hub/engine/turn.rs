@@ -18,6 +18,7 @@ use super::relay::QuestionSelector;
 use super::texts;
 use super::thread_page::ThreadPage;
 use super::tools::{self, Invocation};
+use crate::board::TaskAction;
 use crate::hub::settings::Secretary;
 use crate::validate::clip_with_ellipsis;
 use serde_json::{json, Value};
@@ -76,6 +77,14 @@ pub trait TurnHost: Send + Sync {
         &self,
         workspace: Option<String>,
         change: BoardChange,
+    ) -> impl Future<Output = Result<Value, String>> + Send;
+    /// Mette nel thread la richiesta di un'azione irreversibile su un task del
+    /// thread: la esegue solo l'utente con la conferma (vedi `confirm`).
+    fn request_task_action(
+        &self,
+        task_id: String,
+        action: TaskAction,
+        reason: String,
     ) -> impl Future<Output = Result<Value, String>> + Send;
     /// Scrive un messaggio di sistema (in italiano) nel thread.
     fn notice(&self, text: String) -> impl Future<Output = ()> + Send;
@@ -178,6 +187,9 @@ async fn invoke<H: TurnHost>(host: &H, invocation: Invocation) -> Result<Value, 
         Invocation::RelayAnswer { body, selector } => host.relay_answer(selector, body).await,
         Invocation::TaskAction { workspace, task_id, op } => host.task_action(workspace, task_id, op).await,
         Invocation::BoardControl { workspace, change } => host.board_control(workspace, change).await,
+        Invocation::RequestTaskAction { task_id, action, reason } => {
+            host.request_task_action(task_id, action, reason).await
+        }
     }
 }
 

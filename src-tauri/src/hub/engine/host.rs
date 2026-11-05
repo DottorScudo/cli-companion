@@ -23,7 +23,7 @@ use super::thread_page::ThreadPage;
 use super::tools::{board_workspace, BoardAccessError};
 use super::turn::TurnHost;
 use super::workspace_names::WorkspaceNames;
-use crate::board::BoardView;
+use crate::board::{BoardView, TaskAction};
 use crate::hub::actions::{AppAnswers, BoardActions, HubBoardActions};
 use crate::hub::api_key::ApiKey;
 use crate::hub::append::{append_text, TextMessage};
@@ -334,9 +334,14 @@ impl TurnHost for AppTurnHost<'_> {
         self.control_board(workspace, change).await
     }
 
+    async fn request_task_action(&self, task_id: String, action: TaskAction, reason: String) -> Result<Value, String> {
+        self.request_action(task_id, action, reason).await
+    }
+
     async fn notice(&self, text: String) {
         self.io.notice(text).await;
     }
 }
 
 mod board_writes;
+mod requests;

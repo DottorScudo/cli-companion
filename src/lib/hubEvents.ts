@@ -7,7 +7,7 @@ import type { HubEvent } from "../bindings/HubEvent.ts";
 
 /** Chiave dell'icona; il componente la traduce in un'icona. */
 export type HubEventIcon =
-  "proposal" | "started" | "done" | "failed" | "attention" | "question" | "deleted" | "generic";
+  "proposal" | "started" | "done" | "failed" | "attention" | "question" | "deleted" | "request" | "generic";
 
 export type HubEventTone = "neutral" | "success" | "danger" | "warning";
 
@@ -31,6 +31,8 @@ const EVENT_LOOKS: Readonly<Record<string, HubEventLook>> = {
   task_question: { label: "Domanda", icon: "question", tone: "warning" },
   task_question_answered: { label: "Risposta", icon: "question", tone: "neutral" },
   task_deleted: { label: "Eliminato", icon: "deleted", tone: "neutral" },
+  action_request: { label: "Richiesta", icon: "request", tone: "warning" },
+  action_request_resolved: { label: "Esito richiesta", icon: "request", tone: "neutral" },
 };
 
 /** Resa di un tipo di evento (anche uno che questa versione non conosce). */

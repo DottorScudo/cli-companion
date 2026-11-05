@@ -11,7 +11,8 @@
 use super::attachments;
 use super::channel::Channel;
 use super::model::{
-    Attachment, Author, HubEvent, HubQuestion, Message, MessageKind, MessageOrigin, Thread, ThreadState, ThreadSummary,
+    Attachment, Author, HubActionRequest, HubEvent, HubQuestion, Message, MessageKind, MessageOrigin, Thread,
+    ThreadState, ThreadSummary,
 };
 use super::text::{self, BODY_MAX};
 use super::waiting::waiting_user;
@@ -242,7 +243,21 @@ fn validate_event(event: &HubEvent) -> Result<(), String> {
             return Err(format!("{label} dell'evento supera i {BODY_MAX} caratteri"));
         }
     }
+    event.request.as_ref().map_or(Ok(()), validate_request)?;
     event.question.as_ref().map_or(Ok(()), validate_question)
+}
+
+/// La richiesta di azione di un evento: id valido e testi nei limiti dei messaggi.
+fn validate_request(request: &HubActionRequest) -> Result<(), String> {
+    if !text::valid_ref_id(&request.id) {
+        return Err("id della richiesta non valido nell'evento".to_string());
+    }
+    text::bot_name(&request.secretary)?;
+    let texts = [Some(&request.reason), Some(&request.task_title), request.note.as_ref()];
+    if texts.into_iter().flatten().any(|s| s.chars().count() > BODY_MAX) {
+        return Err(format!("un testo della richiesta supera i {BODY_MAX} caratteri"));
+    }
+    Ok(())
 }
 
 /// La domanda di un evento: id valido, testo e opzioni nei limiti di `ask_user`.
@@ -261,6 +276,7 @@ fn validate_question(question: &HubQuestion) -> Result<(), String> {
 }
 
 pub(super) mod lifecycle;
+mod requests;
 
 pub use lifecycle::TASKS_PER_THREAD_MAX;
 

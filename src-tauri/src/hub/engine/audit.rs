@@ -58,8 +58,11 @@ pub fn notice(secretary: &str, invocation: &Invocation, outcome: &Value) -> Opti
         | Invocation::TaskDetails { .. }
         | Invocation::ThreadRead { .. } => None,
         // Gia' visibili: il messaggio stesso, l'evento del task creato, gli
-        // eventi della proposta decisa.
-        Invocation::PostMessage { .. } | Invocation::OpenPlanTask { .. } | Invocation::DecideProposal { .. } => None,
+        // eventi della proposta decisa, la scheda della richiesta di conferma.
+        Invocation::PostMessage { .. }
+        | Invocation::OpenPlanTask { .. }
+        | Invocation::DecideProposal { .. }
+        | Invocation::RequestTaskAction { .. } => None,
         Invocation::RelayAnswer { body, .. } => {
             Some(texts::answer_relayed(secretary, text_of(outcome, "task_id"), body))
         }
@@ -84,13 +87,14 @@ fn text_of<'a>(outcome: &'a Value, field: &str) -> &'a str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::board::TaskAction;
     use crate::hub::engine::board_ops::{BoardChange, TaskOp};
     use crate::hub::engine::board_query::BoardQuery;
     use crate::hub::engine::relay::QuestionSelector;
     use serde_json::json;
 
     /// Una chiamata valida per ogni tool, nell'ordine canonico.
-    fn one_of_each() -> [Invocation; 10] {
+    fn one_of_each() -> [Invocation; 11] {
         [
             Invocation::BoardStatus { workspace: None, query: BoardQuery::default() },
             Invocation::BoardOverview,
@@ -104,6 +108,11 @@ mod tests {
             Invocation::BoardControl {
                 workspace: None,
                 change: BoardChange { paused: Some(true), max_parallel: None },
+            },
+            Invocation::RequestTaskAction {
+                task_id: "t-7".into(),
+                action: TaskAction::Delete,
+                reason: "Obsolete".into(),
             },
         ]
     }
@@ -123,7 +132,8 @@ mod tests {
                 SecretaryTool::DecideProposal,
                 SecretaryTool::RelayAnswer,
                 SecretaryTool::TaskAction,
-                SecretaryTool::BoardControl
+                SecretaryTool::BoardControl,
+                SecretaryTool::RequestTaskAction
             ]
         );
     }
@@ -169,6 +179,7 @@ mod tests {
                 Some("@mario ha inviato al worker del task t-7 questa risposta:\nUse Postgres.".into()),
                 Some("@mario ha ritentato «Login».".into()),
                 Some("@mario ha messo in pausa la board di Sito Web.".into()),
+                None,
             ]
         );
     }
@@ -176,6 +187,19 @@ mod tests {
     /// Un esito con i campi letti dagli avvisi.
     fn outcome() -> Value {
         json!({ "task_id": "t-7", "title": "Login", "workspace": "Sito Web", "changed": { "paused": true } })
+    }
+
+    #[test]
+    fn a_request_for_confirmation_counts_toward_the_limit_but_its_card_is_the_audit() {
+        assert!(counts_toward_limit(SecretaryTool::RequestTaskAction));
+        let mut budget = MutationBudget::default();
+        for _ in 0..MAX_MUTATIONS_PER_TURN {
+            budget.record(SecretaryTool::RequestTaskAction);
+        }
+        assert_eq!(
+            budget.admit(SecretaryTool::RequestTaskAction),
+            Err(ToolRejection::TurnLimit(SecretaryTool::RequestTaskAction))
+        );
     }
 
     #[test]

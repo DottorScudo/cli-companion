@@ -18,6 +18,7 @@ import type { ConnectorRouteInput } from "../bindings/ConnectorRouteInput.ts";
 import type { ConnectorStatus } from "../bindings/ConnectorStatus.ts";
 import type { Delivery } from "../bindings/Delivery.ts";
 import type { E2eEvent as E2eUpdateEvent } from "../bindings/E2eEvent.ts";
+import type { HubActionRequest } from "../bindings/HubActionRequest.ts";
 import type { HubAttachment } from "../bindings/HubAttachment.ts";
 import type { HubEvent } from "../bindings/HubEvent.ts";
 import type { HubLanguage } from "../bindings/HubLanguage.ts";
@@ -298,6 +299,14 @@ export const api = {
     replyTo: string | null = null,
     attachments: string[] = [],
   ) => invoke<HubMessage>("hub_send", { channel, threadId, body, replyTo, attachments }),
+
+  /**
+   * Decide la richiesta di azione di un segretario (la scheda nel thread): `confirm` la esegue,
+   * altrimenti la annulla. Una richiesta scaduta o non più valida torna aggiornata (stato e nota)
+   * senza errore; una già decisa è un errore.
+   */
+  hubResolveActionRequest: (channel: string, threadId: string, messageId: string, confirm: boolean) =>
+    invoke<HubActionRequest>("hub_resolve_action_request", { channel, threadId, messageId, confirm }),
 
   /** Carica nello staging il file scelto con il dialog (percorso assoluto); poi l'id va a `hubSend`. */
   hubStageAttachmentFile: (path: string) => invoke<HubAttachment>("hub_stage_attachment_file", { path }),

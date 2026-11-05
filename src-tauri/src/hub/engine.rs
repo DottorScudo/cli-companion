@@ -29,6 +29,7 @@ mod audit;
 mod board_ops;
 mod board_query;
 mod chat;
+pub mod confirm;
 mod context;
 #[cfg(test)]
 mod fake;

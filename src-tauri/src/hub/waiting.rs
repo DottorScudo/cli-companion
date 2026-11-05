@@ -111,6 +111,49 @@ mod tests {
         assert!(!subject_waiting(&[], p1));
     }
 
+    fn request(kind: HubEventKind, id: &str, task: &str) -> Message {
+        let request = crate::hub::model::HubActionRequest {
+            id: id.to_string(),
+            action: crate::board::TaskAction::Delete,
+            reason: "Obsoleto".to_string(),
+            secretary: "ugo".to_string(),
+            task_title: "Login".to_string(),
+            task_status: "failed".to_string(),
+            dependents: Vec::new(),
+            expires_at: 0,
+            state: crate::hub::model::ActionRequestState::Pending,
+            resolved_at: None,
+            note: None,
+        };
+        let mut message = event(kind, Some(task), None);
+        message.event = message.event.map(|e| HubEvent { request: Some(request), ..e });
+        message
+    }
+
+    #[test]
+    fn requests_have_their_own_subject_and_never_make_the_thread_wait() {
+        let asked = request(HubEventKind::ActionRequest, "msg-1", "a");
+        let subject = asked.event.as_ref().unwrap().subject();
+        assert_eq!(subject, Some(Subject::Request("msg-1")), "il task della richiesta non e' il soggetto");
+        assert!(!waiting_user(std::slice::from_ref(&asked)));
+        assert!(!subject_waiting(std::slice::from_ref(&asked), Subject::Request("msg-1")));
+        let resolved = request(HubEventKind::ActionRequestResolved, "msg-1", "a");
+        assert_eq!(resolved.event.as_ref().unwrap().subject(), subject);
+        assert!(!HubEventKind::ActionRequest.waits_for_user() && !HubEventKind::ActionRequestResolved.waits_for_user());
+    }
+
+    #[test]
+    fn a_request_does_not_interfere_with_the_waiting_of_its_task() {
+        let failed = event(HubEventKind::TaskFailed, Some("a"), None);
+        let asked = request(HubEventKind::ActionRequest, "msg-1", "a");
+        assert!(waiting_user(&[failed.clone(), asked.clone()]), "il task fallito continua ad aspettare");
+        assert!(subject_waiting(&[failed.clone(), asked.clone()], Subject::Task("a")));
+        let restarted = event(HubEventKind::TaskStarted, Some("a"), None);
+        assert!(!waiting_user(&[failed, asked, restarted]));
+        let no_request = event(HubEventKind::ActionRequest, Some("a"), None);
+        assert!(no_request.event.unwrap().subject().is_none(), "senza richiesta non c'e' soggetto");
+    }
+
     #[test]
     fn events_without_their_subject_are_ignored() {
         assert!(!waiting_user(&[event(HubEventKind::TaskFailed, None, Some("p-1"))]));

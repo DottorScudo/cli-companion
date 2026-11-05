@@ -8,7 +8,7 @@
 //! a un enum e' compatibile in lettura; rinominarla richiede una migrazione.
 
 use super::channel::Channel;
-use crate::board::Verdict;
+use crate::board::{TaskAction, Verdict};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -82,6 +82,12 @@ pub enum HubEventKind {
     ProposalCreated,
     ProposalAccepted,
     ProposalRejected,
+    /// Un segretario chiede di eseguire un'azione irreversibile su un task: la
+    /// scheda con «Conferma» e «Annulla» (`request`). La esegue solo l'utente.
+    ActionRequest,
+    /// L'esito di una richiesta (confermata, annullata, scaduta, non piu'
+    /// valida, fallita), in risposta alla scheda: sveglia chi l'ha chiesta.
+    ActionRequestResolved,
 }
 
 /// Di cosa parla un evento: l'attesa dell'utente si calcola per soggetto.
@@ -89,16 +95,24 @@ pub enum HubEventKind {
 pub enum Subject<'a> {
     Task(&'a str),
     Proposal(&'a str),
+    /// Una richiesta di azione (l'id del suo messaggio): non e' mai il task,
+    /// cosi' non interferisce con le attese e le domande del task.
+    Request(&'a str),
 }
 
 impl HubEventKind {
-    /// Lo stato che l'evento lascia aspetta una mossa dell'utente.
+    /// Lo stato che l'evento lascia aspetta una mossa dell'utente. Una
+    /// richiesta di azione no: non e' una cosa che il thread deve all'utente.
     pub fn waits_for_user(self) -> bool {
         matches!(self, Self::TaskFailed | Self::TaskAttention | Self::TaskQuestion | Self::ProposalCreated)
     }
 
     fn is_about_proposal(self) -> bool {
         matches!(self, Self::ProposalCreated | Self::ProposalAccepted | Self::ProposalRejected)
+    }
+
+    fn is_about_request(self) -> bool {
+        matches!(self, Self::ActionRequest | Self::ActionRequestResolved)
     }
 }
 
@@ -129,6 +143,58 @@ pub struct HubEvent {
     /// La domanda del worker, negli eventi `task_question`.
     #[serde(default)]
     pub question: Option<HubQuestion>,
+    /// La richiesta di azione, negli eventi `action_request` e
+    /// `action_request_resolved` (in questi ultimi con lo stato finale).
+    #[serde(default)]
+    pub request: Option<HubActionRequest>,
+}
+
+/// Lo stato di una richiesta di azione.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename = "HubActionRequestState")]
+pub enum ActionRequestState {
+    /// Aspetta il clic dell'utente.
+    Pending,
+    /// L'utente ha confermato e l'azione e' stata eseguita.
+    Confirmed,
+    Cancelled,
+    /// Scaduta senza una decisione: nessuna azione.
+    Expired,
+    /// Il task e' cambiato (stato, sparito, azione non piu' ammessa): nessuna azione.
+    Stale,
+    /// L'utente ha confermato ma la board ha rifiutato l'azione.
+    Failed,
+}
+
+/// Una richiesta di azione irreversibile su un task, fatta da un segretario: si
+/// esegue solo dopo il clic dell'utente (vedi `engine::confirm`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, rename = "HubActionRequest")]
+pub struct HubActionRequest {
+    /// L'id del messaggio della scheda.
+    pub id: String,
+    /// Solo `stop`, `delete`, `delete_cascade` e `mark_done`.
+    pub action: TaskAction,
+    /// Il motivo, scritto dal segretario.
+    pub reason: String,
+    /// L'handle del segretario che l'ha chiesta.
+    pub secretary: String,
+    pub task_title: String,
+    /// Lo stato del task quando e' stata chiesta: se cambia, la richiesta non vale piu'.
+    pub task_status: String,
+    /// I task che una `delete_cascade` toglierebbe insieme al task (id).
+    #[serde(default)]
+    pub dependents: Vec<String>,
+    /// Scadenza, in millisecondi dall'epoca.
+    pub expires_at: i64,
+    pub state: ActionRequestState,
+    /// Quando e' stata decisa o e' decaduta.
+    #[serde(default)]
+    pub resolved_at: Option<i64>,
+    /// Spiegazione, in italiano, di un esito che non e' una conferma.
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 /// La domanda di un worker all'utente riportata in un thread: l'id con cui le
@@ -165,13 +231,17 @@ impl HubEvent {
             verdict: None,
             note: None,
             question: None,
+            request: None,
         }
     }
 
     /// Il soggetto dell'evento: il task per gli eventi dei task, la proposta per
-    /// quelli delle proposte. `None` se manca l'id che il tipo richiede.
+    /// quelli delle proposte, la richiesta per quelli delle richieste. `None`
+    /// se manca l'id che il tipo richiede.
     pub fn subject(&self) -> Option<Subject<'_>> {
-        if self.kind.is_about_proposal() {
+        if self.kind.is_about_request() {
+            self.request.as_ref().map(|r| Subject::Request(&r.id))
+        } else if self.kind.is_about_proposal() {
             self.proposal_id.as_deref().map(Subject::Proposal)
         } else {
             self.task_id.as_deref().map(Subject::Task)

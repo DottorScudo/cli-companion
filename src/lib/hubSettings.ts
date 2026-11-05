@@ -50,6 +50,10 @@ export const SECRETARY_TOOLS: readonly { id: HubSecretaryTool; description: stri
   { id: "relay_answer", description: "Risponde a un worker al posto tuo, quando glielo chiedi" },
   { id: "task_action", description: "Ritenta un task fallito o ne cambia la posizione nella coda" },
   { id: "board_control", description: "Mette in pausa o riprende la board e ne regola i task in parallelo" },
+  {
+    id: "request_task_action",
+    description: "Ti chiede di fermare, eliminare o chiudere un task: lo esegui tu con un clic",
+  },
 ];
 
 function languageLabel(language: HubLanguage): string {

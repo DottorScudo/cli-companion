@@ -33,6 +33,7 @@ function rustCommands() {
     "bots.rs",
     "hub/settings/commands.rs",
     "hub/commands.rs",
+    "hub/action_requests.rs",
     "hub/attachments/commands.rs",
     "hub/engine/status.rs",
     "connectors/commands/instances.rs",

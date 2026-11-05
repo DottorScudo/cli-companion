@@ -91,7 +91,7 @@ pub fn parse(raw: &str) -> Result<(Option<String>, String, TaskOp), String> {
 }
 
 /// L'id di un task nel campo `field`, senza spazi ai bordi.
-fn checked_id(raw: &str, field: &str) -> Result<String, String> {
+pub(super) fn checked_id(raw: &str, field: &str) -> Result<String, String> {
     let id = raw.trim();
     if id.is_empty() || id.chars().count() > TASK_ID_MAX {
         return Err(format!("`{field}` must be 1 to {TASK_ID_MAX} characters"));

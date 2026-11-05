@@ -13,6 +13,7 @@ use super::planning::GOAL_MAX;
 use super::relay::QuestionSelector;
 use super::thread_page::ThreadPage;
 use super::workspace_names::REFERENCE_MAX;
+use crate::board::TaskAction;
 use crate::hub::channel::Channel;
 use crate::hub::settings::{Secretary, SecretaryTool};
 use crate::hub::text::{self, clean_text, BODY_MAX};
@@ -65,6 +66,11 @@ pub enum Invocation {
         workspace: Option<String>,
         change: BoardChange,
     },
+    RequestTaskAction {
+        task_id: String,
+        action: TaskAction,
+        reason: String,
+    },
 }
 
 impl Invocation {
@@ -81,6 +87,7 @@ impl Invocation {
             Self::RelayAnswer { .. } => SecretaryTool::RelayAnswer,
             Self::TaskAction { .. } => SecretaryTool::TaskAction,
             Self::BoardControl { .. } => SecretaryTool::BoardControl,
+            Self::RequestTaskAction { .. } => SecretaryTool::RequestTaskAction,
         }
     }
 }
@@ -189,6 +196,7 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
         SecretaryTool::RelayAnswer => relay_answer::spec(tool),
         SecretaryTool::TaskAction => task_action::spec(tool),
         SecretaryTool::BoardControl => board_control::spec(tool),
+        SecretaryTool::RequestTaskAction => request_task_action::spec(tool),
     }
 }
 
@@ -269,6 +277,10 @@ pub fn parse(call: &ToolCall, secretary: &Secretary) -> Result<Invocation, ToolR
             let (workspace, change) = board_control::parse(&call.arguments).map_err(invalid)?;
             Ok(Invocation::BoardControl { workspace, change })
         }
+        SecretaryTool::RequestTaskAction => {
+            let (task_id, action, reason) = request_task_action::parse(&call.arguments).map_err(invalid)?;
+            Ok(Invocation::RequestTaskAction { task_id, action, reason })
+        }
     }
 }
 
@@ -343,6 +355,7 @@ mod board_control;
 mod board_overview;
 mod board_status;
 pub(super) mod relay_answer;
+mod request_task_action;
 mod task_action;
 pub(super) mod task_details;
 mod thread_read;

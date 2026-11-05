@@ -32,6 +32,7 @@ use super::snapshot::{BoardSnapshot, ProposalSnap, TaskSnap};
 use super::texts::{self, thread_title, PROPOSAL_REJECTED, THREAD_CONCLUDED};
 use crate::board::{TaskKind, TaskStatus};
 use crate::hub::channel::Channel;
+use crate::hub::engine::confirm;
 use crate::hub::model::{Author, HubEvent, HubEventKind, Thread, ThreadState, ThreadSummary};
 use crate::hub::notify::NoticeKind;
 use crate::hub::state::{MESSAGE_ID_PREFIX, THREAD_ID_PREFIX};
@@ -200,10 +201,20 @@ impl Router<'_> {
         let event = self.task_hub_event(change, task);
         let notice = notices::for_task(change, task.kind, unanswered_plan);
         let message = self.post_noticing(&thread, body, Some(event), notice)?;
+        self.invalidate_requests(&thread, change, task);
         if unanswered_plan || matches!(change, TaskChange::Failed | TaskChange::Attention | TaskChange::Question) {
             self.wake_owner(&thread, message);
         }
         Ok(())
+    }
+
+    /// Le richieste di azione in attesa del task che non valgono piu' perche' ha
+    /// cambiato stato o e' sparito diventano `stale` (vedi `confirm`).
+    fn invalidate_requests(&mut self, thread: &str, change: TaskChange, task: &TaskSnap) {
+        let status = (change != TaskChange::Deleted).then(|| task.status.as_str());
+        if let Err(e) = confirm::invalidate_for_task(self.list, thread, &task.id, status, self.now) {
+            log::warn!("hub {}: richieste del task {} non invalidate: {e}", self.board.workspace_id, task.id);
+        }
     }
 
     /// Il task `plan` ha fatto una proposta: e' nella board o e' gia' stata
@@ -372,5 +383,7 @@ fn subject(event: &BoardEvent) -> &str {
 
 #[cfg(test)]
 mod notice_tests;
+#[cfg(test)]
+mod request_tests;
 #[cfg(test)]
 mod tests;

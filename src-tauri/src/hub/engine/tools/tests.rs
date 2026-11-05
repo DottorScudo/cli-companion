@@ -62,6 +62,7 @@ fn schema_properties_match_the_argument_structs() {
             json!({"task_id": "t-1", "action": "move_before", "before_task_id": "t-2", "workspace": "ws-1"}),
         ),
         ("board_control", json!({"paused": true, "max_parallel": 2, "workspace": "ws-1"})),
+        ("request_task_action", json!({"task_id": "t-1", "action": "delete_cascade", "reason": "Obsolete"})),
     ];
     for (name, sample) in samples {
         let tool = SecretaryTool::ALL.into_iter().find(|t| t.code() == name).unwrap();

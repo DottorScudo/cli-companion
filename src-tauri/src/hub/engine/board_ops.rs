@@ -185,7 +185,7 @@ fn require_reorder(task: &TaskView, before: &TaskView) -> Result<(), String> {
 }
 
 /// «Task "t-1" ("Title") is failed».
-fn describe(task: &TaskView) -> String {
+pub(super) fn describe(task: &TaskView) -> String {
     format!("Task \"{}\" (\"{}\") is {}", task.task.id, task.task.title, task.task.status().as_str())
 }
 

@@ -1,4 +1,5 @@
 use super::*;
+use crate::board::TaskAction;
 use crate::hub::engine::audit::MAX_MUTATIONS_PER_TURN;
 use crate::hub::engine::board_ops::{BoardChange, TaskOp};
 use crate::hub::engine::fake::{call, calls, text, FakeModel};
@@ -32,6 +33,7 @@ struct FakeHost {
     answers: FakeAnswers,
     task_actions: Mutex<Vec<(Option<String>, String, TaskOp)>>,
     board_changes: Mutex<Vec<(Option<String>, BoardChange)>>,
+    requests: Mutex<Vec<(String, TaskAction, String)>>,
 }
 
 impl FakeHost {
@@ -104,6 +106,11 @@ impl TurnHost for FakeHost {
         Ok(json!({ "workspace": "Muse Companion", "changed": { "paused": change.paused } }))
     }
 
+    async fn request_task_action(&self, task_id: String, action: TaskAction, reason: String) -> Result<Value, String> {
+        self.requests.lock().unwrap().push((task_id.clone(), action, reason));
+        Ok(json!({ "request_id": "msg-1", "task_id": task_id, "status": "awaiting_confirmation" }))
+    }
+
     async fn notice(&self, text: String) {
         self.notices.lock().unwrap().push(text);
     }
@@ -150,7 +157,8 @@ fn a_text_reply_ends_the_turn() {
             "decide_proposal",
             "relay_answer",
             "task_action",
-            "board_control"
+            "board_control",
+            "request_task_action"
         ]
     );
 }
@@ -451,6 +459,20 @@ fn board_changes_reach_the_host_and_leave_an_audit_notice() {
         ["@ugo ha ritentato «Login».", "@ugo ha messo in pausa la board di Muse Companion."]
     );
     assert!(tool_result(&model, 1).contains("No task with id"));
+}
+
+#[test]
+fn a_request_for_confirmation_reaches_the_host_without_a_notice_and_uses_the_budget() {
+    let ask = |id: &str| call(id, "request_task_action", r#"{"task_id":"t-1","action":"delete","reason":"Obsoleto"}"#);
+    let model =
+        FakeModel::new(vec![calls(vec![ask("c1"), ask("c2"), ask("c3"), ask("c4")]), text("Ho chiesto conferma.")]);
+    let host = FakeHost::default();
+    run(&model, &host, &secretary("ugo"), 8);
+    assert_eq!(host.requests.lock().unwrap().len(), MAX_MUTATIONS_PER_TURN);
+    assert_eq!(host.requests.lock().unwrap()[0], ("t-1".to_string(), TaskAction::Delete, "Obsoleto".to_string()));
+    // La scheda e' l'audit: solo il quarto, oltre il limite, lascia un avviso.
+    assert_eq!(host.notices.lock().unwrap().len(), 1);
+    assert!(tool_result(&model, 1).contains("was not run"));
 }
 
 #[test]

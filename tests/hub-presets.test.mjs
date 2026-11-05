@@ -16,7 +16,9 @@ const PRESETS = [
   preset("coordinator", "mario"),
   preset("analyst", "giulia"),
   preset("reporter", "luca"),
-  preset("operator", "ugo", { tools: ["board_status", "task_details", "task_action", "board_control"] }),
+  preset("operator", "ugo", {
+    tools: ["board_status", "task_details", "task_action", "board_control", "request_task_action"],
+  }),
 ];
 
 const secretary = (name, extra = {}) => ({
@@ -40,7 +42,13 @@ describe("draftOfPreset", () => {
   });
 
   it("keeps the board tools of the operator preset", () => {
-    assert.deepEqual(draftOfPreset(PRESETS[3]).tools, ["board_status", "task_details", "task_action", "board_control"]);
+    assert.deepEqual(draftOfPreset(PRESETS[3]).tools, [
+      "board_status",
+      "task_details",
+      "task_action",
+      "board_control",
+      "request_task_action",
+    ]);
   });
 });
 

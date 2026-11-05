@@ -45,6 +45,7 @@
 //! - `notify`: le notifiche di sistema dei messaggi dei thread (evento `hub-notify`)
 //!   e i `NoticeSink` che le ricevono oltre al frontend.
 
+pub mod action_requests;
 mod actions;
 mod api_key;
 mod append;

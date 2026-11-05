@@ -121,6 +121,38 @@ fn a_worker_question_wakes_the_owner_to_present_it_without_answering() {
 }
 
 #[test]
+fn the_outcome_of_a_request_wakes_the_requester_with_the_state_of_the_request() {
+    use crate::board::TaskAction;
+    use crate::hub::model::{ActionRequestState, HubActionRequest};
+    let request = HubActionRequest {
+        id: "msg-1".into(),
+        action: TaskAction::Delete,
+        reason: "Obsolete".into(),
+        secretary: "ugo".into(),
+        task_title: "Login".into(),
+        task_status: "failed".into(),
+        dependents: Vec::new(),
+        expires_at: 100,
+        state: ActionRequestState::Expired,
+        resolved_at: Some(90),
+        note: Some("La richiesta è scaduta senza una decisione.".into()),
+    };
+    let mut row = msg("e2", Author::System, "Richiesta scaduta: nessuna azione eseguita.", 5);
+    row.reply_to = Some("msg-1".into());
+    row.event = Some(HubEvent {
+        workspace: Some("ws-1".into()),
+        request: Some(request),
+        ..HubEvent::of_task(HubEventKind::ActionRequestResolved, "t-1")
+    });
+    let t = thread(vec![user("m1", "@ugo elimina il login"), row]);
+    let trigger = Trigger { id: "e2", cause: WakeCause::BoardEvent, proposal: None };
+    let text = turn_message(&t, &trigger, None, "ugo", &names()).unwrap();
+    assert!(text.contains(r#""kind":"action_request_resolved""#), "{text}");
+    assert!(text.contains(r#""state":"expired""#) && text.contains(r#""action":"delete""#), "{text}");
+    assert!(text.contains("The outcome of an action you requested"), "{text}");
+}
+
+#[test]
 fn the_summary_request_has_the_previous_summary_and_the_session() {
     let conversation = vec![
         ChatMessage::User("stato?".into()),

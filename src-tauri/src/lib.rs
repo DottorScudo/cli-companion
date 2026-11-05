@@ -167,6 +167,7 @@ pub fn run() {
             connectors::commands::routes::connector_delete_route,
             connectors::commands::routes::connector_list_links,
             connectors::commands::routes::connector_delete_link,
+            hub::action_requests::hub_resolve_action_request,
             hub::attachments::commands::hub_stage_attachment_file,
             hub::attachments::commands::hub_stage_attachment_bytes,
             hub::attachments::commands::hub_read_attachment,

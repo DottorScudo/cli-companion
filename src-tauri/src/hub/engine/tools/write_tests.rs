@@ -2,7 +2,8 @@
 //! `board_control`.
 
 use super::*;
-use crate::board::{MAX_PARALLEL_LIMIT, MIN_PARALLEL_LIMIT};
+use crate::board::{TaskAction, MAX_PARALLEL_LIMIT, MIN_PARALLEL_LIMIT};
+use crate::hub::engine::confirm::REASON_MAX;
 use crate::hub::engine::tools::task_details::TASK_ID_MAX;
 use crate::hub::settings::SecretaryChannels;
 
@@ -118,4 +119,71 @@ fn the_board_tools_exist_only_for_a_secretary_who_has_them() {
     }
     let names: Vec<&str> = specs(&reporter).iter().map(|t| t.name).collect();
     assert_eq!(names, ["board_status", "task_details", "post_message"]);
+}
+
+fn request(task_id: &str, action: TaskAction, reason: &str) -> Invocation {
+    Invocation::RequestTaskAction { task_id: task_id.into(), action, reason: reason.into() }
+}
+
+#[test]
+fn request_task_action_takes_a_task_one_of_four_actions_and_a_reason() {
+    for (code, action) in [
+        ("stop", TaskAction::Stop),
+        ("delete", TaskAction::Delete),
+        ("delete_cascade", TaskAction::DeleteCascade),
+        ("mark_done", TaskAction::MarkDone),
+    ] {
+        let raw = format!(r#"{{"task_id":" t-1 ","action":"{code}","reason":"  Obsolete\nspec  "}}"#);
+        assert_eq!(parsed("request_task_action", &raw), Ok(request("t-1", action, "Obsolete spec")), "{code}");
+    }
+}
+
+#[test]
+fn request_task_action_rejects_other_actions_and_bad_arguments() {
+    for bad in ["retry", "to_top", "move_before", "DELETE", ""] {
+        let raw = format!(r#"{{"task_id":"t-1","action":"{bad}","reason":"x"}}"#);
+        assert!(reason(parsed("request_task_action", &raw)).contains("schema"), "{bad}");
+    }
+    let long = "x".repeat(REASON_MAX + 1);
+    let too_long = format!(r#"{{"task_id":"t-1","action":"delete","reason":"{long}"}}"#);
+    assert_eq!(
+        reason(parsed("request_task_action", &too_long)),
+        format!("`reason` must be 1 to {REASON_MAX} characters")
+    );
+    let exact = format!(r#"{{"task_id":"t-1","action":"delete","reason":"{}"}}"#, "x".repeat(REASON_MAX));
+    assert!(parsed("request_task_action", &exact).is_ok());
+    for missing in [
+        r#"{"task_id":"t-1","action":"delete"}"#,
+        r#"{"task_id":"t-1","reason":"x"}"#,
+        r#"{"action":"stop","reason":"x"}"#,
+    ] {
+        assert!(reason(parsed("request_task_action", missing)).contains("schema"), "{missing}");
+    }
+    let blank = r#"{"task_id":"t-1","action":"delete","reason":"   "}"#;
+    assert!(reason(parsed("request_task_action", blank)).starts_with("`reason` must be"));
+    assert!(reason(parsed("request_task_action", r#"{"task_id":" ","action":"delete","reason":"x"}"#))
+        .starts_with("`task_id` must be"));
+    let extra = r#"{"task_id":"t-1","action":"delete","reason":"x","workspace":"Sito Web"}"#;
+    assert!(reason(parsed("request_task_action", extra)).contains("schema"), "niente workspace: solo il thread");
+}
+
+#[test]
+fn request_task_action_exists_only_for_a_secretary_who_has_it_and_is_never_a_default() {
+    let operator = secretary(&[SecretaryTool::TaskAction, SecretaryTool::PostMessage]);
+    let call = ToolCall {
+        id: "c".into(),
+        name: "request_task_action".into(),
+        arguments: r#"{"task_id":"t-1","action":"delete","reason":"x"}"#.into(),
+    };
+    assert_eq!(parse(&call, &operator), Err(ToolRejection::NotAllowed("request_task_action".into())));
+    assert!(specs(&operator).iter().all(|t| t.name != "request_task_action"));
+    let with = secretary(&[SecretaryTool::RequestTaskAction]);
+    assert_eq!(parse(&call, &with), Ok(request("t-1", TaskAction::Delete, "x")));
+    let spec = &specs(&with)[0];
+    assert_eq!(spec.parameters["additionalProperties"], false);
+    assert_eq!(
+        spec.parameters["properties"]["action"]["enum"],
+        json!(["stop", "delete", "delete_cascade", "mark_done"])
+    );
+    assert!(spec.description.contains("NEVER runs the action"));
 }

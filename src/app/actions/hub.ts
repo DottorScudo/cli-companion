@@ -143,6 +143,25 @@ export async function answerQuestion(
   }
 }
 
+/**
+ * Decide la richiesta di azione di una scheda (`confirm`: conferma, altrimenti annulla)
+ * e rilegge il thread: la scheda e la riga dell'esito sono già scritte e si mostrano
+ * senza aspettare `hub-update`. Rifiuta con l'errore del backend (anche «già decisa»).
+ */
+export async function resolveActionRequest(
+  channel: string,
+  threadId: string,
+  messageId: string,
+  confirm: boolean,
+): Promise<void> {
+  await api.hubResolveActionRequest(channel, threadId, messageId, confirm);
+  try {
+    hubStore.threadLoaded(await api.hubGetThread(channel, threadId));
+  } catch (e) {
+    report("aggiornamento della conversazione dopo la decisione", e);
+  }
+}
+
 /** Apre l'Agents HUB su un thread (click su una notifica di sistema). Con l'HUB spento non fa nulla. */
 export function openHubThread(channel: string, threadId: string): void {
   if (!hubStore.getState().enabled) return;

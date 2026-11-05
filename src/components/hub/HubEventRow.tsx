@@ -5,6 +5,7 @@ import {
   FileText,
   MessageCircleQuestion,
   Play,
+  ShieldQuestion,
   Reply,
   Trash2,
   XCircle,
@@ -30,6 +31,7 @@ const ICONS: Record<HubEventIcon, LucideIcon> = {
   attention: AlertTriangle,
   question: MessageCircleQuestion,
   deleted: Trash2,
+  request: ShieldQuestion,
   generic: CircleDot,
 };
 

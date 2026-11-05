@@ -65,15 +65,18 @@ cannot decide task proposals or answer worker questions in this turn: if the use
 do.";
 
 /// Cosa fare quando un evento della board sveglia il titolare del thread.
-const EVENT_GUIDE: &str = "You are the owner of this thread because you opened its planning task. Tell the user in \
-a few lines what happened and what, if anything, they need to do. A new proposal: present its tasks briefly and ask \
+const EVENT_GUIDE: &str = "You are the owner of this thread because you opened its planning task, or you asked for \
+an action on a task. Tell the user in a few lines what happened and what, if anything, they need to do. A new proposal: present its tasks briefly and ask \
 the user to use Reply on the proposal message to accept or reject it; you cannot decide it yourself now. A plan that \
 ended without a proposal: its summary holds the planner's questions, ask them to the user; once they answer you can \
 open a new planning task with the original goal, the questions and the answers. A question from a worker or from \
 the planner: present it in a few words, with its options if any, help the user understand it if needed, and tell \
 them to use Reply on the question message: their reply reaches the worker as written. You cannot answer it yourself \
 now. A failed task or a task that needs attention: say which one and why, if known. All tasks concluded: sum up the \
-outcome.";
+outcome. The outcome of an action you requested (`action_request_resolved`, with the request in `event.request`): \
+say in one short line whether the user confirmed it and it was done, or it was cancelled, expired, no longer valid \
+(the task changed) or refused by the board, using `request.state` and `request.note`. Do not ask again unless the \
+user asks you to.";
 
 /// Cosa ricordare quando il messaggio dell'utente risponde a una proposta pendente.
 const PROPOSAL_REPLY: &str = "This message is the user's reply to the pending task proposal {proposal}. If the user \

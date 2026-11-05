@@ -75,7 +75,7 @@ che il motore aggiunge a ogni system prompt (`ENGINE_INSTRUCTIONS`): descrivono 
 | `coordinator` | Coordinatore | `mario` | `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message`, `open_plan_task`, `decide_proposal`, `relay_answer` | trasforma gli obiettivi dell'utente in lavoro per gli agenti: chiarisce l'obiettivo (al massimo una domanda), apre il task di pianificazione, presenta le proposte e le decide solo se l'utente accetta o rifiuta con chiarezza, riferisce fallimenti e domande dei worker |
 | `analyst` | Analista | `giulia` | `thread_read`, `post_message`, `open_plan_task` | trasforma un'idea vaga in una richiesta completa: chiede obiettivo, criteri di completamento, vincoli ed esclusioni (mai domande tecniche sul codice), poi riassume in Goal / Done when / Constraints / Out of scope e apre la pianificazione solo dopo la conferma. Senza `decide_proposal`, se arriva una proposta la presenta e dice di rispondere sul messaggio della proposta |
 | `reporter` | Cronista | `luca` | `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message` | tiene informato l'utente: cosa è fatto, cosa gira, cosa aspetta lui, cosa è fallito; nel Generale una riga per workspace, prima quelli che aspettano l'utente; spiega i fallimenti dalle note dei task senza ipotesi. Non apre task e non decide: per nuovo lavoro rimanda a un segretario che può aprirli |
-| `operator` | Operatore | `ugo` | `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message`, `task_action`, `board_control` | agisce sulla coda solo su richiesta esplicita dell'utente: ritenta i task falliti, porta un task in testa o prima di un altro, mette in pausa o riprende la board e ne regola `max_parallel`. Prima di cambiare un task lo legge; se la richiesta è ambigua chiede; dopo una modifica la dice in una riga. Non elimina, non ferma, non segna fatto e non apre lavoro nuovo. **Non si crea da solo** (`seeded: false`): lo sceglie l'utente da «Aggiungi da modello» |
+| `operator` | Operatore | `ugo` | `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message`, `task_action`, `board_control`, `request_task_action` | agisce sulla coda solo su richiesta esplicita dell'utente: ritenta i task falliti, porta un task in testa o prima di un altro, mette in pausa o riprende la board e ne regola `max_parallel`. Prima di cambiare un task lo legge; se la richiesta è ambigua chiede; dopo una modifica la dice in una riga. Fermare, eliminare o segnare fatto non lo fa mai da solo: lo chiede con `request_task_action` (scheda di conferma, vedi "Azioni che chiedono conferma"). Non apre lavoro nuovo. **Non si crea da solo** (`seeded: false`): lo sceglie l'utente da «Aggiungi da modello» |
 
 Ogni preset ha una lista esplicita di tool, mai `SecretaryTool::ALL`: un tool nuovo, soprattutto se modifica la board,
 entra in un preset solo con una scelta esplicita (un test fissa le liste). Il Coordinatore non ha `task_action` né
@@ -164,11 +164,12 @@ resta uno solo. L'elenco (`hub_list_threads`) restituisce i riassunti, senza i m
 - `event` (`HubEvent`): dati strutturati, accanto al testo a template del messaggio, letti come dati (non come
   testo) dai segretari (`thread_read` e contesto del risveglio): `kind` (`task_created`, `task_started`, `task_done`, `task_failed`,
   `task_attention`, `task_question`, `task_question_answered`, `task_deleted`, `proposal_created`,
-  `proposal_accepted`, `proposal_rejected`), `workspace`
+  `proposal_accepted`, `proposal_rejected`, `action_request`, `action_request_resolved`), `workspace`
   (id del workspace della board), `task_id`, `proposal_id`, `status` (stato del task nella board), `summary`
   (riassunto del report), `verdict` (`passed` | `issues`, esito di una review), `note` (nota dell'app sul task),
   `question` (`HubQuestion`: `id` della domanda sulla board, `text` al massimo 2000 caratteri, `options` al
-  massimo 5 da 80 caratteri; negli eventi `task_question` e `task_question_answered`).
+  massimo 5 da 80 caratteri; negli eventi `task_question` e `task_question_answered`), `request`
+  (`HubActionRequest`, negli eventi `action_request` e `action_request_resolved`; vedi "Azioni che chiedono conferma").
   In `proposal_created` `task_id` è il task che ha fatto la proposta (il `plan` del pianificatore o la review),
   se c'è: il soggetto resta la proposta.
   Ogni evento deve nominare il suo soggetto: `task_id` per gli eventi dei task, `proposal_id` per quelli delle
@@ -380,6 +381,7 @@ Validano gli argomenti per primi e fanno l'I/O in `crate::blocking`. Wrapper nel
 | `hub_attachment_path` | `channel`, `thread_id`, `attachment_id` | percorso assoluto, per aprirlo con l'opener |
 | `show_hub_notification` | `channel`, `thread_id`, `title`, `body` | toast cliccabile (solo Windows) per un thread, definito in `toast.rs`; al click `hub-notification-activated` (vedi "Notifiche") |
 | `hub_secretary_status` | — | `HubSecretaryStatus[]`: i segretari svegli adesso (vedi "Motore dei segretari") |
+| `hub_resolve_action_request` | `channel`, `thread_id`, `message_id` (la scheda), `confirm` | `HubActionRequest` aggiornata: `confirm` esegue l'azione, altrimenti annulla (vedi "Azioni che chiedono conferma"); una richiesta già decisa è un errore («Questa richiesta è già stata decisa.»), una scaduta o non più valida no |
 
 Con l'HUB spento `hub_create_thread`, `hub_send` e i due `hub_stage_attachment_*` sono rifiutati (prima di creare
 cartelle); letture, `hub_read_attachment`, `hub_attachment_path` e i comandi delle impostazioni funzionano sempre.
@@ -1045,7 +1047,7 @@ Ogni tool ha una classe (`SecretaryTool::class`, `ToolClass`), secondo l'effetto
 |---|---|---|
 | `Read` | sola lettura | `board_status`, `board_overview`, `task_details`, `thread_read` |
 | `Write` | modifica reversibile del thread o della board, senza conferma | `post_message`, `open_plan_task`, `decide_proposal`, `relay_answer`, `task_action`, `board_control` |
-| `Destructive` | modifica irreversibile o che falsa lo stato della board; chiederà conferma all'utente | nessuno, per ora |
+| `Destructive` | modifica irreversibile o che falsa lo stato della board; non si esegue mai da sé: chiede conferma all'utente | `request_task_action` |
 
 - **Audit.** Una chiamata **riuscita** di un tool `Write` o `Destructive` lascia un messaggio di sistema (in
   italiano) nel thread, tranne quando il suo effetto si vede già: `post_message` è il messaggio stesso,
@@ -1072,7 +1074,7 @@ Schema JSON e descrizione (in inglese: li legge il modello) sono scritti in `too
 argomenti in cui si validano (`#[serde(deny_unknown_fields)]`); un test verifica che le proprietà dello schema e i
 campi della struttura coincidano. Gli argomenti vuoti valgono `{}`. Solo `open_plan_task`, `decide_proposal`
 (vedi "Pianificazione dal thread"), `relay_answer` (vedi "Domande dei worker"), `task_action` e `board_control`
-(vedi "Azioni sulla coda") agiscono sulla board.
+(vedi "Azioni sulla coda") agiscono sulla board; `request_task_action` (vedi "Azioni che chiedono conferma") la cambia solo dopo il clic dell'utente.
 
 | Tool | Argomenti | Effetto |
 |---|---|---|
@@ -1085,6 +1087,7 @@ campi della struttura coincidano. Gli argomenti vuoti valgono `{}`. Solo `open_p
 | `decide_proposal` | `accept` (bool), **nessun id** | accetta o scarta la proposta dell'evento a cui risponde il messaggio dell'utente; esito `{ proposal, decision, tasks_queued }` |
 | `relay_answer` | `body` (1..4000 caratteri, il limite delle risposte della board), `question_id?` e `task_id?` (al massimo 64 caratteri; vuoto vale assente) | consegna `body` al worker come risposta a una domanda in attesa del thread, solo in un turno svegliato da un messaggio dell'utente; senza id vale l'unica domanda in attesa, con più domande si passano `question_id` e `task_id` letti da `thread_read` (`event.question.id`, `event.task_id`) o da `task_details` (`question.id`); esito `{ task_id, question_id, delivered }` e nel thread «@mario ha inviato al worker del task t-7 questa risposta: …» |
 | `task_action` | `task_id` (1..64 caratteri), `action` (`retry`, `to_top`, `move_before`), `before_task_id?` (1..64 caratteri, obbligatorio con `move_before` e vietato con le altre; vuoto vale assente), `workspace?` (come `board_status`) | ritenta un task fallito, porta un task in coda in testa alla coda o prima di un altro task in coda, della board del canale del thread; esito `{ workspace, task_id, title, status }` (più `before_task_id`, `before_title` per `move_before`) e un avviso nel thread. Vedi "Azioni sulla coda" |
+| `request_task_action` | `task_id` (1..64 caratteri), `action` (`stop`, `delete`, `delete_cascade`, `mark_done`), `reason` (1..300 caratteri) | chiede all'utente di fermare, eliminare (anche con i task che ne dipendono) o segnare fatto un task: **non esegue nulla**, scrive nel thread una scheda con «Conferma» e «Annulla»; esito `{ request_id, task_id, title, action, status: "awaiting_confirmation", expires_in_minutes, note }`. Vedi "Azioni che chiedono conferma" |
 | `board_control` | `paused?` (bool), `max_parallel?` (intero da 1 a 16, i limiti di `board_set`), almeno uno dei due; `workspace?` (come `board_status`) | mette in pausa o riprende la board del canale del thread e/o ne imposta `max_parallel`; esito `{ workspace, paused, max_parallel, changed }` con in `changed` solo le parti cambiate davvero (vuoto, con `note`, se la board era già così: nessuna scrittura) |
 
 **Workspace per nome**: gli id restano il riferimento interno (file, eventi, comandi), ma il modello parla dei
@@ -1186,6 +1189,46 @@ crea il preset Operatore.
   comandi `task_action`, `task_move` e `board_set` del pannello Task, che quindi si aggiorna come per un clic. Fuori
   dal main thread e solo se l'epoca dell'HUB è ancora quella del lavoro. Un errore della board torna al modello
   («The board did not accept the change: …») e non lascia avvisi.
+
+### Azioni che chiedono conferma
+
+`request_task_action` (`engine/confirm.rs`, `confirm/resolve.rs`, puro e generico sui dati; effetti in
+`host/requests.rs` e `action_requests.rs`) è l'unico modo in cui un segretario arriva a fermare, eliminare o segnare
+fatto un task, azioni che non si annullano. Il segretario non le esegue mai: mette nel thread una scheda e le esegue
+solo il clic dell'utente su «Conferma».
+
+- **Chi lo ha.** Solo il preset Operatore, e solo se scelto (opt-in: nessun segretario esistente lo riceve, e i preset
+  `seeded` non lo contengono). Classe `Destructive`: conta nel limite per turno come ogni modifica e non lascia un
+  avviso di audit, perché la scheda è già visibile.
+- **Quando si può chiamare** (`confirm::open_request`): solo in un turno svegliato da un messaggio dell'utente
+  (`board_ops::require_user_request`, come `task_action`); solo in un thread di un workspace; solo per un task
+  **collegato al thread** (`task_ids`) e presente sulla board; l'azione deve essere in `allowed_actions` del task
+  (e una `delete_cascade` non può toccare task in corso); **una sola richiesta aperta per task**. Gli errori sono per il
+  modello, in inglese.
+- **La scheda.** Un messaggio di sistema con `event.kind = action_request` e `event.request` (`HubActionRequest`):
+  `id` (lo stesso del messaggio), `action`, `reason`, `secretary`, `task_title`, `task_status` (lo stato del task alla
+  richiesta), `dependents` (titoli dei task che una cascata toglierebbe), `expires_at`, `state`, `resolved_at`, `note`.
+  Lo `state` (`pending`, `confirmed`, `cancelled`, `expired`, `stale`, `failed`) si aggiorna **sul posto**
+  (`ChannelThreads::update_request`).
+- **Scadenza.** 30 minuti (`REQUEST_TTL_MS`). Il frontend mostra come scaduta, senza pulsanti, una richiesta in attesa
+  con `now >= expires_at` (`displayState`); il backend la segna `expired` al primo clic di conferma dopo la scadenza.
+  «Annulla» vale anche dopo la scadenza, se non è ancora stata decisa.
+- **Invalidazione** (`confirm::invalidate_for_task`, chiamata da `events/route.rs` a ogni evento del task): se il task
+  cambia stato o sparisce, le sue richieste in attesa passano a `stale` subito, con una nota, senza aspettare il clic.
+- **Conferma** (`hub_resolve_action_request`, `confirm::decide`). Sotto il lock dei thread, così due clic non
+  eseguono due volte: si rilegge il task sulla board; se la richiesta non è più in attesa è un errore; con
+  `confirm = false` è `cancelled`; se è scaduta `expired`; se il task manca, ha cambiato stato o non consente più
+  l'azione `stale`; altrimenti si esegue l'azione con la stessa funzione del comando `task_action` del pannello Task. Se la
+  board la rifiuta lo stato è `failed` e la nota riporta l'errore. Scaduta, non più valida o fallita non sono errori
+  del comando: la richiesta torna aggiornata.
+- **Esito e risveglio.** Una decisione scrive una riga di sistema `event.kind = action_request_resolved` (con la
+  richiesta nello stato finale e il testo in italiano di `confirm/texts.rs`), in risposta alla scheda. Quella riga
+  sveglia **il segretario che ha fatto la richiesta**, anche se non è il titolare del thread, che così dice
+  all'utente come è andata (il preset gli chiede di non dire «fatto» prima). Poi `hub-update`.
+- **Frontend.** `HubActionRequestCard` (nella conversazione di entrambe le viste) mostra chi chiede, azione (le
+  etichette del Tasks Manager), task, motivo, `dependents` per una cascata, stato e `note`; finché la richiesta aspetta
+  e non è scaduta ci sono «Conferma» e «Annulla». La logica pura è in `src/lib/hubActionRequests.ts`, la rilettura del
+  thread dopo il clic in `resolveActionRequest` (`app/actions/hub.ts`).
 
 ### Domande dei worker
 
