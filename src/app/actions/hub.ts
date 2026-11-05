@@ -8,7 +8,10 @@ import { summarizeThread, threadNeedsReload } from "../../lib/hub";
 import { threadAsksTask, threadsToSearch } from "../../lib/hubQuestions";
 import type { ThreadFilter } from "../../lib/hub";
 import { hubStore } from "../../stores/hub";
+import { hubChannelIdsOf } from "../../stores/hubChannels";
 import { uiStore } from "../../stores/ui";
+import { workspacesStore } from "../../stores/workspaces";
+import { markOpenChatSeen } from "./hubChatState";
 
 /**
  * Impostazioni lette all'avvio (interruttore, modello, segretari): con l'HUB
@@ -46,7 +49,10 @@ export async function setHubEnabled(enabled: boolean): Promise<void> {
 export function loadChannelThreads(channel: string): void {
   api
     .hubListThreads(channel)
-    .then((list) => hubStore.threadsLoaded(channel, list))
+    .then((list) => {
+      hubStore.threadsLoaded(channel, list);
+      hubStore.seenPruned(hubChannelIdsOf(workspacesStore.getState()));
+    })
     .catch((e) => report("caricamento dei thread dell'Agents HUB", e, { notify: true }));
 }
 
@@ -59,7 +65,10 @@ export function loadAllChannels(channels: readonly string[]): void {
 export function loadThread(channel: string, threadId: string): void {
   api
     .hubGetThread(channel, threadId)
-    .then((thread) => hubStore.threadLoaded(thread))
+    .then((thread) => {
+      hubStore.threadLoaded(thread);
+      void markOpenChatSeen();
+    })
     .catch((e) => report("caricamento della conversazione", e, { notify: true }));
 }
 
@@ -111,6 +120,7 @@ export function onHubUpdate(summary: HubThreadSummary): void {
   if (!state.enabled) return;
   hubStore.summaryUpdated(summary);
   if (threadNeedsReload(state.thread, summary)) loadThread(summary.channel, summary.id);
+  void markOpenChatSeen();
 }
 
 /**
@@ -159,6 +169,7 @@ export async function openTaskThread(channel: string, taskId: string): Promise<v
       if (threadAsksTask(thread, channel, taskId)) {
         hubStore.threadSelected(id);
         hubStore.threadLoaded(thread);
+        void markOpenChatSeen();
         return;
       }
     }

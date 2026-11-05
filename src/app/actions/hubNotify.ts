@@ -5,23 +5,11 @@
 
 import type { HubNotice, HubThreadRef } from "../../lib/tauri";
 import { shouldShowHubNotice, soundOf } from "../../lib/hubNotify";
-import type { HubViewport } from "../../lib/hubNotify";
 import { playAttention, playDing } from "../../lib/notifySound";
-import { appHasFocus, notifyHubThread } from "../../lib/systemNotify";
+import { notifyHubThread } from "../../lib/systemNotify";
 import { hubStore } from "../../stores/hub";
-import { uiStore } from "../../stores/ui";
-import { hubShown } from "../../stores/view";
 import { openHubThread } from "./hub";
-
-async function currentViewport(): Promise<HubViewport> {
-  const hub = hubStore.getState();
-  return {
-    focused: await appHasFocus(),
-    hubShown: hubShown(uiStore.getState(), hub),
-    channel: hub.channel,
-    threadId: hub.threadId,
-  };
-}
+import { currentViewport } from "./hubViewport";
 
 /**
  * `hub-notify`: notifica di sistema e suono, tranne se l'utente sta guardando
