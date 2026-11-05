@@ -1,4 +1,5 @@
 use super::*;
+use crate::hub::engine::audit::MAX_MUTATIONS_PER_TURN;
 use crate::hub::engine::fake::{call, calls, text, FakeModel};
 use crate::hub::engine::fixtures::{secretary, FakeBoard, WS};
 use crate::hub::engine::planning::{self, ProposalBoard, ProposalRef};
@@ -259,12 +260,18 @@ fn relay_answer_delivers_to_the_only_pending_question_when_the_user_asks() {
     let (model, host) = relay_turn(vec![question_event("e1", "a", "q-1-1")], WakeCause::Message);
     assert_eq!(host.answers.delivered(), [(question_ref("a", "q-1-1"), "Use the second option.".to_string())]);
     assert!(tool_result(&model, 1).contains(r#""delivered":true"#), "{}", tool_result(&model, 1));
+    assert_eq!(
+        *host.notices.lock().unwrap(),
+        ["@mario ha inviato al worker questa risposta:\nUse the second option."],
+        "l'avviso di audit, una volta sola"
+    );
 }
 
 #[test]
 fn relay_answer_is_refused_in_a_board_event_turn_and_with_several_questions() {
     let (model, host) = relay_turn(vec![question_event("e1", "a", "q-1-1")], WakeCause::BoardEvent);
     assert!(host.answers.delivered().is_empty());
+    assert!(host.notices.lock().unwrap().is_empty(), "una modifica fallita non lascia un avviso di audit");
     assert!(tool_result(&model, 1).contains("never when a board event or external content woke you up"));
     let several = vec![question_event("e1", "a", "q-1-1"), question_event("e2", "b", "q-1-1")];
     let (model, host) = relay_turn(several, WakeCause::Message);
@@ -308,6 +315,49 @@ fn open_plan_task_hands_the_goal_to_the_host() {
     run(&model, &host, &secretary("giorgio"), 8);
     assert_eq!(*host.plans.lock().unwrap(), ["Add a login page with email and password"]);
     assert!(tool_result(&model, 1).contains("plan-login"));
+}
+
+#[test]
+fn changes_already_visible_in_the_thread_leave_no_audit_notice() {
+    let model = FakeModel::new(vec![
+        calls(vec![
+            call("c1", "post_message", r#"{"body":"Apro la pianificazione."}"#),
+            call("c2", "open_plan_task", r#"{"goal":"Add a login page"}"#),
+            call("c3", "decide_proposal", r#"{"accept":true}"#),
+        ]),
+        text("Fatto."),
+    ]);
+    let host = FakeHost::replying_to_proposal();
+    run(&model, &host, &secretary("giorgio"), 8);
+    assert_eq!(host.posted.lock().unwrap().len(), 1);
+    assert_eq!(host.plans.lock().unwrap().len(), 1);
+    assert_eq!(host.board.decisions.lock().unwrap().len(), 1);
+    assert!(host.notices.lock().unwrap().is_empty(), "{:?}", host.notices.lock().unwrap());
+}
+
+#[test]
+fn the_change_past_the_turn_limit_is_refused_with_a_notice() {
+    let plan = |id: &str| call(id, "open_plan_task", r#"{"goal":"Add a login page"}"#);
+    let model = FakeModel::new(vec![
+        // Una modifica fallita (nessuna proposta per il turno) non consuma il limite.
+        calls(vec![call("c0", "decide_proposal", r#"{"accept":true}"#), plan("c1"), plan("c2")]),
+        calls(vec![plan("c3"), plan("c4"), call("c5", "post_message", r#"{"body":"Ho aperto tre piani."}"#)]),
+        text("Ho aperto tre pianificazioni."),
+    ]);
+    let host = FakeHost::default();
+    let (end, _) = run(&model, &host, &secretary("giorgio"), 8);
+    assert_eq!(end, TurnEnd::Reply("Ho aperto tre pianificazioni.".into()));
+    assert_eq!(host.plans.lock().unwrap().len(), MAX_MUTATIONS_PER_TURN);
+    assert_eq!(*host.posted.lock().unwrap(), ["Ho aperto tre piani."], "post_message non conta nel limite");
+    assert_eq!(
+        *host.notices.lock().unwrap(),
+        ["@giorgio ha chiesto «open_plan_task» dopo 3 modifiche in questo turno, il massimo: richiesta rifiutata."]
+    );
+    let messages = &model.requests()[2].messages;
+    let ChatMessage::Tool { call_id, content } = &messages[messages.len() - 2] else { panic!("{messages:?}") };
+    assert_eq!(call_id, "c4");
+    let error: Value = serde_json::from_str(content).unwrap();
+    assert!(error["error"].as_str().unwrap().starts_with("`open_plan_task` was not run"), "{content}");
 }
 
 #[test]

@@ -1,13 +1,15 @@
 //! Il ciclo di tool calling di un turno: conversazione -> chiamata al modello
 //! -> se il modello chiede dei tool, il codice li valida (`tools::parse`), li
 //! esegue attraverso `TurnHost` e restituisce l'esito; altrimenti il testo e'
-//! la risposta del segretario. Al massimo `max_steps` chiamate al modello per
-//! turno. Qui anche la compattazione della conversazione di una sessione e la
-//! richiesta del riassunto alla sua chiusura.
+//! la risposta del segretario. Al massimo `max_steps` chiamate al modello e
+//! `audit::MAX_MUTATIONS_PER_TURN` modifiche per turno. Qui anche la
+//! compattazione della conversazione di una sessione e la richiesta del
+//! riassunto alla sua chiusura.
 //!
 //! Il ciclo non tiene lock: tutto cio' che tocca thread e board passa da
 //! `TurnHost`, che il runtime implementa sull'app e i test con un finto.
 
+use super::audit::{self, MutationBudget};
 use super::board_query::BoardQuery;
 use super::chat::{ChatMessage, ChatModel, ChatRequest, ModelError, ModelReply, ToolCall};
 use super::context;
@@ -75,6 +77,7 @@ pub async fn run_turn<M: ChatModel, H: TurnHost>(
     conversation: &mut Vec<ChatMessage>,
 ) -> TurnEnd {
     let tools = tools::specs(spec.secretary);
+    let mut budget = MutationBudget::default();
     for step in 1..=spec.max_steps {
         let request = ChatRequest { system: &spec.system, messages: conversation, tools: &tools };
         let (text, calls) = match model.complete(request).await {
@@ -90,7 +93,7 @@ pub async fn run_turn<M: ChatModel, H: TurnHost>(
         }
         conversation.push(ChatMessage::Assistant { text, tool_calls: calls.clone() });
         for call in &calls {
-            let content = execute(host, spec.secretary, call).await;
+            let content = execute(host, spec.secretary, call, &mut budget).await;
             conversation.push(ChatMessage::Tool {
                 call_id: call.id.clone(),
                 content: clip_with_ellipsis(&content, TOOL_RESULT_MAX),
@@ -100,24 +103,47 @@ pub async fn run_turn<M: ChatModel, H: TurnHost>(
     TurnEnd::StepLimit
 }
 
-/// Valida ed esegue una chiamata; l'esito (o l'errore) e' JSON per il modello.
-/// Un tool rifiutato e' anche un messaggio di sistema nel thread.
-async fn execute<H: TurnHost>(host: &H, secretary: &Secretary, call: &ToolCall) -> String {
-    let outcome = match tools::parse(call, secretary) {
+/// Valida ed esegue una chiamata entro il limite di modifiche del turno;
+/// l'esito (o l'errore) e' JSON per il modello. Un tool rifiutato e' anche un
+/// messaggio di sistema nel thread, come una modifica riuscita che non vi si
+/// vede gia' (`audit::notice`).
+async fn execute<H: TurnHost>(host: &H, secretary: &Secretary, call: &ToolCall, budget: &mut MutationBudget) -> String {
+    let admitted = tools::parse(call, secretary).and_then(|invocation| {
+        budget.admit(invocation.tool())?;
+        Ok(invocation)
+    });
+    let outcome = match admitted {
         Err(rejection) => {
             host.notice(texts::tool_rejected(&secretary.name, &rejection)).await;
             Err(rejection.for_model())
         }
-        Ok(Invocation::BoardStatus { workspace, query }) => host.board_status(workspace, query).await,
-        Ok(Invocation::ThreadRead) => host.thread_read().await,
-        Ok(Invocation::PostMessage { body }) => host.post_message(body).await.map(|()| json!({ "posted": true })),
-        Ok(Invocation::OpenPlanTask { goal }) => host.open_plan_task(goal).await,
-        Ok(Invocation::DecideProposal { accept }) => host.decide_proposal(accept).await,
-        Ok(Invocation::RelayAnswer { body }) => host.relay_answer(body).await,
+        Ok(invocation) => {
+            let (tool, notice) = (invocation.tool(), audit::notice(&secretary.name, &invocation));
+            let outcome = invoke(host, invocation).await;
+            if outcome.is_ok() {
+                budget.record(tool);
+                if let Some(text) = notice {
+                    host.notice(text).await;
+                }
+            }
+            outcome
+        }
     };
     match outcome {
         Ok(value) => value.to_string(),
         Err(error) => json!({ "error": error }).to_string(),
+    }
+}
+
+/// Esegue una chiamata validata attraverso l'host.
+async fn invoke<H: TurnHost>(host: &H, invocation: Invocation) -> Result<Value, String> {
+    match invocation {
+        Invocation::BoardStatus { workspace, query } => host.board_status(workspace, query).await,
+        Invocation::ThreadRead => host.thread_read().await,
+        Invocation::PostMessage { body } => host.post_message(body).await.map(|()| json!({ "posted": true })),
+        Invocation::OpenPlanTask { goal } => host.open_plan_task(goal).await,
+        Invocation::DecideProposal { accept } => host.decide_proposal(accept).await,
+        Invocation::RelayAnswer { body } => host.relay_answer(body).await,
     }
 }
 

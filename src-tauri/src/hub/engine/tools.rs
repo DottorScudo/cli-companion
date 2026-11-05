@@ -5,6 +5,7 @@
 //! rispettano lo schema (campi sconosciuti rifiutati) e i limiti dell'HUB.
 //! L'esecuzione e' in `turn` (attraverso `TurnHost`).
 
+use super::audit::MAX_MUTATIONS_PER_TURN;
 use super::board_query::BoardQuery;
 use super::chat::{ToolCall, ToolSpec};
 use super::planning::GOAL_MAX;
@@ -42,6 +43,20 @@ pub enum Invocation {
     },
 }
 
+impl Invocation {
+    /// Il tool chiamato.
+    pub fn tool(&self) -> SecretaryTool {
+        match self {
+            Self::BoardStatus { .. } => SecretaryTool::BoardStatus,
+            Self::ThreadRead => SecretaryTool::ThreadRead,
+            Self::PostMessage { .. } => SecretaryTool::PostMessage,
+            Self::OpenPlanTask { .. } => SecretaryTool::OpenPlanTask,
+            Self::DecideProposal { .. } => SecretaryTool::DecideProposal,
+            Self::RelayAnswer { .. } => SecretaryTool::RelayAnswer,
+        }
+    }
+}
+
 /// Perche' una chiamata a tool e' stata rifiutata.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToolRejection {
@@ -49,6 +64,8 @@ pub enum ToolRejection {
     NotAllowed(String),
     /// Argomenti che non rispettano lo schema: `reason` in inglese, per il modello.
     InvalidArguments { tool: SecretaryTool, reason: String },
+    /// Il turno ha gia' fatto `MAX_MUTATIONS_PER_TURN` modifiche (`audit::MutationBudget`).
+    TurnLimit(SecretaryTool),
 }
 
 impl ToolRejection {
@@ -61,6 +78,11 @@ impl ToolRejection {
             Self::InvalidArguments { tool, reason } => {
                 format!("Invalid arguments for `{}`: {reason}. Check the parameters and try again.", tool.code())
             }
+            Self::TurnLimit(tool) => format!(
+                "`{}` was not run: you already made {MAX_MUTATIONS_PER_TURN} changes in this turn, the most allowed. \
+                Do not try again: tell the user what you did and that they can ask you for the rest.",
+                tool.code()
+            ),
         }
     }
 }

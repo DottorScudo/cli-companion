@@ -25,6 +25,7 @@
 //! - `host`: gli effetti reali su thread, board, portachiavi;
 //! - `status`: l'evento `hub-secretary-status` e il comando `hub_secretary_status`.
 
+mod audit;
 mod board_query;
 mod chat;
 mod context;

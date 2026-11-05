@@ -62,9 +62,30 @@ impl SecretaryTool {
         }
     }
 
+    /// Cosa fa una chiamata riuscita: decide l'avviso di audit e il limite di
+    /// modifiche per turno (`hub::engine::audit`).
+    pub fn class(self) -> ToolClass {
+        match self {
+            Self::BoardStatus | Self::ThreadRead => ToolClass::Read,
+            Self::PostMessage | Self::OpenPlanTask | Self::DecideProposal | Self::RelayAnswer => ToolClass::Write,
+        }
+    }
+
     fn parse(raw: &str) -> Result<Self, String> {
         Self::ALL.into_iter().find(|t| t.code() == raw).ok_or_else(|| "tool non riconosciuto".to_string())
     }
+}
+
+/// La classe di un tool, secondo l'effetto di una chiamata riuscita.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolClass {
+    /// Sola lettura: nessun effetto.
+    Read,
+    /// Una modifica reversibile del thread o della board.
+    Write,
+    /// Una modifica irreversibile, o che falsa lo stato della board: chiedera' conferma.
+    #[expect(dead_code, reason = "nessun tool distruttivo ancora: arriveranno con la conferma dell'utente")]
+    Destructive,
 }
 
 /// Dove il segretario puo' essere menzionato.
@@ -309,6 +330,22 @@ mod tests {
         for t in SecretaryTool::ALL {
             assert_eq!(serde_json::to_string(&t).unwrap(), format!("\"{}\"", t.code()));
         }
+    }
+
+    #[test]
+    fn every_tool_has_its_class() {
+        let class = |t: SecretaryTool| (t, t.class());
+        assert_eq!(
+            SecretaryTool::ALL.map(class),
+            [
+                (SecretaryTool::BoardStatus, ToolClass::Read),
+                (SecretaryTool::ThreadRead, ToolClass::Read),
+                (SecretaryTool::PostMessage, ToolClass::Write),
+                (SecretaryTool::OpenPlanTask, ToolClass::Write),
+                (SecretaryTool::DecideProposal, ToolClass::Write),
+                (SecretaryTool::RelayAnswer, ToolClass::Write),
+            ]
+        );
     }
 
     #[test]

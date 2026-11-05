@@ -27,7 +27,7 @@ pub use language::Language;
 pub use provider::Provider;
 #[cfg(test)]
 pub use secretary::SecretaryChannels;
-pub use secretary::{normalize_name, Secretary, SecretaryTool};
+pub use secretary::{normalize_name, Secretary, SecretaryTool, ToolClass};
 pub use session::SessionSettings;
 
 use crate::store::{adopt_envelope, data_dir, JsonFile, JsonStore};

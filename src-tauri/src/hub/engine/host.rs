@@ -18,7 +18,6 @@ use super::planning::{self, PlanTicket, ProposalBoard, ProposalRef};
 use super::relay;
 use super::runtime::SecretaryEngine;
 use super::sessions::ThreadKey;
-use super::texts;
 use super::tools::{board_workspace, BoardAccessError};
 use super::turn::TurnHost;
 use super::workspace_names::WorkspaceNames;
@@ -157,24 +156,16 @@ impl ThreadIo {
     }
 
     /// `relay_answer` sulla domanda `target` del turno (vedi `relay::relay`);
-    /// consegnata, il thread mostra all'utente cosa e' stato inviato.
-    pub async fn relay_answer(
-        &self,
-        target: Result<QuestionRef, &'static str>,
-        secretary: &str,
-        body: String,
-    ) -> Result<Value, String> {
+    /// l'avviso di cosa e' stato inviato lo scrive il turno (`audit::notice`).
+    pub async fn relay_answer(&self, target: Result<QuestionRef, &'static str>, body: String) -> Result<Value, String> {
         let (app, epoch) = (self.app.clone(), self.epoch);
-        let text = body.clone();
-        let value = crate::blocking(move || {
+        crate::blocking(move || {
             if !app.state::<SecretaryEngine>().is_current(epoch) {
                 return Err(STALE.to_string());
             }
-            relay::relay(&AppAnswers { app: &app }, target.as_ref().map_err(|e| *e), &text)
+            relay::relay(&AppAnswers { app: &app }, target.as_ref().map_err(|e| *e), &body)
         })
-        .await?;
-        self.notice(texts::answer_relayed(secretary, &body)).await;
-        Ok(value)
+        .await
     }
 
     /// Il client del modello con il provider e la API key correnti.
@@ -283,7 +274,7 @@ impl TurnHost for AppTurnHost<'_> {
     }
 
     async fn relay_answer(&self, body: String) -> Result<Value, String> {
-        self.io.relay_answer(self.question.clone(), &self.secretary.name, body).await
+        self.io.relay_answer(self.question.clone(), body).await
     }
 
     async fn notice(&self, text: String) {

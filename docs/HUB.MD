@@ -845,6 +845,7 @@ una skill di Claude Code o OpenCode e non passa da MCP. Codice in `hub/engine/`.
 | `chat.rs` | i tipi della conversazione (messaggi, chiamate a tool, richiesta, risposta, `ModelError`) e il trait `ChatModel` |
 | `openai.rs` | il client reale (`OpenAiModel`, `async-openai`) e la classificazione degli errori |
 | `tools.rs` | schema JSON, descrizione e validazione di ogni tool; quale board può leggere un segretario |
+| `audit.rs` | avviso di audit delle modifiche e limite di modifiche per turno, dalla classe del tool |
 | `output.rs` | board e thread in JSON compatto per il modello |
 | `context.rs` | system prompt, messaggio di apertura di un turno, richiesta e pulizia del riassunto |
 | `mentions.rs` | le menzioni `@nome` |
@@ -1022,11 +1023,37 @@ scrive nel thread (ripulita, al massimo 7999 caratteri). Al massimo `max_steps` 
 | Argomenti non validi (JSON non valido, non un oggetto, campi sconosciuti o mancanti, valori fuori dai limiti) | errore «Invalid arguments for `x`: …», il turno continua | «@mario ha chiamato «x» con argomenti non validi: richiesta rifiutata.» |
 | Errore di esecuzione (workspace inesistente, board non ammessa) | errore con il motivo, il turno continua | — |
 | Ultimo passo con altre chiamate a tool | le chiamate non si eseguono e non entrano nella conversazione | «@mario si è fermato dopo N passi senza una risposta finale. …» |
+| Una modifica oltre il limite del turno (vedi "Classi dei tool, audit e limite") | errore «`x` was not run: you already made 3 changes in this turn…», il tool non si esegue, il turno continua | «@mario ha chiesto «x» dopo 3 modifiche in questo turno, il massimo: richiesta rifiutata.» |
 | Endpoint irraggiungibile, timeout, HTTP d'errore, risposta non valida o vuota, provider non configurato, API key illeggibile | il turno finisce | «@mario non può rispondere: <motivo>.» |
 
 Gli errori tornano al modello come `{"error": "…"}`. Nessun caso va in panico né lascia la coda bloccata: ogni
 lavoro finisce e la coda passa al successivo. La conversazione resta valida anche dopo un errore (ogni chiamata a
 tool ha il suo esito).
+
+### Classi dei tool, audit e limite (`audit.rs`)
+
+Ogni tool ha una classe (`SecretaryTool::class`, `ToolClass`), secondo l'effetto di una chiamata riuscita:
+
+| Classe | Significato | Tool |
+|---|---|---|
+| `Read` | sola lettura | `board_status`, `thread_read` |
+| `Write` | modifica reversibile del thread o della board | `post_message`, `open_plan_task`, `decide_proposal`, `relay_answer` |
+| `Destructive` | modifica irreversibile o che falsa lo stato della board; chiederà conferma all'utente | nessuno, per ora |
+
+- **Audit.** Una chiamata **riuscita** di un tool `Write` o `Destructive` lascia un messaggio di sistema (in
+  italiano) nel thread, tranne quando il suo effetto si vede già: `post_message` è il messaggio stesso,
+  `open_plan_task` e `decide_proposal` producono gli eventi del task creato e della proposta decisa. Oggi l'unico
+  avviso è quello di `relay_answer` («@mario ha inviato al worker questa risposta: …»), scritto dal turno e non
+  più dall'host. Il testo si dichiara in `audit::notice`, con un `match` esaustivo sulle chiamate: un tool nuovo
+  non compila finché non dice se lascia un avviso e quale. Una chiamata fallita o rifiutata non lascia avvisi di
+  audit (solo, se rifiutata, quello del rifiuto).
+- **Limite per turno.** Al massimo `MAX_MUTATIONS_PER_TURN = 3` chiamate riuscite per turno a tool `Write` diversi
+  da `post_message` o `Destructive` (`audit::MutationBudget`, che il ciclo tiene per tutti i passi del turno).
+  Oltre, la chiamata non si esegue ed è un rifiuto come un tool non consentito (`ToolRejection::TurnLimit`):
+  errore per il modello e avviso nel thread (tabella sopra). Le chiamate fallite non consumano il limite; letture
+  e `post_message` restano libere. `max_steps` non cambia.
+
+La classe non è esposta al frontend.
 
 ### Tool
 
@@ -1173,7 +1200,7 @@ usare la seconda opzione»). Le garanzie sono nel codice:
 - nessuna domanda in attesa, un risveglio da evento o da elemento esterno: errore per il modello. Più di una domanda in attesa: errore
   che chiede al modello di domandare all'utente quale, e di dirgli di usare «Rispondi» sull'evento di quella
   domanda (che diventa una risposta diretta);
-- consegnata, il thread mostra cosa è stato inviato: «@mario ha inviato al worker questa risposta: …»; un errore
+- consegnata, il thread mostra cosa è stato inviato (l'avviso di audit, vedi "Classi dei tool, audit e limite"): «@mario ha inviato al worker questa risposta: …»; un errore
   della board torna al modello;
 - come ogni tool nuovo, non si aggiunge da solo ai segretari esistenti: lo sceglie l'utente nelle impostazioni.
 

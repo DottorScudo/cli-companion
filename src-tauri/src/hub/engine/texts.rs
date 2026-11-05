@@ -2,6 +2,7 @@
 //! l'utente), senza dettagli tecnici ne' dati sensibili (mai la API key, mai
 //! il corpo di una risposta dell'endpoint).
 
+use super::audit::MAX_MUTATIONS_PER_TURN;
 use super::chat::ModelError;
 use super::tools::ToolRejection;
 
@@ -41,6 +42,11 @@ pub fn tool_rejected(name: &str, rejection: &ToolRejection) -> String {
         ToolRejection::InvalidArguments { tool, .. } => {
             format!("@{name} ha chiamato «{}» con argomenti non validi: richiesta rifiutata.", tool.code())
         }
+        ToolRejection::TurnLimit(tool) => format!(
+            "@{name} ha chiesto «{}» dopo {MAX_MUTATIONS_PER_TURN} modifiche in questo turno, il massimo: richiesta \
+            rifiutata.",
+            tool.code()
+        ),
     }
 }
 
@@ -102,6 +108,10 @@ mod tests {
         assert!(not_allowed.contains("«open_plan_task»"));
         let invalid = ToolRejection::InvalidArguments { tool: SecretaryTool::PostMessage, reason: "x".into() };
         assert!(tool_rejected("mario", &invalid).contains("«post_message» con argomenti non validi"));
+        assert_eq!(
+            tool_rejected("mario", &ToolRejection::TurnLimit(SecretaryTool::OpenPlanTask)),
+            "@mario ha chiesto «open_plan_task» dopo 3 modifiche in questo turno, il massimo: richiesta rifiutata."
+        );
         assert!(step_limit("mario", 8).contains("dopo 8 passi"));
         assert_eq!(
             answer_relayed("mario", "Usa Postgres."),
