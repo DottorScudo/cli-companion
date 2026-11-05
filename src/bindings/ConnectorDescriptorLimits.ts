@@ -11,4 +11,8 @@ items_per_round: number | null,
 /**
  * Intervallo minimo di polling in secondi (almeno `limits::MIN_INTERVAL`).
  */
-min_interval_secs: number | null, };
+min_interval_secs: number | null, 
+/**
+ * Intervallo di polling usato quando la configurazione non ne imposta uno (almeno `limits::MIN_INTERVAL`).
+ */
+default_interval_secs: number | null, };

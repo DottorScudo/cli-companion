@@ -148,7 +148,11 @@ fn actions_and_slots_are_checked() {
 
 #[test]
 fn descriptor_limits_cannot_loosen_the_runtime_ones() {
-    let limits = |items_per_round, min_interval_secs| DescriptorLimits { items_per_round, min_interval_secs };
+    let limits = |items_per_round, min_interval_secs| DescriptorLimits {
+        items_per_round,
+        min_interval_secs,
+        default_interval_secs: None,
+    };
     assert!(
         problems_of(ConnectorDescriptor { limits: limits(Some(21), None), ..FAKE_SOURCE }).contains("items_per_round")
     );
@@ -157,6 +161,22 @@ fn descriptor_limits_cannot_loosen_the_runtime_ones() {
     );
     assert!(problems_of(ConnectorDescriptor { limits: limits(None, Some(30)), ..FAKE_SOURCE }).contains("min_interval"));
     assert!(validate_descriptor(&ConnectorDescriptor { limits: limits(Some(5), Some(120)), ..FAKE_SOURCE }).is_empty());
+}
+
+#[test]
+fn the_default_interval_respects_the_floors() {
+    let limits = |min_interval_secs, default_interval_secs| DescriptorLimits {
+        items_per_round: None,
+        min_interval_secs,
+        default_interval_secs,
+    };
+    let with = |l| problems_of(ConnectorDescriptor { limits: l, ..FAKE_SOURCE });
+    assert!(with(limits(None, Some(30))).contains("default_interval_secs"));
+    assert!(with(limits(Some(300), Some(120))).contains("default_interval_secs"));
+    assert!(
+        validate_descriptor(&ConnectorDescriptor { limits: limits(Some(300), Some(300)), ..FAKE_SOURCE }).is_empty()
+    );
+    assert!(validate_descriptor(&ConnectorDescriptor { limits: limits(None, Some(120)), ..FAKE_SOURCE }).is_empty());
 }
 
 #[test]

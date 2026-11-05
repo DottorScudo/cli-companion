@@ -2,8 +2,8 @@
 
 Documento di progetto e riferimento del codice di `src-tauri/src/connectors/`: i **connettori** estendono
 l'[Agents HUB](HUB.MD) verso l'esterno. Sono consegnate le fasi 1 (fondamenta nell'HUB), 2 (runtime, registro,
-comandi Tauri), 3 (interfaccia generica) e 4 (Telegram, il primo connettore del registro); Gmail è la fase 5 (vedi
-"Fasi"). Dove una decisione cambia un comportamento descritto in HUB.MD lo si dice esplicitamente
+comandi Tauri), 3 (interfaccia generica), 4 (Telegram, il primo connettore del registro) e 5 (Gmail, la fonte di riferimento).
+Sono consegnate le fasi 1…5 (vedi "Fasi"). Dove una decisione cambia un comportamento descritto in HUB.MD lo si dice esplicitamente
 come **cambiamento previsto**; finché la fase che lo introduce non è consegnata vale HUB.MD. La ricetta per
 aggiungere un connettore è in [wiki/integrare-un-connettore.md](wiki/integrare-un-connettore.md).
 
@@ -87,7 +87,8 @@ Tutto consegnato nelle fasi 1 e 2 (`Author::External`, `hub::ingress`, `hub::sen
 - `tauri::async_runtime` (spawn, `JoinHandle::abort`), come le code dei thread del motore.
 - `hub/attachments/`: `storage::stage_bytes` (nome ripulito, MIME dalle firme, limite di dimensione),
   `ATTACHMENTS_MAX` = 5, `ATTACHMENT_SIZE_MAX` = 10 MB, pulizia dei file dei messaggi potati.
-- `getrandom` (già usato da `automation/auth.rs`) per i codici di abbinamento e lo stato OAuth.
+- `getrandom` (già usato da `automation/auth.rs`) per i codici di abbinamento e lo stato OAuth; `sha2` per il
+  PKCE (`S256`) del consenso OAuth.
 - `tauri-plugin-opener` per aprire il browser del consenso OAuth.
 - Il profilo release ha `panic = "abort"`: un panico in un connettore **chiude l'app** (vedi "Sicurezza").
 
@@ -163,7 +164,7 @@ costruisce solo da qui, senza componenti scritti per un connettore. Il test di c
 | `filter_fields` | campi del filtro delle regole (solo `source`, vuoto per `contact`) |
 | `actions` | azioni che l'interfaccia mostra come pulsanti: `authorize` (consenso OAuth), `pair` (codice di abbinamento), `test` (verifica credenziali e rete) |
 | `permissions` | `hosts`: host di rete ammessi (es. `api.telegram.org`); `hub`: capacità HUB tra `deliver_messages`, `wake_secretaries`, `receive_notices`, `send_as_user` |
-| `limits` | facoltativi, più stretti di quelli del runtime: elementi per giro, intervallo minimo di polling |
+| `limits` | facoltativi, più stretti di quelli del runtime: elementi per giro, intervallo minimo di polling, intervallo di polling predefinito (`default_interval_secs`, usato quando la configurazione non ne imposta uno; almeno 60 s e almeno il minimo del descrittore) |
 
 **Campo** (`ConfigField`): `key` (`[a-z0-9_]`, unico), `label`, `help` (testo d'aiuto, può citare un link della
 documentazione del servizio), `required`, `kind`:
@@ -301,7 +302,7 @@ composizione conosce entrambi i moduli.
 
 | Modulo | Dipende da | Non dipende da |
 |---|---|---|
-| `connectors` | `hub` (API pubblica: `ingress`, `send`, `attachments`, i DTO del modello, `HubNotice`, `HubLifecycle`, `thread_exists`, `Channel`), `store`, `secrets`, `workspaces` (solo `WorkspaceStore`, per sapere se il canale di una regola esiste); crate `reqwest` (solo `runtime/http.rs`) e `tokio` (`time`, `sync`, `macros`) | `automation`, `agents`, `board`, `ipc`, `pty`, `mcp` |
+| `connectors` | `hub` (API pubblica: `ingress`, `send`, `attachments`, i DTO del modello, `HubNotice`, `HubLifecycle`, `thread_exists`, `Channel`), `store`, `secrets`, `workspaces` (solo `WorkspaceStore`, per sapere se il canale di una regola esiste); crate `reqwest` (solo `runtime/http.rs`) e `tokio` (`time`, `sync`, `macros`; `net` e `io-util` solo per il listener loopback del consenso OAuth) | `automation`, `agents`, `board`, `ipc`, `pty`, `mcp` |
 | `hub` | come oggi | `connectors` (mai: solo sink e listener registrati da `lib.rs`) |
 
 **Regola architetturale** (test in `connectors/architecture.rs`, come `agents/architecture.rs`): fuori da
@@ -382,7 +383,7 @@ non si crea nessun file. Tetti (costanti in `connectors/runtime/`):
 | Id già visti per istanza (dedupe) | 5000, i più vecchi escono per primi |
 | Voci di `per_conversation` per istanza (chiave di conversazione → thread) | 2000, le meno recenti escono (un elemento successivo della conversazione apre un thread nuovo) |
 | Mappe id esterno ↔ messaggio HUB per istanza | 2000 voci ciascuna (le due direzioni), le meno recenti escono |
-| Intervallo di polling di una fonte | dalla config (`interval_secs`), almeno 60 s |
+| Intervallo di polling di una fonte | dalla config (`interval_secs` o `interval_minutes`, se il descrittore dichiara il campo), altrimenti `default_interval_secs` del descrittore; almeno 60 s |
 | Elementi per giro | 20 (`more` → il giro dopo parte subito) |
 | Valori privati del connettore nello stato | 64 chiavi, 64 KB ciascuno |
 
@@ -411,8 +412,8 @@ azzerato dal primo giro riuscito.
 | 401 / 403 (`Auth`) | stato `needs_auth`: il supervisore **si ferma** finché l'utente non rifà `authorize` o cambia il segreto (nessun tentativo a vuoto che bruci limiti o blocchi l'account) |
 | config non valida (`Config`), `Fatal` | stato `error`, supervisore fermo fino a una modifica dell'istanza |
 
-**Tetti per giro**: ogni chiamata HTTP ha un timeout (30 s; per il long polling il timeout del servizio + 10 s), il
-giro intero un tetto (2 min) oltre il quale il supervisore lo abbandona; al più **20 elementi** per giro (gli altri
+**Tetti per giro**: ogni chiamata HTTP ha un timeout (30 s; per il long polling il timeout del servizio + 10 s), l'intero
+`poll` di una fonte un tetto (90 s, `POLL_TIMEOUT`: sono più chiamate), il giro intero un tetto (2 min) oltre il quale il supervisore lo abbandona; al più **20 elementi** per giro (gli altri
 al giro successivo, senza attesa) e **al più un risveglio per thread per giro**, dall'ultimo elemento che lo chiede:
 come gli eventi della board, per contenere i costi del modello (il contesto porta anche i messaggi precedenti).
 
@@ -535,8 +536,8 @@ corrispondono e i titoli degli ultimi 5 (solo nell'interfaccia, mai nel log).
   modello è una variante di `Author` (**fatto in fase 1**, `hub/model.rs` e `HubAuthor` nei bindings); più
   `Message.origin: { connector, instance, external_id }` (facoltativo, per la dedupe; `external_id` è l'id
   dell'elemento nel servizio, 1..256 caratteri);
-- `kind: text`, `body` dal **template** del connettore: una riga di intestazione (Gmail: «Email da <mittente> —
-  <oggetto>»), una riga vuota, il testo (parte `text/plain`; se c'è solo HTML, una conversione in testo semplice
+- `kind: text`, `body` dal **template** del connettore: un'intestazione (Gmail: righe «Oggetto: …», «Da: …», «Data: …» ed
+  eventualmente «Allegati non importati: …»), una riga vuota, il testo (parte `text/plain`; se c'è solo HTML, una conversione in testo semplice
   pura e provata nel connettore, senza dipendenze nuove), ripulito dai caratteri di controllo e tagliato a
   `BODY_MAX` (8000) con «… (testo troncato)»;
 - **allegati** entro i limiti dell'HUB: al più `ATTACHMENTS_MAX` (5), ciascuno al più `ATTACHMENT_SIZE_MAX` (10 MB),
@@ -724,31 +725,59 @@ lo toglie (webhook e `getUpdates` si escludono).
 
 ### Gmail (`connectors/gmail/`, `source`)
 
-- **Credenziali**: OAuth 2.0 per **app installate**. L'utente crea nel **suo** progetto Google Cloud un client OAuth
-  di tipo **Desktop** e abilita la Gmail API; nella configurazione dell'istanza inserisce `client_id` (`text`) e
-  `client_secret` (`secret`). L'aiuto spiega i passi. Host: `oauth2.googleapis.com`, `gmail.googleapis.com`
-  (`accounts.google.com` solo come URL aperto nel browser). Capacità: `deliver_messages`, `wake_secretaries`.
-- **`authorize`**: un listener HTTP temporaneo su **127.0.0.1** con porta scelta dal SO (redirect loopback
-  `http://127.0.0.1:<porta>`), **PKCE** `S256` e `state` casuale (`getrandom`), consenso aperto nel browser con
-  `tauri-plugin-opener`, scope **`gmail.readonly`**, `access_type=offline`, `prompt=consent`. Il listener accetta una
-  sola richiesta con lo `state` giusto, poi chiude (al più 5 minuti). Il **refresh token** va nel portachiavi
-  (slot `oauth_refresh_token`); l'access token resta in memoria fino alla scadenza.
-- **Avvertenza**: con la schermata di consenso del progetto in stato **«Testing»** i refresh token **scadono dopo 7
-  giorni** (l'istanza passa a `needs_auth`): va messa **«In production»**. Per un uso personale l'app può restare
-  non verificata (Google mostra un avviso al consenso); `gmail.readonly` è uno scope con restrizioni. L'interfaccia
-  e l'aiuto lo dicono.
-- **Filtro**: `{ "query": "<sintassi di ricerca di Gmail>" }`, es. `from:mario@gmail.com`, `label:clienti
-  has:attachment`; 1..500 caratteri.
-- **Polling**: ogni 60 s (configurabile 30..3600, `number`). Un controllo economico per giro: `users.getProfile`
-  (o `users.history.list` dallo `historyId` salvato) dice se è cambiato qualcosa; se sì, per ogni regola
-  `users.messages.list` con `q = "<query> after:<secondi>"` dal cursore della regola, poi `users.messages.get` dei
-  nuovi dal più vecchio, entro il tetto di 20 per giro. Cursore per regola = `internalDate` dell'ultimo consegnato
-  (con margine) + insieme dei visti per gli id allo stesso istante.
-- **Elemento**: `external_id` = id del messaggio Gmail, chiave di conversazione = `threadId` (per
-  `per_conversation`), titolo = oggetto, mittente = `From`, testo dalla parte `text/plain`, allegati da
-  `users.messages.attachments.get`, link `https://mail.google.com/mail/u/0/#all/<id>` in fondo al testo.
-- **Errori**: 401 → rinnovo dell'access token; `invalid_grant` al rinnovo → `needs_auth`; 403
-  `rateLimitExceeded`/429 → `RateLimited`.
+**Configurare Gmail** (guida per l'utente):
+
+1. Su [console.cloud.google.com](https://console.cloud.google.com) crea un progetto (è il tuo: nessuna chiave è
+   inclusa nell'app).
+2. API e servizi › Libreria › **Gmail API** › Abilita.
+3. Configura la schermata di consenso OAuth: tipo di utente «Esterno»; aggiungi il tuo indirizzo come utente di
+   test solo finché provi. Poi porta lo stato di pubblicazione su **«In production»**: in «Testing» i refresh token
+   scadono dopo 7 giorni e l'istanza passa a «Serve una nuova autorizzazione». Per un uso personale l'app può
+   restare non verificata (al consenso Google mostra un avviso; `gmail.readonly` è uno scope con restrizioni).
+4. Credenziali › Crea credenziali › ID client OAuth › tipo di applicazione **App desktop**. Copia l'ID client e il
+   client secret.
+5. Nell'app: Impostazioni › Connettori › Gmail › «Aggiungi», incolla ID client e client secret (il secret va nel
+   portachiavi del sistema), scegli l'intervallo di controllo in minuti (predefinito 2) e premi «Autorizza»: si apre
+   il browser sul consenso di Google; dopo averlo accettato la pagina dice che puoi chiuderla e «Prova» mostra il
+   tuo indirizzo.
+6. Abilita l'istanza (serve l'HUB acceso).
+7. Crea la regola dal thread: intestazione della conversazione › «Fonti collegate» › aggiungi: istanza, query
+   (sintassi di ricerca di Gmail, es. `from:mario@gmail.com`) e risveglio (nessuno / il proprietario / un
+   segretario). Entrano solo le email arrivate **dopo** la creazione della regola.
+
+**Codice** (`connectors/gmail/`):
+
+- **Configurazione**: `client_id` (`text`), `interval_minutes` (`number` 1..60, predefinito 2 tramite
+  `default_interval_secs`), segreto `client_secret`, slot interno `refresh_token`. Host: `accounts.google.com`,
+  `oauth2.googleapis.com`, `gmail.googleapis.com`. Capacità: `deliver_messages`, `wake_secretaries`. Filtro:
+  `query`, 1..500 caratteri, parentesi e virgolette bilanciate. Azioni: `authorize` e `test`
+  (`users/me/profile`, mostra l'indirizzo).
+- **`authorize`**: OAuth 2.0 per app installate. Un listener su **127.0.0.1** con porta scelta dal SO (redirect
+  `http://127.0.0.1:<porta>`), `state` casuale, **PKCE** `S256`, consenso aperto con `tauri-plugin-opener`, scope
+  **`gmail.readonly`**, `access_type=offline`, `prompt=consent`. Si accetta solo la prima richiesta con `code` o
+  `error` sul percorso `/` (gli altri percorsi ricevono 404); uno `state` sbagliato è rifiutato e l'autorizzazione
+  fallisce. Il listener si chiude dopo quel ritorno o dopo l'attesa di **240 s** (sotto il tetto di 5 minuti delle azioni, per lasciare il tempo allo scambio del codice e al profilo); ogni connessione ha 10 s per mandare la richiesta. Il
+  codice si scambia con il verifier; il **refresh token** va nel portachiavi, l'access token resta solo in memoria
+  (per istanza) e si rinnova prima della scadenza.
+- **Errori**: 400 `invalid_grant` al rinnovo → `Auth` → `needs_auth` («Serve una nuova autorizzazione»); rete e 5xx
+  → backoff; 429 e 403 di limite di frequenza → `RateLimited`; 403 con l'API non abilitata → `Config`.
+- **Polling** (nessun controllo preliminare con `getProfile`/`history`): per ogni regola `users.messages.list` con
+  `q = "(<query>) after:<secondi>"`. I secondi vengono dal cursore della regola: `floor_ms` (quando la regola è stata
+  letta la prima volta: nulla di più vecchio entra mai) e `last_ms` (il più recente consegnato) meno un margine di
+  10 minuti per il ritardo di indicizzazione della ricerca, mai sotto `floor_ms`. Gli id già letti vicino al
+  cursore stanno in un insieme `recent` limitato (200 per regola) per non riscaricarli; la dedupe delle consegne è
+  del runtime (insieme dei visti e `origin.external_id` = id del messaggio Gmail). Il cursore lo salva il runtime
+  solo dopo la consegna. Al più **20 email per giro** su tutte le regole (a turno fra le regole, dalla più vecchia);
+  il resto al giro dopo subito (`more`). Una regola appena nata non elenca nulla nel suo primo giro (crea solo la voce del cursore). Si leggono al più 5 pagine da 100 id per regola e giro. Un budget per giro limita i byte degli allegati (**50 MB**) e il tempo (**60 s**, misurato con l'orologio del contesto): esaurito, il giro si ferma e il successivo riparte subito; si elabora sempre almeno un messaggio. Un messaggio che più regole intercettano si legge e si scarica una volta sola (ogni regola ha il suo elemento). Un 401 invalida il token in cache e si riprova una volta; un secondo 401 è `Auth`. Tetti delle risposte: 1 MB (elenchi, profilo), 5 MB (messaggio), circa 13,4 MB (allegato: base64 di 10 MB più la busta JSON, oltre i 10,25 MB di `RESPONSE_MAX_FILES`).
+- **Messaggio**: autore `External { connector: "gmail", instance, name: "Nome <indirizzo>" }` (120 caratteri); corpo
+  con «Oggetto: …», «Da: …», «Data: …», se serve «Allegati non importati: nome (dimensione), …», una riga vuota e il
+  testo (`text/plain`, o `text/html` ridotto a testo da un convertitore puro), tagliato dall'HUB a 8000 caratteri.
+  Allegati: fino a 5 da 10 MB, scaricati con `messages.attachments.get` e consegnati; gli altri elencati per nome.
+  `new_per_item`: titolo del thread = oggetto tagliato a 120; `per_conversation`: la chiave di conversazione è il
+  `threadId` di Gmail.
+- **Sicurezza**: il contenuto delle email non è fidato: nessuna menzione interpretata, il risveglio lo decide solo
+  la regola. Mai nei log: segreti, token, indirizzi, oggetti, testi, nomi degli allegati (solo id dell'istanza,
+  classe dell'errore, conteggi).
 
 ## 14. Fasi
 
@@ -758,7 +787,7 @@ lo toglie (webhook e `getUpdates` si escludono).
 | **2. Runtime e registro** (consegnata) | `hub::set_lifecycle_listener` (HUB spento o acceso, workspace rimosso); `connectors/`: contratti, descrittore e validazione, registro, `connectors.json` e `connector_state/`, supervisori, backoff, salute (`connector-status`), client HTTP con allowlist, segreti, abbinamento, comandi Tauri; un connettore finto nei test, conformance e test architetturali | un connettore finto consegna e riceve end-to-end nei test |
 | **3. Interfaccia generica** (consegnata, tranne i collegamenti) | Impostazioni › Connettori (`ConnectorsPage`: disponibili, istanze, stato in tempo reale, azioni, segreti in sola scrittura), form dei campi dal descrittore (`lib/connectorForm.ts`), regole delle fonti (`lib/connectorRoutes.ts`, editor nelle impostazioni), «Fonti collegate» nell'intestazione del thread; resta da fare l'elenco dei collegamenti dei canali di contatto e l'elenco dei permessi del descrittore | nessun componente nomina un connettore |
 | **4. Telegram** (consegnata) | connettore `contact` di riferimento; nel runtime: `ContactNotice` con tipo e testo completo, filtro per tipo (`wants_notice`), comandi e testi delle risposte, mappa delle risposte con canale e thread, allegati scaricati solo per gli account collegati (`fetch_file`), `HubPort::{channels, open_threads, create_thread}` (`hub::contact`), `ConnectorLink.channel` | abbinamento, notifiche, risposte, comandi, allegati |
-| **5. Gmail** | connettore `source` di riferimento | OAuth, regole, consegna, risveglio |
+| **5. Gmail** (consegnata) | connettore `source` di riferimento | OAuth, regole, consegna, risveglio |
 | poi | Discord (gateway WebSocket), adattatore sidecar (B), altre fonti (calendario, RSS, issue tracker…) | |
 
 Alla fine della fase 2 la ricetta «Aggiungere un connettore» è in `CONTRIBUTING.md` e la guida in

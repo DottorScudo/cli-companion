@@ -73,7 +73,9 @@ pub static DESCRIPTOR: ConnectorDescriptor = ConnectorDescriptor {
 - **Campi** (`FieldKind`): `Text`, `Secret`, `Number`, `Bool`, `Select`, `Workspace`, `Thread`. L'interfaccia
   generica e la validazione di tipi e limiti si costruiscono da qui. Un campo `Secret` **non sta mai in `config`**:
   va nel portachiavi (`connector_set_secret`) e i comandi rifiutano un segreto nella configurazione. Un campo
-  `interval_secs` di tipo numero, se c'è, regola il ritmo delle fonti: minimo 60 secondi.
+  `interval_secs` (secondi) o `interval_minutes` (minuti) di tipo numero, se c'è, regola il ritmo delle fonti; se non
+  è impostato vale `limits.default_interval_secs` del descrittore, in ogni caso minimo 60 secondi. Gmail è
+  l'implementazione di riferimento delle fonti.
 - **Azioni** (`ActionId`): `Authorize` (consenso OAuth), `Pair` (abbinamento di un account, solo `contact`), `Test`
   (verifica credenziali e rete). Alla funzione `action` del connettore arrivano solo quelle dichiarate.
 - **Permessi**: gli `hosts` sono l'allowlist del client HTTP; le capacità verso l'HUB (`HubCapability`) sono
@@ -175,7 +177,7 @@ niente stato su file proprio.
 
 - Un **supervisore per istanza** abilitata, solo con l'HUB acceso; si ferma con la disabilitazione, l'eliminazione,
   l'HUB spento, l'uscita dall'app.
-- Per le fonti: un giro ogni `interval_secs` (minimo 60 s), al più 20 elementi per giro, consegna con
+- Per le fonti: un giro ogni `interval_secs`/`interval_minutes` (o `default_interval_secs`; minimo 60 s), al più 20 elementi per giro, consegna con
   `deliver_external`, **poi** salva cursore e id visti: almeno una volta, con dedupe per `(regola, external_id)` e per
   `origin` nel thread. Al più un risveglio per thread per giro (dall'ultimo elemento che lo chiede).
 - Una regola `existing` il cui thread sparisce si disabilita da sola («thread non più disponibile»); il suo elemento non
@@ -209,7 +211,7 @@ niente stato su file proprio.
 
 - **Conformità** (`connectors/conformance.rs`): ogni connettore registrato è verificato da solo. Controlla che il
   descrittore sia valido e coerente con il tipo (una fonte dichiara `deliver_messages`; `interval_secs` ha minimo ≥ 60
-  s), che il tipo del trait coincida con `descriptor().kind`, che la migrazione riesca dalla versione 1 alla corrente,
+  s, `default_interval_secs` rispetta i minimi), che il tipo del trait coincida con `descriptor().kind`, che la migrazione riesca dalla versione 1 alla corrente,
   che la configurazione e il filtro di esempio passino la validazione generica e semantica e che nessuna funzione
   pura vada in panico con input ostili (nulli, enormi, unicode, annidati). Non devi scrivere altro per questo.
 - **Architettura** (`connectors/architecture.rs`, `tests/architecture.test.mjs`): nessun file fuori dalla cartella del

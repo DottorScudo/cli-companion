@@ -14,7 +14,7 @@
     not(test),
     expect(
         dead_code,
-        reason = "il client HTTP del contesto e' raggiungibile solo da un connettore registrato: il registro e' vuoto"
+        reason = "l'elenco degli host del client HTTP non e' ancora letto da nessun connettore registrato"
     )
 )]
 

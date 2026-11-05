@@ -141,7 +141,7 @@ describe("lib/connectors: stato di salute", () => {
       tone: "error",
       detail: "Configurazione non valida.",
     });
-    assert.equal(statusView(status("needs_auth"), 0).label, "Da autorizzare");
+    assert.equal(statusView(status("needs_auth"), 0).label, "Serve una nuova autorizzazione");
     assert.equal(statusView(status("needs_auth"), 0).tone, "warn");
     assert.equal(statusView(status("unavailable"), 0).tone, "error");
     assert.equal(statusView(status("unavailable"), 0).detail, null);

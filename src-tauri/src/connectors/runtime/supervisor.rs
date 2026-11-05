@@ -87,17 +87,26 @@ pub fn build_context(
     }))
 }
 
-/// L'intervallo fra due giri di una fonte: `interval_secs` della configurazione
-/// se il descrittore lo dichiara, almeno `MIN_INTERVAL` (e il minimo del descrittore, se piu' stretto).
+/// Chiave di configurazione (convenzione generica) dell'intervallo di polling, in secondi.
+pub const INTERVAL_SECS_KEY: &str = "interval_secs";
+/// Chiave di configurazione (convenzione generica) dell'intervallo di polling, in minuti.
+pub const INTERVAL_MINUTES_KEY: &str = "interval_minutes";
+
+/// L'intervallo fra due giri di una fonte: `interval_secs` o `interval_minutes` della
+/// configurazione (solo se il descrittore dichiara il campo), altrimenti
+/// `default_interval_secs` del descrittore, altrimenti `MIN_INTERVAL`; mai sotto
+/// `MIN_INTERVAL` (e il minimo del descrittore, se piu' stretto).
 pub fn source_interval(descriptor: &ConnectorDescriptor, config: &Value) -> Duration {
     let floor = descriptor.limits.min_interval_secs.map_or(MIN_INTERVAL, |s| MIN_INTERVAL.max(Duration::from_secs(s)));
-    let configured = descriptor
-        .config_field("interval_secs")
-        .and_then(|_| config.get("interval_secs"))
-        .and_then(Value::as_u64)
+    let number = |key: &str| descriptor.config_field(key).and_then(|_| config.get(key)).and_then(Value::as_u64);
+    let configured = number(INTERVAL_SECS_KEY)
+        .or_else(|| number(INTERVAL_MINUTES_KEY).map(|m| m.saturating_mul(SECS_PER_MINUTE)))
+        .or(descriptor.limits.default_interval_secs)
         .map_or(MIN_INTERVAL, Duration::from_secs);
     configured.max(floor)
 }
+
+const SECS_PER_MINUTE: u64 = 60;
 
 /// Elementi per giro: il tetto del runtime, o quello piu' stretto del descrittore.
 pub fn items_per_round(descriptor: &ConnectorDescriptor) -> usize {

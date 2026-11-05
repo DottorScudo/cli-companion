@@ -56,7 +56,10 @@ pub fn jitter_from(clock: &dyn Clock) -> f64 {
 /// (RFC 2822/7231, es. `Wed, 21 Oct 2015 07:28:00 GMT`). `now_ms` e' l'ora
 /// corrente (millisecondi Unix). Una data passata vale zero; un valore illeggibile `None`.
 /// Il risultato non e' limitato: il tetto di un'ora lo applica `Backoff::failure`.
-#[cfg_attr(not(test), expect(dead_code, reason = "lo usa un connettore che legge Retry-After: il registro e' vuoto"))]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "la Gmail API da' Retry-After in secondi: nessun connettore registrato legge la data")
+)]
 pub fn parse_retry_after(raw: &str, now_ms: i64) -> Option<Duration> {
     let raw = raw.trim();
     if raw.is_empty() || raw.len() > 64 {

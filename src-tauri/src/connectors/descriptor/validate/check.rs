@@ -62,6 +62,12 @@ pub fn validate_descriptor(d: &ConnectorDescriptor) -> Vec<String> {
     if d.limits.min_interval_secs.is_some_and(|s| s < limits::MIN_INTERVAL.as_secs()) {
         problems.push(format!("limits.min_interval_secs non puo' scendere sotto {}", limits::MIN_INTERVAL.as_secs()));
     }
+    let min_default = limits::MIN_INTERVAL.as_secs().max(d.limits.min_interval_secs.unwrap_or(0));
+    if d.limits.default_interval_secs.is_some_and(|s| s < min_default) {
+        problems.push(format!(
+            "limits.default_interval_secs non puo' scendere sotto {min_default} (il minimo del runtime e del descrittore)"
+        ));
+    }
     problems
 }
 

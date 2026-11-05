@@ -3,9 +3,10 @@
 
 use super::api;
 use super::commands::valid_payload;
-use super::names::{clean_display, valid_username, BOT_NAME_MAX};
+use super::names::{valid_username, BOT_NAME_MAX};
 use crate::connectors::contracts::{ActionOutcome, ConnectorContext, ConnectorError};
 use crate::connectors::descriptor::ActionId;
+use crate::connectors::text::clean_display;
 use serde_json::{json, Value};
 
 /// La chiave dello stato privato con lo username del bot.

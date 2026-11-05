@@ -25,7 +25,7 @@ struct Known {
 
 /// Connettori noti al test. Aggiungendo un connettore: una riga qui (e una in
 /// `tests/architecture.test.mjs`).
-const KNOWN: &[Known] = &[Known { folder: "telegram", id: "telegram" }];
+const KNOWN: &[Known] = &[Known { folder: "gmail", id: "gmail" }, Known { folder: "telegram", id: "telegram" }];
 
 /// Cartelle di `connectors/` che non sono connettori.
 const CORE_FOLDERS: [&str; 8] =

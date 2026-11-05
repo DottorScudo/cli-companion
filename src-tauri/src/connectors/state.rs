@@ -260,7 +260,13 @@ impl InstanceState {
         self.conversations.retain_keys(|k| k.split_once(':').is_some_and(|(route, _)| live.contains(route)));
     }
 
-    #[cfg_attr(not(test), expect(dead_code, reason = "lo legge solo un connettore registrato"))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "lo legge solo `state_get` del contesto, che nessun connettore registrato usa ancora"
+        )
+    )]
     pub fn custom_get(&self, key: &str) -> Option<&Value> {
         self.custom.get(key)
     }

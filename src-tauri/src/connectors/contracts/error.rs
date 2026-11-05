@@ -5,12 +5,7 @@
 
 use std::fmt;
 use std::time::Duration;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "gli errori li costruiscono i connettori registrati: il registro e' vuoto")
-)]
 pub enum ConnectorError {
     /// Rete, timeout, 5xx: si riprova con il backoff.
     Transient(String),

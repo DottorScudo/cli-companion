@@ -7,7 +7,7 @@
 
 #![cfg_attr(
     not(test),
-    expect(dead_code, reason = "il contesto e' usato solo dai connettori registrati: il registro e' vuoto")
+    expect(dead_code, reason = "stato privato e porta verso l'HUB: nessun connettore registrato li usa ancora")
 )]
 
 use super::{BoxFuture, ConnectorError};

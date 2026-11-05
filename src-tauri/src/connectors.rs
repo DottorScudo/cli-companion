@@ -38,6 +38,7 @@ mod conformance;
 pub mod contracts;
 pub mod descriptor;
 pub mod files;
+mod gmail;
 pub mod ids;
 mod lifecycle;
 pub mod limits;
@@ -49,6 +50,7 @@ pub mod state;
 mod telegram;
 #[cfg(test)]
 pub(crate) mod testing;
+mod text;
 
 use crate::hub;
 use runtime::manager::ConnectorsRuntime;

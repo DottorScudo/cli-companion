@@ -241,7 +241,7 @@ describe("architettura: il frontend non nomina un agente specifico", () => {
  * nomina nessuno. Aggiungendo un connettore: una riga qui (e in `connectors/architecture.rs`).
  * @type {{ id: string }[]}
  */
-const CONNECTORS = [{ id: "telegram" }];
+const CONNECTORS = [{ id: "gmail" }, { id: "telegram" }];
 
 /** Un connettore nella forma attesa da `violationsIn` (modulo = id con underscore). */
 const asIntegration = ({ id }) => ({ module: id.replaceAll("-", "_"), id, commands: [], models: [] });

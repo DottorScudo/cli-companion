@@ -1,8 +1,8 @@
 //! Conformita' dei connettori: ogni connettore registrato (e i due finti dei test)
 //! deve avere un descrittore valido, permessi coerenti con il suo tipo, migrazioni
 //! che riescono dalla versione 1 a quella corrente e non andare in panico su
-//! configurazioni e filtri malformati, vuoti, enormi o unicode. Con il registro di
-//! produzione vuoto il test gira sui finti; ogni connettore reale aggiunto al
+//! configurazioni e filtri malformati, vuoti, enormi o unicode. Il test gira sui
+//! connettori del registro di produzione e sui finti; ogni connettore aggiunto al
 //! registro e' verificato da solo. Guida: docs/CONNECTORS.MD.
 
 use super::contracts::{
@@ -16,13 +16,14 @@ use super::{registry, testing};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
-/// Un valore valido per ogni campo non segreto di `fields`.
+/// Un valore valido per ogni campo non segreto di `fields`: per un testo il suo segnaposto (e'
+/// un esempio del formato atteso, cosi' passa anche la validazione semantica), altrimenti "x".
 fn sample_values(fields: &[ConfigField]) -> Value {
     let mut map = serde_json::Map::new();
     for field in fields {
         let value = match &field.kind {
             FieldKind::Secret => continue,
-            FieldKind::Text { .. } => json!("x"),
+            FieldKind::Text { placeholder, .. } => json!(if placeholder.is_empty() { "x" } else { *placeholder }),
             FieldKind::Number { min, .. } => json!(min),
             FieldKind::Bool { default } => json!(default),
             FieldKind::Select { options } => json!(options.first().map_or("", |o| o.value)),
@@ -51,7 +52,7 @@ fn hostile_values() -> Vec<Value> {
         json!({"": ""}),
         json!({"ünï\u{0}\u{202e}😀": "ünï\u{0}\u{202e}😀 \u{1F468}\u{200D}\u{1F469}"}),
         json!({"query": "x".repeat(2_000_000), "mailbox": "y".repeat(2_000_000)}),
-        json!({"interval_secs": u64::MAX, "count": i64::MIN}),
+        json!({"interval_secs": u64::MAX, "interval_minutes": u64::MAX, "count": i64::MIN}),
         nested,
     ]
 }
@@ -70,6 +71,12 @@ pub(super) fn problems(connector: ConnectorImpl) -> Vec<String> {
         match field.kind {
             FieldKind::Number { min, .. } if min >= MIN_INTERVAL.as_secs() as i64 => {}
             _ => found.push("interval_secs deve essere un numero con minimo >= 60".to_string()),
+        }
+    }
+    for field in d.config_fields.iter().filter(|f| f.key == "interval_minutes") {
+        match field.kind {
+            FieldKind::Number { min, .. } if min >= 1 => {}
+            _ => found.push("interval_minutes deve essere un numero con minimo >= 1".to_string()),
         }
     }
     found.extend(migration_problems(connector.connector(), d));
@@ -284,4 +291,18 @@ fn hostile_values_do_not_panic_and_the_sample_values_are_valid() {
         assert!(validate_values(d.config_fields, &sample_values(d.config_fields)).is_ok());
     }
     assert!(hostile_values().len() >= 10);
+}
+
+#[test]
+fn a_zero_minutes_polling_interval_is_reported() {
+    static ZERO: [ConfigField; 1] = [ConfigField {
+        key: "interval_minutes",
+        label: "Intervallo",
+        help: "",
+        required: false,
+        kind: FieldKind::Number { min: 0, max: 60 },
+    }];
+    let text =
+        problems(leak(ConnectorDescriptor { config_fields: &ZERO, ..testing::FAKE_SOURCE }, identity)).join(" | ");
+    assert!(text.contains("interval_minutes"), "{text}");
 }

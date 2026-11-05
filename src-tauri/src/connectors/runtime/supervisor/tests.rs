@@ -238,11 +238,52 @@ fn the_interval_never_goes_below_a_minute_or_the_descriptor_minimum() {
     // Un descrittore senza il campo ignora la configurazione; uno con un minimo piu' stretto lo rispetta.
     assert_eq!(source_interval(&FAKE_CONTACT, &json!({"interval_secs": 900})), Duration::from_secs(60));
     static STRICT: ConnectorDescriptor = ConnectorDescriptor {
-        limits: DescriptorLimits { items_per_round: Some(5), min_interval_secs: Some(300) },
+        limits: DescriptorLimits {
+            items_per_round: Some(5),
+            min_interval_secs: Some(300),
+            default_interval_secs: None,
+        },
         ..FAKE_SOURCE
     };
     assert_eq!(source_interval(&STRICT, &json!({"interval_secs": 100})), Duration::from_secs(300));
     assert_eq!((items_per_round(&STRICT), items_per_round(&FAKE_SOURCE)), (5, ITEMS_PER_ROUND));
+}
+
+#[test]
+fn the_interval_can_be_given_in_minutes_or_default_to_the_descriptor() {
+    const FIELD: crate::connectors::descriptor::ConfigField = crate::connectors::descriptor::ConfigField {
+        key: "interval_minutes",
+        label: "Intervallo (minuti)",
+        help: "",
+        kind: crate::connectors::descriptor::FieldKind::Number { min: 1, max: 60 },
+        required: false,
+    };
+    static FIELDS: [crate::connectors::descriptor::ConfigField; 1] = [FIELD];
+    static MINUTES: ConnectorDescriptor = ConnectorDescriptor {
+        config_fields: &FIELDS,
+        limits: DescriptorLimits { items_per_round: None, min_interval_secs: None, default_interval_secs: Some(120) },
+        ..FAKE_SOURCE
+    };
+    let secs = |c| source_interval(&MINUTES, &c).as_secs();
+    assert_eq!(secs(json!({"interval_minutes": 5})), 300);
+    assert_eq!(secs(json!({"interval_minutes": 1})), 60);
+    assert_eq!(secs(json!({})), 120, "il default del descrittore");
+    assert_eq!(secs(json!({"interval_minutes": "x"})), 120, "non un numero: il default");
+    assert_eq!(secs(json!({"interval_minutes": u64::MAX})), u64::MAX, "nessun overflow");
+    // Il campo non dichiarato viene ignorato: vale il default.
+    assert_eq!(secs(json!({"interval_secs": 900})), 120);
+    // Il minimo del descrittore vince anche sul default.
+    static FLOORED: ConnectorDescriptor = ConnectorDescriptor {
+        limits: DescriptorLimits {
+            items_per_round: None,
+            min_interval_secs: Some(600),
+            default_interval_secs: Some(120),
+        },
+        ..MINUTES
+    };
+    assert_eq!(source_interval(&FLOORED, &json!({})).as_secs(), 600);
+    // Senza default e senza campi: il minimo del runtime.
+    assert_eq!(source_interval(&FAKE_SOURCE, &json!({"interval_minutes": 9})), MIN_INTERVAL);
 }
 
 #[test]

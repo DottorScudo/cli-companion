@@ -8,7 +8,7 @@
     not(test),
     expect(
         dead_code,
-        reason = "varianti e costanti che solo i descrittori dei connettori registrati costruiscono: il registro e' vuoto"
+        reason = "varianti e costanti (campi select, workspace, thread; nomi delle capacita') che nessun descrittore registrato usa ancora"
     )
 )]
 
@@ -161,11 +161,13 @@ pub struct DescriptorLimits {
     pub items_per_round: Option<usize>,
     /// Intervallo minimo di polling in secondi (almeno `limits::MIN_INTERVAL`).
     pub min_interval_secs: Option<u64>,
+    /// Intervallo di polling usato quando la configurazione non ne imposta uno (almeno `limits::MIN_INTERVAL`).
+    pub default_interval_secs: Option<u64>,
 }
 
 impl DescriptorLimits {
     /// Nessun limite piu' stretto di quelli del runtime.
-    pub const NONE: Self = Self { items_per_round: None, min_interval_secs: None };
+    pub const NONE: Self = Self { items_per_round: None, min_interval_secs: None, default_interval_secs: None };
 }
 
 /// Il descrittore statico di un connettore.

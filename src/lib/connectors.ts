@@ -95,7 +95,7 @@ const STATE_LABELS: Record<ConnectorHealthState, string> = {
   starting: "In avvio",
   ok: "Attivo",
   backoff: "Nuovo tentativo",
-  needs_auth: "Da autorizzare",
+  needs_auth: "Serve una nuova autorizzazione",
   error: "Errore",
   unavailable: "Non disponibile",
 };

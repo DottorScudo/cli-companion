@@ -18,7 +18,7 @@ use crate::connectors::contracts::{
     ActiveRoute, ConnectorContext, ConnectorError, HubPort, SourceConnector, SourceItem, StateHandle,
 };
 use crate::connectors::descriptor::HubCapability;
-use crate::connectors::limits::CALL_TIMEOUT;
+use crate::connectors::limits::POLL_TIMEOUT;
 use crate::connectors::model::{ConnectorRoute, RouteThread};
 use crate::connectors::runtime::time::with_timeout;
 use crate::connectors::state::{conversation_key, MAIN_CURSOR};
@@ -90,7 +90,7 @@ pub async fn run_round(rc: &RoundCtx<'_>) -> RoundResult {
     let for_poll: Vec<ActiveRoute> =
         active.iter().map(|r| ActiveRoute { id: r.id.clone(), filter: r.filter.clone() }).collect();
     let cursor = rc.state.lock().cursor(MAIN_CURSOR).cloned();
-    let batch = match with_timeout(CALL_TIMEOUT, rc.source.poll(rc.ctx, &for_poll, cursor)).await {
+    let batch = match with_timeout(POLL_TIMEOUT, rc.source.poll(rc.ctx, &for_poll, cursor)).await {
         Ok(batch) => batch,
         Err(e) => return RoundResult::failed(e, Vec::new()),
     };

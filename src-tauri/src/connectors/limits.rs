@@ -31,6 +31,9 @@ pub const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 pub const RECEIVE_TIMEOUT: Duration = Duration::from_secs(70);
 /// L'attesa massima che un connettore puo' chiedere al servizio in un long polling.
 pub const LONG_POLL_MAX: Duration = Duration::from_secs(55);
+/// Tetto di un `poll` intero (piu' chiamate: liste, letture, allegati), sotto
+/// `ROUND_TIMEOUT` per lasciare tempo alle consegne.
+pub const POLL_TIMEOUT: Duration = Duration::from_secs(90);
 /// Tetto di un giro intero.
 pub const ROUND_TIMEOUT: Duration = Duration::from_secs(120);
 /// Tetto di un'azione dell'interfaccia (prova, abbinamento, consenso OAuth: l'utente puo' impiegare del tempo).
@@ -62,7 +65,7 @@ mod tests {
         assert_eq!((MAX_INSTANCES, MAX_ROUTES_PER_INSTANCE, MAX_LINKS_PER_INSTANCE), (20, 50, 5));
         assert_eq!((SEEN_MAX, MAP_MAX), (5000, 2000));
         assert!(BACKOFF_MIN < BACKOFF_MAX && BACKOFF_MAX < RETRY_AFTER_MAX);
-        assert!(CALL_TIMEOUT < ROUND_TIMEOUT);
+        assert!(CALL_TIMEOUT < POLL_TIMEOUT && POLL_TIMEOUT < ROUND_TIMEOUT);
         const { assert!(RESPONSE_MAX < RESPONSE_MAX_FILES) };
         const { assert!(RESPONSE_MAX_FILES > crate::hub::attachments::ATTACHMENT_SIZE_MAX as usize) };
         assert_eq!(MIN_INTERVAL.as_secs(), 60);

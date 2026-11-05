@@ -91,7 +91,6 @@ pub trait ContactConnector: Connector {
 /// Un connettore registrato, col suo tipo.
 #[derive(Clone, Copy)]
 pub enum ConnectorImpl {
-    #[cfg_attr(not(test), expect(dead_code, reason = "nessuna fonte e' ancora registrata (Gmail: fase 5)"))]
     Source(&'static dyn SourceConnector),
     Contact(&'static dyn ContactConnector),
 }

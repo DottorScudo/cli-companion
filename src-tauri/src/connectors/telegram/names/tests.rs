@@ -37,13 +37,6 @@ fn the_name_is_at_most_sixty_characters() {
 }
 
 #[test]
-fn clean_display_trims_and_caps() {
-    assert_eq!(clean_display("  ciao  ", 10), "ciao");
-    assert_eq!(clean_display("abcdef", 3), "abc");
-    assert_eq!(clean_display("\u{0}\u{1}", 3), "");
-}
-
-#[test]
 fn usernames_are_url_safe() {
     assert!(valid_username("MuseBot"));
     assert!(valid_username("a_1"));
