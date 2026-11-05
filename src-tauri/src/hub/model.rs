@@ -10,6 +10,7 @@
 use super::channel::Channel;
 use crate::board::{TaskAction, Verdict};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -167,15 +168,78 @@ pub enum ActionRequestState {
     Failed,
 }
 
-/// Una richiesta di azione irreversibile su un task, fatta da un segretario: si
-/// esegue solo dopo il clic dell'utente (vedi `engine::confirm`).
+/// Cosa chiede una richiesta: un'azione sul task che non si annulla (i nomi sul
+/// filo sono quelli di `board::TaskAction`) o la modifica dei suoi campi.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename = "HubRequestedAction")]
+pub enum RequestedAction {
+    Stop,
+    Delete,
+    DeleteCascade,
+    MarkDone,
+    /// Modifica titolo, specifica, dipendenze o modello (`HubActionRequest::update`).
+    Update,
+}
+
+impl RequestedAction {
+    /// L'azione della board che la richiesta esegue; `None` per una modifica.
+    pub fn task_action(self) -> Option<TaskAction> {
+        match self {
+            Self::Stop => Some(TaskAction::Stop),
+            Self::Delete => Some(TaskAction::Delete),
+            Self::DeleteCascade => Some(TaskAction::DeleteCascade),
+            Self::MarkDone => Some(TaskAction::MarkDone),
+            Self::Update => None,
+        }
+    }
+}
+
+/// Un campo di un task che un segretario puo' chiedere di cambiare.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename = "HubTaskField")]
+pub enum TaskField {
+    Title,
+    Task,
+    DependsOn,
+    Model,
+}
+
+/// Prima e dopo di un campo, per la scheda: i testi lunghi sono troncati (la
+/// conferma applica quelli completi di `TaskUpdate::patch`). `None` = nessun
+/// valore (modello predefinito, nessuna dipendenza).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, rename = "HubFieldChange")]
+pub struct FieldChange {
+    pub field: TaskField,
+    pub before: Option<String>,
+    pub after: Option<String>,
+}
+
+/// La modifica di un task chiesta da un segretario.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, rename = "HubTaskUpdate")]
+pub struct TaskUpdate {
+    /// Il diff mostrato nella scheda, un elemento per campo cambiato.
+    pub changes: Vec<FieldChange>,
+    /// I valori nuovi completi, come i campi di `board::TaskSpec` (il patch di `update_task`).
+    #[ts(skip)]
+    pub patch: Value,
+    /// Gli stessi campi com'erano quando la modifica e' stata chiesta: se il
+    /// task non li ha piu' cosi', la richiesta non vale.
+    #[ts(skip)]
+    pub base: Value,
+}
+
+/// Una richiesta di un segretario su un task che cambia cosa fara' l'agente o
+/// non si annulla: si esegue solo dopo il clic dell'utente (vedi `engine::confirm`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export, rename = "HubActionRequest")]
 pub struct HubActionRequest {
     /// L'id del messaggio della scheda.
     pub id: String,
-    /// Solo `stop`, `delete`, `delete_cascade` e `mark_done`.
-    pub action: TaskAction,
+    pub action: RequestedAction,
     /// Il motivo, scritto dal segretario.
     pub reason: String,
     /// L'handle del segretario che l'ha chiesta.
@@ -186,6 +250,9 @@ pub struct HubActionRequest {
     /// I task che una `delete_cascade` toglierebbe insieme al task (id).
     #[serde(default)]
     pub dependents: Vec<String>,
+    /// La modifica chiesta, se `action` e' `update`.
+    #[serde(default)]
+    pub update: Option<TaskUpdate>,
     /// Scadenza, in millisecondi dall'epoca.
     pub expires_at: i64,
     pub state: ActionRequestState,

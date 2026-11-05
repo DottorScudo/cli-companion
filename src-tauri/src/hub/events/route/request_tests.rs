@@ -1,7 +1,6 @@
 //! Le richieste di azione in attesa quando il task cambia sulla board.
 
 use super::*;
-use crate::board::TaskAction;
 use crate::hub::events::diff::diff;
 use crate::hub::events::fixtures::{board, task, WS};
 use crate::hub::model::{ActionRequestState, HubActionRequest};
@@ -22,12 +21,13 @@ fn thread_with_request(state: ActionRequestState) -> (ChannelThreads, BoardSnaps
     let thread_id = list.threads[0].id.clone();
     let request = HubActionRequest {
         id: "req-1".into(),
-        action: TaskAction::Delete,
+        action: crate::hub::model::RequestedAction::Delete,
         reason: "Obsoleto".into(),
         secretary: "ugo".into(),
         task_title: "Task a".into(),
         task_status: "failed".into(),
         dependents: Vec::new(),
+        update: None,
         expires_at: 10 + 60_000,
         state,
         resolved_at: None,

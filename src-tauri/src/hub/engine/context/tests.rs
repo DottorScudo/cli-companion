@@ -122,16 +122,16 @@ fn a_worker_question_wakes_the_owner_to_present_it_without_answering() {
 
 #[test]
 fn the_outcome_of_a_request_wakes_the_requester_with_the_state_of_the_request() {
-    use crate::board::TaskAction;
     use crate::hub::model::{ActionRequestState, HubActionRequest};
     let request = HubActionRequest {
         id: "msg-1".into(),
-        action: TaskAction::Delete,
+        action: crate::hub::model::RequestedAction::Delete,
         reason: "Obsolete".into(),
         secretary: "ugo".into(),
         task_title: "Login".into(),
         task_status: "failed".into(),
         dependents: Vec::new(),
+        update: None,
         expires_at: 100,
         state: ActionRequestState::Expired,
         resolved_at: Some(90),

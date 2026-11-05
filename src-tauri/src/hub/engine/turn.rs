@@ -18,7 +18,7 @@ use super::relay::QuestionSelector;
 use super::texts;
 use super::thread_page::ThreadPage;
 use super::tools::{self, Invocation};
-use crate::board::TaskAction;
+use crate::hub::model::RequestedAction;
 use crate::hub::settings::Secretary;
 use crate::validate::clip_with_ellipsis;
 use serde_json::{json, Value};
@@ -83,7 +83,16 @@ pub trait TurnHost: Send + Sync {
     fn request_task_action(
         &self,
         task_id: String,
-        action: TaskAction,
+        action: RequestedAction,
+        reason: String,
+    ) -> impl Future<Output = Result<Value, String>> + Send;
+    /// Mette nel thread la richiesta di cambiare titolo, specifica, dipendenze o
+    /// modello (`patch`) di un task del thread: la applica solo l'utente con la
+    /// conferma (vedi `confirm`).
+    fn request_task_update(
+        &self,
+        task_id: String,
+        patch: Value,
         reason: String,
     ) -> impl Future<Output = Result<Value, String>> + Send;
     /// Scrive un messaggio di sistema (in italiano) nel thread.
@@ -189,6 +198,9 @@ async fn invoke<H: TurnHost>(host: &H, invocation: Invocation) -> Result<Value, 
         Invocation::BoardControl { workspace, change } => host.board_control(workspace, change).await,
         Invocation::RequestTaskAction { task_id, action, reason } => {
             host.request_task_action(task_id, action, reason).await
+        }
+        Invocation::RequestTaskUpdate { task_id, patch, reason } => {
+            host.request_task_update(task_id, patch, reason).await
         }
     }
 }

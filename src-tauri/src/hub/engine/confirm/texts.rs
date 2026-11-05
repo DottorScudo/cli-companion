@@ -1,8 +1,7 @@
 //! I testi (in italiano: li legge l'utente) della scheda di una richiesta di
 //! azione e delle righe del suo esito.
 
-use crate::board::TaskAction;
-use crate::hub::model::{ActionRequestState, HubActionRequest};
+use crate::hub::model::{ActionRequestState, HubActionRequest, RequestedAction, TaskField};
 
 /// Una richiesta gia' decisa non si decide due volte.
 pub const ALREADY_DECIDED: &str = "Questa richiesta è già stata decisa.";
@@ -14,40 +13,60 @@ const EXPIRED: &str = "Richiesta scaduta: nessuna azione eseguita.";
 pub const TASK_GONE: &str = "Il task non c'è più sulla board.";
 /// Il task ha cambiato stato dopo la richiesta.
 pub const TASK_CHANGED: &str = "Il task ha cambiato stato.";
+/// Il titolo, la specifica, le dipendenze o il modello sono cambiati dopo la richiesta.
+pub const TASK_EDITED: &str = "Il task è stato modificato dopo la richiesta.";
 /// L'azione non e' piu' ammessa dal task, per esempio per un dipendente in corso.
 pub const ACTION_NOT_ALLOWED: &str = "L'azione non è più consentita su questo task.";
 /// La nota di una richiesta scaduta.
 pub const EXPIRED_NOTE: &str = "La richiesta è scaduta senza una decisione.";
 
 /// Cosa chiede il segretario, all'infinito («eliminare»).
-fn wish(action: TaskAction) -> &'static str {
+fn wish(action: RequestedAction) -> &'static str {
     match action {
-        TaskAction::Stop => "fermare",
-        TaskAction::Delete => "eliminare",
-        TaskAction::DeleteCascade => "eliminare",
-        TaskAction::MarkDone => "segnare come completato",
-        TaskAction::Retry => "ritentare",
-        TaskAction::ToTop => "portare in testa alla coda",
+        RequestedAction::Stop => "fermare",
+        RequestedAction::Delete => "eliminare",
+        RequestedAction::DeleteCascade => "eliminare",
+        RequestedAction::MarkDone => "segnare come completato",
+        RequestedAction::Update => "modificare",
     }
 }
 
 /// Cosa e' successo al task, al participio («eliminato»).
-fn done(action: TaskAction) -> &'static str {
+fn done(action: RequestedAction) -> &'static str {
     match action {
-        TaskAction::Stop => "fermato",
-        TaskAction::Delete => "eliminato",
-        TaskAction::DeleteCascade => "eliminato insieme ai task che ne dipendono",
-        TaskAction::MarkDone => "segnato come completato",
-        TaskAction::Retry => "ritentato",
-        TaskAction::ToTop => "portato in testa alla coda",
+        RequestedAction::Stop => "fermato",
+        RequestedAction::Delete => "eliminato",
+        RequestedAction::DeleteCascade => "eliminato insieme ai task che ne dipendono",
+        RequestedAction::MarkDone => "segnato come completato",
+        RequestedAction::Update => "modificato",
+    }
+}
+
+/// I campi che una modifica cambia: « (titolo e specifica)».
+fn changed_fields(request: &HubActionRequest) -> String {
+    let names: Vec<&str> = request.update.iter().flat_map(|u| &u.changes).map(|c| field_name(c.field)).collect();
+    match names.as_slice() {
+        [] => String::new(),
+        [only] => format!(" ({only})"),
+        [rest @ .., last] => format!(" ({} e {last})", rest.join(", ")),
+    }
+}
+
+fn field_name(field: TaskField) -> &'static str {
+    match field {
+        TaskField::Title => "titolo",
+        TaskField::Task => "specifica",
+        TaskField::DependsOn => "dipendenze",
+        TaskField::Model => "modello",
     }
 }
 
 /// Il corpo della scheda: «@ugo chiede di eliminare «Login»: <motivo>».
 pub fn request_card(request: &HubActionRequest) -> String {
     let dependents = match (request.action, request.dependents.len()) {
-        (TaskAction::DeleteCascade, 1) => " e il task che ne dipende".to_string(),
-        (TaskAction::DeleteCascade, n) => format!(" e i {n} task che ne dipendono"),
+        (RequestedAction::DeleteCascade, 1) => " e il task che ne dipende".to_string(),
+        (RequestedAction::DeleteCascade, n) => format!(" e i {n} task che ne dipendono"),
+        (RequestedAction::Update, _) => changed_fields(request),
         _ => String::new(),
     };
     format!(

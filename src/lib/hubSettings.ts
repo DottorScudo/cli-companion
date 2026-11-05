@@ -54,6 +54,10 @@ export const SECRETARY_TOOLS: readonly { id: HubSecretaryTool; description: stri
     id: "request_task_action",
     description: "Ti chiede di fermare, eliminare o chiudere un task: lo esegui tu con un clic",
   },
+  {
+    id: "request_task_update",
+    description: "Ti chiede di cambiare titolo, specifica, dipendenze o modello di un task: lo confermi tu con un clic",
+  },
 ];
 
 function languageLabel(language: HubLanguage): string {

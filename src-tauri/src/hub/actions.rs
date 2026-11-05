@@ -1,6 +1,6 @@
 //! Le azioni dell'HUB sulla board: creare un task di pianificazione, decidere
 //! una proposta, rispondere alla domanda di un worker, agire su un task
-//! (ritentarlo, riordinarlo) e cambiare pausa e parallelismo della board.
+//! (ritentarlo, riordinarlo, modificarlo) e cambiare pausa e parallelismo della board.
 //! `hub` non dipende da
 //! `automation`: `lib.rs` registra le funzioni reali (`set_board_actions`),
 //! come fa con la sorgente delle viste (`BoardSource`). Le chiamano i tool dei
@@ -9,6 +9,7 @@
 
 use super::questions::{QuestionBoard, QuestionRef};
 use crate::board::{BoardView, TaskAction};
+use serde_json::Value;
 use std::sync::OnceLock;
 use tauri::{AppHandle, Manager};
 
@@ -38,6 +39,13 @@ pub type AnswerQuestion = fn(&AppHandle, &str, &str, &str, &str) -> Result<(), S
 /// validazione del comando `task_action` del pannello Task; ritorna la board
 /// aggiornata.
 pub type ActOnTask = fn(&AppHandle, &str, &str, TaskAction) -> Result<BoardView, String>;
+/// Cambia i campi del task (terzo argomento) con `patch` (titolo, specifica,
+/// dipendenze, modello), come il comando `task_update`; ritorna la board
+/// aggiornata.
+pub type UpdateTask = fn(&AppHandle, &str, &str, &Value) -> Result<BoardView, String>;
+/// Verifica `patch` come `UpdateTask` (stato, grafo, modello dell'agente) senza
+/// cambiare nulla: l'errore che darebbe la modifica, o `Ok`.
+pub type CheckTaskUpdate = fn(&AppHandle, &str, &str, &Value) -> Result<(), String>;
 /// Sposta il task `queued` (terzo argomento) prima di un altro task `queued`
 /// (quarto), come il comando `task_move`; ritorna la board aggiornata.
 pub type MoveTask = fn(&AppHandle, &str, &str, &str) -> Result<BoardView, String>;
@@ -52,6 +60,8 @@ pub struct BoardActions {
     pub decide_proposal: DecideProposal,
     pub answer_question: AnswerQuestion,
     pub act_on_task: ActOnTask,
+    pub update_task: UpdateTask,
+    pub check_task_update: CheckTaskUpdate,
     pub move_task: MoveTask,
     pub set_board: SetBoard,
 }

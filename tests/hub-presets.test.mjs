@@ -17,7 +17,14 @@ const PRESETS = [
   preset("analyst", "giulia"),
   preset("reporter", "luca"),
   preset("operator", "ugo", {
-    tools: ["board_status", "task_details", "task_action", "board_control", "request_task_action"],
+    tools: [
+      "board_status",
+      "task_details",
+      "task_action",
+      "board_control",
+      "request_task_action",
+      "request_task_update",
+    ],
   }),
 ];
 
@@ -48,6 +55,7 @@ describe("draftOfPreset", () => {
       "task_action",
       "board_control",
       "request_task_action",
+      "request_task_update",
     ]);
   });
 });

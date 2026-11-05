@@ -3,7 +3,9 @@ import { describe, it } from "node:test";
 
 import {
   canDecide,
+  changeValue,
   displayState,
+  fieldLabel,
   requestActionLabel,
   requestHeading,
   requestOf,
@@ -18,6 +20,7 @@ const request = (extra = {}) => ({
   task_title: "Login",
   task_status: "failed",
   dependents: [],
+  update: null,
   expires_at: 1000,
   state: "pending",
   resolved_at: null,
@@ -64,9 +67,27 @@ describe("etichette", () => {
     assert.equal(requestActionLabel("delete"), "Elimina");
     assert.equal(requestActionLabel("delete_cascade"), "Elimina tutti");
     assert.equal(requestActionLabel("mark_done"), "Segna come fatto");
+    assert.equal(requestActionLabel("update"), "Modifica");
   });
   it("il titolo dice chi chiede e cosa", () => {
     assert.equal(requestHeading(request()), "@ugo chiede: Elimina");
+  });
+  it("il titolo di una modifica dice che modifica", () => {
+    assert.equal(requestHeading(request({ action: "update" })), "@ugo chiede: Modifica");
+  });
+  it("ogni campo modificabile ha la sua etichetta", () => {
+    assert.deepEqual(["title", "task", "depends_on", "model"].map(fieldLabel), [
+      "Titolo",
+      "Specifica",
+      "Dipendenze",
+      "Modello",
+    ]);
+  });
+  it("un campo senza valore si legge con una parola, non vuoto", () => {
+    assert.equal(changeValue({ field: "model" }, null), "predefinito");
+    assert.equal(changeValue({ field: "depends_on" }, null), "nessuna");
+    assert.equal(changeValue({ field: "title" }, null), "—");
+    assert.equal(changeValue({ field: "title" }, "Login"), "Login");
   });
 });
 

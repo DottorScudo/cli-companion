@@ -7,9 +7,12 @@ import { formatRelative } from "../../lib/board";
 import { errorMessage } from "../../lib/errors";
 import {
   REQUEST_CANCEL_LABEL,
+  REQUEST_CHANGES_LABEL,
   REQUEST_CONFIRM_LABEL,
   REQUEST_DEPENDENTS_LABEL,
+  changeValue,
   displayState,
+  fieldLabel,
   requestActionLabel,
   requestHeading,
   requestStateLabel,
@@ -40,10 +43,11 @@ interface Props {
 }
 
 /**
- * Richiesta di un'azione irreversibile fatta da un segretario, come scheda:
- * chi la chiede, azione, task, motivo, task che una cascata toglierebbe e stato.
- * Finché aspetta l'utente (e non è scaduta) ha «Conferma» e «Annulla»: senza
- * il suo clic il segretario non fa nulla.
+ * Richiesta di un segretario su un task (un'azione che non si annulla o una
+ * modifica), come scheda: chi la chiede, azione, task, motivo, task che una
+ * cascata toglierebbe o cosa cambia (prima e dopo) e stato. Finché aspetta
+ * l'utente (e non è scaduta) ha «Conferma» e «Annulla»: senza il suo clic il
+ * segretario non fa nulla.
  */
 export default function HubActionRequestCard({ message, event, request, now }: Props) {
   const channel = useStore(hubStore, (s) => s.channel);
@@ -109,6 +113,19 @@ export default function HubActionRequestCard({ message, event, request, now }: P
           </ul>
         </div>
       )}
+      {request.update !== null && (
+        <ul aria-label={REQUEST_CHANGES_LABEL} className="flex flex-col gap-1.5 text-[12px]">
+          {request.update.changes.map((change) => (
+            <li key={change.field} className="flex min-w-0 flex-col gap-0.5">
+              <span className="font-medium">{fieldLabel(change.field)}</span>
+              <span className="whitespace-pre-line break-words text-text-secondary line-through">
+                {changeValue(change, change.before)}
+              </span>
+              <span className="whitespace-pre-line break-words">{changeValue(change, change.after)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       {request.note !== null && <p className="break-words text-[12px] text-text-secondary">{request.note}</p>}
       {error !== null && (
         <p role="alert" className="text-[11px] text-destructive">
@@ -122,7 +139,7 @@ export default function HubActionRequestCard({ message, event, request, now }: P
               <Button
                 type="button"
                 size="sm"
-                variant="destructive"
+                variant={request.action === "update" ? "default" : "destructive"}
                 disabled={sending !== null}
                 onClick={() => void decide(true)}
                 className="h-7 gap-1.5 px-2.5 text-xs"

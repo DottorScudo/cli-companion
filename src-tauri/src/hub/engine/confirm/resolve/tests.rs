@@ -5,7 +5,7 @@ use super::*;
 use crate::board::{AgentGate, Board, Task, TaskSpec, TaskStatus};
 use crate::hub::engine::confirm::{open_request, RequestParams, REQUEST_TTL_MS};
 use crate::hub::engine::fixtures::{thread, WS};
-use crate::hub::model::{HubEventKind, Message, Thread};
+use crate::hub::model::{HubEventKind, Message, RequestedAction, Thread};
 use crate::hub::threads::NewMessage;
 use std::sync::Mutex;
 
@@ -65,12 +65,23 @@ impl ActionBoard for FakeBoard {
         self.acted.lock().unwrap().push(format!("{workspace} {task_id} {action:?}"));
         Ok(())
     }
+
+    fn update(&self, workspace: &str, task_id: &str, patch: &serde_json::Value) -> Result<(), String> {
+        if let Some(e) = &self.refuse {
+            return Err(e.clone());
+        }
+        let mut board = self.board.lock().unwrap();
+        let task = board.tasks.iter_mut().find(|t| t.id == task_id).ok_or("task not found")?;
+        task.title = patch["title"].as_str().unwrap_or(&task.title).to_string();
+        self.acted.lock().unwrap().push(format!("{workspace} {task_id} update"));
+        Ok(())
+    }
 }
 
 /// Un thread con la scheda `msg-1` che chiede `action` su `task_id`.
-fn list_with_request(board: &FakeBoard, task_id: &str, action: TaskAction) -> ChannelThreads {
+fn list_with_request(board: &FakeBoard, task_id: &str, action: RequestedAction) -> ChannelThreads {
     let base = Thread { task_ids: vec![task_id.into()], ..thread(Vec::new()) };
-    let params = RequestParams { task_id, action, reason: "Obsoleto", secretary: "ugo" };
+    let params = RequestParams { task_id, action, patch: None, reason: "Obsoleto", secretary: "ugo" };
     let request = open_request(&base, &board.view(), params, "msg-1".into(), NOW).unwrap();
     let mut list = ChannelThreads { threads: vec![base] };
     let card = NewMessage {
@@ -105,7 +116,7 @@ fn messages(list: &ChannelThreads) -> Vec<Message> {
 #[test]
 fn a_confirmation_runs_the_action_once_and_writes_the_outcome_that_wakes_the_requester() {
     let board = FakeBoard::new();
-    let mut list = list_with_request(&board, "f-1", TaskAction::Delete);
+    let mut list = list_with_request(&board, "f-1", RequestedAction::Delete);
     let resolved = click(&mut list, &board, true, NOW + 1).unwrap();
     assert_eq!(board.acted(), ["ws-1 f-1 Delete"]);
     assert_eq!(resolved.request.state, ActionRequestState::Confirmed);
@@ -133,7 +144,7 @@ fn a_confirmation_runs_the_action_once_and_writes_the_outcome_that_wakes_the_req
 #[test]
 fn a_cancel_runs_nothing() {
     let board = FakeBoard::new();
-    let mut list = list_with_request(&board, "r-1", TaskAction::Stop);
+    let mut list = list_with_request(&board, "r-1", RequestedAction::Stop);
     let resolved = click(&mut list, &board, false, NOW + 1).unwrap();
     assert_eq!(resolved.request.state, ActionRequestState::Cancelled);
     assert!(board.acted().is_empty());
@@ -143,7 +154,7 @@ fn a_cancel_runs_nothing() {
 #[test]
 fn an_expired_request_is_returned_updated_and_runs_nothing() {
     let board = FakeBoard::new();
-    let mut list = list_with_request(&board, "f-1", TaskAction::Delete);
+    let mut list = list_with_request(&board, "f-1", RequestedAction::Delete);
     let resolved = click(&mut list, &board, true, NOW + REQUEST_TTL_MS).unwrap();
     assert_eq!(resolved.request.state, ActionRequestState::Expired);
     assert_eq!(resolved.request.note.as_deref(), Some(texts::EXPIRED_NOTE));
@@ -154,7 +165,7 @@ fn an_expired_request_is_returned_updated_and_runs_nothing() {
 #[test]
 fn a_task_that_changed_makes_the_confirmation_stale_without_running_anything() {
     let board = FakeBoard::new();
-    let mut list = list_with_request(&board, "f-1", TaskAction::Delete);
+    let mut list = list_with_request(&board, "f-1", RequestedAction::Delete);
     board.set_status("f-1", TaskStatus::Queued);
     let resolved = click(&mut list, &board, true, NOW + 1).unwrap();
     assert_eq!(resolved.request.state, ActionRequestState::Stale);
@@ -169,7 +180,7 @@ fn a_task_that_changed_makes_the_confirmation_stale_without_running_anything() {
 #[test]
 fn a_task_that_is_gone_makes_the_confirmation_stale() {
     let board = FakeBoard::new();
-    let mut list = list_with_request(&board, "f-1", TaskAction::Delete);
+    let mut list = list_with_request(&board, "f-1", RequestedAction::Delete);
     board.board.lock().unwrap().tasks.retain(|t| t.id != "f-1");
     let resolved = click(&mut list, &board, true, NOW + 1).unwrap();
     assert_eq!(resolved.request.state, ActionRequestState::Stale);
@@ -179,7 +190,7 @@ fn a_task_that_is_gone_makes_the_confirmation_stale() {
 #[test]
 fn a_refusal_of_the_board_is_a_failed_request_with_the_reason() {
     let board = FakeBoard { refuse: Some("Il task è già in corso.".into()), ..FakeBoard::new() };
-    let mut list = list_with_request(&FakeBoard::new(), "f-1", TaskAction::Delete);
+    let mut list = list_with_request(&FakeBoard::new(), "f-1", RequestedAction::Delete);
     let resolved = click(&mut list, &board, true, NOW + 1).unwrap();
     assert_eq!(resolved.request.state, ActionRequestState::Failed);
     assert_eq!(resolved.request.note.as_deref(), Some("Il task è già in corso."));
@@ -192,9 +203,78 @@ fn a_refusal_of_the_board_is_a_failed_request_with_the_reason() {
 #[test]
 fn a_message_that_is_not_a_request_is_not_found() {
     let board = FakeBoard::new();
-    let mut list = list_with_request(&board, "f-1", TaskAction::Delete);
+    let mut list = list_with_request(&board, "f-1", RequestedAction::Delete);
     let mut next_id = |prefix: &str| format!("{prefix}-9");
     assert_eq!(resolve(&mut list, "t1", "nope", true, NOW, &mut next_id, &board).unwrap_err(), "richiesta non trovata");
     assert_eq!(resolve(&mut list, "zz", "msg-1", true, NOW, &mut next_id, &board).unwrap_err(), THREAD_NOT_FOUND);
+    assert!(board.acted().is_empty());
+}
+
+/// Un thread con la scheda `msg-1` che chiede di cambiare il titolo di `f-1` e la sua specifica.
+fn list_with_update(board: &FakeBoard, patch: serde_json::Value) -> ChannelThreads {
+    let base = Thread { task_ids: vec!["f-1".into()], ..thread(Vec::new()) };
+    let params = RequestParams {
+        task_id: "f-1",
+        action: RequestedAction::Update,
+        patch: Some(&patch),
+        reason: "Obsoleto",
+        secretary: "ugo",
+    };
+    let request = open_request(&base, &board.view(), params, "msg-1".into(), NOW).unwrap();
+    let mut list = ChannelThreads { threads: vec![base] };
+    let card = NewMessage {
+        id: "msg-1".into(),
+        author: Author::System,
+        body: texts::request_card(&request),
+        reply_to: None,
+        event: Some(HubEvent {
+            task_id: Some("f-1".into()),
+            request: Some(request),
+            ..HubEvent::new(HubEventKind::ActionRequest)
+        }),
+        origin: None,
+    };
+    list.add_message("t1", card, NOW).unwrap();
+    list
+}
+
+#[test]
+fn confirming_an_update_applies_the_whole_saved_patch_and_says_so() {
+    let board = FakeBoard::new();
+    let mut list = list_with_update(&board, serde_json::json!({ "title": "Nuovo titolo" }));
+    let resolved = click(&mut list, &board, true, NOW + 1).unwrap();
+    assert_eq!(resolved.request.state, ActionRequestState::Confirmed);
+    assert_eq!(board.acted(), ["ws-1 f-1 update"]);
+    assert_eq!(board.view().tasks[0].task.title, "Nuovo titolo");
+    assert_eq!(messages(&list)[1].body, "Richiesta confermata: «Title f-1» modificato.");
+}
+
+#[test]
+fn a_task_edited_after_the_request_makes_the_update_stale_and_changes_nothing() {
+    let board = FakeBoard::new();
+    let mut list = list_with_update(&board, serde_json::json!({ "title": "Nuovo titolo" }));
+    board.board.lock().unwrap().tasks[0].title = "Cambiato dall'utente".into();
+    let resolved = click(&mut list, &board, true, NOW + 1).unwrap();
+    assert_eq!(resolved.request.state, ActionRequestState::Stale);
+    assert_eq!(resolved.request.note.as_deref(), Some(texts::TASK_EDITED));
+    assert!(board.acted().is_empty());
+    assert_eq!(board.view().tasks[0].task.title, "Cambiato dall'utente");
+}
+
+#[test]
+fn a_board_that_refuses_the_update_is_a_failed_request_with_the_reason() {
+    let board = FakeBoard { refuse: Some("task 'f-1': dependency cycle".into()), ..FakeBoard::new() };
+    let mut list = list_with_update(&FakeBoard::new(), serde_json::json!({ "title": "Nuovo titolo" }));
+    let resolved = click(&mut list, &board, true, NOW + 1).unwrap();
+    assert_eq!(resolved.request.state, ActionRequestState::Failed);
+    assert_eq!(resolved.request.note.as_deref(), Some("task 'f-1': dependency cycle"));
+}
+
+#[test]
+fn cancelling_an_update_changes_nothing() {
+    let board = FakeBoard::new();
+    let mut list = list_with_update(&board, serde_json::json!({ "title": "Nuovo titolo" }));
+    let resolved = click(&mut list, &board, false, NOW + 1).unwrap();
+    assert_eq!(resolved.request.state, ActionRequestState::Cancelled);
     assert!(board.acted().is_empty());
 }

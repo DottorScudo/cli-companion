@@ -1,5 +1,4 @@
 use super::*;
-use crate::board::TaskAction;
 use crate::hub::engine::audit::MAX_MUTATIONS_PER_TURN;
 use crate::hub::engine::board_ops::{BoardChange, TaskOp};
 use crate::hub::engine::fake::{call, calls, text, FakeModel};
@@ -9,6 +8,7 @@ use crate::hub::engine::relay::{self, relay_candidates, QuestionSelector, RelayC
 use crate::hub::engine::sessions::WakeCause;
 use crate::hub::engine::thread_page::ThreadPage;
 use crate::hub::model::HubEventKind;
+use crate::hub::model::RequestedAction;
 use crate::hub::questions::fixtures::{question_event, question_ref, task_event, thread, FakeAnswers};
 use crate::hub::settings::SecretaryTool;
 use std::sync::Mutex;
@@ -33,7 +33,8 @@ struct FakeHost {
     answers: FakeAnswers,
     task_actions: Mutex<Vec<(Option<String>, String, TaskOp)>>,
     board_changes: Mutex<Vec<(Option<String>, BoardChange)>>,
-    requests: Mutex<Vec<(String, TaskAction, String)>>,
+    requests: Mutex<Vec<(String, RequestedAction, String)>>,
+    updates: Mutex<Vec<(String, Value, String)>>,
 }
 
 impl FakeHost {
@@ -106,8 +107,18 @@ impl TurnHost for FakeHost {
         Ok(json!({ "workspace": "Muse Companion", "changed": { "paused": change.paused } }))
     }
 
-    async fn request_task_action(&self, task_id: String, action: TaskAction, reason: String) -> Result<Value, String> {
+    async fn request_task_action(
+        &self,
+        task_id: String,
+        action: RequestedAction,
+        reason: String,
+    ) -> Result<Value, String> {
         self.requests.lock().unwrap().push((task_id.clone(), action, reason));
+        Ok(json!({ "request_id": "msg-1", "task_id": task_id, "status": "awaiting_confirmation" }))
+    }
+
+    async fn request_task_update(&self, task_id: String, patch: Value, reason: String) -> Result<Value, String> {
+        self.updates.lock().unwrap().push((task_id.clone(), patch, reason));
         Ok(json!({ "request_id": "msg-1", "task_id": task_id, "status": "awaiting_confirmation" }))
     }
 
@@ -158,7 +169,8 @@ fn a_text_reply_ends_the_turn() {
             "relay_answer",
             "task_action",
             "board_control",
-            "request_task_action"
+            "request_task_action",
+            "request_task_update"
         ]
     );
 }
@@ -469,10 +481,27 @@ fn a_request_for_confirmation_reaches_the_host_without_a_notice_and_uses_the_bud
     let host = FakeHost::default();
     run(&model, &host, &secretary("ugo"), 8);
     assert_eq!(host.requests.lock().unwrap().len(), MAX_MUTATIONS_PER_TURN);
-    assert_eq!(host.requests.lock().unwrap()[0], ("t-1".to_string(), TaskAction::Delete, "Obsoleto".to_string()));
+    assert_eq!(host.requests.lock().unwrap()[0], ("t-1".to_string(), RequestedAction::Delete, "Obsoleto".to_string()));
     // La scheda e' l'audit: solo il quarto, oltre il limite, lascia un avviso.
     assert_eq!(host.notices.lock().unwrap().len(), 1);
     assert!(tool_result(&model, 1).contains("was not run"));
+}
+
+#[test]
+fn a_request_to_update_a_task_reaches_the_host_with_the_patch_and_leaves_no_notice() {
+    let ask = call(
+        "c1",
+        "request_task_update",
+        r#"{"task_id":"t-1","title":"Login page","model":null,"reason":"Clearer title"}"#,
+    );
+    let model = FakeModel::new(vec![calls(vec![ask]), text("Ho chiesto conferma.")]);
+    let host = FakeHost::default();
+    run(&model, &host, &secretary("ugo"), 8);
+    assert_eq!(
+        *host.updates.lock().unwrap(),
+        [("t-1".to_string(), json!({ "title": "Login page", "model": null }), "Clearer title".to_string())]
+    );
+    assert!(host.notices.lock().unwrap().is_empty(), "la scheda e' gia' l'audit");
 }
 
 #[test]

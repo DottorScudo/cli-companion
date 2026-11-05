@@ -94,7 +94,7 @@ pub const PRESETS: [SecretaryPreset; 4] = [
     SecretaryPreset {
         id: "operator",
         label: "Operatore",
-        description: "Agisce sulla coda quando glielo chiedi: ritenta i task falliti, cambia l’ordine, mette in pausa o riprende la board e ne regola il parallelismo. Può proporti di fermare, eliminare o chiudere un task: lo fai tu con un clic.",
+        description: "Agisce sulla coda quando glielo chiedi: ritenta i task falliti, cambia l’ordine, mette in pausa o riprende la board e ne regola il parallelismo. Può proporti di fermare, eliminare, chiudere o modificare un task: lo fai tu con un clic.",
         name: "ugo",
         system_prompt: include_str!("presets/operator.md"),
         tools: &[
@@ -106,6 +106,7 @@ pub const PRESETS: [SecretaryPreset; 4] = [
             SecretaryTool::TaskAction,
             SecretaryTool::BoardControl,
             SecretaryTool::RequestTaskAction,
+            SecretaryTool::RequestTaskUpdate,
         ],
         seeded: false,
     },
@@ -159,7 +160,12 @@ mod tests {
         let seeded: Vec<_> = PRESETS.iter().filter(|p| p.seeded).map(|p| p.id).collect();
         assert_eq!(seeded, ["coordinator", "analyst", "reporter"]);
         for p in PRESETS.iter().filter(|p| p.seeded) {
-            for tool in [SecretaryTool::TaskAction, SecretaryTool::BoardControl, SecretaryTool::RequestTaskAction] {
+            for tool in [
+                SecretaryTool::TaskAction,
+                SecretaryTool::BoardControl,
+                SecretaryTool::RequestTaskAction,
+                SecretaryTool::RequestTaskUpdate,
+            ] {
                 assert!(!p.tools.contains(&tool), "{} {tool:?}", p.id);
             }
         }
@@ -214,7 +220,8 @@ mod tests {
                 PostMessage,
                 TaskAction,
                 BoardControl,
-                RequestTaskAction
+                RequestTaskAction,
+                RequestTaskUpdate
             ]
         );
         assert!(find("unknown").is_none());

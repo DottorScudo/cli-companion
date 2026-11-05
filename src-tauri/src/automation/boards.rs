@@ -16,7 +16,9 @@ mod lifecycle;
 mod session;
 
 pub(super) use agents::ReadinessLookup;
-pub(super) use commands::{board_set, proposal_decide, task_action, task_create, task_move, task_update, workspace_of};
+pub(super) use commands::{
+    board_set, proposal_decide, task_action, task_create, task_move, task_update, task_update_check, workspace_of,
+};
 #[cfg(test)]
 pub(super) use lifecycle::START_TIMEOUT_MS;
 pub(super) use session::{list_tasks, propose_tasks, rpc_session, session_workspace, task_details};
@@ -147,6 +149,19 @@ impl Registry {
         now: i64,
     ) -> Result<(), String> {
         self.edit(ws, |b| b.update_task(id, patch, workspace_agent, now))
+    }
+
+    /// Prova `update_task` su una copia della board: l'errore che darebbe, senza cambiare nulla.
+    pub fn check_task_update(
+        &self,
+        ws: &str,
+        id: &str,
+        patch: &Value,
+        workspace_agent: Option<&str>,
+        now: i64,
+    ) -> Result<(), String> {
+        let board = self.boards.get(ws).ok_or_else(|| format!("task not found: {id}"))?;
+        board.clone().update_task(id, patch, workspace_agent, now)
     }
 
     /// Toglie un task; se aveva un worktree lo fa ripulire.

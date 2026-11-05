@@ -89,6 +89,19 @@ pub(in crate::automation) fn task_update<H: Host>(
     st.view(host, ws_id)
 }
 
+/// Come `task_update` ma senza cambiare nulla: lo stato del task, il grafo delle
+/// dipendenze e il modello si verificano sulla board com'e' adesso.
+pub(in crate::automation) fn task_update_check<H: Host>(
+    st: &AutomationState,
+    host: &H,
+    ws_id: &str,
+    task_id: &str,
+    patch: &Value,
+) -> Result<(), String> {
+    let ws = workspace_of(host, ws_id)?;
+    st.run(host, |r| r.check_task_update(&ws.id, task_id, patch, ws.agent.as_deref(), now_millis()))
+}
+
 pub(in crate::automation) fn task_action<H: Host>(
     st: &AutomationState,
     host: &H,

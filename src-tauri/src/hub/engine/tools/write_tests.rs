@@ -2,9 +2,10 @@
 //! `board_control`.
 
 use super::*;
-use crate::board::{TaskAction, MAX_PARALLEL_LIMIT, MIN_PARALLEL_LIMIT};
+use crate::board::{MAX_PARALLEL_LIMIT, MIN_PARALLEL_LIMIT};
 use crate::hub::engine::confirm::REASON_MAX;
 use crate::hub::engine::tools::task_details::TASK_ID_MAX;
+use crate::hub::model::RequestedAction;
 use crate::hub::settings::SecretaryChannels;
 
 fn secretary(tools: &[SecretaryTool]) -> Secretary {
@@ -121,17 +122,17 @@ fn the_board_tools_exist_only_for_a_secretary_who_has_them() {
     assert_eq!(names, ["board_status", "task_details", "post_message"]);
 }
 
-fn request(task_id: &str, action: TaskAction, reason: &str) -> Invocation {
+fn request(task_id: &str, action: RequestedAction, reason: &str) -> Invocation {
     Invocation::RequestTaskAction { task_id: task_id.into(), action, reason: reason.into() }
 }
 
 #[test]
 fn request_task_action_takes_a_task_one_of_four_actions_and_a_reason() {
     for (code, action) in [
-        ("stop", TaskAction::Stop),
-        ("delete", TaskAction::Delete),
-        ("delete_cascade", TaskAction::DeleteCascade),
-        ("mark_done", TaskAction::MarkDone),
+        ("stop", RequestedAction::Stop),
+        ("delete", RequestedAction::Delete),
+        ("delete_cascade", RequestedAction::DeleteCascade),
+        ("mark_done", RequestedAction::MarkDone),
     ] {
         let raw = format!(r#"{{"task_id":" t-1 ","action":"{code}","reason":"  Obsolete\nspec  "}}"#);
         assert_eq!(parsed("request_task_action", &raw), Ok(request("t-1", action, "Obsolete spec")), "{code}");
@@ -178,7 +179,7 @@ fn request_task_action_exists_only_for_a_secretary_who_has_it_and_is_never_a_def
     assert_eq!(parse(&call, &operator), Err(ToolRejection::NotAllowed("request_task_action".into())));
     assert!(specs(&operator).iter().all(|t| t.name != "request_task_action"));
     let with = secretary(&[SecretaryTool::RequestTaskAction]);
-    assert_eq!(parse(&call, &with), Ok(request("t-1", TaskAction::Delete, "x")));
+    assert_eq!(parse(&call, &with), Ok(request("t-1", RequestedAction::Delete, "x")));
     let spec = &specs(&with)[0];
     assert_eq!(spec.parameters["additionalProperties"], false);
     assert_eq!(
@@ -186,4 +187,69 @@ fn request_task_action_exists_only_for_a_secretary_who_has_it_and_is_never_a_def
         json!(["stop", "delete", "delete_cascade", "mark_done"])
     );
     assert!(spec.description.contains("NEVER runs the action"));
+}
+
+fn update(task_id: &str, patch: serde_json::Value, reason: &str) -> Invocation {
+    Invocation::RequestTaskUpdate { task_id: task_id.into(), patch, reason: reason.into() }
+}
+
+#[test]
+fn request_task_update_takes_a_task_the_fields_to_change_and_a_reason() {
+    let raw = r#"{"task_id":" t-1 ","title":"Login page","depends_on":["a","b"],"reason":"  Clearer\nplan  "}"#;
+    assert_eq!(
+        parsed("request_task_update", raw),
+        Ok(update("t-1", json!({ "title": "Login page", "depends_on": ["a", "b"] }), "Clearer plan"))
+    );
+    let all = r#"{"task_id":"t-1","title":"T","task":"Do it.","depends_on":[],"model":"opus","reason":"x"}"#;
+    assert_eq!(
+        parsed("request_task_update", all),
+        Ok(update("t-1", json!({ "title": "T", "task": "Do it.", "depends_on": [], "model": "opus" }), "x"))
+    );
+}
+
+#[test]
+fn a_null_model_means_the_default_model_and_an_absent_one_means_unchanged() {
+    let null = r#"{"task_id":"t-1","model":null,"reason":"x"}"#;
+    assert_eq!(parsed("request_task_update", null), Ok(update("t-1", json!({ "model": null }), "x")));
+    let absent = r#"{"task_id":"t-1","title":"T","reason":"x"}"#;
+    assert_eq!(parsed("request_task_update", absent), Ok(update("t-1", json!({ "title": "T" }), "x")));
+}
+
+#[test]
+fn request_task_update_rejects_bad_arguments() {
+    let long = "x".repeat(REASON_MAX + 1);
+    let too_long = format!(r#"{{"task_id":"t-1","title":"T","reason":"{long}"}}"#);
+    assert_eq!(
+        reason(parsed("request_task_update", &too_long)),
+        format!("`reason` must be 1 to {REASON_MAX} characters")
+    );
+    assert!(reason(parsed("request_task_update", r#"{"task_id":"t-1","reason":"x"}"#)).starts_with("give at least one"));
+    assert!(reason(parsed("request_task_update", r#"{"task_id":"t-1","title":"T","reason":"  "}"#))
+        .starts_with("`reason` must be"));
+    assert!(reason(parsed("request_task_update", r#"{"task_id":" ","title":"T","reason":"x"}"#))
+        .starts_with("`task_id` must be"));
+    for bad in [
+        r#"{"title":"T","reason":"x"}"#,
+        r#"{"task_id":"t-1","title":"T"}"#,
+        r#"{"task_id":"t-1","title":5,"reason":"x"}"#,
+        r#"{"task_id":"t-1","depends_on":"a","reason":"x"}"#,
+        r#"{"task_id":"t-1","repo":"x","reason":"x"}"#,
+        r#"{"task_id":"t-1","title":"T","reason":"x","workspace":"Sito Web"}"#,
+    ] {
+        assert!(reason(parsed("request_task_update", bad)).contains("schema"), "{bad}");
+    }
+}
+
+#[test]
+fn request_task_update_exists_only_for_a_secretary_who_has_it() {
+    let operator = secretary(&[SecretaryTool::RequestTaskAction, SecretaryTool::PostMessage]);
+    let call = ToolCall {
+        id: "c".into(),
+        name: "request_task_update".into(),
+        arguments: r#"{"task_id":"t-1","title":"T","reason":"x"}"#.into(),
+    };
+    assert_eq!(parse(&call, &operator), Err(ToolRejection::NotAllowed("request_task_update".into())));
+    assert!(specs(&operator).iter().all(|t| t.name != "request_task_update"));
+    let with = secretary(&[SecretaryTool::RequestTaskUpdate]);
+    assert_eq!(parse(&call, &with), Ok(update("t-1", json!({ "title": "T" }), "x")));
 }

@@ -19,6 +19,7 @@ use super::events::{EventWake, HubFeed};
 use super::model::HubActionRequest;
 use super::state::HubState;
 use crate::board::{TaskAction, TaskView};
+use serde_json::Value;
 use tauri::{AppHandle, Manager};
 
 /// Decide la richiesta della scheda `message_id`: `confirm` la esegue, altrimenti
@@ -78,5 +79,9 @@ impl ActionBoard for AppActionBoard<'_> {
 
     fn act(&self, workspace: &str, task_id: &str, action: TaskAction) -> Result<(), String> {
         (self.actions.act_on_task)(self.app, workspace, task_id, action).map(drop)
+    }
+
+    fn update(&self, workspace: &str, task_id: &str, patch: &Value) -> Result<(), String> {
+        (self.actions.update_task)(self.app, workspace, task_id, patch).map(drop)
     }
 }

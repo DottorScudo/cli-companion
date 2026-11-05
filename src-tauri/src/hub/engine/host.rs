@@ -23,7 +23,7 @@ use super::thread_page::ThreadPage;
 use super::tools::{board_workspace, BoardAccessError};
 use super::turn::TurnHost;
 use super::workspace_names::WorkspaceNames;
-use crate::board::{BoardView, TaskAction};
+use crate::board::BoardView;
 use crate::hub::actions::{AppAnswers, BoardActions, HubBoardActions};
 use crate::hub::api_key::ApiKey;
 use crate::hub::append::{append_text, TextMessage};
@@ -31,7 +31,7 @@ use crate::hub::attachments::commands::agent_paths;
 use crate::hub::channel::Channel;
 use crate::hub::commands::{emit_update, ensure_channel, hub_dirs_of};
 use crate::hub::events::HubFeed;
-use crate::hub::model::{Author, Thread};
+use crate::hub::model::{Author, RequestedAction, Thread};
 use crate::hub::questions::QuestionRef;
 use crate::hub::settings::{Provider, Secretary};
 use crate::hub::state::HubState;
@@ -334,8 +334,17 @@ impl TurnHost for AppTurnHost<'_> {
         self.control_board(workspace, change).await
     }
 
-    async fn request_task_action(&self, task_id: String, action: TaskAction, reason: String) -> Result<Value, String> {
+    async fn request_task_action(
+        &self,
+        task_id: String,
+        action: RequestedAction,
+        reason: String,
+    ) -> Result<Value, String> {
         self.request_action(task_id, action, reason).await
+    }
+
+    async fn request_task_update(&self, task_id: String, patch: Value, reason: String) -> Result<Value, String> {
+        self.request_update(task_id, patch, reason).await
     }
 
     async fn notice(&self, text: String) {

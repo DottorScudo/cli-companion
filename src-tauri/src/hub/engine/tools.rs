@@ -13,8 +13,8 @@ use super::planning::GOAL_MAX;
 use super::relay::QuestionSelector;
 use super::thread_page::ThreadPage;
 use super::workspace_names::REFERENCE_MAX;
-use crate::board::TaskAction;
 use crate::hub::channel::Channel;
+use crate::hub::model::RequestedAction;
 use crate::hub::settings::{Secretary, SecretaryTool};
 use crate::hub::text::{self, clean_text, BODY_MAX};
 use serde::de::DeserializeOwned;
@@ -68,7 +68,13 @@ pub enum Invocation {
     },
     RequestTaskAction {
         task_id: String,
-        action: TaskAction,
+        action: RequestedAction,
+        reason: String,
+    },
+    RequestTaskUpdate {
+        task_id: String,
+        /// I campi da cambiare, come il patch di `update_task`.
+        patch: Value,
         reason: String,
     },
 }
@@ -88,6 +94,7 @@ impl Invocation {
             Self::TaskAction { .. } => SecretaryTool::TaskAction,
             Self::BoardControl { .. } => SecretaryTool::BoardControl,
             Self::RequestTaskAction { .. } => SecretaryTool::RequestTaskAction,
+            Self::RequestTaskUpdate { .. } => SecretaryTool::RequestTaskUpdate,
         }
     }
 }
@@ -197,6 +204,7 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
         SecretaryTool::TaskAction => task_action::spec(tool),
         SecretaryTool::BoardControl => board_control::spec(tool),
         SecretaryTool::RequestTaskAction => request_task_action::spec(tool),
+        SecretaryTool::RequestTaskUpdate => request_task_update::spec(tool),
     }
 }
 
@@ -281,6 +289,10 @@ pub fn parse(call: &ToolCall, secretary: &Secretary) -> Result<Invocation, ToolR
             let (task_id, action, reason) = request_task_action::parse(&call.arguments).map_err(invalid)?;
             Ok(Invocation::RequestTaskAction { task_id, action, reason })
         }
+        SecretaryTool::RequestTaskUpdate => {
+            let (task_id, patch, reason) = request_task_update::parse(&call.arguments).map_err(invalid)?;
+            Ok(Invocation::RequestTaskUpdate { task_id, patch, reason })
+        }
     }
 }
 
@@ -356,6 +368,7 @@ mod board_overview;
 mod board_status;
 pub(super) mod relay_answer;
 mod request_task_action;
+mod request_task_update;
 mod task_action;
 pub(super) mod task_details;
 mod thread_read;

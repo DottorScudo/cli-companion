@@ -62,7 +62,8 @@ pub fn notice(secretary: &str, invocation: &Invocation, outcome: &Value) -> Opti
         Invocation::PostMessage { .. }
         | Invocation::OpenPlanTask { .. }
         | Invocation::DecideProposal { .. }
-        | Invocation::RequestTaskAction { .. } => None,
+        | Invocation::RequestTaskAction { .. }
+        | Invocation::RequestTaskUpdate { .. } => None,
         Invocation::RelayAnswer { body, .. } => {
             Some(texts::answer_relayed(secretary, text_of(outcome, "task_id"), body))
         }
@@ -87,14 +88,14 @@ fn text_of<'a>(outcome: &'a Value, field: &str) -> &'a str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::TaskAction;
     use crate::hub::engine::board_ops::{BoardChange, TaskOp};
     use crate::hub::engine::board_query::BoardQuery;
     use crate::hub::engine::relay::QuestionSelector;
+    use crate::hub::model::RequestedAction;
     use serde_json::json;
 
     /// Una chiamata valida per ogni tool, nell'ordine canonico.
-    fn one_of_each() -> [Invocation; 11] {
+    fn one_of_each() -> [Invocation; 12] {
         [
             Invocation::BoardStatus { workspace: None, query: BoardQuery::default() },
             Invocation::BoardOverview,
@@ -111,8 +112,13 @@ mod tests {
             },
             Invocation::RequestTaskAction {
                 task_id: "t-7".into(),
-                action: TaskAction::Delete,
+                action: RequestedAction::Delete,
                 reason: "Obsolete".into(),
+            },
+            Invocation::RequestTaskUpdate {
+                task_id: "t-7".into(),
+                patch: json!({ "title": "Login page" }),
+                reason: "Clearer title".into(),
             },
         ]
     }
@@ -133,7 +139,8 @@ mod tests {
                 SecretaryTool::RelayAnswer,
                 SecretaryTool::TaskAction,
                 SecretaryTool::BoardControl,
-                SecretaryTool::RequestTaskAction
+                SecretaryTool::RequestTaskAction,
+                SecretaryTool::RequestTaskUpdate
             ]
         );
     }
@@ -180,6 +187,7 @@ mod tests {
                 Some("@mario ha ritentato «Login».".into()),
                 Some("@mario ha messo in pausa la board di Sito Web.".into()),
                 None,
+                None,
             ]
         );
     }
@@ -192,6 +200,7 @@ mod tests {
     #[test]
     fn a_request_for_confirmation_counts_toward_the_limit_but_its_card_is_the_audit() {
         assert!(counts_toward_limit(SecretaryTool::RequestTaskAction));
+        assert!(counts_toward_limit(SecretaryTool::RequestTaskUpdate));
         let mut budget = MutationBudget::default();
         for _ in 0..MAX_MUTATIONS_PER_TURN {
             budget.record(SecretaryTool::RequestTaskAction);

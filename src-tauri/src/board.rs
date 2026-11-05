@@ -67,7 +67,7 @@ pub use scheduler::{schedule, SchedCtx};
 pub use settings::{SettingsProposal, SettingsProposalView};
 pub use spec::{
     id_from_title, parse_max_parallel, parse_proposal, parse_spec, repo_key, valid_id, validate_graph, NewTaskSpec,
-    TaskPatch, TaskSpec,
+    TaskPatch, TaskSpec, ID_MAX, MAX_DEPENDS,
 };
 pub use state::{FailCause, Finished, Run, RunPhase, TaskState};
 pub use view::{compact_row, BoardLimits, BoardView, Bounds, TaskView};

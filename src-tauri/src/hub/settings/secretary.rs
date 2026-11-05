@@ -47,11 +47,14 @@ pub enum SecretaryTool {
     BoardControl,
     /// Chiede di fermare, eliminare o chiudere un task: la esegue solo l'utente, con un clic su «Conferma».
     RequestTaskAction,
+    /// Chiede di cambiare titolo, specifica, dipendenze o modello di un task: la applica solo l'utente,
+    /// con un clic su «Conferma».
+    RequestTaskUpdate,
 }
 
 impl SecretaryTool {
     /// Tutti i tool, nell'ordine canonico in cui si salvano.
-    pub const ALL: [SecretaryTool; 11] = [
+    pub const ALL: [SecretaryTool; 12] = [
         Self::BoardStatus,
         Self::BoardOverview,
         Self::TaskDetails,
@@ -63,6 +66,7 @@ impl SecretaryTool {
         Self::TaskAction,
         Self::BoardControl,
         Self::RequestTaskAction,
+        Self::RequestTaskUpdate,
     ];
 
     /// Nome sul filo e su disco.
@@ -79,6 +83,7 @@ impl SecretaryTool {
             Self::TaskAction => "task_action",
             Self::BoardControl => "board_control",
             Self::RequestTaskAction => "request_task_action",
+            Self::RequestTaskUpdate => "request_task_update",
         }
     }
 
@@ -93,7 +98,7 @@ impl SecretaryTool {
             | Self::RelayAnswer
             | Self::TaskAction
             | Self::BoardControl => ToolClass::Write,
-            Self::RequestTaskAction => ToolClass::Destructive,
+            Self::RequestTaskAction | Self::RequestTaskUpdate => ToolClass::Destructive,
         }
     }
 
@@ -374,6 +379,7 @@ mod tests {
                 (SecretaryTool::TaskAction, ToolClass::Write),
                 (SecretaryTool::BoardControl, ToolClass::Write),
                 (SecretaryTool::RequestTaskAction, ToolClass::Destructive),
+                (SecretaryTool::RequestTaskUpdate, ToolClass::Destructive),
             ]
         );
     }
@@ -392,6 +398,15 @@ mod tests {
         assert_eq!(d.tools, [SecretaryTool::TaskAction, SecretaryTool::RequestTaskAction]);
         let s: Secretary = serde_json::from_str(r#"{"name":"mario","tools":["task_action","board_control"]}"#).unwrap();
         assert!(!s.may_use(SecretaryTool::RequestTaskAction));
+    }
+
+    #[test]
+    fn request_task_update_is_chosen_and_never_added_to_existing_secretaries() {
+        let d = draft("m", "", &["request_task_update", "request_task_action"], None).unwrap();
+        assert_eq!(d.tools, [SecretaryTool::RequestTaskAction, SecretaryTool::RequestTaskUpdate]);
+        let s: Secretary =
+            serde_json::from_str(r#"{"name":"mario","tools":["task_action","request_task_action"]}"#).unwrap();
+        assert!(!s.may_use(SecretaryTool::RequestTaskUpdate));
     }
 
     #[test]

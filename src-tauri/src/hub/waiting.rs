@@ -114,12 +114,13 @@ mod tests {
     fn request(kind: HubEventKind, id: &str, task: &str) -> Message {
         let request = crate::hub::model::HubActionRequest {
             id: id.to_string(),
-            action: crate::board::TaskAction::Delete,
+            action: crate::hub::model::RequestedAction::Delete,
             reason: "Obsoleto".to_string(),
             secretary: "ugo".to_string(),
             task_title: "Login".to_string(),
             task_status: "failed".to_string(),
             dependents: Vec::new(),
+            update: None,
             expires_at: 0,
             state: crate::hub::model::ActionRequestState::Pending,
             resolved_at: None,

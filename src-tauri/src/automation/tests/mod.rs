@@ -33,6 +33,7 @@ mod session_end;
 mod settings;
 mod skills;
 mod task_agent;
+mod task_update_check;
 mod worker;
 mod worker_model;
 mod worker_state;

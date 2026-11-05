@@ -187,6 +187,7 @@ describe("segretari", () => {
         "task_action",
         "board_control",
         "request_task_action",
+        "request_task_update",
       ],
     );
     assert.ok(SECRETARY_TOOLS.every((t) => t.description.length > 0));
@@ -199,6 +200,10 @@ describe("segretari", () => {
     assert.equal(
       text.request_task_action,
       "Ti chiede di fermare, eliminare o chiudere un task: lo esegui tu con un clic",
+    );
+    assert.equal(
+      text.request_task_update,
+      "Ti chiede di cambiare titolo, specifica, dipendenze o modello di un task: lo confermi tu con un clic",
     );
     assert.deepEqual(EMPTY_DRAFT.tools, []);
   });

@@ -7,7 +7,7 @@ use super::super::confirm::REASON_MAX;
 use super::arguments;
 use super::task_action::checked_id;
 use super::task_details::TASK_ID_MAX;
-use crate::board::TaskAction;
+use crate::hub::model::RequestedAction;
 use crate::hub::settings::SecretaryTool;
 use crate::hub::text::clean_line;
 use serde::Deserialize;
@@ -31,7 +31,7 @@ enum Action {
     MarkDone,
 }
 
-impl From<Action> for TaskAction {
+impl From<Action> for RequestedAction {
     fn from(action: Action) -> Self {
         match action {
             Action::Stop => Self::Stop,
@@ -83,7 +83,7 @@ struct Args {
 }
 
 /// L'id del task, l'azione e il motivo; l'errore e' in inglese, per il modello.
-pub fn parse(raw: &str) -> Result<(String, TaskAction, String), String> {
+pub fn parse(raw: &str) -> Result<(String, RequestedAction, String), String> {
     let args: Args = arguments(raw)?;
     let task_id = checked_id(&args.task_id, "task_id")?;
     let reason = clean_line(&args.reason, REASON_MAX + 1);

@@ -6,10 +6,13 @@
 use super::{decide, texts, Resolution};
 use crate::board::{TaskAction, TaskView};
 use crate::hub::channel::Channel;
-use crate::hub::model::{ActionRequestState, Author, HubActionRequest, HubEvent, HubEventKind, ThreadSummary};
+use crate::hub::model::{
+    ActionRequestState, Author, HubActionRequest, HubEvent, HubEventKind, RequestedAction, ThreadSummary,
+};
 use crate::hub::state::MESSAGE_ID_PREFIX;
 use crate::hub::text::clean_line;
 use crate::hub::threads::{summary, ChannelThreads, NewMessage, THREAD_NOT_FOUND};
+use serde_json::Value;
 
 /// Caratteri tenuti dell'errore della board nella nota della richiesta.
 const BOARD_ERROR_KEPT: usize = 300;
@@ -23,6 +26,25 @@ pub trait ActionBoard {
     /// Esegue l'azione, con le stesse regole dei comandi del pannello Task.
     /// Gli errori sono per l'utente (italiano).
     fn act(&self, workspace: &str, task_id: &str, action: TaskAction) -> Result<(), String>;
+    /// Cambia i campi del task con `patch`, con la validazione di `update_task`
+    /// e le stesse regole del pannello Task. Gli errori sono per l'utente.
+    fn update(&self, workspace: &str, task_id: &str, patch: &Value) -> Result<(), String>;
+}
+
+/// Esegue sulla board cio' che la richiesta chiede: l'azione, o la modifica
+/// con i valori completi salvati nella richiesta.
+fn perform(
+    board: &impl ActionBoard,
+    workspace: &str,
+    task_id: &str,
+    request: &HubActionRequest,
+    action: RequestedAction,
+) -> Result<(), String> {
+    match (action.task_action(), &request.update) {
+        (Some(task_action), _) => board.act(workspace, task_id, task_action),
+        (None, Some(update)) => board.update(workspace, task_id, &update.patch),
+        (None, None) => Err(REQUEST_NOT_FOUND.to_string()),
+    }
 }
 
 /// L'esito di un clic.
@@ -69,7 +91,7 @@ pub fn resolve(
         Resolution::Cancel => (ActionRequestState::Cancelled, None),
         Resolution::Expired => (ActionRequestState::Expired, Some(texts::EXPIRED_NOTE.to_string())),
         Resolution::Stale(reason) => (ActionRequestState::Stale, Some(reason.to_string())),
-        Resolution::Execute(action) => match board.act(&workspace, &task_id, action) {
+        Resolution::Execute(action) => match perform(board, &workspace, &task_id, &request, action) {
             Ok(()) => (ActionRequestState::Confirmed, None),
             Err(e) => {
                 log::warn!("hub: azione {action:?} confermata sul task {task_id} rifiutata dalla board: {e}");

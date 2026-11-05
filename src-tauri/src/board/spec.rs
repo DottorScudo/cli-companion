@@ -12,7 +12,7 @@ use ts_rs::TS;
 
 pub const ID_MAX: usize = 40;
 pub const MAX_TASKS_PER_PROPOSAL: usize = 20;
-const MAX_DEPENDS: usize = 50;
+pub const MAX_DEPENDS: usize = 50;
 
 /// Campi di input di un task, normalizzati. `id` vuoto = da generare
 /// (`task_create`).

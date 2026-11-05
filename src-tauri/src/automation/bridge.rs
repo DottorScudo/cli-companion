@@ -135,6 +135,18 @@ pub fn hub_task_action(
     boards::task_action(&app.state::<AutomationState>(), &TauriHost(app.clone()), ws_id, task_id, action)
 }
 
+/// Cambia titolo, specifica, dipendenze o modello di un task `queued` o `failed`
+/// per conto dell'Agents HUB: lo stesso codice (e la stessa validazione) del
+/// comando `task_update` del pannello Task.
+pub fn hub_task_update(app: &AppHandle, ws_id: &str, task_id: &str, patch: &Value) -> Result<BoardView, String> {
+    boards::task_update(&app.state::<AutomationState>(), &TauriHost(app.clone()), ws_id, task_id, patch)
+}
+
+/// Verifica una modifica senza applicarla: l'errore che `hub_task_update` darebbe adesso.
+pub fn hub_task_update_check(app: &AppHandle, ws_id: &str, task_id: &str, patch: &Value) -> Result<(), String> {
+    boards::task_update_check(&app.state::<AutomationState>(), &TauriHost(app.clone()), ws_id, task_id, patch)
+}
+
 /// Sposta un task `queued` prima di `before_id` per conto dell'Agents HUB, come
 /// il comando `task_move`.
 pub fn hub_task_move(app: &AppHandle, ws_id: &str, task_id: &str, before_id: &str) -> Result<BoardView, String> {

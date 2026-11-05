@@ -189,7 +189,7 @@ pub(super) fn describe(task: &TaskView) -> String {
     format!("Task \"{}\" (\"{}\") is {}", task.task.id, task.task.title, task.task.status().as_str())
 }
 
-fn refused(error: String) -> String {
+pub(in crate::hub::engine) fn refused(error: String) -> String {
     log::warn!("hub: modifica della board di un segretario rifiutata: {error}");
     format!("The board did not accept the change: {error}")
 }
