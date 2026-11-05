@@ -115,6 +115,14 @@ describe("vista Globale", () => {
     w3: { tasks: [task("d2", "done")], proposals: [] },
     // w4 senza board
   };
+  it("una domanda pendente conta come tale, non come attenzione", () => {
+    const question = { id: "q-1-1", attempt: 1, text: "Quale?", asked_at: 1 };
+    const groups = activityGroups(ws, { w1: { tasks: [task("r1", "running", { question })], proposals: [] } });
+    const totals = activityTotals(groups);
+    assert.equal(totals.running, 1);
+    assert.equal(totals.attention, 0);
+    assert.equal(totals.question, 1);
+  });
   it("include solo i workspace con attività", () => {
     const groups = activityGroups(ws, boards);
     assert.deepEqual(
@@ -140,7 +148,14 @@ describe("vista Globale", () => {
   });
   it("totali e riepilogo", () => {
     const groups = activityGroups(ws, boards);
-    assert.deepEqual(activityTotals(groups), { running: 2, attention: 1, queued: 2, failed: 1, proposals: 0 });
+    assert.deepEqual(activityTotals(groups), {
+      running: 2,
+      attention: 1,
+      question: 0,
+      queued: 2,
+      failed: 1,
+      proposals: 0,
+    });
     assert.equal(groupSummary(groups[0]), "2 in corso · 2 in coda");
     assert.equal(groupSummary(groups[1]), "1 fallito");
     assert.equal(groupSummary({ running: [], queued: [], failed: 3 }), "3 falliti");

@@ -1,5 +1,5 @@
-import { AlertTriangle, Loader2 } from "lucide-react";
-import { PREPARING_LABEL, displayStatus, hasPendingQuestion } from "../../lib/board";
+import { AlertTriangle, Loader2, MessageCircleQuestion } from "lucide-react";
+import { PREPARING_LABEL, displayStatus, statusLabel } from "../../lib/board";
 import type { Task } from "../../lib/board";
 import { runningMeta } from "../../lib/taskPanel";
 import { cn } from "@/lib/utils";
@@ -26,18 +26,15 @@ interface PanelRunningCardProps {
 
 /**
  * Card di un task in corso: spinner ambra e "modello · tempo", oppure triangolo
- * arancione e "Richiede attenzione" (bordo evidenziato); "Ha una domanda" se il worker aspetta una risposta. Un solo pulsante.
+ * arancione e "Richiede attenzione" (bordo evidenziato), oppure fumetto blu e
+ * "In attesa di risposta" se il worker ha fatto una domanda. Un solo pulsante.
  */
 export default function PanelRunningCard({ task, now, agent = null, bot, botImage, onClick }: PanelRunningCardProps) {
-  const attention = displayStatus(task) === "attention";
+  const shown = displayStatus(task);
+  const attention = shown === "attention";
+  const question = shown === "question";
   const preparing = Boolean(task.preparing);
-  const meta = attention
-    ? "Richiede attenzione"
-    : hasPendingQuestion(task)
-      ? "Ha una domanda"
-      : preparing
-        ? PREPARING_LABEL
-        : runningMeta(task, now);
+  const meta = attention || question ? statusLabel(shown) : preparing ? PREPARING_LABEL : runningMeta(task, now);
   return (
     <button
       type="button"
@@ -45,11 +42,15 @@ export default function PanelRunningCard({ task, now, agent = null, bot, botImag
       title={bot ? `${bot} · ${task.preparing ?? task.title}` : (task.preparing ?? task.title)}
       className={cn(
         "flex w-full min-w-0 items-start gap-2.5 rounded-lg border bg-surface px-2.5 py-[9px] text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-        attention ? "border-status-attention/45" : "border-border",
+        attention && "border-status-attention/45",
+        question && "border-primary/45",
+        !attention && !question && "border-border",
       )}
     >
       {attention ? (
         <AlertTriangle className="mt-px h-[15px] w-[15px] flex-shrink-0 text-status-attention" aria-hidden="true" />
+      ) : question ? (
+        <MessageCircleQuestion className="mt-px h-[15px] w-[15px] flex-shrink-0 text-primary" aria-hidden="true" />
       ) : (
         <Loader2
           className="mt-px h-[15px] w-[15px] flex-shrink-0 animate-spin text-status-running motion-reduce:animate-none"
@@ -71,7 +72,14 @@ export default function PanelRunningCard({ task, now, agent = null, bot, botImag
           <AgentBadge name={agent} className="ml-1.5 align-middle text-[10px]" />
         </span>
         {meta && (
-          <span className={cn("truncate text-[11px]", attention ? "text-status-attention" : "text-muted-foreground")}>
+          <span
+            className={cn(
+              "truncate text-[11px]",
+              attention && "text-status-attention",
+              question && "text-primary",
+              !attention && !question && "text-muted-foreground",
+            )}
+          >
             {meta}
           </span>
         )}

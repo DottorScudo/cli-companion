@@ -2,11 +2,14 @@ import { memo } from "react";
 import { formatRelative } from "../../lib/board";
 import { authorLabel } from "../../lib/hub";
 import { findSecretary } from "../../lib/hubSecretaries";
-import type { HubMessage, HubSecretary } from "../../lib/tauri";
+import type { HubEvent, HubMessage, HubSecretary } from "../../lib/tauri";
 import BotAvatar from "../BotAvatar";
 import Markdown from "../tasks/Markdown";
 import type { ProposalStatus } from "../../lib/hubProposals";
+import type { QuestionState } from "../../lib/hubQuestions";
+import HubDeliveryFailure from "./HubDeliveryFailure";
 import HubEventRow from "./HubEventRow";
+import HubQuestionCard from "./HubQuestionCard";
 import HubProposalCard from "./HubProposalCard";
 import HubUserMessage from "./HubUserMessage";
 import ReplyReference from "./ReplyReference";
@@ -25,15 +28,30 @@ interface Props {
   mentions: readonly string[];
   /** Stato della proposta del messaggio «proposta pronta»; assente negli altri. */
   proposalStatus?: ProposalStatus;
+  /** Stato della domanda del messaggio «domanda di un worker»; assente negli altri. */
+  questionState?: QuestionState;
+  /** Se il messaggio è l'esito «Risposta non inviata», l'evento della domanda a cui si riferisce. */
+  failedQuestion?: HubEvent;
   onReply: (messageId: string) => void;
 }
 
 /**
  * Un messaggio della conversazione: testo dell'utente (bolla a destra),
  * risposta di un segretario (avatar, nome e badge) o del sistema, oppure
- * evento in forma compatta; tutti tranne l'utente stanno a sinistra.
+ * evento in forma compatta, o scheda (proposta, domanda di un worker); tutti
+ * tranne l'utente stanno a sinistra.
  */
-function HubMessageItem({ message, target, now, secretaries, mentions, proposalStatus, onReply }: Props) {
+function HubMessageItem({
+  message,
+  target,
+  now,
+  secretaries,
+  mentions,
+  proposalStatus,
+  questionState,
+  failedQuestion,
+  onReply,
+}: Props) {
   const proposalId = message.event?.proposal_id;
   if (message.event && proposalId && proposalStatus) {
     return (
@@ -47,6 +65,22 @@ function HubMessageItem({ message, target, now, secretaries, mentions, proposalS
         onReply={onReply}
       />
     );
+  }
+  const question = message.event?.question;
+  if (message.event && question && questionState) {
+    return (
+      <HubQuestionCard
+        message={message}
+        event={message.event}
+        question={question}
+        state={questionState}
+        target={target}
+        now={now}
+      />
+    );
+  }
+  if (failedQuestion) {
+    return <HubDeliveryFailure message={message} question={failedQuestion} target={target} now={now} />;
   }
   if (message.event) {
     return <HubEventRow message={message} event={message.event} target={target} now={now} onReply={onReply} />;

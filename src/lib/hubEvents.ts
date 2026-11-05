@@ -7,14 +7,7 @@ import type { HubEvent } from "../bindings/HubEvent.ts";
 
 /** Chiave dell'icona; il componente la traduce in un'icona. */
 export type HubEventIcon =
-  | "proposal"
-  | "started"
-  | "done"
-  | "failed"
-  | "attention"
-  | "question"
-  | "deleted"
-  | "generic";
+  "proposal" | "started" | "done" | "failed" | "attention" | "question" | "deleted" | "generic";
 
 export type HubEventTone = "neutral" | "success" | "danger" | "warning";
 

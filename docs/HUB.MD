@@ -303,6 +303,7 @@ dei workspace visibili (`totalWaiting`).
 | Compositore con autocompletamento di `@` | `components/hub/HubComposer.tsx`, `MentionMenu.tsx`, `useMentionAutocomplete.ts` |
 | «sta scrivendo…», titolare del thread e sessione attiva | `components/hub/TypingIndicator.tsx`, `components/hub/ThreadOwner.tsx`, `components/hub/ThreadSession.tsx`, `components/hub/ListOwner.tsx` |
 | Scheda della proposta (task espandibili, stato, «Rispondi») e link al task `plan` | `components/hub/HubProposalCard.tsx`, `HubProposalTask.tsx`, `HubEventRow.tsx`, `lib/hubProposals.ts` |
+| Scheda della domanda di un worker (opzioni, «Rispondi», terminale), avviso «Risposta non consegnata», link al thread dal dettaglio del task | `components/hub/HubQuestionCard.tsx`, `HubDeliveryFailure.tsx`, `WorkerTerminalLink.tsx`, `useEventLinks.ts`, `components/tasks/DetailQuestion.tsx`, `lib/hubQuestions.ts`, `answerQuestion` e `openTaskThread` in `app/actions/hub.ts` |
 | Task di pianificazione: badge «Pianificazione» e domande del pianificatore | `lib/plan.ts`, `components/tasks/PlanBadge.tsx`, `components/tasks/DetailResult.tsx` |
 | Sezione SEGRETARI della colonna di sinistra | `components/hub/HubSecretaryList.tsx`, `components/hub/HubSidebar.tsx` |
 | Nomi riservati ai terminali | `lib/bots.ts`, `reservedBotNames` in `stores/hub.ts`, `app/actions/tabs.ts`, `app/events.ts`, `hooks/useSessionPersistence.ts` |
@@ -768,6 +769,20 @@ deterministico, gratuito e funziona anche nei thread senza segretario titolare.
   «Risposta non inviata: <motivo della board> Se serve, apri il terminale del worker dal Tasks Manager e rispondi
   lì.» (worker che sta ancora lavorando, permesso in attesa, tab chiuso, risposta vuota o oltre 4000 caratteri...).
   Il link «apri il terminale del worker» è già sulla riga dell'evento finché il tab è aperto.
+
+**Nell'interfaccia.** L'evento `task_question` è una scheda (`HubQuestionCard`), non una riga: bordo e icona
+«attenzione», «Domanda dal worker» o «Domanda dal pianificatore», id del task, ora e badge «Aspetta te» finché
+aspetta. Le opzioni sono pulsanti che rispondono subito (`answerQuestion`: `hub_send` con `reply_to` e rilettura
+del thread, perché la consegna è sincrona e l'esito è già scritto); «Rispondi» apre il compositore sulla domanda per
+una risposta libera; «apri il terminale del worker» compare se il tab è ancora aperto. Lo stato lo ricava
+`lib/hubQuestions.ts` dal thread, come il backend: aspetta finché la sua è l'ultima voce del task; «Risposta
+inviata» (con il testo) dopo un esito «Risposta inviata al worker.», o senza testo se la risposta l'ha vista solo la
+board (terminale, segretario); «Non più in attesa» se il task è andato avanti. L'esito «Risposta non inviata…» è un
+avviso rosso «Risposta non consegnata» col link al terminale; la domanda resta in attesa. Il dettaglio del task nel
+Tasks Manager mostra la domanda con il pulsante «Rispondi nell'Agents HUB» (solo a HUB acceso): il backend non
+espone il thread di un task, quindi `openTaskThread` legge al massimo 10 thread del canale (prima quelli in attesa)
+e apre quello con la domanda. Un task con una domanda pendente è «In attesa di risposta» (stato `question` di
+`displayStatus`, blu, distinto da «Richiede attenzione»).
 
 **Il titolare.** La domanda sveglia il titolare del thread, se c'è (vedi "Risvegli da evento"): la presenta in
 breve e può aiutare a capirla, ma un risveglio da evento non può rispondere.

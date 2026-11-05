@@ -187,7 +187,7 @@ Limiti: 200 task per board, 20 task per proposta, 20 proposte pendenti per board
 | status | UI | note |
 |---|---|---|
 | `queued` | **Da fare** | parte quando: coda non in pausa, fascia aperta (se il workspace la usa), tutte le dipendenze `done`, slot libero. Con dipendenze non `done` la vista espone `waiting_on`. |
-| `running` | **In corso** | con `worker_status` `needs_input` o `idle` la vista espone `attention: true` → badge "Richiede attenzione". Con `worker_status` `awaiting_answer` il worker aspetta la risposta a una sua domanda: è "in attesa dell'utente" ma **non** `attention` (nessun badge, il Task panel mostra "Ha una domanda"). |
+| `running` | **In corso** | con `worker_status` `needs_input` o `idle` la vista espone `attention: true` → badge "Richiede attenzione". Con `worker_status` `awaiting_answer` il worker aspetta la risposta a una sua domanda: è "in attesa dell'utente" ma **non** `attention` (nessun badge, il Task panel e il Tasks Manager lo mostrano "In attesa di risposta"). |
 | `done` | **Fatto** | consegnato. Terminale. Sblocca i dipendenti. |
 | `failed` | **Fallito** | `note`/`report.summary` dicono perché. "Riprova" lo rimette in coda. |
 
@@ -1119,7 +1119,8 @@ Argomenti camelCase lato JS.
 Riferimento: il mockup. Palette dell'app (`src/index.css`): grigio `muted-foreground` = Da
 fare, ambra `status-running` = In corso, arancione `status-attention` + icona triangolo =
 Richiede attenzione, verde `status-finished` = Fatto, rosso `destructive` = Fallito, blu
-`primary` solo per azioni e proposte. Testi in italiano.
+`primary` solo per ciò che l'utente decide: azioni, proposte e domande dei worker ("In attesa di risposta").
+Testi in italiano.
 
 ### Pannello Task (accanto ai terminali)
 

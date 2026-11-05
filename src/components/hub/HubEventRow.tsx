@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -11,18 +10,17 @@ import {
   XCircle,
   type LucideIcon,
 } from "lucide-react";
-import { focusTerminal, openManager } from "../../app/actions/view";
-import { useStores } from "../../hooks/useStore";
+import { openManager } from "../../app/actions/view";
 import { formatRelative } from "../../lib/board";
-import { eventLook, workerTabOf } from "../../lib/hubEvents";
-import { eventTaskOf, taskLinkLabel } from "../../lib/hubProposals";
+import { eventLook } from "../../lib/hubEvents";
+import { taskLinkLabel } from "../../lib/hubProposals";
 import type { HubEventIcon, HubEventTone } from "../../lib/hubEvents";
 import type { HubEvent, HubMessage } from "../../lib/tauri";
 import { cn } from "../../lib/utils";
-import { boardsStore } from "../../stores/boards";
-import { tabsStore } from "../../stores/tabs";
 import { Button } from "../ui/button";
 import ReplyReference from "./ReplyReference";
+import { useEventLinks } from "./useEventLinks";
+import WorkerTerminalLink from "./WorkerTerminalLink";
 
 const ICONS: Record<HubEventIcon, LucideIcon> = {
   proposal: FileText,
@@ -42,9 +40,6 @@ const TONE_CLASS: Record<HubEventTone, string> = {
   warning: "text-status-attention",
 };
 
-const WORKER_STORES = [boardsStore, tabsStore] as const;
-const BOARDS_ONLY = [boardsStore] as const;
-
 interface Props {
   message: HubMessage;
   event: HubEvent;
@@ -61,13 +56,7 @@ interface Props {
 export default function HubEventRow({ message, event, target, now, onReply }: Props) {
   const look = eventLook(event.kind);
   const Icon = ICONS[look.icon];
-  const computeWorkerTab = useCallback(
-    () => workerTabOf(boardsStore.getState().boards, event, (key) => tabsStore.get(key) !== undefined),
-    [event],
-  );
-  const workerTab = useStores(WORKER_STORES, computeWorkerTab);
-  const computeTask = useCallback(() => eventTaskOf(boardsStore.getState().boards, event), [event]);
-  const task = useStores(BOARDS_ONLY, computeTask);
+  const { workerTab, task } = useEventLinks(event);
   const { workspace } = event;
   return (
     <div className="group flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-accent/40">
@@ -77,15 +66,7 @@ export default function HubEventRow({ message, event, target, now, onReply }: Pr
           <span className={cn("font-semibold", TONE_CLASS[look.tone])}>{look.label}</span>
           <span className="text-text-secondary"> · {message.body}</span>
         </p>
-        {workerTab !== null && (
-          <button
-            type="button"
-            onClick={() => focusTerminal(workerTab)}
-            className="self-start text-[11px] text-primary hover:underline"
-          >
-            apri il terminale del worker
-          </button>
-        )}
+        {workerTab !== null && <WorkerTerminalLink tab={workerTab} />}
         {task && workspace !== null && (
           <button
             type="button"

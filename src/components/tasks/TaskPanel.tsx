@@ -5,6 +5,7 @@ import {
   ListOrdered,
   Loader2,
   Pause,
+  MessageCircleQuestion,
   Play,
   Plus,
   Sparkles,
@@ -134,7 +135,7 @@ export default function TaskPanel({
       {
         key: "running",
         icon: Loader2,
-        count: counts.running - counts.attention,
+        count: counts.running - counts.attention - counts.question,
         label: "task in corso",
         className: "text-status-running",
       },
@@ -144,6 +145,13 @@ export default function TaskPanel({
         count: counts.attention,
         label: "task richiedono attenzione",
         className: "text-status-attention",
+      },
+      {
+        key: "question",
+        icon: MessageCircleQuestion,
+        count: counts.question,
+        label: "task in attesa di risposta",
+        className: "text-primary",
       },
       {
         key: "queued",

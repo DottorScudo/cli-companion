@@ -4,6 +4,7 @@ import { openManager } from "../../app/actions/view";
 import { useStore } from "../../hooks/useStore";
 import { GENERAL_CHANNEL, replyTarget } from "../../lib/hub";
 import { cardStatus, proposalStatuses } from "../../lib/hubProposals";
+import { deliveryFailures, questionStates } from "../../lib/hubQuestions";
 import { secretaryNames } from "../../lib/hubSecretaries";
 import { hubStore } from "../../stores/hub";
 import { useManagerNow } from "../tasks/useManagerNow";
@@ -33,6 +34,8 @@ export default function HubConversation({ channel }: { channel: string }) {
   const mentions = useMemo(() => secretaryNames(secretaries), [secretaries]);
   const messages = thread?.messages;
   const statuses = useMemo(() => proposalStatuses(messages ?? []), [messages]);
+  const questions = useMemo(() => questionStates(messages ?? []), [messages]);
+  const failures = useMemo(() => deliveryFailures(messages ?? []), [messages]);
   const now = useManagerNow();
   const listRef = useRef<HTMLDivElement>(null);
   const stuckRef = useRef(true);
@@ -96,6 +99,8 @@ export default function HubConversation({ channel }: { channel: string }) {
               secretaries={secretaries}
               mentions={mentions}
               proposalStatus={cardStatus(m, statuses)}
+              questionState={questions[m.id]}
+              failedQuestion={failures[m.id]}
               onReply={startReply}
             />
           ))

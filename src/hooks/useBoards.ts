@@ -29,8 +29,8 @@ export function useBoardsSync() {
 }
 
 /**
- * Notifiche di sistema dei task (`task-notify`): un task richiede attenzione o
- * è fallito. Titolo = nome del workspace, testo = quello italiano del backend.
+ * Notifiche di sistema dei task (`task-notify`): un task richiede attenzione, ha
+ * una domanda per l'utente o è fallito. Titolo = nome del workspace, testo = quello italiano del backend.
  * Con il tab del worker ancora aperto il toast è cliccabile (porta al tab);
  * solo a finestra non in primo piano, come le altre notifiche.
  */

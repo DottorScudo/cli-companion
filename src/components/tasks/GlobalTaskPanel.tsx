@@ -1,5 +1,13 @@
 import { useMemo } from "react";
-import { AlertTriangle, ChevronsLeft, ListOrdered, Loader2, Sparkles, XCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronsLeft,
+  ListOrdered,
+  Loader2,
+  MessageCircleQuestion,
+  Sparkles,
+  XCircle,
+} from "lucide-react";
 import { useStore } from "../../hooks/useStore";
 import type { BoardView } from "../../lib/board";
 import type { Workspace } from "../../lib/tauri";
@@ -64,7 +72,7 @@ export default function GlobalTaskPanel({
       {
         key: "running",
         icon: Loader2,
-        count: totals.running - totals.attention,
+        count: totals.running - totals.attention - totals.question,
         label: "task in corso",
         className: "text-status-running",
       },
@@ -74,6 +82,13 @@ export default function GlobalTaskPanel({
         count: totals.attention,
         label: "task richiedono attenzione",
         className: "text-status-attention",
+      },
+      {
+        key: "question",
+        icon: MessageCircleQuestion,
+        count: totals.question,
+        label: "task in attesa di risposta",
+        className: "text-primary",
       },
       {
         key: "queued",

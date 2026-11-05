@@ -35,8 +35,8 @@ export type { TaskSpec } from "../bindings/TaskSpec.ts";
 export type { TestRun as TaskTestResult } from "../bindings/TestRun.ts";
 export type { Verdict as ReviewVerdict } from "../bindings/Verdict.ts";
 
-/** Stato mostrato: i quattro stati più "Richiede attenzione" (running con `attention`). */
-export type DisplayStatus = TaskStatus | "attention";
+/** Stato mostrato: i quattro stati più "Richiede attenzione" (running con `attention`) e "In attesa di risposta" (running con una domanda pendente). */
+export type DisplayStatus = TaskStatus | "attention" | "question";
 
 // ---------------------------------------------------------------- stati
 
@@ -60,7 +60,8 @@ interface StatusMeta {
 
 /**
  * Da fare = grigio, In corso = ambra, Richiede attenzione = arancione, Fatto =
- * verde, Fallito = rosso. Il blu (primary) è solo per azioni e proposte.
+ * verde, Fallito = rosso. Il blu (primary) è solo per ciò che l'utente può
+ * decidere: azioni, proposte e domande dei worker (In attesa di risposta).
  */
 const META: Record<DisplayStatus, StatusMeta> = {
   queued: {
@@ -80,6 +81,12 @@ const META: Record<DisplayStatus, StatusMeta> = {
     text: "text-status-attention",
     dot: "bg-status-attention",
     border: "border-status-attention/70",
+  },
+  question: {
+    label: "In attesa di risposta",
+    text: "text-primary",
+    dot: "bg-primary",
+    border: "border-primary/60",
   },
   done: {
     label: "Fatto",
@@ -101,9 +108,11 @@ function metaOf(s: string): StatusMeta {
   return META[s as DisplayStatus] ?? FALLBACK;
 }
 
-/** Stato da mostrare: un task in corso che aspetta l'utente è "attention". */
-export function displayStatus(task: Pick<Task, "status" | "attention">): DisplayStatus {
-  return task.status === "running" && task.attention ? "attention" : task.status;
+/** Stato da mostrare: un task in corso con una domanda pendente è "question", uno che aspetta l'utente per altro è "attention". */
+export function displayStatus(task: Pick<Task, "status" | "attention" | "question">): DisplayStatus {
+  if (task.status !== "running") return task.status;
+  if (hasPendingQuestion(task)) return "question";
+  return task.attention ? "attention" : "running";
 }
 
 export function statusLabel(s: string): string {
@@ -157,8 +166,10 @@ export function doneTasks(board: Tasks, now: number, days: number | null = DONE_
 
 export interface TaskCounts extends Record<TaskStatus, number> {
   proposals: number;
-  /** In corso che richiedono attenzione (sottoinsieme di `running`). */
+  /** In corso che richiedono attenzione (sottoinsieme di `running`, senza quelli con una domanda). */
   attention: number;
+  /** In corso con una domanda del worker senza risposta (sottoinsieme di `running`). */
+  question: number;
   total: number;
 }
 
@@ -180,17 +191,20 @@ export function taskCounts(
     done: 0,
     failed: 0,
     attention: 0,
+    question: 0,
     total: 0,
   };
   for (const t of board?.tasks ?? []) {
     c.total++;
     if (t.status in c) c[t.status]++;
-    if (t.status === "running" && t.attention) c.attention++;
+    const shown = displayStatus(t);
+    if (shown === "attention") c.attention++;
+    else if (shown === "question") c.question++;
   }
   return c;
 }
 
-/** In corso che aspettano l'utente. */
+/** In corso che aspettano l'utente (le domande dei worker si contano a parte, in `taskCounts`). */
 export function attentionCount(board: Tasks | null | undefined): number {
   return taskCounts(board).attention;
 }

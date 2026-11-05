@@ -15,6 +15,7 @@ import {
   threadSelected,
   threadsLoaded,
 } from "../src/stores/hub.ts";
+import { questionStates } from "../src/lib/hubQuestions.ts";
 
 const summary = (id, extra = {}) => ({
   id,
@@ -235,6 +236,31 @@ describe("hub store: conversazione", () => {
     assert.equal(messageAdded(s, "altro", message("m2")), s);
     assert.equal(messageAdded(INITIAL_HUB, "t1", message("m2")), INITIAL_HUB);
     assert.equal(messageAdded(s, "t1", message("m1")), s);
+  });
+
+  it("risposta a una domanda: l'invio e la rilettura con l'esito portano la scheda a «risposta inviata»", () => {
+    const question = message("m1", {
+      author: { type: "system" },
+      event: {
+        kind: "task_question",
+        workspace: "ws",
+        task_id: "t1",
+        question: { id: "q-1-1", text: "Quale?", options: ["A", "B"] },
+      },
+    });
+    const sent = message("m2", { reply_to: "m1", body: "B", created_at: 5 });
+    const outcome = message("m3", {
+      author: { type: "system" },
+      reply_to: "m2",
+      body: "Risposta inviata al worker.",
+      created_at: 6,
+    });
+    let s = withThread(thread("t1", [question], { updated_at: 4 }));
+    assert.deepEqual(questionStates(s.thread.messages).m1, { kind: "pending" });
+    s = messageAdded(s, "t1", sent);
+    assert.deepEqual(questionStates(s.thread.messages).m1, { kind: "pending" });
+    s = threadLoaded(s, thread("t1", [question, sent, outcome], { updated_at: 6 }));
+    assert.deepEqual(questionStates(s.thread.messages).m1, { kind: "answered", answer: "B" });
   });
 
   it("replySet: inizia e annulla la risposta", () => {

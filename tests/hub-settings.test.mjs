@@ -181,6 +181,7 @@ describe("segretari", () => {
     const text = Object.fromEntries(SECRETARY_TOOLS.map((t) => [t.id, t.description]));
     assert.equal(text.open_plan_task, "Apre un task di pianificazione");
     assert.equal(text.decide_proposal, "Accetta o scarta la proposta a cui rispondi");
+    assert.equal(text.relay_answer, "Risponde a un worker al posto tuo, quando glielo chiedi");
     assert.deepEqual(EMPTY_DRAFT.tools, []);
   });
 

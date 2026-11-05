@@ -88,7 +88,7 @@ describe("board: stati", () => {
     assert.equal(statusDotClass("running"), "bg-status-running");
     assert.match(statusBorderClass("failed"), /destructive/);
   });
-  it("il blu (primary) non e' mai un colore di stato", () => {
+  it('il blu (primary) e\' solo di "In attesa di risposta", mai degli altri stati', () => {
     for (const s of [...STATUSES, "attention"]) {
       assert.doesNotMatch(statusTextClass(s) + statusDotClass(s) + statusBorderClass(s), /primary/);
     }
@@ -96,6 +96,18 @@ describe("board: stati", () => {
   it("stato sconosciuto: etichetta invariata e colore neutro", () => {
     assert.equal(statusLabel("boh"), "boh");
     assert.equal(statusTextClass("boh"), "text-muted-foreground");
+  });
+  it("question: In attesa di risposta, blu e distinto da Richiede attenzione", () => {
+    assert.equal(statusLabel("question"), "In attesa di risposta");
+    assert.equal(statusTextClass("question"), "text-primary");
+    assert.notEqual(statusLabel("question"), statusLabel("attention"));
+  });
+  it("una domanda pendente vince su attention, solo per un task in corso", () => {
+    const question = { id: "q-1-1", attempt: 1, text: "Quale?", asked_at: 1 };
+    assert.equal(displayStatus(task({ status: "running", question })), "question");
+    assert.equal(displayStatus(task({ status: "running", attention: true, question })), "question");
+    assert.equal(displayStatus(task({ status: "failed", question })), "failed");
+    assert.equal(displayStatus(task({ status: "queued", question })), "queued");
   });
   it("attention solo per un task in corso con il flag", () => {
     assert.equal(displayStatus(task({ status: "running", attention: true })), "attention");
@@ -119,6 +131,22 @@ describe("board: selettori", () => {
       task({ id: "d-mid", status: "done", finished_at: NOW - 2 * DAY }),
     ],
   };
+  it("le domande pendenti si contano a parte, senza gonfiare l'attenzione", () => {
+    const question = { id: "q-1-1", attempt: 1, text: "Quale?", asked_at: 1 };
+    const withQuestion = {
+      tasks: [
+        task({ id: "r1", status: "running" }),
+        task({ id: "r2", status: "running", attention: true }),
+        task({ id: "r3", status: "running", attention: true, question }),
+        task({ id: "r4", status: "running", question }),
+      ],
+    };
+    const counts = taskCounts(withQuestion);
+    assert.equal(counts.running, 4);
+    assert.equal(counts.attention, 1);
+    assert.equal(counts.question, 2);
+    assert.equal(attentionCount(withQuestion), 1);
+  });
   it("da fare e in corso nell'ordine dell'array", () => {
     assert.deepEqual(
       queuedTasks(board).map((t) => t.id),
@@ -161,6 +189,7 @@ describe("board: selettori", () => {
       done: 3,
       failed: 1,
       attention: 1,
+      question: 0,
       total: 8,
     });
     assert.equal(attentionCount(board), 1);

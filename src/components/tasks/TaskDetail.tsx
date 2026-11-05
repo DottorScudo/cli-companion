@@ -169,7 +169,7 @@ export default function TaskDetail({
         ) : (
           <>
             <DetailAgentUnavailable task={task} agents={agents} onChangeAgent={startEditing} />
-            <DetailQuestion task={task} now={clock} />
+            <DetailQuestion workspaceId={workspaceId} task={task} now={clock} />
             <DetailResult task={task} />
             <DetailE2e workspaceId={workspaceId} task={task} />
             {task.note && (

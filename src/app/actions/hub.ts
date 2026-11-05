@@ -5,6 +5,7 @@ import { api } from "../../lib/tauri";
 import type { HubSecretaryStatus, HubThreadSummary } from "../../lib/tauri";
 import { report } from "../../lib/errors";
 import { summarizeThread, threadNeedsReload } from "../../lib/hub";
+import { threadAsksTask, threadsToSearch } from "../../lib/hubQuestions";
 import type { ThreadFilter } from "../../lib/hub";
 import { hubStore } from "../../stores/hub";
 import { uiStore } from "../../stores/ui";
@@ -106,4 +107,50 @@ export function onHubUpdate(summary: HubThreadSummary): void {
   if (!state.enabled) return;
   hubStore.summaryUpdated(summary);
   if (threadNeedsReload(state.thread, summary)) loadThread(summary.channel, summary.id);
+}
+
+/**
+ * Risponde a una domanda di un worker con `text` (un'opzione suggerita) e rilegge
+ * subito il thread: la consegna è sincrona, quindi l'esito ("Risposta inviata" o
+ * l'errore con il suggerimento del terminale) è già scritto e la scheda lo mostra
+ * senza aspettare `hub-update`. Rifiuta con l'errore del backend se l'invio fallisce.
+ */
+export async function answerQuestion(
+  channel: string,
+  threadId: string,
+  questionMessageId: string,
+  text: string,
+): Promise<void> {
+  await sendMessage(channel, threadId, text, questionMessageId);
+  try {
+    hubStore.threadLoaded(await api.hubGetThread(channel, threadId));
+  } catch (e) {
+    report("aggiornamento della conversazione dopo la risposta", e);
+  }
+}
+
+/**
+ * Apre l'Agents HUB sul thread con la domanda di un task. Il backend non dice a
+ * quale thread appartiene un task: si leggono, fino a `THREAD_SEARCH_LIMIT`, i
+ * thread del canale (prima quelli che aspettano l'utente). Se non lo trova,
+ * resta sull'elenco del canale.
+ */
+export async function openTaskThread(channel: string, taskId: string): Promise<void> {
+  uiStore.setWorld("hub");
+  selectChannel(channel);
+  try {
+    const list = await api.hubListThreads(channel);
+    hubStore.threadsLoaded(channel, list);
+    for (const id of threadsToSearch(list)) {
+      const thread = await api.hubGetThread(channel, id);
+      if (hubStore.getState().channel !== channel) return;
+      if (threadAsksTask(thread, channel, taskId)) {
+        hubStore.threadSelected(id);
+        hubStore.threadLoaded(thread);
+        return;
+      }
+    }
+  } catch (e) {
+    report("ricerca del thread della domanda", e, { notify: true });
+  }
 }

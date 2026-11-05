@@ -42,7 +42,7 @@ export const SECRETARY_TOOLS: readonly { id: HubSecretaryTool; description: stri
   { id: "post_message", description: "Scrive nel thread" },
   { id: "open_plan_task", description: "Apre un task di pianificazione" },
   { id: "decide_proposal", description: "Accetta o scarta la proposta a cui rispondi" },
-  { id: "relay_answer", description: "Risponde per te all'unica domanda di un worker in attesa, se glielo chiedi" },
+  { id: "relay_answer", description: "Risponde a un worker al posto tuo, quando glielo chiedi" },
 ];
 
 function languageLabel(language: HubLanguage): string {

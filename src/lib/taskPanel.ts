@@ -2,7 +2,7 @@
 // Globale: estratti, etichette, riordino per drag & drop, raggruppamento per
 // workspace. Zero dipendenze di UI, importabili anche dai test `node --test`.
 
-import { formatDuration, pendingProposals, queuedTasks, runningTasks } from "./board.ts";
+import { displayStatus, formatDuration, pendingProposals, queuedTasks, runningTasks } from "./board.ts";
 import type { BoardView, Task, TaskSpec } from "./board.ts";
 
 // ---------------------------------------------------------------- testi
@@ -113,18 +113,20 @@ export function activityGroups<W extends { id: string }>(
   return groups;
 }
 
-/** Totali di tutti i gruppi (in corso, di cui attenzione, in coda, falliti, proposte). */
+/** Totali di tutti i gruppi (in corso, di cui attenzione e domande, in coda, falliti, proposte). */
 export function activityTotals(groups: Pick<ActivityGroup<unknown>, "running" | "queued" | "failed" | "proposals">[]): {
   running: number;
   attention: number;
+  question: number;
   queued: number;
   failed: number;
   proposals: number;
 } {
-  const t = { running: 0, attention: 0, queued: 0, failed: 0, proposals: 0 };
+  const t = { running: 0, attention: 0, question: 0, queued: 0, failed: 0, proposals: 0 };
   for (const g of groups) {
     t.running += g.running.length;
-    t.attention += g.running.filter((r) => r.attention).length;
+    t.attention += g.running.filter((r) => displayStatus(r) === "attention").length;
+    t.question += g.running.filter((r) => displayStatus(r) === "question").length;
     t.queued += g.queued.length;
     t.failed += g.failed;
     t.proposals += g.proposals;
