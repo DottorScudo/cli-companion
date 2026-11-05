@@ -2,9 +2,11 @@
 //! workspace, raggruppati per obiettivo:
 //!
 //! - una proposta apre un thread (titolo dal primo task, "+N"), accettata ne
-//!   collega i task, scartata lo chiude. La proposta di un pianificatore il cui
-//!   task `plan` e' gia' in un thread (aperto da un segretario) va in quel
-//!   thread, non in uno nuovo;
+//!   collega i task, scartata lo chiude. La proposta di un task `plan` o
+//!   `review` gia' in un thread va in quel thread (lo riapre se chiuso), non in
+//!   uno nuovo; ripiega sul thread nuovo se il thread ha un'altra proposta
+//!   pendente o non ha posto per i task. Scartata in un thread con altri task
+//!   oltre ai `plan`, non lo chiude: lo fa la conclusione dei task;
 //! - un task creato a mano apre il suo thread;
 //! - gli eventi di un task vanno nel thread a cui e' collegato; se non ce n'e'
 //!   uno (task gia' esistente all'accensione dell'HUB) lo si crea al primo
@@ -33,7 +35,7 @@ use crate::hub::channel::Channel;
 use crate::hub::model::{Author, HubEvent, HubEventKind, Thread, ThreadState, ThreadSummary};
 use crate::hub::notify::NoticeKind;
 use crate::hub::state::{MESSAGE_ID_PREFIX, THREAD_ID_PREFIX};
-use crate::hub::threads::{summary, ChannelThreads, NewMessage};
+use crate::hub::threads::{summary, ChannelThreads, NewMessage, TASKS_PER_THREAD_MAX};
 
 /// Un segretario titolare da svegliare per un evento della board: il suo
 /// turno parte dal messaggio `trigger` del thread.
@@ -101,9 +103,11 @@ impl Router<'_> {
     fn proposal_created(&mut self, p: &ProposalSnap) -> Result<(), String> {
         let thread = match self.thread_of_proposal(&p.id) {
             Some(id) => id,
-            None => match self.plan_thread(p) {
+            None => match self.origin_thread(p) {
                 Some(id) => {
                     self.list.link_proposal(&id, &p.id, self.now)?;
+                    // Una proposta pendente tiene aperto anche un obiettivo gia' concluso.
+                    self.reopen(&id)?;
                     id
                 }
                 None => self.new_thread(thread_title(p.tasks.iter().map(|t| t.title.as_str())), |list, id, now| {
@@ -119,14 +123,20 @@ impl Router<'_> {
         Ok(())
     }
 
-    /// Il thread del task `plan` da cui viene la proposta, se ne ha uno: la
-    /// proposta del pianificatore torna nel thread che ha chiesto il piano.
-    fn plan_thread(&self, p: &ProposalSnap) -> Option<String> {
+    /// Il thread d'origine della proposta: quello del task (`plan` o `review`)
+    /// che l'ha fatta. `None`, e la proposta apre un thread nuovo, se non c'e'
+    /// un task sorgente (Intake), se il task non ha thread, se il thread ha gia'
+    /// un'altra proposta pendente (lo slot e' unico) o se i task proposti non
+    /// ci stanno piu'.
+    fn origin_thread(&self, p: &ProposalSnap) -> Option<String> {
         let source = p.source_task.as_deref()?;
-        if self.board.task(source)?.kind != TaskKind::Plan {
-            return None;
-        }
-        self.thread_of_task(source)
+        let thread = self.list.thread_of_task(source)?;
+        let other_pending = thread
+            .proposal_id
+            .as_deref()
+            .is_some_and(|id| id != p.id && self.board.proposals.iter().any(|q| q.id == id));
+        let fits = thread.task_ids.len() + p.tasks.len() <= TASKS_PER_THREAD_MAX;
+        (!other_pending && fits).then(|| thread.id.clone())
     }
 
     /// Una proposta che non ha un thread (pendente gia' prima dell'accensione)
@@ -157,8 +167,19 @@ impl Router<'_> {
         };
         let event = self.proposal_event(HubEventKind::ProposalRejected, proposal_id);
         self.post(&thread, PROPOSAL_REJECTED.to_string(), Some(event))?;
-        self.list.set_state(&thread, ThreadState::Closed, self.now)?;
+        // Un thread con altri task e' un obiettivo in corso: lo chiude
+        // `close_concluded` solo quando sono tutti conclusi.
+        if !self.has_work_tasks(&thread) {
+            self.list.set_state(&thread, ThreadState::Closed, self.now)?;
+        }
         Ok(())
+    }
+
+    /// Il thread ha task diversi dai `plan` (uno sparito dalla board conta come tale).
+    fn has_work_tasks(&self, thread: &str) -> bool {
+        self.list
+            .thread(thread)
+            .is_some_and(|t| t.task_ids.iter().any(|id| self.board.task(id).is_none_or(|t| t.kind != TaskKind::Plan)))
     }
 
     fn task_event(&mut self, change: TaskChange, task: &TaskSnap) -> Result<(), String> {

@@ -3,6 +3,7 @@ use crate::board::{TaskKind, Verdict};
 use crate::hub::events::diff::diff;
 use crate::hub::events::fixtures::{asking, board, proposal, task, WS};
 use crate::hub::model::{MessageKind, Thread};
+use crate::hub::threads::TASKS_PER_THREAD_MAX;
 
 fn channel() -> Channel {
     Channel::Workspace(WS.to_string())
@@ -307,19 +308,134 @@ fn the_proposal_of_a_plan_lands_in_its_thread_and_wakes_the_owner() {
     assert!(out.wakes.is_empty(), "l'accettazione l'ha decisa l'utente: nessun risveglio");
 }
 
-#[test]
-fn intake_and_review_proposals_still_open_their_own_thread() {
+const REVIEW: &str = "r";
+
+fn review(status: TaskStatus) -> TaskSnap {
+    TaskSnap { kind: TaskKind::Review, ..task(REVIEW, status) }
+}
+
+fn review_proposal(id: &str, ids: &[&str]) -> ProposalSnap {
+    ProposalSnap { source_task: Some(REVIEW.to_string()), ..proposal(id, ids) }
+}
+
+/// Il thread d'origine con il piano e la review collegati, `giorgio` titolare.
+fn origin_thread() -> ChannelThreads {
     let mut list = planning_thread(Some("giorgio"));
-    let mut review = task("r", TaskStatus::Running);
-    review.kind = TaskKind::Review;
-    list.link_tasks(PLAN_THREAD, &["r".to_string()], 1).unwrap();
-    let before = board(vec![plan(TaskStatus::Running), review.clone()], vec![]);
-    let from_review = ProposalSnap { source_task: Some("r".to_string()), ..proposal("p-r", &["fix"]) };
-    let next = board(vec![plan(TaskStatus::Running), review], vec![proposal("p-i", &["a"]), from_review]);
+    list.link_tasks(PLAN_THREAD, &[REVIEW.to_string()], 1).unwrap();
+    list
+}
+
+fn running_review_board(proposals: Vec<ProposalSnap>) -> BoardSnapshot {
+    board(vec![plan(TaskStatus::Done), review(TaskStatus::Running)], proposals)
+}
+
+#[test]
+fn the_proposal_of_a_review_lands_in_its_thread_and_wakes_the_owner() {
+    let mut list = origin_thread();
+    let before = running_review_board(vec![]);
+    let next = running_review_board(vec![review_proposal("p-r", &["fix"])]);
     let out = routed(&mut list, &before, &next, 10);
-    assert_eq!(list.threads.len(), 3);
+
+    let t = only_thread(&list);
+    assert_eq!(t.proposal_id.as_deref(), Some("p-r"));
+    let event = last_event(t);
+    assert_eq!((event.kind, event.task_id.as_deref()), (HubEventKind::ProposalCreated, Some(REVIEW)));
+    assert_eq!(out.wakes, [wake(&id_of_last(&list))]);
+
+    // Accettata: il task di fix finisce nel thread d'origine.
+    let accepted =
+        board(vec![plan(TaskStatus::Done), review(TaskStatus::Running), task("fix", TaskStatus::Queued)], vec![]);
+    routed(&mut list, &next, &accepted, 20);
+    assert_eq!(only_thread(&list).task_ids, [PLAN, REVIEW, "fix"]);
+}
+
+#[test]
+fn a_review_proposal_reopens_a_closed_origin_thread() {
+    let mut list = origin_thread();
+    list.set_state(PLAN_THREAD, ThreadState::Closed, 2).unwrap();
+    let next = running_review_board(vec![review_proposal("p-r", &["fix"])]);
+    let out = routed(&mut list, &running_review_board(vec![]), &next, 10);
+    assert_eq!(only_thread(&list).state, ThreadState::Open);
+    assert_eq!(out.wakes.len(), 1);
+}
+
+#[test]
+fn intake_proposals_still_open_their_own_thread() {
+    let mut list = origin_thread();
+    let next = running_review_board(vec![proposal("p-i", &["a"])]);
+    let out = routed(&mut list, &running_review_board(vec![]), &next, 10);
+    assert_eq!(list.threads.len(), 2);
     assert!(list.thread(PLAN_THREAD).unwrap().messages.is_empty());
     assert!(out.wakes.is_empty(), "i thread nuovi non hanno un titolare");
+}
+
+#[test]
+fn a_review_proposal_without_a_thread_for_its_task_opens_a_new_one() {
+    let mut list = ChannelThreads::default();
+    let next = running_review_board(vec![review_proposal("p-r", &["fix"])]);
+    routed(&mut list, &running_review_board(vec![]), &next, 10);
+    assert!(only_thread(&list).owner.is_none());
+}
+
+#[test]
+fn a_second_pending_proposal_opens_a_new_thread_until_the_first_is_decided() {
+    let mut list = origin_thread();
+    let first = running_review_board(vec![plan_proposal("p-1", &["a"])]);
+    routed(&mut list, &running_review_board(vec![]), &first, 10);
+    let second = running_review_board(vec![plan_proposal("p-1", &["a"]), review_proposal("p-2", &["b"])]);
+    routed(&mut list, &first, &second, 20);
+    assert_eq!(list.threads.len(), 2);
+    assert_eq!(list.thread(PLAN_THREAD).unwrap().proposal_id.as_deref(), Some("p-1"));
+
+    let decided = running_review_board(vec![review_proposal("p-2", &["b"])]);
+    routed(&mut list, &second, &decided, 30);
+    let third = running_review_board(vec![review_proposal("p-2", &["b"]), review_proposal("p-3", &["c"])]);
+    routed(&mut list, &decided, &third, 40);
+    assert_eq!(list.thread(PLAN_THREAD).unwrap().proposal_id.as_deref(), Some("p-3"));
+}
+
+#[test]
+fn a_review_proposal_that_does_not_fit_the_task_limit_opens_a_new_thread() {
+    let mut list = origin_thread();
+    let filler: Vec<String> = (0..TASKS_PER_THREAD_MAX - 2).map(|i| format!("f-{i}")).collect();
+    list.link_tasks(PLAN_THREAD, &filler, 1).unwrap();
+    let next = running_review_board(vec![review_proposal("p-r", &["x", "y"])]);
+    routed(&mut list, &running_review_board(vec![]), &next, 10);
+    assert_eq!(list.threads.len(), 2);
+    assert!(list.thread(PLAN_THREAD).unwrap().proposal_id.is_none());
+}
+
+#[test]
+fn discarding_a_proposal_keeps_a_thread_with_active_tasks_open() {
+    let mut list = origin_thread();
+    let pending = running_review_board(vec![review_proposal("p-r", &["fix"])]);
+    routed(&mut list, &running_review_board(vec![]), &pending, 10);
+    routed(&mut list, &pending, &running_review_board(vec![]), 20);
+    let t = only_thread(&list);
+    assert_eq!(t.state, ThreadState::Open);
+    assert_eq!(bodies(t).last(), Some(&PROPOSAL_REJECTED));
+}
+
+#[test]
+fn discarding_a_proposal_concludes_a_thread_whose_tasks_are_all_done() {
+    let mut list = origin_thread();
+    let done = board(vec![plan(TaskStatus::Done), review(TaskStatus::Done)], vec![]);
+    let pending = board(vec![plan(TaskStatus::Done), review(TaskStatus::Done)], vec![review_proposal("p-r", &["fix"])]);
+    routed(&mut list, &done, &pending, 10);
+    let out = routed(&mut list, &pending, &done, 20);
+    let t = only_thread(&list);
+    assert_eq!((t.state, bodies(t).last()), (ThreadState::Closed, Some(&THREAD_CONCLUDED)));
+    assert_eq!(out.wakes.len(), 1);
+}
+
+#[test]
+fn discarding_a_proposal_closes_a_plan_only_thread() {
+    let mut list = planning_thread(Some("giorgio"));
+    let running = board(vec![plan(TaskStatus::Running)], vec![]);
+    let proposed = board(vec![plan(TaskStatus::Running)], vec![plan_proposal("p-1", &["a"])]);
+    routed(&mut list, &running, &proposed, 10);
+    routed(&mut list, &proposed, &running, 20);
+    assert_eq!(only_thread(&list).state, ThreadState::Closed);
 }
 
 #[test]

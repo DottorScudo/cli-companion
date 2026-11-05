@@ -705,12 +705,15 @@ Sui thread del canale del workspace, con tempo e id passati dal chiamante:
 
 - **proposta comparsa** → nuovo thread intitolato col primo task (`"<titolo> +N"` se più d'uno), `proposal_id`
   impostato, messaggio con l'elenco dei task (i primi 20, poi "… e altri N"). Fa eccezione la proposta di un
-  **pianificatore** (`source_task` = un task `plan`) il cui piano è già in un thread (aperto da un segretario con
-  `open_plan_task`): va in **quel** thread, che riceve il `proposal_id`. Le proposte dell'Intake e dei revisori
-  continuano ad aprire un thread proprio;
+  **pianificatore o di un revisore** (`source_task` = un task `plan` o `review`) il cui task è già in un thread
+  (il piano aperto da un segretario con `open_plan_task`, la review entrata col task accettato): va in **quel**
+  thread, che riceve il `proposal_id`, viene riaperto se era chiuso e sveglia il titolare. Ripiega sul thread nuovo se
+  il task non ha thread, se il thread ha già un'altra proposta pendente (lo slot è unico) o se i task proposti
+  superano `TASKS_PER_THREAD_MAX`. Le proposte dell'Intake (nessun `source_task`) aprono un thread proprio;
 - **proposta accettata** → stesso thread (creato ora se la proposta era pendente già prima dell'accensione), task
-  collegati, «Proposta accettata: N task in coda.»; **scartata** → «Proposta scartata.» e thread chiuso (nessun
-  thread se non ne aveva uno);
+  collegati, «Proposta accettata: N task in coda.»; **scartata** → «Proposta scartata.» e thread chiuso, a meno che
+  abbia task diversi dai `plan`: allora resta aperto e lo chiude la conclusione dei suoi task (nessun thread se
+  la proposta non ne aveva uno);
 - **task creato a mano** → nuovo thread col suo titolo e quel task;
 - **eventi di un task** → il thread a cui è collegato; se non ce n'è uno (task già esistente all'accensione) lo
   si crea al primo evento. Un task eliminato senza thread non ne crea uno;
