@@ -8,7 +8,7 @@ import type { HubThreadSummary } from "../../lib/tauri";
 import { report } from "../../lib/errors";
 import { CHAT_PREVIEW_CONCURRENCY, previewOf, previewsToRead } from "../../lib/hubChats";
 import { threadIsInView } from "../../lib/hubNotify";
-import { mapLimit } from "../../lib/mapLimit";
+import { createLimiter } from "../../lib/mapLimit";
 import { openThreadCount } from "../../lib/hubUnread";
 import { hubStore } from "../../stores/hub";
 import { uiStore } from "../../stores/ui";
@@ -17,6 +17,9 @@ import { currentViewport } from "./hubViewport";
 
 /** Letture di anteprime in corso (`id:updated_at`): la stessa non parte due volte. */
 const inFlight = new Set<string>();
+
+/** Unico limitatore delle letture di anteprime: al più `CHAT_PREVIEW_CONCURRENCY` in tutto, anche con più `loadChatPreviews` insieme. */
+const limitPreviewReads = createLimiter(CHAT_PREVIEW_CONCURRENCY);
 
 function messengerShown(): boolean {
   const hub = hubStore.getState();
@@ -28,7 +31,7 @@ async function readPreview(thread: HubThreadSummary): Promise<void> {
   if (inFlight.has(key)) return;
   inFlight.add(key);
   try {
-    const read = await api.hubGetThread(thread.channel, thread.id);
+    const read = await limitPreviewReads(() => api.hubGetThread(thread.channel, thread.id));
     hubStore.previewLoaded(thread.id, previewOf(read));
   } catch (e) {
     report("lettura dell'anteprima della chat", e);
@@ -39,14 +42,14 @@ async function readPreview(thread: HubThreadSummary): Promise<void> {
 
 /**
  * Aggiorna le anteprime delle chat mostrate (già ordinate dalla più recente): le
- * prime `CHAT_PREVIEW_LIMIT` senza anteprima o con `updated_at` cambiato, al più
- * `CHAT_PREVIEW_CONCURRENCY` alla volta. Un errore non blocca l'elenco. Non fa
+ * prime `CHAT_PREVIEW_LIMIT` senza anteprima o con `updated_at` cambiato, con al più
+ * `CHAT_PREVIEW_CONCURRENCY` letture attive in tutto. Un errore non blocca l'elenco. Non fa
  * nulla senza la vista messenger o con l'HUB non mostrato.
  */
 export async function loadChatPreviews(threads: readonly HubThreadSummary[]): Promise<void> {
   if (!messengerShown()) return;
   const stale = previewsToRead(threads, hubStore.getState().previews);
-  await mapLimit(stale, CHAT_PREVIEW_CONCURRENCY, readPreview);
+  await Promise.all(stale.map(readPreview));
 }
 
 /**

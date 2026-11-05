@@ -12,7 +12,7 @@ import {
   previewsToRead,
   withPreview,
 } from "../src/lib/hubChats.ts";
-import { mapLimit } from "../src/lib/mapLimit.ts";
+import { createLimiter } from "../src/lib/mapLimit.ts";
 
 const channels = [
   { id: "general", name: "Generale" },
@@ -196,27 +196,40 @@ describe("withPreview", () => {
   });
 });
 
-describe("mapLimit", () => {
-  it("non supera il limite e fa tutto", async () => {
-    let running = 0;
-    let peak = 0;
-    const done = [];
-    await mapLimit([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 4, async (n) => {
-      running += 1;
-      peak = Math.max(peak, running);
-      await new Promise((resolve) => setImmediate(resolve));
-      running -= 1;
-      done.push(n);
-    });
-    assert.equal(peak, 4);
-    assert.equal(done.length, 10);
+describe("createLimiter", () => {
+  const tracked = (limit) => {
+    const run = createLimiter(limit);
+    const state = { running: 0, peak: 0 };
+    const job = () =>
+      run(async () => {
+        state.running += 1;
+        state.peak = Math.max(state.peak, state.running);
+        await new Promise((resolve) => setImmediate(resolve));
+        state.running -= 1;
+      });
+    return { job, state };
+  };
+
+  it("chiamate sovrapposte non superano il limite", async () => {
+    const { job, state } = tracked(4);
+    const calls = Array.from({ length: 5 }, () => Promise.all(Array.from({ length: 6 }, job)));
+    await Promise.all(calls);
+    assert.equal(state.peak, 4);
+    assert.equal(state.running, 0);
   });
 
-  it("elenco vuoto o limite non valido", async () => {
-    await mapLimit([], 4, async () => assert.fail("non deve partire"));
-    const done = [];
-    await mapLimit([1, 2], 0, async (n) => void done.push(n));
-    assert.deepEqual(done, [1, 2]);
+  it("restituisce l'esito e un rifiuto libera il posto", async () => {
+    const run = createLimiter(1);
+    const failing = run(async () => Promise.reject(new Error("no")));
+    const next = run(async () => "ok");
+    await assert.rejects(failing, /no/);
+    assert.equal(await next, "ok");
+  });
+
+  it("limite non valido vale 1", async () => {
+    const { job, state } = tracked(0);
+    await Promise.all([job(), job(), job()]);
+    assert.equal(state.peak, 1);
   });
 });
 

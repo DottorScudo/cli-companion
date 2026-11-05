@@ -446,15 +446,16 @@ memoria) e cambiata da `setHubViewMode`. L'elenco delle chat è `chatList` (`lib
 condiviso con la vista per canale, ricerca su titolo e nome del workspace, filtro per un solo canale. Il backend non
 dà né un'anteprima né uno stato «letto», quindi si ricavano nel client. Le **anteprime** (`HubState.previews`) sono
 l'ultimo messaggio di ogni chat, letto con `hub_get_thread` solo per le prime `CHAT_PREVIEW_LIMIT` (30) chat
-mostrate, al più `CHAT_PREVIEW_CONCURRENCY` (4) alla volta e solo con la vista messenger attiva e l'HUB mostrato
+mostrate, con al più `CHAT_PREVIEW_CONCURRENCY` (4) letture attive in tutto (un solo limitatore di modulo,
+`createLimiter` in `lib/mapLimit.ts`, anche con più `loadChatPreviews` sovrapposte) e solo con la vista messenger attiva e l'HUB mostrato
 (`loadChatPreviews`); un thread si rilegge solo se il suo `updated_at` è cambiato (quindi `hub-update` le tiene
 aggiornate), mentre la conversazione aperta aggiorna la propria anteprima da quella in memoria. Un errore di lettura
 si registra senza toast e non blocca l'elenco; spegnere l'HUB svuota la cache. I **non letti** (`HubState.lastSeen`,
 `lib/hubUnread.ts`) sono i messaggi visti per thread, salvati in localStorage e potati dei thread spariti: una chat è
 non letta se il suo `message_count` supera i visti. Al primo avvio, senza dati salvati, i thread esistenti si
 considerano letti. Una chat si segna letta (`markOpenChatSeen`) solo quando è aperta e in vista (la stessa regola di
-`threadIsInView`: finestra in primo piano, mondo HUB, quel canale e quel thread), all'apertura e a ogni messaggio
-ricevuto. `openChat` imposta canale e thread insieme: notifiche e click sulle notifiche (`openHubThread`,
+`threadIsInView`: finestra in primo piano, mondo HUB, quel canale e quel thread), all'apertura, a ogni messaggio
+ricevuto e al ritorno del focus sulla finestra (evento `focus`, in `useHubSync`). `openChat` imposta canale e thread insieme: notifiche e click sulle notifiche (`openHubThread`,
 `openTaskThread`) funzionano com'è, anche con la vista messenger. Il codice sta in `lib/hubChats.ts`,
 `lib/hubUnread.ts`, `lib/hubViewMode.ts`, `stores/hubPrefs.ts`, `app/actions/hubMessenger.ts` e
 `app/actions/hubChatState.ts`.
