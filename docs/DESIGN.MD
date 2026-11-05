@@ -172,6 +172,7 @@ domanda (`hub/direct_answer.rs`, senza passare dal modello) e il tool `relay_ans
 | `schedule.rs`, `awake.rs` | fasce orarie (logica pura + `schedule.json`) e blocco dello standby |
 | `launch_settings.rs`, `bots.rs` | impostazioni globali degli avvii e nomi/avatar dei bot (su `store/`) |
 | `hub.rs`, `hub/` | Agents HUB (spento di default): impostazioni globali (provider del modello, lingua, sessioni, segretari), canali, thread e messaggi su `store/`, comandi ed evento `hub-update`, eventi della board nei thread, motore dei segretari (`hub/engine/`: menzioni, sessioni, tool calling verso un endpoint compatibile OpenAI, evento `hub-secretary-status`) |
+| `connectors.rs`, `connectors/` | **pianificato**: connettori dell'Agents HUB, Fonti (`source`, es. Gmail) e Canali di contatto (`contact`, es. Telegram), compilati dietro contratti con registro, runtime in background e configurazione in `connectors.json`; progetto in [CONNECTORS.MD](CONNECTORS.MD) |
 | `secrets.rs` | segreti nel portachiavi del sistema operativo (crate `keyring`) dietro il trait `SecretStore`; un finto in memoria per i test |
 | `user_skills.rs`, `user_skills/` | skill globali dell'utente: archivio e sincronizzazione nelle cartelle degli agenti |
 | `toast.rs`, `updater.rs`, `net.rs`, `ttl_cache.rs`, `logging.rs` | toast cliccabile (Windows), controllo aggiornamenti da CLI, client HTTP via `curl`, cache con scadenza, log su file |
@@ -1053,6 +1054,16 @@ Spegnere l'HUB chiude le sessioni dei segretari e annulla i loro lavori. La rimo
 (`hub::forget_workspace`, chiamato da `remove_workspace` dopo la board), l'istantanea della sua board e le sessioni dei
 segretari nel suo canale. Modello, file, limiti e scelte:
 [HUB.MD](HUB.MD).
+
+### `connectors/` — connettori dell'Agents HUB (pianificato)
+
+Non ancora nel codice. Estenderà l'HUB con due tipi di connettori: le **Fonti** (`source`), che portano elementi
+esterni (es. email di Gmail filtrate da una regola) nei thread di un canale e possono svegliare un segretario, e i
+**Canali di contatto** (`contact`, es. Telegram), che portano fuori le notifiche dei thread e riportano dentro i
+messaggi dell'utente. Livello 4 accanto ad `automation` e `mcp`: dipenderà da `hub` solo attraverso una porta
+d'ingresso (`hub::ingress`) e da destinatari delle notifiche e listener registrati da `lib.rs`; `hub` non dipenderà
+da `connectors`. Come per gli agenti, nessun file fuori da `connectors/<id>/` nominerà un connettore, salvo il
+registro. Contratti, file, affidabilità, sicurezza, alternative valutate e fasi: [CONNECTORS.MD](CONNECTORS.MD).
 
 ### Altri moduli
 

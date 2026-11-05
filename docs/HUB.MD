@@ -13,6 +13,10 @@ thread").
 Il codice sta in `src-tauri/src/hub.rs` e `src-tauri/src/hub/`. Le dipendenze e il posto del modulo nella mappa
 sono in [DESIGN.MD](DESIGN.MD), "`hub/`".
 
+**Pianificato**: i **connettori** (Fonti come Gmail, che portano dati esterni nei thread, e Canali di contatto come
+Telegram, per notifiche e conversazioni dall'esterno) sono progettati in [CONNECTORS.MD](CONNECTORS.MD), che indica
+anche i comportamenti di questo documento destinati a cambiare.
+
 ## Interruttore
 
 `hub_settings.json` nella cartella dati dell'app: `enabled` è `false` di default, nella busta di `store/`
