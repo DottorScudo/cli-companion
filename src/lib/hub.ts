@@ -141,10 +141,13 @@ export function appendMessage(thread: HubThread, message: HubMessage): HubThread
 
 export type BodyCheck = { ok: true; body: string } | { ok: false; reason: string };
 
-/** Testo da inviare: senza spazi ai bordi, non vuoto e nel limite del backend. */
-export function checkBody(raw: string): BodyCheck {
+/**
+ * Testo da inviare: senza spazi ai bordi e nel limite del backend; vuoto solo
+ * se il messaggio porta almeno un allegato (`attachments`, quanti ne ha).
+ */
+export function checkBody(raw: string, attachments = 0): BodyCheck {
   const body = raw.trim();
-  if (body === "") return { ok: false, reason: "Scrivi un messaggio." };
+  if (body === "" && attachments === 0) return { ok: false, reason: "Scrivi un messaggio o allega un file." };
   if ([...body].length > MESSAGE_MAX_CHARS) {
     return { ok: false, reason: `Il messaggio supera i ${MESSAGE_MAX_CHARS} caratteri.` };
   }

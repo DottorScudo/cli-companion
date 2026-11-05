@@ -93,6 +93,8 @@ export default function HubConversation({ channel }: { channel: string }) {
           thread.messages.map((m) => (
             <HubMessageItem
               key={m.id}
+              channel={channel}
+              threadId={thread.id}
               message={m}
               target={replyTarget(thread, m.reply_to)}
               now={now}

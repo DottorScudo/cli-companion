@@ -233,6 +233,13 @@ describe("hub: testi", () => {
     assert.equal(checkBody(" \n\t ").ok, false);
   });
 
+  it("checkBody: con almeno un allegato il testo può essere vuoto, il limite resta", () => {
+    assert.deepEqual(checkBody("  ", 1), { ok: true, body: "" });
+    assert.deepEqual(checkBody(" nota ", 2), { ok: true, body: "nota" });
+    assert.equal(checkBody("", 0).ok, false);
+    assert.equal(checkBody("a".repeat(MESSAGE_MAX_CHARS + 1), 1).ok, false);
+  });
+
   it("checkBody: 8000 caratteri sì, 8001 no (caratteri, non unità UTF-16)", () => {
     assert.equal(checkBody("a".repeat(MESSAGE_MAX_CHARS)).ok, true);
     assert.equal(checkBody("a".repeat(MESSAGE_MAX_CHARS + 1)).ok, false);

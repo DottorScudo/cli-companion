@@ -387,6 +387,7 @@ dei workspace visibili (`totalWaiting`).
 | Controlli, riepiloghi e bozza del segretario delle impostazioni; salvataggio (ogni comando ritorna le impostazioni, che finiscono nello store) | `lib/hubSettings.ts`, `app/actions/hubSettings.ts` |
 | Messaggi dei segretari (avatar, badge «SEGRETARIO»), dell'utente (bolla a destra), menzioni evidenziate | `components/hub/HubMessageItem.tsx`, `components/hub/HubUserMessage.tsx`, `components/hub/SecretaryBadge.tsx`, `components/tasks/Markdown.tsx` |
 | Compositore con autocompletamento di `@` | `components/hub/HubComposer.tsx`, `MentionMenu.tsx`, `useMentionAutocomplete.ts` |
+| Allegati nel compositore (bozze, caricamento, incolla, trascinamento) e nei messaggi (miniature, chip, apertura) | `lib/hubAttachments.ts`, `app/actions/hubAttachments.ts`, `components/hub/useAttachmentDrafts.ts`, `useFileDrop.ts`, `AttachmentDraftChip.tsx`, `HubMessageAttachments.tsx`, `useStoredAttachment.ts`, `AttachmentIcon.tsx` |
 | «sta scrivendo…», titolare del thread e sessione attiva | `components/hub/TypingIndicator.tsx`, `components/hub/ThreadOwner.tsx`, `components/hub/ThreadSession.tsx`, `components/hub/ListOwner.tsx` |
 | Scheda della proposta (task espandibili, stato, «Rispondi») e link al task `plan` | `components/hub/HubProposalCard.tsx`, `HubProposalTask.tsx`, `HubEventRow.tsx`, `lib/hubProposals.ts` |
 | Scheda della domanda di un worker (opzioni, «Rispondi», terminale), avviso «Risposta non consegnata», link al thread dal dettaglio del task | `components/hub/HubQuestionCard.tsx`, `HubDeliveryFailure.tsx`, `WorkerTerminalLink.tsx`, `useEventLinks.ts`, `components/tasks/DetailQuestion.tsx`, `lib/hubQuestions.ts`, `answerQuestion` e `openTaskThread` in `app/actions/hub.ts` |
@@ -399,6 +400,32 @@ Aperti/Tutti, «+» nuovo thread) e conversazione. Gli eventi sono righe compatt
 «Rispondi»: il compositore mostra il messaggio citato (annullabile) e invia con `reply_to`; la risposta riporta il
 riferimento all'originale, che sparisce se il messaggio è stato potato. Invio invia, Maiusc+Invio va a capo, al massimo
 8000 caratteri.
+
+**Allegati nel compositore.** Tre vie, tutte verso lo staging (vedi "Allegati"): il pulsante «Allega» (graffetta,
+accanto a Invia) apre il dialog di sistema a selezione multipla e carica da percorso (`hub_stage_attachment_file`);
+incollare nella textarea file o immagini (uno screenshot) e trascinare file sul compositore caricano dai byte
+(`hub_stage_attachment_bytes`; con `dragDropEnabled: false` il webview riceve i `File` senza percorso). L'incolla
+allega solo se negli appunti non c'è testo (`pasteAttaches`): incollare del testo resta com'era. Durante il
+trascinamento di file il compositore ha il bordo tratteggiato e «Rilascia i file per allegarli» (`useFileDrop`; altri
+trascinamenti non lo toccano). Gli allegati in attesa sono chip sopra la textarea (`AttachmentDraftChip`: miniatura per
+le immagini incollate o trascinate, icona per gli altri e per quelli scelti col dialog, nome, dimensione, rotellina
+durante il caricamento, X «Rimuovi …»). I limiti si controllano prima di caricare (`admitFiles`, con le costanti del
+backend: 5 allegati, 10 MB; la dimensione di un file del dialog la controlla il backend): i file in più o troppo grandi
+restano fuori, con il messaggio nella riga d'errore, e il testo resta. Un caricamento fallito toglie il suo chip e
+scrive l'errore. Invia è attivo con testo o almeno un allegato, mai durante un caricamento (`canSend`); con soli
+allegati il testo può essere vuoto (`checkBody(text, allegati)`). Dopo l'invio riuscito testo e chip si svuotano; se
+l'invio fallisce restano, e gli stessi id si possono reinviare. Le miniature sono Blob URL dei `File`, revocati alla
+rimozione, all'invio e allo smontaggio (anche cambiando thread: gli allegati non inviati restano nello staging e il
+backend li toglie dopo 24 ore).
+
+**Allegati nei messaggi.** Sotto il testo della bolla dell'utente (`HubMessageAttachments`; senza testo solo gli
+allegati): le immagini (`hasPreview`: PNG, JPEG, GIF, WebP, BMP, AVIF, ICO; non SVG) come miniature, lette con
+`hub_read_attachment` in un Blob URL (l'asset protocol non è abilitato) revocato allo smontaggio; gli altri file come
+chip con icona per tipo, nome e dimensione (`formatSize`: «512 B», «1,5 KB», «10 MB»). Un clic apre il file con l'app
+predefinita (`hub_attachment_path`, poi `openPath` del plugin opener; la capability `opener:allow-open-path` vale solo
+per `$APPDATA/hub_attachments/channels/**`). `useStoredAttachment` dipende da id e tipo, non dall'oggetto: rileggere
+il thread non ricarica i file. Un allegato il cui file non c'è più (o non si legge) è un chip barrato «non
+disponibile», non cliccabile, e la conversazione resta com'è.
 
 ### Impostazioni dei segretari
 

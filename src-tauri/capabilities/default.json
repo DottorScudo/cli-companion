@@ -12,6 +12,10 @@
     "core:window:allow-start-dragging",
     "core:window:allow-is-maximized",
     "opener:default",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "$APPDATA/hub_attachments/channels/**" }]
+    },
     "notification:default",
     "dialog:allow-open",
     "clipboard-manager:allow-read-text",

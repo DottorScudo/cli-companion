@@ -90,14 +90,18 @@ export async function createThread(channel: string, title: string): Promise<void
   hubStore.threadLoaded(thread);
 }
 
-/** Invia un messaggio dell'utente, con l'eventuale messaggio a cui risponde. Rifiuta con l'errore del backend. */
+/**
+ * Invia un messaggio dell'utente, con l'eventuale messaggio a cui risponde e gli
+ * id degli allegati già nello staging. Rifiuta con l'errore del backend.
+ */
 export async function sendMessage(
   channel: string,
   threadId: string,
   body: string,
   replyTo: string | null,
+  attachments: string[] = [],
 ): Promise<void> {
-  const message = await api.hubSend(channel, threadId, body, replyTo);
+  const message = await api.hubSend(channel, threadId, body, replyTo, attachments);
   hubStore.messageAdded(threadId, message);
 }
 

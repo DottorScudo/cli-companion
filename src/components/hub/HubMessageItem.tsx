@@ -18,6 +18,8 @@ import SecretaryBadge from "./SecretaryBadge";
 const AVATAR_SIZE = 28;
 
 interface Props {
+  channel: string;
+  threadId: string;
   message: HubMessage;
   /** Il messaggio a cui questo risponde, se esiste ancora. */
   target: HubMessage | null;
@@ -42,6 +44,8 @@ interface Props {
  * tranne l'utente stanno a sinistra.
  */
 function HubMessageItem({
+  channel,
+  threadId,
   message,
   target,
   now,
@@ -87,7 +91,16 @@ function HubMessageItem({
   }
   const { author } = message;
   if (author.type === "user") {
-    return <HubUserMessage message={message} target={target} now={now} mentions={mentions} />;
+    return (
+      <HubUserMessage
+        channel={channel}
+        threadId={threadId}
+        message={message}
+        target={target}
+        now={now}
+        mentions={mentions}
+      />
+    );
   }
   const isSecretary = author.type === "bot";
   const secretary = author.type === "bot" ? findSecretary(secretaries, author.name) : undefined;
