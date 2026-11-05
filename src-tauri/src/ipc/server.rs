@@ -131,7 +131,7 @@ impl ConnectionSlots {
 
     fn try_acquire(&self) -> Option<SlotGuard> {
         self.used
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| (n < self.max).then_some(n + 1))
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| (n < self.max).then_some(n + 1))
             .ok()
             .map(|_| SlotGuard(self.used.clone()))
     }

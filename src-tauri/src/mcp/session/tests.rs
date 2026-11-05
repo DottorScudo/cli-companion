@@ -39,7 +39,7 @@ impl Backend for Flaky {
     fn rpc(&self, method: &str, _params: &Value, _timeout: Duration) -> Result<Value, String> {
         assert_eq!(method, "whoami", "only the role is asked in these tests");
         self.whoami.fetch_add(1, Ordering::SeqCst);
-        let failed = self.failures.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok();
+        let failed = self.failures.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok();
         if failed {
             Err("timeout waiting for the response".to_string())
         } else {
