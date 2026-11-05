@@ -11,6 +11,7 @@
 use super::texts;
 use super::tools::{Invocation, ToolRejection};
 use crate::hub::settings::{SecretaryTool, ToolClass};
+use serde_json::Value;
 
 /// Modifiche riuscite per turno, oltre a `post_message`.
 pub const MAX_MUTATIONS_PER_TURN: usize = 3;
@@ -50,7 +51,7 @@ impl MutationBudget {
 
 /// L'avviso (in italiano) che una chiamata riuscita lascia nel thread, o
 /// `None` se non modifica nulla o se il suo effetto si vede gia' nel thread.
-pub fn notice(secretary: &str, invocation: &Invocation) -> Option<String> {
+pub fn notice(secretary: &str, invocation: &Invocation, outcome: &Value) -> Option<String> {
     match invocation {
         Invocation::BoardStatus { .. }
         | Invocation::BoardOverview
@@ -59,7 +60,9 @@ pub fn notice(secretary: &str, invocation: &Invocation) -> Option<String> {
         // Gia' visibili: il messaggio stesso, l'evento del task creato, gli
         // eventi della proposta decisa.
         Invocation::PostMessage { .. } | Invocation::OpenPlanTask { .. } | Invocation::DecideProposal { .. } => None,
-        Invocation::RelayAnswer { body } => Some(texts::answer_relayed(secretary, body)),
+        Invocation::RelayAnswer { body, .. } => {
+            Some(texts::answer_relayed(secretary, outcome["task_id"].as_str().unwrap_or_default(), body))
+        }
     }
 }
 
@@ -67,6 +70,8 @@ pub fn notice(secretary: &str, invocation: &Invocation) -> Option<String> {
 mod tests {
     use super::*;
     use crate::hub::engine::board_query::BoardQuery;
+    use crate::hub::engine::relay::QuestionSelector;
+    use serde_json::json;
 
     /// Una chiamata valida per ogni tool, nell'ordine canonico.
     fn one_of_each() -> [Invocation; 8] {
@@ -78,7 +83,7 @@ mod tests {
             Invocation::PostMessage { body: "Controllo.".into() },
             Invocation::OpenPlanTask { goal: "Add a login page".into() },
             Invocation::DecideProposal { accept: true },
-            Invocation::RelayAnswer { body: "Use Postgres.".into() },
+            Invocation::RelayAnswer { body: "Use Postgres.".into(), selector: QuestionSelector::default() },
         ]
     }
 
@@ -122,7 +127,7 @@ mod tests {
     #[test]
     fn only_changes_not_visible_in_the_thread_leave_a_notice() {
         assert_eq!(
-            one_of_each().map(|i| notice("mario", &i)),
+            one_of_each().map(|i| notice("mario", &i, &json!({ "task_id": "t-7" }))),
             [
                 None,
                 None,
@@ -131,7 +136,7 @@ mod tests {
                 None,
                 None,
                 None,
-                Some("@mario ha inviato al worker questa risposta:\nUse Postgres.".into())
+                Some("@mario ha inviato al worker del task t-7 questa risposta:\nUse Postgres.".into())
             ]
         );
     }

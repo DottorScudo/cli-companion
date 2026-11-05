@@ -52,8 +52,11 @@ pub fn tool_rejected(name: &str, rejection: &ToolRejection) -> String {
 
 /// Il segretario ha consegnato al worker una risposta per conto dell'utente
 /// (`relay_answer`): il thread mostra esattamente cosa e' stato inviato.
-pub fn answer_relayed(name: &str, body: &str) -> String {
-    format!("@{name} ha inviato al worker questa risposta:\n{body}")
+pub fn answer_relayed(name: &str, task_id: &str, body: &str) -> String {
+    format!(
+        "@{name} ha inviato al worker del task {task_id} questa risposta:
+{body}"
+    )
 }
 
 /// La chiamata al modello e' fallita.
@@ -114,8 +117,9 @@ mod tests {
         );
         assert!(step_limit("mario", 8).contains("dopo 8 passi"));
         assert_eq!(
-            answer_relayed("mario", "Usa Postgres."),
-            "@mario ha inviato al worker questa risposta:\nUsa Postgres."
+            answer_relayed("mario", "t-7", "Usa Postgres."),
+            "@mario ha inviato al worker del task t-7 questa risposta:
+Usa Postgres."
         );
     }
 }

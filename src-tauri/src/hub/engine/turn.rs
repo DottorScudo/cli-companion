@@ -13,6 +13,7 @@ use super::audit::{self, MutationBudget};
 use super::board_query::BoardQuery;
 use super::chat::{ChatMessage, ChatModel, ChatRequest, ModelError, ModelReply, ToolCall};
 use super::context;
+use super::relay::QuestionSelector;
 use super::texts;
 use super::thread_page::ThreadPage;
 use super::tools::{self, Invocation};
@@ -54,8 +55,12 @@ pub trait TurnHost: Send + Sync {
     fn open_plan_task(&self, goal: String) -> impl Future<Output = Result<Value, String>> + Send;
     /// Decide la proposta a cui risponde il messaggio del turno (vedi `planning::decide`).
     fn decide_proposal(&self, accept: bool) -> impl Future<Output = Result<Value, String>> + Send;
-    /// Consegna la risposta all'unica domanda in attesa del thread (vedi `relay::relay`).
-    fn relay_answer(&self, body: String) -> impl Future<Output = Result<Value, String>> + Send;
+    /// Consegna la risposta alla domanda in attesa scelta dal selettore (vedi `relay::relay`).
+    fn relay_answer(
+        &self,
+        selector: QuestionSelector,
+        body: String,
+    ) -> impl Future<Output = Result<Value, String>> + Send;
     /// Scrive un messaggio di sistema (in italiano) nel thread.
     fn notice(&self, text: String) -> impl Future<Output = ()> + Send;
 }
@@ -127,11 +132,11 @@ async fn execute<H: TurnHost>(host: &H, secretary: &Secretary, call: &ToolCall, 
             Err(rejection.for_model())
         }
         Ok(invocation) => {
-            let (tool, notice) = (invocation.tool(), audit::notice(&secretary.name, &invocation));
+            let audited = invocation.clone();
             let outcome = invoke(host, invocation).await;
-            if outcome.is_ok() {
-                budget.record(tool);
-                if let Some(text) = notice {
+            if let Ok(value) = &outcome {
+                budget.record(audited.tool());
+                if let Some(text) = audit::notice(&secretary.name, &audited, value) {
                     host.notice(text).await;
                 }
             }
@@ -154,7 +159,7 @@ async fn invoke<H: TurnHost>(host: &H, invocation: Invocation) -> Result<Value, 
         Invocation::PostMessage { body } => host.post_message(body).await.map(|()| json!({ "posted": true })),
         Invocation::OpenPlanTask { goal } => host.open_plan_task(goal).await,
         Invocation::DecideProposal { accept } => host.decide_proposal(accept).await,
-        Invocation::RelayAnswer { body } => host.relay_answer(body).await,
+        Invocation::RelayAnswer { body, selector } => host.relay_answer(selector, body).await,
     }
 }
 

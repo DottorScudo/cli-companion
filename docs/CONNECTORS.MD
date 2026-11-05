@@ -426,7 +426,7 @@ elemento esterno, **ma solo tramite la regola** che lo ha consegnato (`wake`), m
   nessuno. `wake: "owner"` sveglia il titolare del thread (`HubThread.owner`, come `route_event`), `secretary:<nome>`
   quel segretario se configurato e ammesso nel canale, altrimenti nulla (riga nel log, come `on_events`).
 - **Turni con poteri ridotti.** Un turno con `WakeCause::External` non può usare `decide_proposal` né
-  `relay_answer`: `planning::proposal_target` e `relay::relay_target` escludono esplicitamente ogni motivo diverso
+  `relay_answer`: `planning::proposal_target` e `relay::relay_candidates` escludono esplicitamente ogni motivo diverso
   da `Message` e gli errori per il modello nominano anche il contenuto esterno. Sull'`open_plan_task` vedi
   "Domande aperte".
 - **Contenuto non fidato.** Per il modello (`engine/output.rs`, quindi anche `thread_read` e il contesto del

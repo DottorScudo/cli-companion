@@ -1,7 +1,10 @@
 use super::*;
+use crate::board::ANSWER_MAX;
 use crate::board::{TaskKind, TaskStatus};
 use crate::hub::engine::board_query::{PAGE_DEFAULT, PAGE_MAX, QUERY_MAX};
+use crate::hub::engine::relay::QuestionSelector;
 use crate::hub::engine::thread_page::{ThreadPage, MESSAGE_ID_MAX};
+use crate::hub::engine::tools::relay_answer::QUESTION_ID_MAX;
 use crate::hub::engine::tools::task_details::TASK_ID_MAX;
 use crate::hub::engine::workspace_names::REFERENCE_MAX;
 use crate::hub::settings::SecretaryChannels;
@@ -53,7 +56,7 @@ fn schema_properties_match_the_argument_structs() {
         ("post_message", json!({"body": "x"})),
         ("open_plan_task", json!({"goal": "Add a dark theme"})),
         ("decide_proposal", json!({"accept": true})),
-        ("relay_answer", json!({"body": "Use the second option."})),
+        ("relay_answer", json!({"body": "Use the second option.", "question_id": "q-1-1", "task_id": "t-1"})),
     ];
     for (name, sample) in samples {
         let tool = SecretaryTool::ALL.into_iter().find(|t| t.code() == name).unwrap();
@@ -147,16 +150,39 @@ fn the_planning_tools_validate_their_arguments() {
 }
 
 #[test]
-fn relay_answer_takes_only_a_body_within_the_answer_limit() {
+fn relay_answer_takes_a_body_within_the_answer_limit_and_optional_ids() {
     let s = secretary(&SecretaryTool::ALL);
     assert_eq!(
         parse(&call("relay_answer", r#"{"body":"  Usa Postgres.  "}"#), &s),
-        Ok(Invocation::RelayAnswer { body: "Usa Postgres.".into() })
+        Ok(Invocation::RelayAnswer { body: "Usa Postgres.".into(), selector: QuestionSelector::default() })
+    );
+    assert_eq!(
+        parse(&call("relay_answer", r#"{"body":"x","question_id":" q-1-1 ","task_id":"t-2"}"#), &s),
+        Ok(Invocation::RelayAnswer {
+            body: "x".into(),
+            selector: QuestionSelector { question_id: Some("q-1-1".into()), task_id: Some("t-2".into()) }
+        })
+    );
+    assert_eq!(
+        parse(&call("relay_answer", r#"{"body":"x","question_id":"  ","task_id":""}"#), &s),
+        Ok(Invocation::RelayAnswer { body: "x".into(), selector: QuestionSelector::default() }),
+        "un id vuoto vale assente"
     );
     let at_limit = json!({ "body": "é".repeat(ANSWER_MAX) }).to_string();
     assert!(parse(&call("relay_answer", &at_limit), &s).is_ok());
     let too_long = json!({ "body": "é".repeat(ANSWER_MAX + 1) }).to_string();
-    for args in ["{}", r#"{"body":"   "}"#, r#"{"body":"x","question_id":"q-1-1"}"#, too_long.as_str()] {
+    let long_question = json!({ "body": "x", "question_id": "q".repeat(QUESTION_ID_MAX + 1) }).to_string();
+    let long_task = json!({ "body": "x", "task_id": "t".repeat(TASK_ID_MAX + 1) }).to_string();
+    let bad = [
+        "{}",
+        r#"{"body":"   "}"#,
+        r#"{"body":"x","question_id":7}"#,
+        r#"{"body":"x","other":"q-1-1"}"#,
+        too_long.as_str(),
+        long_question.as_str(),
+        long_task.as_str(),
+    ];
+    for args in bad {
         let err = parse(&call("relay_answer", args), &s).unwrap_err();
         assert!(matches!(err, ToolRejection::InvalidArguments { tool: SecretaryTool::RelayAnswer, .. }), "{args}");
     }

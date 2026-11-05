@@ -162,12 +162,13 @@ fn clip_tests(report: &mut Map<String, Value>, text: &mut TextBudget) {
     *runs = kept;
 }
 
-/// La domanda del worker in attesa: testo (tagliato) e risposte suggerite.
+/// La domanda del worker in attesa: id (per `relay_answer`), testo (tagliato)
+/// e risposte suggerite.
 fn clip_question(task: &mut Map<String, Value>, text: &mut TextBudget) {
     let Some(Value::Object(question)) = task.get_mut("question") else {
         return;
     };
-    question.retain(|key, _| key == "text" || key == "options");
+    question.retain(|key, _| matches!(key.as_str(), "id" | "text" | "options"));
     clip_string(question, "text", QUESTION_CAP, text);
     clip_strings(question, "options", text);
 }
@@ -280,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn the_pending_question_shows_its_text_and_options_only() {
+    fn the_pending_question_shows_its_id_text_and_options_only() {
         let mut v = board(|_| {});
         v.question = Some(TaskQuestion {
             id: "q-1-1".into(),
@@ -292,7 +293,10 @@ mod tests {
             answer: None,
         });
         let out = details(&v);
-        assert_eq!(out["question"], json!({"text": "Which database?", "options": ["Postgres", "SQLite"]}));
+        assert_eq!(
+            out["question"],
+            json!({"id": "q-1-1", "text": "Which database?", "options": ["Postgres", "SQLite"]})
+        );
     }
 
     #[test]

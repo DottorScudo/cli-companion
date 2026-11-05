@@ -15,7 +15,7 @@ use super::chat::ModelError;
 use super::openai::OpenAiModel;
 use super::output;
 use super::planning::{self, PlanTicket, ProposalBoard, ProposalRef};
-use super::relay;
+use super::relay::{self, QuestionSelector, RelayCandidates};
 use super::runtime::SecretaryEngine;
 use super::sessions::ThreadKey;
 use super::thread_page::ThreadPage;
@@ -215,7 +215,7 @@ pub struct AppTurnHost<'a> {
     pub proposal: Option<ProposalRef>,
     /// La domanda a cui il turno puo' rispondere, o perche' non ce n'e' una
     /// (`relay::relay_target`).
-    pub question: Result<QuestionRef, &'static str>,
+    pub question: RelayCandidates,
     /// I workspace all'inizio del turno, per parlarne col nome.
     pub names: &'a WorkspaceNames,
 }
@@ -303,8 +303,8 @@ impl TurnHost for AppTurnHost<'_> {
         self.io.decide_proposal(self.proposal.clone(), accept).await
     }
 
-    async fn relay_answer(&self, body: String) -> Result<Value, String> {
-        self.io.relay_answer(self.question.clone(), body).await
+    async fn relay_answer(&self, selector: QuestionSelector, body: String) -> Result<Value, String> {
+        self.io.relay_answer(relay::choose(&self.question, &selector), body).await
     }
 
     async fn notice(&self, text: String) {

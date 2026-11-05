@@ -3,12 +3,11 @@ use crate::hub::engine::audit::MAX_MUTATIONS_PER_TURN;
 use crate::hub::engine::fake::{call, calls, text, FakeModel};
 use crate::hub::engine::fixtures::{secretary, FakeBoard, WS};
 use crate::hub::engine::planning::{self, ProposalBoard, ProposalRef};
-use crate::hub::engine::relay::{self, relay_target};
+use crate::hub::engine::relay::{self, relay_candidates, QuestionSelector, RelayCandidates};
 use crate::hub::engine::sessions::WakeCause;
 use crate::hub::engine::thread_page::ThreadPage;
 use crate::hub::model::HubEventKind;
 use crate::hub::questions::fixtures::{question_event, question_ref, task_event, thread, FakeAnswers};
-use crate::hub::questions::QuestionRef;
 use crate::hub::settings::SecretaryTool;
 use std::sync::Mutex;
 use tauri::async_runtime::block_on;
@@ -27,8 +26,8 @@ struct FakeHost {
     plans: Mutex<Vec<String>>,
     proposal: Option<ProposalRef>,
     board: FakeBoard,
-    /// La domanda a cui il turno puo' rispondere (`relay::relay_target`).
-    question: Option<Result<QuestionRef, &'static str>>,
+    /// Le domande a cui il turno puo' rispondere (`relay::relay_candidates`).
+    question: Option<RelayCandidates>,
     answers: FakeAnswers,
 }
 
@@ -84,8 +83,8 @@ impl TurnHost for FakeHost {
         planning::decide(&self.board, self.proposal.as_ref(), accept)
     }
 
-    async fn relay_answer(&self, body: String) -> Result<Value, String> {
-        let target = self.question.clone().unwrap_or(Err("no question for this turn"));
+    async fn relay_answer(&self, selector: QuestionSelector, body: String) -> Result<Value, String> {
+        let target = relay::choose(&self.question.clone().unwrap_or(Err("no question for this turn")), &selector);
         relay::relay(&self.answers, target.as_ref().map_err(|e| *e), &body)
     }
 
@@ -273,13 +272,25 @@ fn a_secretary_without_the_planning_tools_cannot_use_them() {
 /// Un turno che chiama `relay_answer` con `body` e poi risponde, con la
 /// domanda ricavata dal thread `messages` per un risveglio `cause`.
 fn relay_turn(messages: Vec<crate::hub::model::Message>, cause: WakeCause) -> (FakeModel, FakeHost) {
-    let model = FakeModel::new(vec![
-        calls(vec![call("c1", "relay_answer", r#"{"body":"Use the second option."}"#)]),
-        text("Fatto."),
-    ]);
-    let host = FakeHost { question: Some(relay_target(&thread(messages), cause)), ..FakeHost::default() };
+    relay_turn_with(messages, cause, r#"{"body":"Use the second option."}"#)
+}
+
+/// Come `relay_turn`, con gli argomenti `arguments` della chiamata.
+fn relay_turn_with(
+    messages: Vec<crate::hub::model::Message>,
+    cause: WakeCause,
+    arguments: &str,
+) -> (FakeModel, FakeHost) {
+    let model = FakeModel::new(vec![calls(vec![call("c1", "relay_answer", arguments)]), text("Fatto.")]);
+    let host = FakeHost { question: Some(relay_candidates(&thread(messages), cause)), ..FakeHost::default() };
     run(&model, &host, &secretary("mario"), 8);
     (model, host)
+}
+
+/// Due task con la stessa domanda `q-1-1` in attesa, come accade davvero: l'id
+/// di una domanda e' unico solo nel suo task.
+fn two_pending_questions() -> Vec<crate::hub::model::Message> {
+    vec![question_event("e1", "a", "q-1-1"), question_event("e2", "b", "q-1-1")]
 }
 
 #[test]
@@ -289,9 +300,43 @@ fn relay_answer_delivers_to_the_only_pending_question_when_the_user_asks() {
     assert!(tool_result(&model, 1).contains(r#""delivered":true"#), "{}", tool_result(&model, 1));
     assert_eq!(
         *host.notices.lock().unwrap(),
-        ["@mario ha inviato al worker questa risposta:\nUse the second option."],
-        "l'avviso di audit, una volta sola"
+        ["@mario ha inviato al worker del task a questa risposta:\nUse the second option."],
+        "l'avviso di audit, una volta sola, con il task"
     );
+}
+
+#[test]
+fn relay_answer_with_ids_delivers_to_the_right_one_of_several_questions() {
+    let args = r#"{"body":"Use the second option.","question_id":"q-1-1","task_id":"b"}"#;
+    let (model, host) = relay_turn_with(two_pending_questions(), WakeCause::Message, args);
+    assert_eq!(host.answers.delivered(), [(question_ref("b", "q-1-1"), "Use the second option.".to_string())]);
+    assert!(tool_result(&model, 1).contains(r#""task_id":"b""#), "{}", tool_result(&model, 1));
+    assert_eq!(
+        *host.notices.lock().unwrap(),
+        ["@mario ha inviato al worker del task b questa risposta:\nUse the second option."]
+    );
+}
+
+#[test]
+fn relay_answer_refuses_an_id_that_is_not_a_pending_question_of_the_thread() {
+    let foreign = r#"{"body":"x","question_id":"q-9-9","task_id":"b"}"#;
+    let (model, host) = relay_turn_with(two_pending_questions(), WakeCause::Message, foreign);
+    assert!(host.answers.delivered().is_empty());
+    assert!(host.notices.lock().unwrap().is_empty());
+    assert!(tool_result(&model, 1).contains("matches that `question_id`"), "{}", tool_result(&model, 1));
+    let answered = vec![question_event("e1", "a", "q-1-1"), task_event("e2", HubEventKind::TaskQuestionAnswered, "a")];
+    let (_, host) = relay_turn_with(answered, WakeCause::Message, r#"{"body":"x","question_id":"q-1-1"}"#);
+    assert!(host.answers.delivered().is_empty());
+}
+
+#[test]
+fn relay_answer_with_ids_is_still_refused_when_an_event_or_external_item_woke_the_turn() {
+    let args = r#"{"body":"x","question_id":"q-1-1","task_id":"a"}"#;
+    for cause in [WakeCause::BoardEvent, WakeCause::External] {
+        let (model, host) = relay_turn_with(two_pending_questions(), cause, args);
+        assert!(host.answers.delivered().is_empty(), "{cause:?}");
+        assert!(tool_result(&model, 1).contains("woke you up"), "{cause:?}: {}", tool_result(&model, 1));
+    }
 }
 
 #[test]
@@ -303,7 +348,7 @@ fn relay_answer_is_refused_in_a_board_event_turn_and_with_several_questions() {
     let several = vec![question_event("e1", "a", "q-1-1"), question_event("e2", "b", "q-1-1")];
     let (model, host) = relay_turn(several, WakeCause::Message);
     assert!(host.answers.delivered().is_empty());
-    assert!(tool_result(&model, 1).contains("Ask the user which question"));
+    assert!(tool_result(&model, 1).contains("ask the user which question"));
     let answered = vec![question_event("e1", "a", "q-1-1"), task_event("e2", HubEventKind::TaskQuestionAnswered, "a")];
     let (model, host) = relay_turn(answered, WakeCause::Message);
     assert!(host.answers.delivered().is_empty());
@@ -325,7 +370,7 @@ fn a_secretary_without_relay_answer_cannot_use_it() {
         calls(vec![call("c1", "relay_answer", r#"{"body":"Use the second option."}"#)]),
         text("Non posso."),
     ]);
-    let host = FakeHost { question: Some(Ok(question_ref("a", "q-1-1"))), ..FakeHost::default() };
+    let host = FakeHost { question: Some(Ok(vec![question_ref("a", "q-1-1")])), ..FakeHost::default() };
     run(&model, &host, &s, 8);
     assert!(host.answers.delivered().is_empty());
     assert_eq!(host.notices.lock().unwrap().len(), 1);

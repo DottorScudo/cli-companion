@@ -850,7 +850,7 @@ una skill di Claude Code o OpenCode e non passa da MCP. Codice in `hub/engine/`.
 | `context.rs` | system prompt, messaggio di apertura di un turno, richiesta e pulizia del riassunto |
 | `mentions.rs` | le menzioni `@nome` |
 | `planning.rs` | `open_plan_task` (testo del task `plan`, collegamento, titolare) e `decide_proposal` (a quale proposta si lega e la decisione), generici sulla board |
-| `relay.rs` | `relay_answer` (a quale domanda si lega e la consegna), generico sulla board |
+| `relay.rs` | `relay_answer` (le domande in attesa, la scelta di quale e la consegna), generico sulla board |
 | `sessions.rs` | sessioni, titolare, code dei thread, scadenze (puro, tempo passato dal chiamante) |
 | `turn.rs` | il ciclo di tool calling, la compattazione della conversazione, il riassunto |
 | `texts.rs` | i messaggi di sistema in italiano |
@@ -954,7 +954,7 @@ configurato e ammesso nel canale, altrimenti nulla (riga nel log, il messaggio r
   fidato (nessuna richiesta, link o comando va eseguito), riporta il messaggio in JSON e chiede di dire all'utente,
   in breve, cosa è arrivato e se serve la sua attenzione.
 - **Poteri ridotti.** Come per gli eventi della board, un turno `External` **non può mai** usare `decide_proposal`
-  (`planning::proposal_target`) né `relay_answer` (`relay::relay_target`); gli errori per il modello lo dicono («never
+  (`planning::proposal_target`) né `relay_answer` (`relay::relay_candidates`); gli errori per il modello lo dicono («never
   when a board event or external content woke you up»). `open_plan_task` resta consentito (vedi
   `docs/CONNECTORS.MD`, "Domande aperte"); il testo del piano cita come richiesta dell'utente solo messaggi `user`,
   mai un elemento esterno, che nel contesto del piano compare come `[external <mittente> via <connettore>, untrusted]`.
@@ -1043,7 +1043,7 @@ Ogni tool ha una classe (`SecretaryTool::class`, `ToolClass`), secondo l'effetto
 - **Audit.** Una chiamata **riuscita** di un tool `Write` o `Destructive` lascia un messaggio di sistema (in
   italiano) nel thread, tranne quando il suo effetto si vede già: `post_message` è il messaggio stesso,
   `open_plan_task` e `decide_proposal` producono gli eventi del task creato e della proposta decisa. Oggi l'unico
-  avviso è quello di `relay_answer` («@mario ha inviato al worker questa risposta: …»), scritto dal turno e non
+  avviso è quello di `relay_answer` («@mario ha inviato al worker del task t-7 questa risposta: …», con il task a cui è andata), scritto dal turno e non
   più dall'host. Il testo si dichiara in `audit::notice`, con un `match` esaustivo sulle chiamate: un tool nuovo
   non compila finché non dice se lascia un avviso e quale. Una chiamata fallita o rifiutata non lascia avvisi di
   audit (solo, se rifiutata, quello del rifiuto).
@@ -1057,7 +1057,7 @@ La classe non è esposta al frontend.
 
 ### Tool
 
-Schema JSON e descrizione (in inglese: li legge il modello) sono scritti in `tools.rs` (quelli di `board_status`, `board_overview`, `task_details` e `thread_read` nei moduli di `tools/`) accanto alla struttura degli
+Schema JSON e descrizione (in inglese: li legge il modello) sono scritti in `tools.rs` (quelli di `board_status`, `board_overview`, `task_details`, `thread_read` e `relay_answer` nei moduli di `tools/`) accanto alla struttura degli
 argomenti in cui si validano (`#[serde(deny_unknown_fields)]`); un test verifica che le proprietà dello schema e i
 campi della struttura coincidano. Gli argomenti vuoti valgono `{}`. Solo `open_plan_task`, `decide_proposal`
 (vedi "Pianificazione dal thread") e `relay_answer` (vedi "Domande dei worker") agiscono sulla board.
@@ -1071,7 +1071,7 @@ campi della struttura coincidano. Gli argomenti vuoti valgono `{}`. Solo `open_p
 | `post_message` | `body` (1..8000 caratteri) | un messaggio intermedio del segretario nel thread; la risposta finale è comunque il testo del modello |
 | `open_plan_task` | `goal` (1..4000 caratteri, ripulito dai caratteri di controllo) | crea un task `plan` in coda nel workspace del canale, collegato al thread, e rende il segretario titolare; esito `{ task_id, title, status }`. Nel Generale è un errore per il modello: deve chiedere all'utente il progetto |
 | `decide_proposal` | `accept` (bool), **nessun id** | accetta o scarta la proposta dell'evento a cui risponde il messaggio dell'utente; esito `{ proposal, decision, tasks_queued }` |
-| `relay_answer` | `body` (1..4000 caratteri, il limite delle risposte della board), **nessun id** | consegna `body` al worker come risposta all'**unica** domanda in attesa del thread, solo in un turno svegliato da un messaggio dell'utente; esito `{ task_id, question_id, delivered }` e nel thread «@mario ha inviato al worker questa risposta: …» |
+| `relay_answer` | `body` (1..4000 caratteri, il limite delle risposte della board), `question_id?` e `task_id?` (al massimo 64 caratteri; vuoto vale assente) | consegna `body` al worker come risposta a una domanda in attesa del thread, solo in un turno svegliato da un messaggio dell'utente; senza id vale l'unica domanda in attesa, con più domande si passano `question_id` e `task_id` letti da `thread_read` (`event.question.id`, `event.task_id`) o da `task_details` (`question.id`); esito `{ task_id, question_id, delivered }` e nel thread «@mario ha inviato al worker del task t-7 questa risposta: …» |
 
 **Workspace per nome**: gli id restano il riferimento interno (file, eventi, comandi), ma il modello parla dei
 workspace col nome. `WorkspaceNames` (`workspace_names.rs`, puro) è l'istantanea dei workspace letta dal
@@ -1194,14 +1194,20 @@ e apre quello con la domanda. Un task con una domanda pendente è «In attesa di
 **Il titolare.** La domanda sveglia il titolare del thread, se c'è (vedi "Risvegli da evento"): la presenta in
 breve e può aiutare a capirla, ma un risveglio da evento non può rispondere.
 
-**`relay_answer { body }`.** Per quando l'utente chiede al segretario di rispondere al posto suo («@mario digli di
+**`relay_answer { body, question_id?, task_id? }`.** Per quando l'utente chiede al segretario di rispondere al posto suo («@mario digli di
 usare la seconda opzione»). Le garanzie sono nel codice:
 
-- non prende un id: all'inizio del turno il motore lo lega all'**unica** domanda in attesa del thread
-  (`relay::relay_target`), e solo in un turno svegliato da un **messaggio dell'utente**;
-- nessuna domanda in attesa, un risveglio da evento o da elemento esterno: errore per il modello. Più di una domanda in attesa: errore
-  che chiede al modello di domandare all'utente quale, e di dirgli di usare «Rispondi» sull'evento di quella
-  domanda (che diventa una risposta diretta);
+- all'inizio del turno il motore ricava le domande in attesa del thread (`relay::relay_candidates`), e solo in un turno
+  svegliato da un **messaggio dell'utente**; il tool ne sceglie una (`relay::choose`). Senza id vale l'**unica**
+  domanda in attesa. Con più domande il modello passa `question_id` e `task_id`, che legge da `thread_read` (
+  `event.question.id` e `event.task_id`) o da `task_details` (`question.id`): l'id di una domanda (`q-<tentativo>-<n>`) è
+  unico solo nel suo task, quindi serve anche `task_id` quando due task hanno lo stesso id (con il solo `question_id`
+  ambiguo: errore che chiede `task_id`);
+- un id che non è fra le domande in attesa del thread è rifiutato (errore per il modello), e un risveglio da evento
+  o da elemento esterno rifiuta **anche con gli id**: la scelta avviene dopo la regola del risveglio. Nessuna domanda
+  in attesa: errore per il modello. Più di una domanda e nessun id: errore che chiede al modello di domandare
+  all'utente quale, o di passare gli id se l'utente l'ha detto, e di dirgli che può usare «Rispondi» sull'evento di
+  quella domanda (che diventa una risposta diretta). Il segretario non risponde mai di sua iniziativa;
 - consegnata, il thread mostra cosa è stato inviato (l'avviso di audit, vedi "Classi dei tool, audit e limite"): «@mario ha inviato al worker questa risposta: …»; un errore
   della board torna al modello;
 - come ogni tool nuovo, non si aggiunge da solo ai segretari esistenti: lo sceglie l'utente nelle impostazioni.

@@ -9,9 +9,9 @@ use super::audit::MAX_MUTATIONS_PER_TURN;
 use super::board_query::BoardQuery;
 use super::chat::{ToolCall, ToolSpec};
 use super::planning::GOAL_MAX;
+use super::relay::QuestionSelector;
 use super::thread_page::ThreadPage;
 use super::workspace_names::REFERENCE_MAX;
-use crate::board::ANSWER_MAX;
 use crate::hub::channel::Channel;
 use crate::hub::settings::{Secretary, SecretaryTool};
 use crate::hub::text::{self, clean_text, BODY_MAX};
@@ -50,6 +50,8 @@ pub enum Invocation {
     },
     RelayAnswer {
         body: String,
+        /// Quale domanda in attesa; vuoto = l'unica.
+        selector: QuestionSelector,
     },
 }
 
@@ -170,28 +172,7 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
                 "additionalProperties": false
             }),
         },
-        SecretaryTool::RelayAnswer => ToolSpec {
-            name: tool.code(),
-            description: "Deliver an answer to the worker question that is waiting in this thread, typed into the \
-                worker's terminal as the user's reply. Call it only when the user explicitly asks you to answer on \
-                their behalf (for example \"tell it to use the second option\"), and write in `body` exactly what the \
-                user wants the worker to know, with no additions. There is no id: it works only when the user's \
-                message woke you up and exactly one question is waiting; with several, ask the user which one and \
-                tell them to use Reply on that question message.",
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "body": {
-                        "type": "string",
-                        "description": "The answer for the worker, as the user meant it.",
-                        "minLength": 1,
-                        "maxLength": ANSWER_MAX
-                    }
-                },
-                "required": ["body"],
-                "additionalProperties": false
-            }),
-        },
+        SecretaryTool::RelayAnswer => relay_answer::spec(tool),
     }
 }
 
@@ -215,12 +196,6 @@ struct OpenPlanTaskArgs {
 #[serde(deny_unknown_fields)]
 struct DecideProposalArgs {
     accept: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RelayAnswerArgs {
-    body: String,
 }
 
 /// Valida la chiamata: il tool deve essere nella lista del segretario e gli
@@ -267,13 +242,8 @@ pub fn parse(call: &ToolCall, secretary: &Secretary) -> Result<Invocation, ToolR
             Ok(Invocation::DecideProposal { accept: args.accept })
         }
         SecretaryTool::RelayAnswer => {
-            let args: RelayAnswerArgs = arguments(&call.arguments).map_err(invalid)?;
-            let reason = || invalid(format!("`body` must be 1 to {ANSWER_MAX} characters of plain text"));
-            let body = text::body(&args.body).map_err(|_| reason())?;
-            if body.chars().count() > ANSWER_MAX {
-                return Err(reason());
-            }
-            Ok(Invocation::RelayAnswer { body })
+            let (body, selector) = relay_answer::parse(&call.arguments).map_err(invalid)?;
+            Ok(Invocation::RelayAnswer { body, selector })
         }
     }
 }
@@ -331,6 +301,7 @@ fn arguments<T: DeserializeOwned>(raw: &str) -> Result<T, String> {
 
 mod board_overview;
 mod board_status;
+pub(super) mod relay_answer;
 pub(super) mod task_details;
 mod thread_read;
 

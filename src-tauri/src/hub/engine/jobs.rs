@@ -9,7 +9,7 @@ use super::chat::{ChatMessage, ModelError};
 use super::context::{self, Trigger};
 use super::host::{AppTurnHost, ThreadIo};
 use super::planning::proposal_target;
-use super::relay::relay_target;
+use super::relay::relay_candidates;
 use super::runtime::SecretaryEngine;
 use super::sessions::{usable, Job, ThreadKey};
 use super::texts;
@@ -68,7 +68,7 @@ async fn reply(app: &AppHandle, key: &ThreadKey, name: &str, mut trigger: Trigge
     };
     let names = current_workspace_names(app);
     let proposal = proposal_target(&thread, trigger.id, trigger.cause);
-    let question = relay_target(&thread, trigger.cause);
+    let question = relay_candidates(&thread, trigger.cause);
     trigger.proposal = proposal.as_ref().map(|p| p.proposal_id.as_str());
     let Some(opening) = context::turn_message(&thread, &trigger, turn.last_seen.as_deref(), name, &names) else {
         log::warn!("hub: messaggio {} non piu' nel thread, turno di {name} saltato", trigger.id);
