@@ -37,7 +37,8 @@
 //! - `append`: l'aggiunta di un messaggio di testo con salvataggio ed evento;
 //! - `commands`: i comandi dei thread e l'evento;
 //! - `events`: gli eventi della board nei thread (diff, instradamento, `HubFeed`);
-//! - `engine`: il motore dei segretari (menzioni, sessioni, tool calling).
+//! - `engine`: il motore dei segretari (menzioni, sessioni, tool calling);
+//! - `notify`: le notifiche di sistema dei messaggi dei thread (evento `hub-notify`).
 
 mod actions;
 mod api_key;
@@ -49,6 +50,7 @@ pub mod engine;
 mod events;
 mod files;
 mod model;
+mod notify;
 mod questions;
 pub mod settings;
 mod state;
@@ -60,6 +62,7 @@ pub use actions::{BoardActions, HubBoardActions};
 pub use api_key::ApiKey;
 pub use engine::SecretaryEngine;
 pub use events::{BoardSource, HubFeed};
+pub use notify::{validate_thread_ref, HubNotifier};
 pub use settings::{load_from_disk, new_store as new_settings_store};
 pub use state::HubState;
 

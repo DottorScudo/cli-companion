@@ -8,8 +8,9 @@ import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Field, fieldGridClass } from "../shared";
 import HubAccordion from "./HubAccordion";
+import NotificationsToggle from "./NotificationsToggle";
 
-/** Accordion «Sessioni dei segretari»: quando tornano a dormire e quanti passi fanno a ogni risveglio. */
+/** Accordion «Sessioni dei segretari»: quando tornano a dormire, quanti passi fanno a ogni risveglio e le notifiche di sistema. */
 export default function SessionSection({ settings }: { settings: HubSettingsView }) {
   const { idle_minutes, max_steps } = settings.session;
   const [idle, setIdle] = useState(String(idle_minutes));
@@ -86,6 +87,7 @@ export default function SessionSection({ settings }: { settings: HubSettingsView
           {error && <p className="min-w-0 text-[11px] text-destructive">{error}</p>}
         </div>
       </form>
+      <NotificationsToggle settings={settings} />
     </HubAccordion>
   );
 }

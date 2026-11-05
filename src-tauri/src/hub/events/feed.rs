@@ -26,6 +26,7 @@ use crate::board::BoardView;
 use crate::hub::channel::Channel;
 use crate::hub::commands::{emit_update, ensure_channel, threads_dir_of};
 use crate::hub::engine::SecretaryEngine;
+use crate::hub::notify::HubNotifier;
 use crate::hub::settings::is_enabled;
 use crate::hub::state::HubState;
 use std::collections::hash_map::Entry;
@@ -164,7 +165,8 @@ fn run(app: &AppHandle, receiver: Receiver<FeedMsg>) {
 
 /// Scrive gli eventi nei thread del canale del workspace ed emette
 /// `hub-update` per ogni thread toccato; poi, salvati i thread e rilasciato il
-/// loro lock, sveglia i titolari (`SecretaryEngine::on_events`). Nessun
+/// loro lock, offre le notifiche di sistema (`HubNotifier`) e sveglia i
+/// titolari (`SecretaryEngine::on_events`). Nessun
 /// salvataggio se nessun thread cambia (per esempio un task eliminato che non
 /// aveva un thread).
 fn apply(app: &AppHandle, board: &BoardSnapshot, events: &[BoardEvent]) -> Result<(), String> {
@@ -188,6 +190,12 @@ fn apply(app: &AppHandle, board: &BoardSnapshot, events: &[BoardEvent]) -> Resul
     )?;
     for summary in &routed.touched {
         emit_update(app, summary);
+    }
+    let notifier = app.state::<HubNotifier>();
+    for notice in &routed.notices {
+        if let Some(summary) = routed.touched.iter().find(|s| s.id == notice.thread_id) {
+            notifier.notify(app, summary, notice.kind.clone(), &notice.text);
+        }
     }
     app.state::<SecretaryEngine>().on_events(app, &channel, &routed.wakes);
     Ok(())

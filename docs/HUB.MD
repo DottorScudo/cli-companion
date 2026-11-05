@@ -17,7 +17,7 @@ sono in [DESIGN.MD](DESIGN.MD), "`hub/`".
 
 `hub_settings.json` nella cartella dati dell'app: `enabled` è `false` di default, nella busta di `store/`
 (`{schema_version, data}`, prima versione con `adopt_envelope`). La struttura ha `#[serde(default)]`: i campi
-della tappa 2 (`provider`, `language`, `session`, `secretaries`, vedi "Segretari e provider") si sono aggiunti
+della tappa 2 (`provider`, `language`, `session`, `secretaries`, vedi "Segretari e provider") e `notifications` (acceso di default, vedi "Notifiche") si sono aggiunti
 senza migrazione e un file della tappa 1 (`{ "enabled": true }`) si legge senza perdere `enabled`.
 
 Con l'HUB **spento** (default):
@@ -245,6 +245,7 @@ Validano gli argomenti per primi e fanno l'I/O in `crate::blocking`. Wrapper nel
 | `hub_set_api_key` | `key` | `HubSettingsView` (la chiave va nel portachiavi) |
 | `hub_clear_api_key` | — | `HubSettingsView`; nessun errore se non c'era |
 | `hub_set_language` | `language` | `HubSettingsView` |
+| `hub_set_notifications` | `enabled` | `HubSettingsView`; notifiche di sistema dei thread (vedi "Notifiche") |
 | `hub_set_session` | `idle_minutes`, `max_steps` | `HubSettingsView` |
 | `hub_create_secretary` | `name`, `system_prompt`, `tools`, `channels` (`null` = tutti), `preset` (`null` = da zero) | `HubSettingsView`; nuovo segretario in fondo, senza immagine; `preset` sconosciuto rifiutato |
 | `hub_list_secretary_presets` | — | `HubSecretaryPreset[]`: id, etichetta, descrizione, nome suggerito, prompt e tool dei tre preset (vedi "Segretari predefiniti") |
@@ -257,6 +258,7 @@ Validano gli argomenti per primi e fanno l'I/O in `crate::blocking`. Wrapper nel
 | `hub_get_thread` | `channel`, `thread_id` | `HubThread` con i messaggi |
 | `hub_create_thread` | `channel`, `title` | `HubThread` (thread libero dell'utente) |
 | `hub_send` | `channel`, `thread_id`, `body`, `reply_to?` | `HubMessage` dell'utente; dopo il salvataggio, una risposta a una domanda di un worker ancora in attesa va al worker così com'è (vedi "Domande dei worker"), altrimenti il motore sveglia i segretari (in background) |
+| `show_hub_notification` | `channel`, `thread_id`, `title`, `body` | toast cliccabile (solo Windows) per un thread, definito in `toast.rs`; al click `hub-notification-activated` (vedi "Notifiche") |
 | `hub_secretary_status` | — | `HubSecretaryStatus[]`: i segretari svegli adesso (vedi "Motore dei segretari") |
 
 Con l'HUB spento `hub_create_thread` e `hub_send` sono rifiutati; i comandi delle impostazioni funzionano sempre.
@@ -275,6 +277,9 @@ badge del canale senza rileggere nulla; la conversazione aperta rilegge il threa
 `hub-secretary-status`, emesso dal motore dei segretari a ogni cambiamento delle sessioni, con payload
 `HubSecretaryStatus[]` (l'elenco completo, vedi "Motore dei segretari"); `hub_secretary_status` lo legge all'apertura
 della vista.
+
+`hub-notify`, emesso dal backend con payload `HubNotice` quando una notifica è pronta (vedi "Notifiche");
+`hub-notification-activated`, emesso al click su una toast dell'HUB, con payload `HubThreadRef { channel, thread_id }`.
 
 ## Interfaccia
 
@@ -353,7 +358,7 @@ arrivate la pagina scrive «Impostazioni non disponibili.» e gli accordion non 
 | Accordion | Contenuto | Riepilogo |
 |---|---|---|
 | **Modello** (aperto di default) | endpoint e nome del modello (un solo modulo, «Salva» attivo solo se qualcosa è cambiato, controllo prima dell'invio); sotto, la API key | «Non configurato», «Endpoint locale» / «Endpoint remoto» / «Endpoint non valido» più «API key impostata» o «nessuna API key» |
-| **Sessioni dei segretari** | minuti di inattività (1-240) e passi massimi per risveglio (1-20) | «20 min · 8 passi» |
+| **Sessioni dei segretari** | minuti di inattività (1-240) e passi massimi per risveglio (1-20); l'interruttore «Notifiche di sistema» (vedi "Notifiche") | «20 min · 8 passi» |
 | **Segretari** (aperto di default) | lingua delle risposte, elenco, editor, «Nuovo segretario» e «Aggiungi da modello» (disattivati oltre 20) | «3 segretari · 2 configurati · italiano» |
 
 - **API key** (`ApiKeyField`): mostra solo se c'è (`api_key_set`), con Imposta/Cambia e Rimuovi. La chiave non si
@@ -545,6 +550,73 @@ Un passo con eventi è **una sola** modifica atomica del canale (`HubState::upda
 e dopo il controllo che il workspace esista ancora), seguita da un `hub-update` per ogni thread toccato. Un passo
 che non tocca nessun thread non scrive. Un evento che non si può riportare (per esempio un id non valido) finisce
 nel log e non ferma gli altri; un thread creato per un collegamento che fallisce viene tolto.
+
+## Notifiche
+
+Con l'HUB acceso i messaggi dei thread producono una **notifica di sistema**. Il backend decide cosa notificare e
+quando ed emette l'evento `hub-notify`; il **frontend** decide se mostrarla e la mostra. Codice in
+`hub/notify.rs` e `hub/notify/`: `notice` (i DTO), `kind` (tipi, titoli, suoni, significatività), `text` (il
+corpo, puro), `pending` (il raggruppamento, puro) e `dispatch` (la colla con Tauri, `HubNotifier`, stato gestito).
+
+### Quando notifica
+
+Mai per i messaggi dell'utente né per quelli di sistema scritti dal motore (avvisi, «Risposta inviata»).
+
+| Origine | Tipo | Titolo | Suono |
+|---|---|---|---|
+| Risposta di un segretario in un thread (`append_text`) | Reply | «@nome ti ha risposto» | ding |
+| Domanda di un worker | Question | «Un worker ha una domanda» | attenzione |
+| Task fallito | TaskFailed | «Task fallito» | attenzione |
+| Task in attenzione | TaskAttention | «Un task richiede attenzione» | attenzione |
+| Task `plan` finito senza proposta | PlanWithoutProposal | «Pianificazione conclusa: servono tue risposte» | attenzione |
+| Proposta creata | ProposalCreated | «Nuova proposta di task» | ding |
+| Thread concluso (chiuso dal router) | ThreadConcluded | «Thread concluso» | ding |
+| Task di revisione finito | ReviewDone | «Revisione finita» | ding |
+| Altro task finito | TaskDone | «Task finito» | ding |
+
+Gli eventi della board li raccoglie `route` (`Routed.notices`, una `EventNotice { thread_id, kind, text }` per
+messaggio che notifica, con il corpo del messaggio come testo; il mapping puro è in `events/notices.rs`) e li offre
+`HubFeed` dopo i `hub-update`. Creato, avviato, eliminato, domanda risposta e proposta accettata o scartata non
+notificano.
+
+### Raggruppamento
+
+Per thread, in una **finestra di 3 secondi** (`GROUP_WINDOW`) che parte dal primo candidato: se ne arrivano altri
+dello stesso thread resta **uno solo**, il più significativo, e a parità l'ultimo arrivato. La significatività, dalla
+maggiore: risposta, domanda, task fallito, task in attenzione, pianificazione senza proposta, proposta, thread
+concluso, revisione, task finito. Così un evento seguito dalla risposta del titolare dà una notifica sola (la
+risposta). A fine finestra `HubNotifier` ricontrolla le impostazioni, poi emette. Nessun lock resta preso durante
+l'attesa o l'emissione; spegnere l'HUB butta i candidati in attesa (`hub_set_enabled`).
+
+### Contenuto
+
+`HubNotice { channel, thread_id, title, body, sound }` (`sound` è `ding` o `attention`). `body` ha al massimo due
+righe: «<canale> · <titolo del thread>» (il canale è il **nome** del workspace, «Generale» per il Generale,
+«Workspace» se non esiste più: mai un id) e, se il messaggio non è vuoto, la sua prima riga non vuota, ripulita e
+tagliata a 120 caratteri con «…» (mai in mezzo a un carattere).
+
+### Visibilità, click, suoni (frontend)
+
+Il frontend mostra la notifica se la finestra non è in primo piano, oppure se lo è ma il thread non è quello aperto
+e visibile; con il thread visibile non si mostra nulla e non suona nulla. Un solo suono per notifica mostrata.
+Su Windows la toast è cliccabile (`show_hub_notification`, WinRT): il click porta la finestra in primo piano ed
+emette `hub-notification-activated` con `{ channel, thread_id }`, per aprire il thread; altrove si usa il plugin
+delle notifiche, senza click. `show_hub_notification` valida il canale (`Channel::parse`) e l'id del thread
+(`valid_ref_id`) prima di mostrare qualcosa; il primo rigo di `body` va nel primo testo della toast, il secondo nel
+secondo.
+
+### Impostazione
+
+**Notifiche di sistema** (`notifications` in `HubSettings`, comando `hub_set_notifications`): **acceso di
+default**, anche per i file scritti prima del campo (`Default` scritto a mano). Sta nell'accordion «Sessioni dei
+segretari» della pagina Impostazioni. Conta solo con l'HUB acceso.
+
+### Doppioni con `task-notify`
+
+Con l'HUB attivo **e** `notifications` acceso, task fallito, in attenzione e domanda del worker notificano
+dall'HUB (che apre il thread) e il frontend **salta** `task-notify` (guarda `enabled && notifications` nelle
+impostazioni). Spento l'interruttore, o l'HUB, `task-notify` torna come prima. Il backend di `task-notify` non
+cambia.
 
 ## Motore dei segretari
 

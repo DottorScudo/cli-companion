@@ -129,6 +129,14 @@ export async function answerQuestion(
   }
 }
 
+/** Apre l'Agents HUB su un thread (click su una notifica di sistema). Con l'HUB spento non fa nulla. */
+export function openHubThread(channel: string, threadId: string): void {
+  if (!hubStore.getState().enabled) return;
+  uiStore.setWorld("hub");
+  selectChannel(channel);
+  selectThread(channel, threadId);
+}
+
 /**
  * Apre l'Agents HUB sul thread con la domanda di un task. Il backend non dice a
  * quale thread appartiene un task: si leggono, fino a `THREAD_SEARCH_LIMIT`, i

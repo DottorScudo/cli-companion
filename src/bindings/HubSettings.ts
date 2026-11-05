@@ -14,4 +14,9 @@ export type HubSettings = { enabled: boolean, provider: HubProvider, language: H
 /**
  * Al massimo `secretaries::SECRETARIES_MAX`, nomi unici.
  */
-secretaries: Array<HubSecretary>, };
+secretaries: Array<HubSecretary>, 
+/**
+ * Notifiche di sistema per i messaggi dei thread (acceso di default, anche
+ * per i file scritti prima del campo); contano solo con l'HUB acceso.
+ */
+notifications: boolean, };

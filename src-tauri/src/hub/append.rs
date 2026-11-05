@@ -1,10 +1,12 @@
 //! Aggiunta di un messaggio di testo a un thread, con salvataggio ed evento
 //! `hub-update`: la usano `hub_send` (i messaggi dell'utente) e il motore dei
-//! segretari (risposte e avvisi). Bloccante: va chiamata fuori dal main thread.
+//! segretari (risposte e avvisi). La risposta di un segretario offre anche una
+//! notifica di sistema (`notify`). Bloccante: va chiamata fuori dal main thread.
 
 use super::channel::Channel;
 use super::commands::{emit_update, ensure_channel, threads_dir_of};
 use super::model::{Author, Message};
+use super::notify::{HubNotifier, NoticeKind};
 use super::state::{HubState, MESSAGE_ID_PREFIX};
 use super::threads::{summary, NewMessage, THREAD_NOT_FOUND};
 use tauri::{AppHandle, Manager};
@@ -22,6 +24,11 @@ pub fn append_text(app: &AppHandle, channel: &Channel, thread_id: &str, text: Te
     let dir = threads_dir_of(app)?;
     let state = app.state::<HubState>();
     let now = chrono::Utc::now().timestamp_millis();
+    // Notifica solo la risposta di un segretario: mai l'utente ne' il motore.
+    let replying_bot = match &text.author {
+        Author::Bot { name } => Some(name.clone()),
+        Author::User | Author::System => None,
+    };
     let new = NewMessage {
         id: state.next_id(MESSAGE_ID_PREFIX, now),
         author: text.author,
@@ -37,5 +44,8 @@ pub fn append_text(app: &AppHandle, channel: &Channel, thread_id: &str, text: Te
         Ok((message, summary(thread)))
     })?;
     emit_update(app, &touched);
+    if let Some(bot) = replying_bot {
+        app.state::<HubNotifier>().notify(app, &touched, NoticeKind::Reply { bot }, &message.body);
+    }
     Ok(message)
 }

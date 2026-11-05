@@ -1,7 +1,7 @@
 //! Impostazioni globali dell'Agents HUB (`hub_settings.json`): l'interruttore
 //! (spento di default: finche' resta spento l'HUB non crea file e non cambia
 //! nulla nel resto dell'app), il provider del modello, la lingua delle risposte,
-//! i parametri delle sessioni e i segretari. Stesso schema di `bots.rs`: un
+//! i parametri delle sessioni, le notifiche di sistema e i segretari. Stesso schema di `bots.rs`: un
 //! `JsonFile` statico e un `JsonStore` gestito da Tauri. Le impostazioni si
 //! leggono e scrivono anche con l'HUB spento. La API key non e' qui: sta nel
 //! portachiavi (`hub::api_key`).
@@ -39,7 +39,7 @@ use ts_rs::TS;
 /// nuovo (quelli della tappa 1 hanno solo `enabled`) restano validi senza
 /// migrazione. Lingua e segretari si leggono in modo tollerante: un valore di
 /// una versione futura non rende illeggibile il file.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default)]
 #[ts(export)]
 pub struct HubSettings {
@@ -51,6 +51,22 @@ pub struct HubSettings {
     /// Al massimo `secretaries::SECRETARIES_MAX`, nomi unici.
     #[serde(deserialize_with = "tolerant::known_items")]
     pub secretaries: Vec<Secretary>,
+    /// Notifiche di sistema per i messaggi dei thread (acceso di default, anche
+    /// per i file scritti prima del campo); contano solo con l'HUB acceso.
+    pub notifications: bool,
+}
+
+impl Default for HubSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: Provider::default(),
+            language: Language::default(),
+            session: SessionSettings::default(),
+            secretaries: Vec::new(),
+            notifications: true,
+        }
+    }
 }
 
 /// Le impostazioni per il frontend: quelle salvate piu' la sola presenza della
@@ -104,6 +120,7 @@ mod tests {
                 channels: SecretaryChannels::Only { channels: vec![Channel::General] },
                 preset: Some("reporter".into()),
             }],
+            notifications: false,
         }
     }
 
@@ -115,6 +132,7 @@ mod tests {
         assert_eq!(d.language, Language::It);
         assert_eq!(d.session, SessionSettings::default());
         assert!(d.secretaries.is_empty());
+        assert!(d.notifications);
         assert_eq!(SETTINGS_FILE.parse(r#"{"schema_version":1,"data":{}}"#).unwrap(), d);
     }
 
@@ -123,6 +141,14 @@ mod tests {
         let s = SETTINGS_FILE.parse(r#"{"schema_version":1,"data":{"enabled":true}}"#).unwrap();
         assert_eq!(s, HubSettings { enabled: true, ..HubSettings::default() });
         assert!(SETTINGS_FILE.parse(r#"{"enabled":true}"#).unwrap().enabled);
+    }
+
+    #[test]
+    fn notifications_are_on_for_old_files_and_off_only_when_saved_off() {
+        assert!(SETTINGS_FILE.parse(r#"{"schema_version":1,"data":{"enabled":true}}"#).unwrap().notifications);
+        assert!(SETTINGS_FILE.parse(r#"{"enabled":true}"#).unwrap().notifications);
+        let off = SETTINGS_FILE.parse(r#"{"schema_version":1,"data":{"notifications":false}}"#).unwrap();
+        assert!(!off.notifications);
     }
 
     #[test]

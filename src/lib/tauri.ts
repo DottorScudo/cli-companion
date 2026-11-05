@@ -12,6 +12,7 @@ import type { E2eEvent as E2eUpdateEvent } from "../bindings/E2eEvent.ts";
 import type { HubEvent } from "../bindings/HubEvent.ts";
 import type { HubLanguage } from "../bindings/HubLanguage.ts";
 import type { HubMessage } from "../bindings/HubMessage.ts";
+import type { HubNotice } from "../bindings/HubNotice.ts";
 import type { HubSecretary } from "../bindings/HubSecretary.ts";
 import type { HubSecretaryChannels } from "../bindings/HubSecretaryChannels.ts";
 import type { HubSecretaryPreset } from "../bindings/HubSecretaryPreset.ts";
@@ -20,6 +21,7 @@ import type { HubSecretaryTool } from "../bindings/HubSecretaryTool.ts";
 import type { HubSettings } from "../bindings/HubSettings.ts";
 import type { HubSettingsView } from "../bindings/HubSettingsView.ts";
 import type { HubThread } from "../bindings/HubThread.ts";
+import type { HubThreadRef } from "../bindings/HubThreadRef.ts";
 import type { HubThreadSummary } from "../bindings/HubThreadSummary.ts";
 import type { IntegrationEnv } from "../bindings/IntegrationEnv.ts";
 import type { IntegrationInfo } from "../bindings/IntegrationInfo.ts";
@@ -56,6 +58,7 @@ export type {
   HubEvent,
   HubLanguage,
   HubMessage,
+  HubNotice,
   HubSecretary,
   HubSecretaryChannels,
   HubSecretaryPreset,
@@ -64,6 +67,7 @@ export type {
   HubSettings,
   HubSettingsView,
   HubThread,
+  HubThreadRef,
   HubThreadSummary,
   IntegrationEnv,
   IntegrationInfo,
@@ -183,6 +187,10 @@ export const api = {
   showAgentNotification: (tabId: string, title: string, body: string) =>
     invoke<void>("show_agent_notification", { tabId, title, body }),
 
+  /** Toast cliccabile di un thread dell'HUB (solo Windows): al click focus + `hub-notification-activated`. */
+  showHubNotification: (channel: string, threadId: string, title: string, body: string) =>
+    invoke<void>("show_hub_notification", { channel, threadId, title, body }),
+
   setShowUsage: (enabled: boolean) => invoke<LaunchSettings>("set_show_usage", { enabled }),
 
   getBotSettings: () => invoke<BotSettings>("get_bot_settings"),
@@ -211,6 +219,8 @@ export const api = {
   hubClearApiKey: () => invoke<HubSettingsView>("hub_clear_api_key"),
 
   hubSetLanguage: (language: HubLanguage) => invoke<HubSettingsView>("hub_set_language", { language }),
+
+  hubSetNotifications: (enabled: boolean) => invoke<HubSettingsView>("hub_set_notifications", { enabled }),
 
   hubSetSession: (idleMinutes: number, maxSteps: number) =>
     invoke<HubSettingsView>("hub_set_session", { idleMinutes, maxSteps }),
@@ -374,5 +384,7 @@ export interface TauriEvents {
   "integrations-changed": IntegrationsState;
   "store-warning": StoreWarning;
   "hub-update": HubThreadSummary;
+  "hub-notify": HubNotice;
+  "hub-notification-activated": HubThreadRef;
   "hub-secretary-status": HubSecretaryStatus[];
 }

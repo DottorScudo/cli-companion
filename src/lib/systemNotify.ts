@@ -6,12 +6,19 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 
 /** `true` se la finestra dell'app ha il focus (altrimenti: notifica di sistema). */
-async function appHasFocus(): Promise<boolean> {
+export async function appHasFocus(): Promise<boolean> {
   try {
     return await getCurrentWindow().isFocused();
   } catch {
     return document.hasFocus();
   }
+}
+
+/** Notifica del plugin ufficiale (senza click), chiedendo il permesso la prima volta. */
+async function sendWithPlugin(title: string, body: string): Promise<void> {
+  let granted = await isPermissionGranted();
+  if (!granted) granted = (await requestPermission()) === "granted";
+  if (granted) sendNotification({ title, body });
 }
 
 /**
@@ -21,9 +28,7 @@ async function appHasFocus(): Promise<boolean> {
 export async function notifyPlainIfUnfocused(title: string, body: string): Promise<void> {
   try {
     if (await appHasFocus()) return;
-    let granted = await isPermissionGranted();
-    if (!granted) granted = (await requestPermission()) === "granted";
-    if (granted) sendNotification({ title, body });
+    await sendWithPlugin(title, body);
   } catch {
     // Notifiche non disponibili.
   }
@@ -43,9 +48,26 @@ export async function notifyIfUnfocused(tabId: string, title: string, body: stri
     } catch {
       // Non disponibile: plugin ufficiale, senza click.
     }
-    let granted = await isPermissionGranted();
-    if (!granted) granted = (await requestPermission()) === "granted";
-    if (granted) sendNotification({ title, body });
+    await sendWithPlugin(title, body);
+  } catch {
+    // Notifiche non disponibili: il suono resta come segnale.
+  }
+}
+
+/**
+ * Notifica di sistema di un thread dell'Agents HUB, mostrata sempre: se
+ * mostrarla lo decide il chiamante (`lib/hubNotify.ts`). Il toast cliccabile
+ * (Windows) apre il thread; altrove il plugin, senza click.
+ */
+export async function notifyHubThread(channel: string, threadId: string, title: string, body: string): Promise<void> {
+  try {
+    try {
+      await api.showHubNotification(channel, threadId, title, body);
+      return;
+    } catch {
+      // Non disponibile: plugin ufficiale, senza click.
+    }
+    await sendWithPlugin(title, body);
   } catch {
     // Notifiche non disponibili: il suono resta come segnale.
   }

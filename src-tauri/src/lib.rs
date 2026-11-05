@@ -59,6 +59,7 @@ pub fn run() {
         .manage(hub::ApiKey::new(Box::new(secrets::OsKeyring)))
         .manage(hub::HubState::default())
         .manage(hub::HubFeed::default())
+        .manage(hub::HubNotifier::default())
         .manage(hub::HubBoardActions::default())
         .manage(hub::SecretaryEngine::default())
         .manage(AutomationState::default())
@@ -127,6 +128,7 @@ pub fn run() {
             hub::settings::commands::hub_set_api_key,
             hub::settings::commands::hub_clear_api_key,
             hub::settings::commands::hub_set_language,
+            hub::settings::commands::hub_set_notifications,
             hub::settings::commands::hub_set_session,
             hub::settings::commands::hub_list_secretary_presets,
             hub::settings::commands::hub_create_secretary,
@@ -168,6 +170,7 @@ pub fn run() {
             automation::auto::schedule_set,
             automation::auto::frontend_ready,
             toast::show_agent_notification,
+            toast::show_hub_notification,
             agents::agent_env_status,
             agents::agent_profiles,
             agents::agent_usage_limits,

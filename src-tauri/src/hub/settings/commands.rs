@@ -13,6 +13,7 @@ use crate::bots::validate_image;
 use crate::hub::api_key::ApiKey;
 use crate::hub::engine::SecretaryEngine;
 use crate::hub::events::HubFeed;
+use crate::hub::notify::HubNotifier;
 use crate::store::data_dir;
 use crate::workspaces::WorkspaceStore;
 use tauri::{AppHandle, Manager};
@@ -48,6 +49,7 @@ pub async fn hub_set_enabled(app: AppHandle, enabled: bool) -> Result<HubSetting
             (false, true) => feed.baseline(&app),
             (_, false) => {
                 feed.reset();
+                app.state::<HubNotifier>().discard();
                 app.state::<SecretaryEngine>().shutdown(&app);
             }
             (true, true) => {}
@@ -94,6 +96,16 @@ pub async fn hub_set_language(app: AppHandle, language: String) -> Result<HubSet
     let language = Language::parse(&language)?;
     save_and_view(app, move |s| {
         s.language = language;
+        Ok(())
+    })
+    .await
+}
+
+/// Notifiche di sistema per i messaggi dei thread; contano con l'HUB acceso.
+#[tauri::command]
+pub async fn hub_set_notifications(app: AppHandle, enabled: bool) -> Result<HubSettingsView, String> {
+    save_and_view(app, move |s| {
+        s.notifications = enabled;
         Ok(())
     })
     .await

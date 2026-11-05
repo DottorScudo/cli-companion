@@ -25,11 +25,13 @@
 //! finisce nel log e non ferma gli altri.
 
 use super::diff::{BoardEvent, TaskChange};
+use super::notices::{self, EventNotice};
 use super::snapshot::{BoardSnapshot, ProposalSnap, TaskSnap};
 use super::texts::{self, thread_title, PROPOSAL_REJECTED, THREAD_CONCLUDED};
 use crate::board::{TaskKind, TaskStatus};
 use crate::hub::channel::Channel;
 use crate::hub::model::{Author, HubEvent, HubEventKind, Thread, ThreadState, ThreadSummary};
+use crate::hub::notify::NoticeKind;
 use crate::hub::state::{MESSAGE_ID_PREFIX, THREAD_ID_PREFIX};
 use crate::hub::threads::{summary, ChannelThreads, NewMessage};
 
@@ -42,12 +44,13 @@ pub struct EventWake {
     pub trigger: String,
 }
 
-/// L'esito di un passo: i thread toccati (nell'ordine del primo tocco) e i
-/// titolari da svegliare.
+/// L'esito di un passo: i thread toccati (nell'ordine del primo tocco), i
+/// titolari da svegliare e le notifiche di sistema da dare (vedi `notices`).
 #[derive(Debug, Default)]
 pub struct Routed {
     pub touched: Vec<ThreadSummary>,
     pub wakes: Vec<EventWake>,
+    pub notices: Vec<EventNotice>,
 }
 
 /// Applica `events` (ricavati dalla board `board`) ai thread del canale.
@@ -59,7 +62,8 @@ pub fn route(
     now: i64,
     next_id: &mut dyn FnMut(&'static str) -> String,
 ) -> Routed {
-    let mut router = Router { list, channel, board, now, next_id, touched: Vec::new(), wakes: Vec::new() };
+    let mut router =
+        Router { list, channel, board, now, next_id, touched: Vec::new(), wakes: Vec::new(), notices: Vec::new() };
     for event in events {
         if let Err(e) = router.apply(event) {
             log::warn!("hub {}: evento della board su {} non riportato: {e}", board.workspace_id, subject(event));
@@ -67,7 +71,7 @@ pub fn route(
     }
     router.close_concluded();
     let touched = router.touched.iter().filter_map(|id| router.list.thread(id)).map(summary).collect();
-    Routed { touched, wakes: router.wakes }
+    Routed { touched, wakes: router.wakes, notices: router.notices }
 }
 
 struct Router<'a> {
@@ -80,6 +84,8 @@ struct Router<'a> {
     touched: Vec<String>,
     /// Al massimo uno per thread.
     wakes: Vec<EventWake>,
+    /// Una per messaggio che notifica; il raggruppamento e' di chi le riceve.
+    notices: Vec<EventNotice>,
 }
 
 impl Router<'_> {
@@ -107,7 +113,8 @@ impl Router<'_> {
         };
         let event =
             HubEvent { task_id: p.source_task.clone(), ..self.proposal_event(HubEventKind::ProposalCreated, &p.id) };
-        let message = self.post(&thread, texts::proposal_created(p), Some(event))?;
+        let message =
+            self.post_noticing(&thread, texts::proposal_created(p), Some(event), Some(NoticeKind::ProposalCreated))?;
         self.wake_owner(&thread, message);
         Ok(())
     }
@@ -170,7 +177,8 @@ impl Router<'_> {
             change == TaskChange::Done && task.kind == TaskKind::Plan && !self.proposed(&thread, task);
         let body = if unanswered_plan { texts::plan_without_proposal(task) } else { texts::task(change, task) };
         let event = self.task_hub_event(change, task);
-        let message = self.post(&thread, body, Some(event))?;
+        let notice = notices::for_task(change, task.kind, unanswered_plan);
+        let message = self.post_noticing(&thread, body, Some(event), notice)?;
         if unanswered_plan || matches!(change, TaskChange::Failed | TaskChange::Attention | TaskChange::Question) {
             self.wake_owner(&thread, message);
         }
@@ -198,10 +206,12 @@ impl Router<'_> {
             if !self.list.thread(&id).is_some_and(|t| self.concluded(t)) {
                 continue;
             }
-            let closed = self.post(&id, THREAD_CONCLUDED.to_string(), None).and_then(|message| {
-                self.list.set_state(&id, ThreadState::Closed, self.now)?;
-                Ok(message)
-            });
+            let closed = self
+                .post_noticing(&id, THREAD_CONCLUDED.to_string(), None, Some(NoticeKind::ThreadConcluded))
+                .and_then(|message| {
+                    self.list.set_state(&id, ThreadState::Closed, self.now)?;
+                    Ok(message)
+                });
             match closed {
                 Ok(message) => self.wake_owner(&id, message),
                 Err(e) => log::warn!("hub {}: thread {id} non chiuso: {e}", self.board.workspace_id),
@@ -266,10 +276,26 @@ impl Router<'_> {
 
     /// Scrive il messaggio di sistema e ritorna il suo id.
     fn post(&mut self, thread: &str, body: String, event: Option<HubEvent>) -> Result<String, String> {
+        self.post_noticing(thread, body, event, None)
+    }
+
+    /// Come `post`; con `notice` il messaggio e' anche una notifica di sistema,
+    /// con il suo corpo come testo.
+    fn post_noticing(
+        &mut self,
+        thread: &str,
+        body: String,
+        event: Option<HubEvent>,
+        notice: Option<NoticeKind>,
+    ) -> Result<String, String> {
         let id = (self.next_id)(MESSAGE_ID_PREFIX);
+        let text = notice.as_ref().map(|_| body.clone());
         let new = NewMessage { id: id.clone(), author: Author::System, body, reply_to: None, event };
         self.list.add_message(thread, new, self.now)?;
         self.touch(thread);
+        if let (Some(kind), Some(text)) = (notice, text) {
+            self.notices.push(EventNotice { thread_id: thread.to_string(), kind, text });
+        }
         Ok(id)
     }
 
@@ -323,5 +349,7 @@ fn subject(event: &BoardEvent) -> &str {
     }
 }
 
+#[cfg(test)]
+mod notice_tests;
 #[cfg(test)]
 mod tests;

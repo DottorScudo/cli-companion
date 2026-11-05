@@ -23,6 +23,9 @@ export const clearApiKey = (): Promise<void> => apply(api.hubClearApiKey());
 
 export const saveLanguage = (language: HubLanguage): Promise<void> => apply(api.hubSetLanguage(language));
 
+/** Acceso/spento delle notifiche di sistema dei thread. */
+export const saveNotifications = (enabled: boolean): Promise<void> => apply(api.hubSetNotifications(enabled));
+
 export const saveSession = (idleMinutes: number, maxSteps: number): Promise<void> =>
   apply(api.hubSetSession(idleMinutes, maxSteps));
 
