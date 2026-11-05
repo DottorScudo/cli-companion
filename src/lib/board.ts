@@ -288,6 +288,15 @@ export function waitingOnLabel(
   return `attende ${w.length} task`;
 }
 
+/** Spiegazione della modalità libera (cartella senza git), per il tooltip. */
+export const NO_GIT_HELP =
+  "Modalità libera: la cartella non è un repository git, il worker lavora direttamente lì senza branch né commit.";
+
+/** Il task gira in modalità libera (cartella senza git): niente branch, worktree o commit. */
+export function isNoGit(task: Pick<Task, "no_git">): boolean {
+  return task.no_git === true;
+}
+
 /** Etichetta del task mentre l'app ne prepara il worktree. */
 export const PREPARING_LABEL = "Preparazione…";
 

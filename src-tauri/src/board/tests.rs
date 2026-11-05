@@ -631,6 +631,25 @@ fn scheduler_parallel_worktrees_fill_max_parallel_in_queue_order() {
 }
 
 #[test]
+fn scheduler_never_runs_two_tasks_of_the_same_folder_without_git_together() {
+    let mut b = board_with(vec![spec("a", &[]), spec("b", &[]), spec("c", &[])]);
+    b.task_mut("a").unwrap().no_git = true;
+    b.task_mut("b").unwrap().no_git = true;
+    b.task_mut("c").unwrap().repo = Some("api".into());
+    for mode in [DeliveryMode::Pr, DeliveryMode::LocalMerge] {
+        // In parallelo, ma la root senza git ne ospita uno solo; il repository git `api` non e' toccato.
+        assert_eq!(schedule(&b, &open(mode, true), &AgentGate::default()), ["a", "c"], "{mode:?}");
+    }
+    b.start_task("a", 1).unwrap();
+    assert_eq!(schedule(&b, &open(DeliveryMode::Pr, true), &AgentGate::default()), ["c"]);
+    // Due task della stessa cartella git, invece, vanno insieme in parallelo.
+    let mut git = board_with(vec![spec("a", &[]), spec("b", &[])]);
+    assert_eq!(schedule(&git, &open(DeliveryMode::Pr, true), &AgentGate::default()), ["a", "b"]);
+    git.start_task("a", 1).unwrap();
+    assert_eq!(schedule(&git, &open(DeliveryMode::Pr, true), &AgentGate::default()), ["b"]);
+}
+
+#[test]
 fn scheduler_respects_dependencies_pause_and_the_gate() {
     let mut b = board_with(vec![spec("a", &[]), spec("b", &["a"]), spec("c", &["a", "b"])]);
     let ctx = open(DeliveryMode::Pr, true);
@@ -756,6 +775,7 @@ fn env<'a>(d: &'a Delivery, task: &'a Task, cfg: Option<&'a RepoConfig>) -> EnvI
         base: branches.then_some("main"),
         repo_cfg: cfg,
         root_repos: None,
+        free: false,
     }
 }
 
@@ -770,6 +790,56 @@ fn worktree_task(d: &Delivery) -> Task {
         });
     }
     t
+}
+
+#[test]
+fn free_mode_texts_have_no_git_and_keep_the_security_rules() {
+    for (mode, parallel) in [(DeliveryMode::Pr, true), (DeliveryMode::LocalMerge, false), (DeliveryMode::Commit, false)]
+    {
+        let d = Delivery { mode, parallel, merge_method: MergeMethod::Squash };
+        let t = Task::from_spec(spec("a", &[]), 0);
+        let e = EnvInfo { free: true, workdir: "C:\\proj", branch: None, base: None, ..env(&d, &t, None) };
+        let label = "free mode (the folder is not a git repository)";
+        let instr = texts::instructions(&e, "Use tabs.", false);
+        assert!(instr.contains("Work only inside C:\\proj; never touch other folders."), "{instr}");
+        assert!(instr
+            .contains("This folder is not a git repository: work directly in it, there is nothing to commit or push"));
+        assert!(instr.contains("Never delete or revert changes you did not make."), "{instr}");
+        assert!(instr.contains(texts::WORKER_GUARDRAILS.trim_end()) && instr.contains("Use tabs."), "{instr}");
+        for git in ["Commit only", "stash", "`commit`", "pr_url", "merge unless"] {
+            assert!(!instr.contains(git), "{git}: {instr}");
+        }
+        let env_text = texts::environment(&e);
+        assert!(env_text.contains(&format!("- Delivery mode: {label}")), "{env_text}");
+        assert!(env_text.contains("- Folder: C:\\proj (not a git repository)"), "{env_text}");
+        assert!(env_text.contains("nothing to commit, push or merge"), "{env_text}");
+        for git in ["worktree:", "Task branch", "Base branch", "Repository checkout"] {
+            assert!(!env_text.contains(git), "{git}: {env_text}");
+        }
+        let steps = texts::delivery_steps(&e);
+        assert!(steps.starts_with(&format!("Delivery: {label}\n1. Leave your changes in the folder")), "{steps}");
+        assert!(steps.ends_with("a summary that lists the files you changed (created, modified, deleted)."), "{steps}");
+        let body = steps.split_once('\n').unwrap().1;
+        for git in ["git ", "commit`", "gh pr", "rebase"] {
+            assert!(!body.contains(git), "{git}: {body}");
+        }
+    }
+}
+
+#[test]
+fn a_free_reviewer_reviews_the_files_in_the_folder() {
+    let d = Delivery::default();
+    let mut t = Task::from_spec(spec("r", &[]), 0);
+    t.kind = TaskKind::Review;
+    let e = EnvInfo { free: true, workdir: "C:\\proj", branch: None, base: None, ..env(&d, &t, None) };
+    let instr = texts::reviewer_instructions(&e, "", false);
+    assert!(
+        instr.contains("This folder is not a git repository") && instr.contains("Review the files directly"),
+        "{instr}"
+    );
+    assert!(!texts::reviewer_instructions(&env(&d, &t, None), "", false).contains("not a git repository"));
+    let env_text = texts::environment(&e);
+    assert!(env_text.contains("there is no worktree or integrated branch"), "{env_text}");
 }
 
 #[test]

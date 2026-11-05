@@ -1,7 +1,7 @@
 //! Logica dei comandi Tauri delle board: la UI modifica la coda del workspace
 //! e riceve la vista aggiornata.
 
-use crate::automation::worktrees::{check_e2e_configured, ensure_repos};
+use crate::automation::worktrees::{check_e2e_configured, check_e2e_needs_git, ensure_repos, FolderKinds};
 use crate::automation::*;
 use crate::board::{self, parse_spec, TaskAction, TaskSpec};
 
@@ -40,14 +40,17 @@ pub(in crate::automation) fn task_create<H: Host>(
 ) -> Result<BoardView, String> {
     let ws = workspace_of(host, ws_id)?;
     let mut spec = parse_spec(spec, None)?;
-    ensure_repos(host, &ws, [spec.repo.as_deref()])?;
+    let kinds = ensure_repos(host, &ws, [spec.repo.as_deref()])?;
+    check_e2e_needs_git(&ws, std::slice::from_ref(&spec), &kinds)?;
     let now = now_millis();
     st.run(host, |r| {
         if spec.id.is_empty() {
             spec.id = r.free_id(ws_id, &spec.title);
         }
         check_e2e_configured(&ws, std::slice::from_ref(&spec))?;
-        r.create_task(ws_id, spec, ws.agent.as_deref(), now)
+        r.create_task(ws_id, spec, ws.agent.as_deref(), now)?;
+        r.note_no_git(ws_id, &kinds);
+        Ok::<(), String>(())
     })?;
     st.view(host, ws_id)
 }
@@ -62,12 +65,16 @@ pub(super) fn update_checked<H: Host>(
 ) -> Result<(), String> {
     let current = st.run(host, |r| r.task_view(&ws.id, id)).ok_or_else(|| format!("task not found: {id}"))?;
     let spec = parse_spec(patch, Some(&TaskSpec::from_task(&current.task)))?;
-    if spec.repo != current.task.repo {
-        ensure_repos(host, ws, [spec.repo.as_deref()])?;
-    }
+    let recheck = spec.repo != current.task.repo || (spec.e2e && !current.task.e2e);
+    let kinds = if recheck { ensure_repos(host, ws, [spec.repo.as_deref()])? } else { FolderKinds::new() };
+    check_e2e_needs_git(ws, std::slice::from_ref(&spec), &kinds)?;
     check_e2e_configured(ws, std::slice::from_ref(&spec))?;
     let now = now_millis();
-    st.run(host, |r| r.update_task(&ws.id, id, patch, ws.agent.as_deref(), now))
+    st.run(host, |r| {
+        r.update_task(&ws.id, id, patch, ws.agent.as_deref(), now)?;
+        r.note_no_git(&ws.id, &kinds);
+        Ok(())
+    })
 }
 
 pub(in crate::automation) fn task_update<H: Host>(
@@ -123,13 +130,19 @@ pub(in crate::automation) fn proposal_decide<H: Host>(
     accept: bool,
 ) -> Result<BoardView, String> {
     let ws = workspace_of(host, ws_id)?;
+    let mut kinds = FolderKinds::new();
     if accept {
         // Nuova validazione: la modalita' di consegna o i repository possono essere cambiati.
         let specs = st.run(host, |r| r.proposal_specs(ws_id, proposal_id))?;
-        ensure_repos(host, &ws, specs.iter().map(|s| s.repo.as_deref()))?;
+        kinds = ensure_repos(host, &ws, specs.iter().map(|s| s.repo.as_deref()))?;
+        check_e2e_needs_git(&ws, &specs, &kinds)?;
         check_e2e_configured(&ws, &specs)?;
     }
     let now = now_millis();
-    st.run(host, |r| r.decide_proposal(ws_id, proposal_id, accept, ws.agent.as_deref(), now))?;
+    st.run(host, |r| {
+        r.decide_proposal(ws_id, proposal_id, accept, ws.agent.as_deref(), now)?;
+        r.note_no_git(ws_id, &kinds);
+        Ok::<(), String>(())
+    })?;
     st.view(host, ws_id)
 }

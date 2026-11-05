@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::automation::planner::create_hub_plan_task;
-use crate::automation::planner::root::{changes_note, NO_REPOSITORY};
+use crate::automation::planner::root::changes_note;
 use crate::board::texts::PLANNER_ROOT;
 
 const REPOS: [&str; 2] = ["backend", "frontend"];
@@ -70,9 +70,10 @@ fn get_task_of_a_root_plan_names_the_repositories_and_the_read_only_rule() {
     let t = call(&st, &h, &p, "get_task", json!({})).unwrap();
     let instr = t["instructions"].as_str().unwrap();
     assert!(instr.starts_with("You are an automated cli-companion planner. Work only inside C:\\p;"), "{instr}");
-    let section = PLANNER_ROOT.trim_end().replace("{repos}", "backend, frontend");
+    let place = "It is the workspace root. Git repositories directly inside it (folders relative to the root): backend, frontend.";
+    let section = PLANNER_ROOT.trim_end().replace("{place}", place);
     assert!(instr.contains(&section), "{instr}");
-    assert!(instr.contains("never create, modify or delete files") && instr.contains("MUST set `repo`"), "{instr}");
+    assert!(instr.contains("never create, modify or delete files") && instr.contains("free mode"), "{instr}");
     let env = t["environment"].as_str().unwrap();
     assert!(env.contains("- Workspace root: C:\\p (not a git repository)"), "{env}");
     assert!(env.contains("(folders relative to the root): backend, frontend."), "{env}");
@@ -81,38 +82,29 @@ fn get_task_of_a_root_plan_names_the_repositories_and_the_read_only_rule() {
 }
 
 #[test]
-fn a_root_planner_must_give_every_task_a_detected_repository() {
+fn a_root_planner_may_leave_repo_unset_or_name_any_existing_folder() {
     let (st, h, id, p) = root_planner();
-    let rejected = [
-        (spec_in("a", None), "task 'a': repo is required"),
-        (spec_in("a", Some(".")), "task 'a': repo is required"),
-        (
-            spec_in("a", Some("docs")),
-            "task 'a': repo 'docs' is not one of the detected repositories (backend, frontend)",
-        ),
-    ];
-    for (bad, needle) in rejected {
-        let tasks = json!([spec_in("ok", Some("backend")), bad]);
-        let e = call(&st, &h, &p, "propose_tasks", json!({ "tasks": tasks })).unwrap_err();
-        assert!(e.contains(needle), "{e}");
-    }
+    h.dirs.lock().unwrap().push("C:\\p\\docs".to_string());
+    let tasks = json!([spec_in("ok", Some("backend")), spec_in("gone", Some("nowhere"))]);
+    let e = call(&st, &h, &p, "propose_tasks", json!({ "tasks": tasks })).unwrap_err();
+    assert!(e.contains("'nowhere'") && e.contains("does not exist"), "{e}");
     assert!(view(&st, &h).proposals.is_empty(), "a rejected proposal does not count");
     let mut web = spec_in("web", Some("frontend"));
     web["depends_on"] = json!(["api"]);
-    let tasks = json!([spec_in("api", Some("backend")), web]);
+    let tasks = json!([spec_in("root", None), spec_in("api", Some("backend")), spec_in("docs", Some("docs")), web]);
     assert_eq!(call(&st, &h, &p, "propose_tasks", json!({ "tasks": tasks })).unwrap()["status"], "pending");
     let proposals = view(&st, &h).proposals;
     assert_eq!(proposals[0].source_task.as_deref(), Some(id.as_str()));
     let repos: Vec<_> = proposals[0].tasks.iter().map(|t| t.repo.as_deref()).collect();
-    assert_eq!(repos, [Some("backend"), Some("frontend")]);
+    assert_eq!(repos, [None, Some("backend"), Some("docs"), Some("frontend")]);
 }
 
 #[test]
-fn the_intake_of_a_root_workspace_keeps_its_rules() {
+fn the_intake_of_a_root_workspace_can_queue_tasks_for_the_root() {
     let (st, h, _, _) = root_planner();
     boards::board_set(&st, &h, "ws-1", None, Some(true)).unwrap();
-    let e = call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [spec_in("a", None)]})).unwrap_err();
-    assert!(e.contains("is not a git repository") && e.contains("run git init there"), "{e}");
+    let r = call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [spec_in("a", None)]})).unwrap();
+    assert_eq!(r["status"], "pending");
 }
 
 #[test]
@@ -182,26 +174,30 @@ fn an_untouched_or_unreadable_repository_gives_no_note() {
 }
 
 #[test]
-fn a_root_without_any_repository_cannot_be_planned() {
+fn a_root_without_any_repository_is_planned_in_place_too() {
     let (st, h) = (AutomationState::default(), root_host());
-    h.repos.lock().unwrap().clear();
-    let e = create_hub_plan_task(&st, &h, "ws-1", "Plan", "Plan it").unwrap_err();
-    assert_eq!(e, NO_REPOSITORY);
-    assert!(view(&st, &h).tasks.is_empty());
     // Un repository "." non conta: e' la root, che non risponde come repository git.
     *h.repos.lock().unwrap() = vec![".".to_string()];
-    assert_eq!(create_hub_plan_task(&st, &h, "ws-1", "Plan", "Plan it").unwrap_err(), NO_REPOSITORY);
+    let id = create_hub_plan_task(&st, &h, "ws-1", "Plan", "Plan it").unwrap();
+    let p = session_of(&st, &h, &id);
+    let t = call(&st, &h, &p, "get_task", json!({})).unwrap();
+    assert!(t["instructions"].as_str().unwrap().contains("directly inside it (folders relative to the root): none."));
+    assert!(t["environment"]
+        .as_str()
+        .unwrap()
+        .contains("repositories of the workspace (folders relative to the root): none."));
+    assert!(!h.git_log().iter().any(|l| l.contains("worktree")), "{:?}", h.git_log());
 }
 
 #[test]
-fn repositories_gone_before_the_start_fail_the_plan_clearly() {
+fn repositories_that_cannot_be_listed_at_the_start_fail_the_plan_clearly() {
     let (st, h) = (AutomationState::default(), root_host());
     h.hold_defers();
     let id = create_hub_plan_task(&st, &h, "ws-1", "Plan", "Plan it").unwrap();
-    h.repos.lock().unwrap().clear();
+    *h.repos_err.lock().unwrap() = Some("wsl unavailable".to_string());
     h.run_held();
     let t = task(&st, &h, &id);
-    assert_eq!((t["status"].as_str(), t["note"].as_str()), (Some("failed"), Some(NO_REPOSITORY)), "{t}");
+    assert_eq!((t["status"].as_str(), t["note"].as_str()), (Some("failed"), Some("wsl unavailable")), "{t}");
 }
 
 #[test]

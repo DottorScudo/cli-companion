@@ -820,10 +820,10 @@ diretta «… le azioni sulla board non sono disponibili.».
 - Modello del pianificatore: la fascia `strong` dell'agente del workspace, cioè `opus` con Claude Code (vedi
   [BOARD.MD](BOARD.MD), "Task di pianificazione"): pianificare è il ragionamento più difficile e si fa una volta per
   obiettivo, mentre il core non nomina modelli. Se l'agente non dichiara le fasce vale il modello dei worker del
-  workspace. Repository: la radice. Se la radice non è un repository git ma ha sottocartelle git (più progetti nello
-  stesso workspace) il pianificatore lavora nella cartella del workspace, senza worktree e in sola lettura, e propone
-  un task per repository (vedi [BOARD.MD](BOARD.MD), "Pianificazione alla root senza git"); senza nessun repository
-  l'errore («this workspace has no git repository: …») torna al modello.
+  workspace. Repository: la radice. Se la radice non è un repository git il pianificatore lavora nella cartella del workspace,
+  senza worktree e in sola lettura, e propone un task per cartella (i repository git rilevati e le cartelle senza git,
+  che girano in modalità libera; vedi [BOARD.MD](BOARD.MD), "Pianificazione in una cartella senza git" e
+  "Cartelle senza git"); senza nessun repository non c'è più un errore.
 - Il task si collega al thread (`link_tasks`) e il segretario ne diventa il **titolare** (`set_owner`). Creazione e
   collegamento avvengono **sotto il lock dei thread**: il thread degli eventi della board, che aspetta lo stesso lock,
   trova il task già collegato e ne scrive gli eventi («Task creato: …») in questo thread invece di aprirne uno. Il lock

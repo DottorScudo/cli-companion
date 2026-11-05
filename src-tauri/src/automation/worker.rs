@@ -80,9 +80,12 @@ pub(crate) struct WorkerEnv {
     pub branch: Option<String>,
     /// Branch base (nome semplice), nelle modalita' con branch.
     pub base: Option<String>,
-    /// Pianificatore alla root senza git (vedi `planner::root`); si toglie
-    /// quando parte il controllo di sola lettura.
+    /// Pianificatore sul posto in una cartella senza git (vedi `planner::root`);
+    /// si toglie quando parte il controllo di sola lettura.
     pub root_plan: Option<planner::root::RootPlan>,
+    /// Modalita' libera: la cartella del task non e' un repository git, si
+    /// lavora sul posto senza worktree, branch ne' consegna git.
+    pub free: bool,
 }
 
 pub(super) struct Worker {

@@ -7,7 +7,7 @@
 
 use super::boards::{list_tasks, propose_tasks, task_details, workspace_of};
 use super::rpc::misrouted;
-use super::worktrees::ensure_git_repo;
+use super::worktrees::ensure_repos;
 use super::*;
 use crate::agents::AgentUse;
 use crate::board::texts::{self, EnvInfo};
@@ -44,10 +44,9 @@ impl PlanRequest {
 }
 
 /// Crea un task `plan` in coda nel workspace `ws_id` e ritorna il suo id. Lo
-/// scheduler lo avvia come ogni task, in un worktree del suo repository, che
-/// deve essere un repository git. Fa eccezione la root che non lo e' ma ha
-/// sottocartelle git: li' il piano gira nella cartella del workspace, in sola
-/// lettura (vedi `root`). Senza nessun repository e' un errore.
+/// scheduler lo avvia come ogni task: in un worktree del suo repository se e'
+/// git, altrimenti (la root del workspace o una sua sottocartella senza git)
+/// sul posto, in sola lettura (vedi `root`).
 pub fn create_plan_task<H: Host>(
     st: &AutomationState,
     host: &H,
@@ -56,16 +55,13 @@ pub fn create_plan_task<H: Host>(
 ) -> Result<String, String> {
     let ws = workspace_of(host, ws_id)?;
     let mut spec = req.to_spec()?;
-    match spec.repo.as_deref() {
-        Some(repo) => ensure_git_repo(host, &ws, Some(repo))?,
-        None => {
-            root::root_repos(host, &ws)?;
-        }
-    }
+    let kinds = ensure_repos(host, &ws, [spec.repo.as_deref()])?;
     let now = now_millis();
     st.run(host, |r| {
         spec.id = r.free_id(ws_id, &spec.title);
-        r.create_task(ws_id, spec, ws.agent.as_deref(), now)
+        let id = r.create_task(ws_id, spec, ws.agent.as_deref(), now)?;
+        r.note_no_git(ws_id, &kinds);
+        Ok(id)
     })
 }
 
@@ -111,8 +107,7 @@ pub(super) fn get_task_json(info: &EnvInfo, workspace_rules: &str, ask_user: boo
 }
 
 /// Tool di sessione chiamati dal pianificatore, nel workspace del suo task. La
-/// proposta porta il task di pianificazione come origine; quella di un
-/// pianificatore alla root nomina un repository rilevato per ogni task.
+/// proposta porta il task di pianificazione come origine.
 pub(super) fn rpc_planner<H: Host>(
     st: &AutomationState,
     host: &H,
@@ -125,10 +120,7 @@ pub(super) fn rpc_planner<H: Host>(
     let empty = json!({});
     let params = if params.is_null() { &empty } else { params };
     match method {
-        Method::ProposeTasks => {
-            let root_repos = st.root_repos_of(session);
-            propose_tasks(st, host, &ws, session, Some(task_id), root_repos.as_deref(), params)
-        }
+        Method::ProposeTasks => propose_tasks(st, host, &ws, session, Some(task_id), params),
         Method::ListTasks => list_tasks(st, host, &ws, params),
         Method::GetTaskDetails => task_details(st, host, &ws, params),
         Method::GetWorkspaceSettings => Ok(settings::get_settings(st, host, &ws)),

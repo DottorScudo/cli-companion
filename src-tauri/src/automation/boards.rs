@@ -5,7 +5,7 @@
 //! worktree sono in `worktrees`; tipi, validazione e scheduler puri in
 //! `crate::board`. Il contratto e' `docs/BOARD.MD`.
 
-use super::worktrees::{CleanupTarget, StartJob};
+use super::worktrees::{CleanupTarget, FolderKinds, StartJob};
 use super::*;
 use crate::board::{self, SchedCtx, Task, TaskSpec, TaskView};
 use serde_json::json;
@@ -77,6 +77,24 @@ impl Registry {
         now: i64,
     ) -> Result<String, String> {
         self.edit(ws, |b| b.create_task(spec, workspace_agent, now))
+    }
+
+    /// Segna `no_git` sui task `queued` la cui cartella e' stata appena
+    /// controllata (`ensure_repos`): lo scheduler, che gira dopo, lo legge.
+    pub(in crate::automation) fn note_no_git(&mut self, ws: &str, kinds: &FolderKinds) {
+        let Some(b) = self.boards.get_mut(ws) else {
+            return;
+        };
+        let mut changed = false;
+        for t in b.tasks.iter_mut().filter(|t| t.status() == board::TaskStatus::Queued) {
+            let key = board::repo_key(t.repo.as_deref());
+            if let Some((_, no_git)) = kinds.iter().find(|(k, _)| *k == key) {
+                changed |= std::mem::replace(&mut t.no_git, *no_git) != *no_git;
+            }
+        }
+        if changed {
+            self.mark_dirty(ws);
+        }
     }
 
     /// Nuova proposta (dell'Intake, o del revisore o del pianificatore di

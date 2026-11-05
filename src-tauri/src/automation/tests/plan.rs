@@ -79,17 +79,14 @@ fn a_plan_request_is_validated_like_any_task() {
 }
 
 #[test]
-fn a_plan_needs_a_git_repository_even_without_branches() {
+fn a_plan_in_a_folder_without_git_is_created_even_without_branches() {
     let (st, h) = (AutomationState::default(), FakeHost::with_delivery(DeliveryMode::Commit, false));
     h.git_rule("rev-parse --is-inside-work-tree", false, "", "fatal: not a git repository");
-    // La root senza git e senza sottocartelle git (vedi `root_plan` per quella con).
-    let e = create_plan_task(&st, &h, "ws-1", &request("x")).unwrap_err();
-    assert_eq!(e, crate::automation::planner::root::NO_REPOSITORY);
-    // Un repository indicato che non e' git.
+    // La root senza git e senza sottocartelle git, e una sottocartella senza git.
+    let root = create_plan_task(&st, &h, "ws-1", &request("x")).unwrap();
     h.dirs.lock().unwrap().push("C:\\p\\docs".to_string());
-    let e = create_plan_task(&st, &h, "ws-1", &PlanRequest { repo: Some("docs".into()), ..request("x") }).unwrap_err();
-    assert!(e.contains("C:\\p\\docs is not a git repository") && e.contains("planning"), "{e}");
-    assert!(view(&st, &h).tasks.is_empty());
+    let sub = create_plan_task(&st, &h, "ws-1", &PlanRequest { repo: Some("docs".into()), ..request("y") }).unwrap();
+    assert!(view(&st, &h).tasks.iter().all(|t| t.task.kind == TaskKind::Plan && t.task.no_git), "{root} {sub}");
 }
 
 #[test]

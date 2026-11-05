@@ -125,6 +125,6 @@ fn a_reviewer_proposal_goes_through_the_same_check() {
     queue(&st, &h, vec![spec("a", &[])]);
     let (tab, ws) = (session_of(&st, &h, "a"), h.ws_for("ws-1").unwrap());
     let params = json!({"tasks": [with_agent("fix", "nope")]});
-    let err = boards::propose_tasks(&st, &h, &ws, &tab, Some("a".into()), None, &params).unwrap_err();
+    let err = boards::propose_tasks(&st, &h, &ws, &tab, Some("a".into()), &params).unwrap_err();
     assert_eq!(err, "task 'fix': unknown agent: nope");
 }

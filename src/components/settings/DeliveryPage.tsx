@@ -111,8 +111,8 @@ export default function DeliveryPage({ workspace }: Props) {
             branch base finché la coda lavora, altrimenti il task fallisce all’avvio.
           </li>
           <li>
-            Le modalità con branch e il parallelo richiedono un repository git; la branch base si sceglie per repository
-            in Repository.
+            Le modalità con branch e il parallelo richiedono un repository git (una cartella senza git lavora in
+            modalità libera, senza branch né commit); la branch base si sceglie per repository in Repository.
           </li>
         </ul>
       </Section>

@@ -91,10 +91,15 @@ impl Registry {
         // Avvisi di preparazione (es. exclude non aggiornato).
         let note =
             (!warnings.is_empty()).then(|| clip_chars(&format!("start warnings: {}", warnings.join("; ")), NOTE_MAX));
-        let spawned = self
-            .boards
-            .get_mut(ws)
-            .is_some_and(|b| b.worker_spawned(tid, job.attempt, id.clone(), worktree, note, now));
+        // Il rilevamento dell'avvio e' quello autorevole per `no_git`.
+        let free = env.free;
+        let spawned = self.boards.get_mut(ws).is_some_and(|b| {
+            let ok = b.worker_spawned(tid, job.attempt, id.clone(), worktree, note, now);
+            if let Some(t) = b.task_mut(tid).filter(|_| ok) {
+                t.no_git = free;
+            }
+            ok
+        });
         if !spawned {
             return None;
         }

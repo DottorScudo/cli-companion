@@ -1,14 +1,16 @@
 import { memo } from "react";
 import { Handle, Position } from "@xyflow/react";
 import type { Node, NodeProps } from "@xyflow/react";
-import { GitBranch, RotateCw, TriangleAlert } from "lucide-react";
+import { FolderOpen, GitBranch, RotateCw, TriangleAlert } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { ReviewBadge, VerdictBadge } from "./ReviewBadges";
 import { isReview } from "../../lib/review";
 import { isPlan } from "../../lib/plan";
 import { PlanBadge } from "./PlanBadge";
 import {
+  NO_GIT_HELP,
   displayStatus,
+  isNoGit,
   shortReport,
   statusBorderClass,
   statusDotClass,
@@ -99,6 +101,11 @@ function TaskNode({ data }: NodeProps<TaskFlowNode>) {
         >
           <GitBranch className="!size-2.5 flex-shrink-0" />
           <span className="truncate">{task.worktree.branch}</span>
+        </p>
+      ) : isNoGit(task) ? (
+        <p className="flex items-center gap-1 truncate text-[10px] text-muted-foreground" title={NO_GIT_HELP}>
+          <FolderOpen className="!size-2.5 flex-shrink-0" />
+          <span className="truncate">cartella senza git</span>
         </p>
       ) : (
         report && (

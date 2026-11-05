@@ -2,8 +2,7 @@
 //! propongono task e consultano la coda del workspace del tab chiamante.
 
 use super::commands::update_checked;
-use crate::automation::planner::root::check_proposal_repos;
-use crate::automation::worktrees::{check_e2e_configured, ensure_repos};
+use crate::automation::worktrees::{check_e2e_configured, check_e2e_needs_git, ensure_repos};
 use crate::automation::*;
 use crate::board::{parse_proposal, TaskStatus};
 use serde_json::json;
@@ -27,7 +26,7 @@ pub(in crate::automation) fn rpc_session<H: Host>(
     let params = if params.is_null() { &empty } else { params };
     let now = now_millis();
     match method {
-        "propose_tasks" => propose_tasks(st, host, &ws, session, None, None, params),
+        "propose_tasks" => propose_tasks(st, host, &ws, session, None, params),
         "list_tasks" => list_tasks(st, host, &ws, params),
         "get_task_details" => task_details(st, host, &ws, params),
         "update_task" => {
@@ -47,22 +46,18 @@ pub(in crate::automation) fn rpc_session<H: Host>(
 
 /// `propose_tasks`: proposta di task per la coda di `ws`. `tab` e' il tab che la fa;
 /// `source_task` il task di revisione o di pianificazione, se a farla e' il suo
-/// worker; `root_repos` i repository rilevati, se a farla e' un pianificatore
-/// alla root (ogni task deve nominarne uno).
+/// worker.
 pub(in crate::automation) fn propose_tasks<H: Host>(
     st: &AutomationState,
     host: &H,
     ws: &Workspace,
     tab: &str,
     source_task: Option<String>,
-    root_repos: Option<&[String]>,
     params: &Value,
 ) -> Result<Value, String> {
     let specs = parse_proposal(params)?;
-    if let Some(repos) = root_repos {
-        check_proposal_repos(&specs, repos)?;
-    }
-    ensure_repos(host, ws, specs.iter().map(|s| s.repo.as_deref()))?;
+    let kinds = ensure_repos(host, ws, specs.iter().map(|s| s.repo.as_deref()))?;
+    check_e2e_needs_git(ws, &specs, &kinds)?;
     check_e2e_configured(ws, &specs)?;
     let now = now_millis();
     let id = st.run(host, |r| r.propose(&ws.id, tab, source_task, specs, ws.agent.as_deref(), now))?;

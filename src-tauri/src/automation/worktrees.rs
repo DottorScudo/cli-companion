@@ -159,14 +159,20 @@ pub(super) fn check_e2e_configured(ws: &Workspace, specs: &[TaskSpec]) -> Result
     }
 }
 
-/// I repository esistono e, se la modalita' di consegna usa i branch, sono
-/// repo git. Gira fuori dal lock (git).
+/// Cartelle distinte controllate da `ensure_repos`: la loro chiave
+/// (`repo_key`) e se NON sono un repository git (modalita' libera).
+pub(super) type FolderKinds = Vec<(String, bool)>;
+
+/// I repository esistono. Una cartella che non e' un repository git non e'
+/// un errore: il task vi gira in modalita' libera. Ritorna il tipo di ogni
+/// cartella distinta. Gira fuori dal lock (git).
 pub(super) fn ensure_repos<'a, H: Host>(
     host: &H,
     ws: &Workspace,
     repos: impl IntoIterator<Item = Option<&'a str>>,
-) -> Result<(), String> {
+) -> Result<FolderKinds, String> {
     let mut seen: Vec<Option<&str>> = Vec::new();
+    let mut kinds = FolderKinds::new();
     for repo in repos {
         if seen.contains(&repo) {
             continue;
@@ -178,14 +184,41 @@ pub(super) fn ensure_repos<'a, H: Host>(
                 return Err(format!("the repository folder '{r}' ({dir}) does not exist in the workspace"));
             }
         }
-        if ws.delivery.uses_branches() && !is_git_repo(host, ws, &dir)? {
-            return Err(format!(
-                "{dir} is not a git repository: the delivery mode of this workspace works on branches and needs one. \
-                 Fix the repo of the task or ask the user to run git init there"
-            ));
-        }
+        kinds.push((repo_key(repo), !folder_is_git(host, ws, &dir)?));
     }
-    Ok(())
+    Ok(kinds)
+}
+
+/// Gli E2E si danno per buoni con un'impronta git del codice: un task `e2e`
+/// non puo' stare in una cartella senza git.
+pub(super) fn check_e2e_needs_git(ws: &Workspace, specs: &[TaskSpec], kinds: &FolderKinds) -> Result<(), String> {
+    let no_git = |s: &TaskSpec| kinds.iter().any(|(k, no_git)| *no_git && *k == repo_key(s.repo.as_deref()));
+    match specs.iter().find(|s| s.e2e && no_git(s)) {
+        Some(s) => Err(e2e_needs_git(ws, &s.id, s.repo.as_deref())),
+        None => Ok(()),
+    }
+}
+
+/// Errore di un task `e2e` in una cartella senza git.
+pub(super) fn e2e_needs_git(ws: &Workspace, task_id: &str, repo: Option<&str>) -> String {
+    format!(
+        "task '{task_id}': e2e needs a git repository: {} is not one (the app checks the tested code with git). \
+         Remove e2e or ask the user to run git init there",
+        repo_dir(ws, repo)
+    )
+}
+
+/// `dir` e' un repository git? Senza git sul sistema e' un errore solo se la
+/// modalita' di consegna lavora sui branch (l'app ne ha bisogno davvero),
+/// altrimenti la cartella vale come non git.
+pub(super) fn folder_is_git<H: Host>(host: &H, ws: &Workspace, dir: &str) -> Result<bool, String> {
+    match is_git_repo(host, ws, dir) {
+        Err(e) if !ws.delivery.uses_branches() => {
+            log::warn!("workspace {}: {dir} treated as not a git repository: {e}", ws.id);
+            Ok(false)
+        }
+        other => other,
+    }
 }
 
 /// `dir` e' dentro un repository git? Errore se git non c'e'.
@@ -193,17 +226,6 @@ pub(super) fn is_git_repo<H: Host>(host: &H, ws: &Workspace, dir: &str) -> Resul
     let inside =
         host.git(ws, dir, &["rev-parse", "--is-inside-work-tree"]).map_err(|e| format!("git is not available: {e}"))?;
     Ok(inside.ok && inside.stdout.trim() == "true")
-}
-
-/// Il repository esiste ed e' un repository git, qualunque sia la modalita' di
-/// consegna: un task `isolated` lavora sempre in un worktree. Fuori dal lock.
-pub(super) fn ensure_git_repo<H: Host>(host: &H, ws: &Workspace, repo: Option<&str>) -> Result<(), String> {
-    ensure_repos(host, ws, [repo])?;
-    let dir = repo_dir(ws, repo);
-    if !is_git_repo(host, ws, &dir)? {
-        return Err(format!("{dir} is not a git repository: planning reads the code in a git worktree and needs one"));
-    }
-    Ok(())
 }
 
 /// `git diff --stat <base>...HEAD` piu' i file non committati, troncato.

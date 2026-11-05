@@ -262,6 +262,7 @@ impl Registry {
             base: env.base.as_deref(),
             repo_cfg: ws.repos.get(&board::repo_key(t.repo.as_deref())),
             root_repos: env.root_plan.as_ref().map(|p| p.repos.as_slice()),
+            free: env.free,
         };
         let mut out = match t.kind {
             TaskKind::Review => review::get_task_json(&info, &ws.worker.rules, b),

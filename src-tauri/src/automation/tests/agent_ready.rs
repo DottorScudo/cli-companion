@@ -44,7 +44,7 @@ fn a_task_whose_agent_is_not_ready_waits_with_the_reason_and_starts_when_it_beco
     // Resta in coda, niente avvio e niente errore.
     assert_eq!(status(&st, &h, "a"), "queued");
     assert!(h.spawns().is_empty());
-    assert!(h.git_log().is_empty());
+    assert!(h.git_log_without_detection().is_empty());
     // Il motivo e' nella vista della board, in list_tasks e in get_task_details.
     let expected = json!({"agent": default_id(), "reason": "not-found"});
     assert_eq!(task(&st, &h, "a")["agent_unavailable"], expected);

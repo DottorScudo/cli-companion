@@ -106,6 +106,10 @@ pub struct Task {
     pub kind: TaskKind,
     /// Il task deve superare gli E2E del repository (richiede `RepoConfig::e2e`).
     pub e2e: bool,
+    /// La cartella del task non e' un repository git (modalita' libera: si
+    /// lavora sul posto, senza worktree, branch ne' consegna git). Si aggiorna
+    /// alla creazione e all'accettazione e, in modo autorevole, all'avvio.
+    pub no_git: bool,
     pub(in crate::board) state: TaskState,
     pub(in crate::board) attempts: u32,
     pub(in crate::board) last_report: Option<String>,

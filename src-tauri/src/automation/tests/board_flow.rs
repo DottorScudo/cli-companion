@@ -74,21 +74,20 @@ fn propose_validates_everything_and_changes_nothing_on_error() {
 fn propose_checks_repos_by_delivery_mode() {
     let rooted =
         |repo: &str| json!({"tasks": [{"id": "c", "title": "T", "task": "x", "model": "sonnet", "repo": repo}]});
-    // Modalita' con branch: il repo deve essere git.
+    // Con i branch una cartella senza git non e' piu' un errore: il task va in modalita' libera.
     let (st, h) = pr_parallel();
     h.dirs.lock().unwrap().push("C:\\p\\api".to_string());
     h.git_rule("rev-parse --is-inside-work-tree", false, "", "fatal: not a git repository");
-    let e = call(&st, &h, INTAKE, "propose_tasks", rooted("api")).unwrap_err();
-    assert!(e.contains("not a git repository") && e.contains("branches"), "{e}");
-    let e = call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [spec("c", &[])]})).unwrap_err();
-    assert!(e.contains("not a git repository"), "root checked too: {e}");
+    assert!(call(&st, &h, INTAKE, "propose_tasks", rooted("api")).is_ok());
+    assert!(call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [spec("d", &[])]})).is_ok());
+    assert!(call(&st, &h, INTAKE, "propose_tasks", rooted("manca")).unwrap_err().contains("does not exist"));
     // Senza branch basta che la cartella esista.
     let (st, h) = (AutomationState::default(), FakeHost::with_delivery(DeliveryMode::Commit, false));
     h.dirs.lock().unwrap().push("C:\\p\\api".to_string());
     h.git_rule("rev-parse --is-inside-work-tree", false, "", "fatal: not a git repository");
     assert!(call(&st, &h, INTAKE, "propose_tasks", rooted("api")).is_ok());
     assert!(call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [spec("d", &[])]})).is_ok());
-    assert!(h.git_log().is_empty(), "no git needed: {:?}", h.git_log());
+    assert!(h.git_log_without_detection().is_empty(), "no git needed: {:?}", h.git_log());
     assert!(call(&st, &h, INTAKE, "propose_tasks", rooted("manca")).unwrap_err().contains("does not exist"));
 }
 
@@ -117,7 +116,7 @@ fn accept_queues_in_order_discard_removes_and_a_failed_accept_keeps_the_proposal
     let e = boards::proposal_decide(&st, &h, "ws-1", p3["proposal"].as_str().unwrap(), true).unwrap_err();
     assert!(e.contains("duplicate"), "{e}");
     assert_eq!(view(&st, &h).proposals.len(), 1);
-    // Accettare rilegge anche i repository: la modalita' di consegna puo' essere cambiata.
+    // Accettare rilegge anche i repository: se nel frattempo non sono piu' git, il task e' libero.
     let p4 = call(
         &st,
         &h,
@@ -129,8 +128,8 @@ fn accept_queues_in_order_discard_removes_and_a_failed_accept_keeps_the_proposal
     h.dirs.lock().unwrap().push("C:\\p\\esiste-r".to_string());
     h.set_delivery(DeliveryMode::Pr, true);
     h.git_rule("rev-parse --is-inside-work-tree", false, "", "fatal");
-    let e = boards::proposal_decide(&st, &h, "ws-1", p4["proposal"].as_str().unwrap(), true).unwrap_err();
-    assert!(e.contains("not a git repository"), "{e}");
+    boards::proposal_decide(&st, &h, "ws-1", p4["proposal"].as_str().unwrap(), true).unwrap();
+    assert_eq!(task(&st, &h, "e")["no_git"], true);
 }
 
 // --- avvio per modalita' di consegna ---
@@ -232,7 +231,7 @@ fn commit_and_push_modes_work_in_place_serially_without_git() {
         queue(&st, &h, vec![spec("a", &[]), spec("b", &[]), spec("c", &["a"])]);
         // Un solo worker per repository, nel checkout; l'app non fa git.
         assert_eq!((status_of(&st, &h, "a"), status_of(&st, &h, "b")), ("running".into(), "queued".into()));
-        assert!(h.git_log().is_empty(), "{mode:?}: {:?}", h.git_log());
+        assert!(h.git_log_without_detection().is_empty(), "{mode:?}: {:?}", h.git_log());
         assert_eq!(h.spawns()[0].cwd.as_deref(), Some("C:\\p"));
         assert!(task(&st, &h, "a")["worktree"].is_null());
         let w = session_of(&st, &h, "a");

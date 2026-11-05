@@ -377,6 +377,7 @@ fn closed_workers_are_pruned_beyond_the_cap() {
             branch: None,
             base: None,
             root_plan: None,
+            free: false,
         };
         let new = NewWorker {
             workspace_id: "w".into(),

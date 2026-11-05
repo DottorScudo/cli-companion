@@ -25,6 +25,8 @@ import {
   formatTaskDuration,
   isBoardOf,
   isFiltering,
+  isNoGit,
+  NO_GIT_HELP,
   isParallel,
   matchesQuery,
   mergeBoard,
@@ -510,5 +512,14 @@ describe("board: regole dei worker", () => {
   it("sanitizeWorkerRules taglia e limita", () => {
     assert.equal(sanitizeWorkerRules("  no e2e \n"), "no e2e");
     assert.equal(sanitizeWorkerRules("a".repeat(WORKER_RULES_MAX + 10)).length, WORKER_RULES_MAX);
+  });
+});
+
+describe("board: cartelle senza git", () => {
+  it("isNoGit vale solo con no_git true", () => {
+    assert.equal(isNoGit({ no_git: true }), true);
+    assert.equal(isNoGit({ no_git: false }), false);
+    assert.equal(isNoGit({}), false);
+    assert.match(NO_GIT_HELP, /senza branch né commit/);
   });
 });

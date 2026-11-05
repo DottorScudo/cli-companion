@@ -12,7 +12,7 @@ pub const PLAN_KIND_RESERVED: &str =
 
 impl TaskKind {
     /// Il task gira sempre in un worktree suo, anche se la modalita' di
-    /// consegna non li usa (tranne il piano alla root senza git, in sola
+    /// consegna non li usa (tranne il piano di una cartella senza git, in sola
     /// lettura: vedi `automation::planner::root`), e non tocca mai il checkout del repository: non
     /// occupa il repository nello scheduler e non ha setup ne' consegna.
     pub fn isolated(self) -> bool {

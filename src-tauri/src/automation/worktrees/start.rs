@@ -10,6 +10,8 @@ use crate::board::{repo_key, Task, WorktreeInfo};
 use crate::validate::valid_branch;
 use crate::workspaces::DeliveryMode;
 
+mod free;
+
 const EXCLUDE_LINE: &str = ".worktrees/";
 /// Quanto vale un `git fetch` gia' fatto per (repo, base).
 const FETCH_TTL: Duration = Duration::from_secs(60);
@@ -280,6 +282,8 @@ struct Placement {
     branch: Option<String>,
     base: Option<String>,
     root_plan: Option<RootPlan>,
+    /// Modalita' libera: la cartella non e' un repository git.
+    free: bool,
 }
 
 /// Prepara il repository del task: worktree e setup, oppure (in place) solo i
@@ -296,12 +300,7 @@ fn place_in_repo<H: Host>(st: &AutomationState, host: &H, job: &StartJob, dir: &
             require_checkout_on_base(host, ws, dir, &base)?;
         }
         let (wt, warnings) = prepare_and_setup(st, host, job, &base)?;
-        return Ok(Placement { worktree: Some(wt), warnings, branch, base: Some(base), root_plan: None });
-    }
-    if let Some(r) = &task.repo {
-        if !host.dir_exists(ws, dir) {
-            return Err(format!("the repository folder '{r}' ({dir}) does not exist in the workspace"));
-        }
+        return Ok(Placement { worktree: Some(wt), warnings, branch, base: Some(base), ..Placement::default() });
     }
     // Senza worktree l'app non tocca git: legge solo la base per le istruzioni.
     let base = if delivery.uses_branches() { Some(task_base(host, job, dir)?) } else { None };
@@ -312,13 +311,11 @@ fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Res
     let (ws, task) = (&job.ws, &job.task);
     let delivery = ws.delivery;
     let dir = repo_dir(ws, task.repo.as_deref());
-    // Il pianificatore alla root lavora nella cartella del workspace: niente
-    // worktree, branch, setup ne' controlli sul checkout.
-    let place = match planner::root::start(host, ws, task)? {
-        Some(plan) => Placement { root_plan: Some(plan), ..Placement::default() },
-        None => place_in_repo(st, host, job, &dir)?,
-    };
-    let Placement { worktree, warnings, branch, base, root_plan } = place;
+    // Una cartella senza git (modalita' libera) non ha worktree, branch, setup
+    // ne' controlli sul checkout, qualunque sia la consegna del workspace.
+    let place =
+        if free::is_free(host, job, &dir)? { free::place(host, job)? } else { place_in_repo(st, host, job, &dir)? };
+    let Placement { worktree, warnings, branch, base, root_plan, free } = place;
     let workdir = worktree.as_ref().map_or_else(|| dir.clone(), |w| w.path.clone());
     let permissions_file = host.worker_permissions_file(ws, &task.agent)?;
     let req = AutomationRequest {
@@ -340,7 +337,7 @@ fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Res
             env: launch_env,
             kind: task.kind,
         },
-        env: WorkerEnv { delivery, repo_dir: dir, workdir, branch, base, root_plan },
+        env: WorkerEnv { delivery, repo_dir: dir, workdir, branch, base, root_plan, free },
     })
 }
 

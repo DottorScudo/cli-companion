@@ -17,6 +17,7 @@ mod board_flow;
 mod e2e;
 mod e2e_cancel;
 mod e2e_manual;
+mod free_mode;
 mod hub_hook;
 mod plan;
 mod questions;
@@ -152,6 +153,13 @@ impl FakeHost {
     }
     fn git_log(&self) -> Vec<String> {
         self.git_log.lock().unwrap().clone()
+    }
+    /// Il log di git senza il rilevamento "la cartella e' un repository?", che
+    /// l'app fa a ogni creazione e avvio, qualunque sia la consegna.
+    fn git_log_without_detection(&self) -> Vec<String> {
+        let mut log = self.git_log();
+        log.retain(|l| !l.contains("rev-parse --is-inside-work-tree"));
+        log
     }
     fn git_rule(&self, needle: &str, ok: bool, stdout: &str, stderr: &str) {
         let out = GitOut { ok, stdout: stdout.to_string(), stderr: stderr.to_string() };

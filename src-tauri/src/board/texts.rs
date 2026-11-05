@@ -4,6 +4,11 @@
 
 use super::{Task, TaskKind};
 use crate::workspaces::{Delivery, DeliveryMode, RepoConfig};
+use free::{free_delivery_steps, free_environment, FREE_CHANGES, FREE_DONE, FREE_LABEL, REVIEWER_FREE};
+use in_place::{in_place_description, root_planner_environment};
+
+mod free;
+mod in_place;
 
 /// Standard di ingegneria che ogni worker riceve, prima delle regole del workspace.
 pub const WORKER_GUARDRAILS: &str = include_str!("prompts/worker_guardrails.md");
@@ -17,13 +22,19 @@ const ASK_IN_TEXT: &str = "If you need a decision from the user, ask the questio
 /// Lo stesso con `ask_user` (Agents HUB acceso): la risposta arriva nel terminale come messaggio dell'utente.
 pub const ASK_WITH_TOOL: &str = "If a doubt really blocks you and the code cannot settle it, call ask_user with one clear question (with options when possible), then end your turn: the answer arrives as the user's next message in your terminal. Use it only for blocking doubts; never ask in plain text and never guess.";
 
+/// Regole sui cambiamenti e sulla chiusura nei task con git.
+const GIT_CHANGES: &str =
+    "- Commit only the files you changed. Never stash, reset or discard changes you did not make.\n\
+- Do not push or merge unless the delivery steps say so.\n";
+const GIT_DONE: &str = "- When the delivery succeeded, call complete_task with status \"completed\" (with `commit`, and `pr_url` in PR mode).\n";
+
 /// Istruzioni del revisore di un task `review` (al posto di quelle e dei passi di consegna del worker).
 pub const REVIEWER_INSTRUCTIONS: &str = include_str!("prompts/reviewer_instructions.md");
 
 /// Istruzioni del pianificatore di un task `plan` (niente standard di ingegneria ne' consegna).
 pub const PLANNER_INSTRUCTIONS: &str = include_str!("prompts/planner_instructions.md");
 
-/// Aggiunta alle istruzioni del pianificatore alla root senza git; `{repos}` = i repository rilevati.
+/// Aggiunta alle istruzioni del pianificatore sul posto in una cartella senza git; `{place}` = dove lavora (root con i repository git rilevati, o sottocartella).
 pub const PLANNER_ROOT: &str = include_str!("prompts/planner_root.md");
 
 /// Passo di consegna dei task con `e2e`: gli E2E li esegue l'app, non il worker.
@@ -55,13 +66,25 @@ pub struct EnvInfo<'a> {
     pub base: Option<&'a str>,
     /// Configurazione del repository (setup gia' eseguito dall'app nel worktree).
     pub repo_cfg: Option<&'a RepoConfig>,
-    /// Pianificatore alla root senza git: i repository rilevati (cartelle relative).
+    /// Pianificatore sul posto in una cartella senza git: i repository git
+    /// rilevati alla root (cartelle relative; vuoti se la cartella non e' la root).
     pub root_repos: Option<&'a [String]>,
+    /// Modalita' libera: la cartella del task non e' un repository git.
+    pub free: bool,
 }
 
 impl EnvInfo<'_> {
     fn worktree(&self) -> bool {
         self.delivery.worktrees()
+    }
+
+    /// La consegna come la leggono i worker: quella del workspace o la modalita' libera.
+    fn mode_label(&self) -> &'static str {
+        if self.free {
+            FREE_LABEL
+        } else {
+            mode_label(self.delivery)
+        }
     }
 }
 
@@ -69,14 +92,14 @@ impl EnvInfo<'_> {
 /// il worker chiede le decisioni bloccanti con il tool invece che in testo semplice.
 pub fn instructions(e: &EnvInfo, workspace_rules: &str, ask_user: bool) -> String {
     let ask = if ask_user { ASK_WITH_TOOL } else { ASK_IN_TEXT };
+    let (changes, done) = if e.free { (FREE_CHANGES, FREE_DONE) } else { (GIT_CHANGES, GIT_DONE) };
     let mut s = format!(
         "You are an automated cli-companion worker. The app does not deliver anything for you: you deliver the work yourself, \
          following the delivery steps returned with the task.\n\
          - Work only inside {dir}; never touch other folders.\n\
-         - Commit only the files you changed. Never stash, reset or discard changes you did not make.\n\
-         - Do not push or merge unless the delivery steps say so.\n\
+         {changes}\
          - Run the verification the task asks for before delivering.\n\
-         - When the delivery succeeded, call complete_task with status \"completed\" (with `commit`, and `pr_url` in PR mode).\n\
+         {done}\
          - If you cannot complete or deliver (a conflict you cannot resolve, failing tests, a missing tool or authentication), \
          call complete_task with status \"failed\" and the reason in `summary`.\n\
          - {ask}\n\
@@ -98,6 +121,9 @@ pub fn reviewer_instructions(e: &EnvInfo, workspace_rules: &str, reviewed_e2e: b
         dir = e.workdir
     );
     s.truncate(s.trim_end().len());
+    if e.free {
+        s.push_str(REVIEWER_FREE);
+    }
     if reviewed_e2e && e.repo_cfg.is_some_and(|c| c.e2e.is_some()) {
         s.push_str(E2E_REVIEWER);
     }
@@ -106,9 +132,10 @@ pub fn reviewer_instructions(e: &EnvInfo, workspace_rules: &str, reviewed_e2e: b
 }
 
 /// Istruzioni del pianificatore di un task `plan`: cartella di lavoro, regole
-/// del pianificatore e del workspace (contesto per le specifiche). Alla root
-/// senza git segue la sezione con i repository e la sola lettura. Con `ask_user`
-/// la sezione sulle domande all'utente precede le regole del workspace.
+/// del pianificatore e del workspace (contesto per le specifiche). In una
+/// cartella senza git segue la sezione sulla sola lettura e sulla modalita'
+/// libera. Con `ask_user` la sezione sulle domande all'utente precede le
+/// regole del workspace.
 pub fn planner_instructions(e: &EnvInfo, workspace_rules: &str, ask_user: bool) -> String {
     let mut s = format!(
         "You are an automated cli-companion planner. Work only inside {dir}; never touch other folders.\n\n{PLANNER_INSTRUCTIONS}",
@@ -117,7 +144,7 @@ pub fn planner_instructions(e: &EnvInfo, workspace_rules: &str, ask_user: bool) 
     s.truncate(s.trim_end().len());
     if let Some(repos) = e.root_repos {
         s.push_str("\n\n");
-        s.push_str(PLANNER_ROOT.trim_end().replace("{repos}", &repos.join(", ")).as_str());
+        s.push_str(&PLANNER_ROOT.trim_end().replace("{place}", &in_place_description(e, repos)));
     }
     if ask_user {
         s.push_str("\n\n");
@@ -150,20 +177,6 @@ pub fn planner_environment(e: &EnvInfo) -> String {
     s
 }
 
-/// `environment` del pianificatore alla root senza git: la cartella del
-/// workspace, i repository rilevati, nessun worktree.
-fn root_planner_environment(e: &EnvInfo, repos: &[String]) -> String {
-    format!(
-        "Environment of this task\n\
-         - Workspace root: {root} (not a git repository)\n\
-         - Git repositories of the workspace (folders relative to the root): {list}. Every proposed task sets `repo` to one of them.\n\
-         - Your working folder: {dir}, the workspace root itself: no worktree and no branch. Read-only: do not modify anything.\n",
-        root = e.root,
-        list = repos.join(", "),
-        dir = e.workdir
-    )
-}
-
 /// Accoda alle istruzioni le regole del workspace, se ci sono.
 fn push_workspace_rules(s: &mut String, workspace_rules: &str) {
     let rules = workspace_rules.trim();
@@ -187,6 +200,9 @@ fn mode_label(d: &Delivery) -> &'static str {
 
 /// Testo `environment` di `get_task`.
 pub fn environment(e: &EnvInfo) -> String {
+    if e.free {
+        return free_environment(e);
+    }
     let t = e.task;
     let mut s = String::from("Environment of this task\n");
     s.push_str(&format!("- Workspace root: {}\n", e.root));
@@ -285,6 +301,9 @@ fn push_e2e_step(e: &EnvInfo, steps: &mut Vec<String>) {
 
 /// Passi di consegna della modalita' del workspace (testo `delivery` di `get_task`).
 pub fn delivery_steps(e: &EnvInfo) -> String {
+    if e.free {
+        return free_delivery_steps(e);
+    }
     let (branch, base) = (e.branch.unwrap_or("task/<id>"), e.base.unwrap_or("<base>"));
     let mut head = format!("Delivery: {}\n", mode_label(e.delivery));
     let mut tail = String::new();

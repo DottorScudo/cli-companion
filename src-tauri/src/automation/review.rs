@@ -38,7 +38,7 @@ pub(super) fn rpc_reviewer<H: Host>(
     let empty = json!({});
     let params = if params.is_null() { &empty } else { params };
     match method {
-        Method::ProposeTasks => propose_tasks(st, host, &ws, session, Some(task_id), None, params),
+        Method::ProposeTasks => propose_tasks(st, host, &ws, session, Some(task_id), params),
         Method::GetTaskDetails => task_details(st, host, &ws, params),
         other => Err(misrouted(other)),
     }
