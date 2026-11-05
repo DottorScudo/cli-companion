@@ -12,6 +12,7 @@ use super::chat::ChatMessage;
 use super::output;
 use super::sessions::WakeCause;
 use super::workspace_names::WorkspaceNames;
+use crate::hub::attachments::listing;
 use crate::hub::channel::Channel;
 use crate::hub::model::{Author, Message, Thread};
 use crate::hub::settings::{Language, Secretary};
@@ -43,6 +44,10 @@ in English, plain text without headings. Keep what will matter later: the goal, 
 their state, the open questions and what the user is waiting for. Reply with the summary only.";
 
 const NEW_MESSAGE: &str = "New message from the user:";
+/// Dopo l'elenco degli allegati del messaggio del turno: i segretari non li aprono.
+const ATTACHMENTS_NOTE: &str = "You cannot open these files and you never see their content or location: you only \
+know what is listed here. Mention them to the user if it helps and, if the request needs the files, hand it over to \
+planning: the planner can read them.";
 const BOARD_EVENT: &str = "A board event in this thread woke you up (JSON):";
 
 /// Cosa fare quando un evento della board sveglia il titolare del thread.
@@ -108,6 +113,7 @@ pub fn turn_message(
             out.push_str(NEW_MESSAGE);
             out.push('\n');
             out.push_str(&message.body);
+            push_attachments(&mut out, message);
             if let Some(proposal) = trigger.proposal {
                 out.push_str("\n\n");
                 out.push_str(&PROPOSAL_REPLY.replace("{proposal}", proposal));
@@ -122,6 +128,19 @@ pub fn turn_message(
         }
     }
     Some(out)
+}
+
+fn push_attachments(out: &mut String, message: &Message) {
+    if message.attachments.is_empty() {
+        return;
+    }
+    out.push_str("\n\nAttachments:\n");
+    for attachment in &message.attachments {
+        out.push_str("- ");
+        out.push_str(&listing::describe(attachment));
+        out.push('\n');
+    }
+    out.push_str(ATTACHMENTS_NOTE);
 }
 
 fn wake_context(thread: &Thread, before: &[Message], names: &WorkspaceNames) -> String {
@@ -189,7 +208,7 @@ mod tests {
     use super::*;
     use crate::hub::engine::chat::ToolCall;
     use crate::hub::engine::fixtures::{bot, msg, names, numbered, secretary, thread, user, ws};
-    use crate::hub::model::{HubEvent, HubEventKind};
+    use crate::hub::model::{Attachment, HubEvent, HubEventKind};
 
     fn by_user(id: &str) -> Trigger<'_> {
         Trigger { id, cause: WakeCause::Message, proposal: None }
@@ -336,5 +355,38 @@ decide_proposal; if the intent is not clear, ask the user instead of deciding."
         assert_eq!(clean_summary(&many).unwrap().lines().count(), SUMMARY_LINES_MAX);
         assert!(clean_summary(&"x".repeat(SUMMARY_MAX * 2)).unwrap().chars().count() <= SUMMARY_MAX + 1);
         assert_eq!(clean_summary("  \n "), None);
+    }
+
+    fn with_attachments(mut message: Message) -> Message {
+        message.attachments =
+            vec![Attachment { id: "att-1-1".into(), name: "errore.png".into(), mime: "image/png".into(), size: 2048 }];
+        message
+    }
+
+    #[test]
+    fn the_attachments_of_the_turn_message_are_listed_without_path_or_content() {
+        let t = thread(vec![with_attachments(user("m1", "guarda questo"))]);
+        let text = turn_message(&t, &by_user("m1"), None, "mario", &names()).unwrap();
+        assert!(text.contains("New message from the user:\nguarda questo\n\nAttachments:\n"), "{text}");
+        assert!(text.contains("- errore.png (image/png, 2.0 KB)\n"), "{text}");
+        assert!(text.ends_with("the planner can read them."), "{text}");
+        assert!(!text.contains("att-1-1") && !text.contains("hub_attachments"), "{text}");
+    }
+
+    #[test]
+    fn earlier_messages_of_the_context_carry_their_attachments_as_metadata() {
+        let t = thread(vec![with_attachments(user("m1", "ecco")), user("m2", "e quindi?")]);
+        let wake = turn_message(&t, &by_user("m2"), None, "mario", &names()).unwrap();
+        assert!(wake.contains(r#""attachments":[{"name":"errore.png","size":"2.0 KB","type":"image/png"}]"#), "{wake}");
+        let t = thread(vec![user("m0", "x"), with_attachments(user("m1", "ecco")), user("m2", "e quindi?")]);
+        let follow_up = turn_message(&t, &by_user("m2"), Some("m0"), "mario", &names()).unwrap();
+        assert!(follow_up.contains(r#""name":"errore.png""#) && !follow_up.contains("att-1-1"), "{follow_up}");
+    }
+
+    #[test]
+    fn a_message_without_attachments_has_no_attachments_block() {
+        let t = thread(vec![user("m1", "ciao")]);
+        let text = turn_message(&t, &by_user("m1"), None, "mario", &names()).unwrap();
+        assert!(!text.contains("Attachments"), "{text}");
     }
 }

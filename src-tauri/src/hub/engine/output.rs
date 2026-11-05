@@ -6,8 +6,9 @@
 use super::board_query::{self, BoardQuery};
 use super::workspace_names::WorkspaceNames;
 use crate::board::{compact_row, BoardView, TaskView};
+use crate::hub::attachments::listing;
 use crate::hub::channel::Channel;
-use crate::hub::model::{Message, Thread};
+use crate::hub::model::{Attachment, Message, Thread};
 use crate::validate::clip_with_ellipsis;
 use serde_json::{json, Map, Value};
 
@@ -84,7 +85,8 @@ pub fn messages(list: &[Message], names: &WorkspaceNames) -> Value {
     Value::Array(list.iter().map(|m| message(m, names)).collect())
 }
 
-/// Un messaggio: autore, ora (UTC), testo tagliato e, per gli eventi, i dati
+/// Un messaggio: autore, ora (UTC), testo tagliato, gli allegati (solo nome,
+/// tipo e dimensione: mai percorso o contenuto) e, per gli eventi, i dati
 /// dell'evento senza i campi vuoti.
 pub fn message(m: &Message, names: &WorkspaceNames) -> Value {
     let mut out = json!({
@@ -96,6 +98,9 @@ pub fn message(m: &Message, names: &WorkspaceNames) -> Value {
     if let Some(reply_to) = &m.reply_to {
         out["reply_to"] = Value::from(reply_to.as_str());
     }
+    if !m.attachments.is_empty() {
+        out["attachments"] = m.attachments.iter().map(attachment).collect();
+    }
     if let Some(event) = &m.event {
         out["event"] = without_nulls(serde_json::to_value(event).unwrap_or(Value::Null));
         if let Some(name) = event.workspace.as_deref().and_then(|id| names.name_of(id)) {
@@ -103,6 +108,10 @@ pub fn message(m: &Message, names: &WorkspaceNames) -> Value {
         }
     }
     out
+}
+
+fn attachment(a: &Attachment) -> Value {
+    json!({ "name": a.name, "type": a.mime, "size": listing::size_text(a.size) })
 }
 
 fn timestamp(ms: i64) -> Value {
@@ -241,5 +250,31 @@ mod tests {
         assert_eq!(thread(&thread_with(1), &renamed)["workspace_name"], "Nuovo");
         let none = crate::hub::engine::workspace_names::WorkspaceNames::default();
         assert!(thread(&thread_with(1), &none).get("workspace_name").is_none());
+    }
+
+    #[test]
+    fn attachments_show_name_type_and_size_but_never_path_or_content() {
+        let mut m = msg("m1", Author::User, "guarda", 0);
+        assert!(message(&m, &names()).get("attachments").is_none());
+        m.attachments = vec![Attachment {
+            id: "att-1-1".into(),
+            name: "report.pdf".into(),
+            mime: "application/pdf".into(),
+            size: 1536,
+        }];
+        let v = message(&m, &names());
+        assert_eq!(v["attachments"], json!([{"name": "report.pdf", "type": "application/pdf", "size": "1.5 KB"}]));
+        let text = v.to_string();
+        assert!(!text.contains("att-1-1") && !text.contains("hub_attachments"), "{text}");
+    }
+
+    #[test]
+    fn thread_read_carries_the_attachments_of_its_messages() {
+        let mut t = thread_with(2);
+        t.messages[1].attachments =
+            vec![Attachment { id: "att-1-1".into(), name: "a.png".into(), mime: "image/png".into(), size: 10 }];
+        let v = thread(&t, &names());
+        assert_eq!(v["messages"][1]["attachments"][0]["name"], "a.png");
+        assert!(v["messages"][0].get("attachments").is_none());
     }
 }

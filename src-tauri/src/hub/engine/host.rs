@@ -126,6 +126,7 @@ impl ThreadIo {
                 trigger_id: &trigger,
                 secretary: &secretary,
                 goal: &goal,
+                attachments_root: &dirs.attachments,
             };
             let (value, touched) = app.state::<HubState>().update(&dirs, &key.channel, |list| {
                 ensure_channel(&app, &key.channel)?;

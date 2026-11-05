@@ -14,12 +14,14 @@
 //! - `mime`: il tipo dedotto da contenuto ed estensione (puro);
 //! - `layout`: i percorsi, con la validazione di ogni componente (puro);
 //! - `garbage`: quali file cancellare dopo un salvataggio (puro);
+//! - `listing`: come gli allegati si raccontano a modelli e agenti (puro);
 //! - `storage`: le operazioni su disco (staging, spostamento, cancellazione);
 //! - `commands`: i comandi Tauri e il percorso assoluto di un allegato.
 
 pub mod commands;
 mod garbage;
 mod layout;
+pub mod listing;
 mod mime;
 mod name;
 mod storage;

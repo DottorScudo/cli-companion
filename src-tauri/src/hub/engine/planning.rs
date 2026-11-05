@@ -2,7 +2,8 @@
 //!
 //! - `open_plan_task`: il task `plan` (titolo dal goal, testo in inglese con la
 //!   richiesta dell'utente citata testualmente, il riassunto del thread e gli
-//!   ultimi messaggi), collegato al thread, con il segretario come titolare;
+//!   ultimi messaggi, e gli allegati con il percorso assoluto), collegato al
+//!   thread, con il segretario come titolare;
 //! - `decide_proposal`: senza id. La proposta e' quella dell'evento a cui
 //!   risponde (`reply_to`) il messaggio dell'utente che ha svegliato il turno
 //!   (`proposal_target`), ancora pendente; un turno svegliato da un evento
@@ -21,6 +22,9 @@ use crate::hub::threads::{ChannelThreads, TASKS_PER_THREAD_MAX};
 use crate::hub::waiting::subject_waiting;
 use crate::validate::clip_with_ellipsis;
 use serde_json::{json, Value};
+use std::path::Path;
+
+mod attachments;
 
 /// Caratteri del goal di `open_plan_task`.
 pub const GOAL_MAX: usize = 4000;
@@ -99,6 +103,8 @@ pub struct PlanTicket<'a> {
     pub trigger_id: &'a str,
     pub secretary: &'a str,
     pub goal: &'a str,
+    /// La radice degli allegati (`HubDirs::attachments`), da cui ricavare i percorsi.
+    pub attachments_root: &'a Path,
 }
 
 /// `open_plan_task` sui thread del canale: crea il task `plan` con `create`
@@ -117,7 +123,7 @@ pub fn open_plan(
     if thread.task_ids.len() >= TASKS_PER_THREAD_MAX {
         return Err(THREAD_FULL.to_string());
     }
-    let order = plan_order(ticket.goal, thread, ticket.trigger_id, ticket.secretary);
+    let order = plan_order(ticket.goal, thread, ticket.trigger_id, ticket.secretary, ticket.attachments_root);
     let task_id = create(workspace, &order).map_err(|e| format!("The planning task could not be created: {e}"))?;
     let attached = list
         .link_tasks(ticket.thread_id, std::slice::from_ref(&task_id), now)
@@ -140,23 +146,31 @@ pub fn open_plan(
 }
 
 /// Titolo e testo del task `plan`. Il testo e' in inglese (lo legge il
-/// pianificatore) e cita la richiesta dell'utente cosi' com'e'.
-pub fn plan_order(goal: &str, thread: &Thread, trigger_id: &str, secretary: &str) -> PlanOrder {
+/// pianificatore) e cita la richiesta dell'utente cosi' com'e'; gli allegati
+/// della richiesta e dei messaggi recenti hanno la loro sezione, con i percorsi
+/// sotto `attachments_root`.
+pub fn plan_order(
+    goal: &str,
+    thread: &Thread,
+    trigger_id: &str,
+    secretary: &str,
+    attachments_root: &Path,
+) -> PlanOrder {
     let first_line = goal.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
     let title = clean_line(first_line, TITLE_KEPT);
     let title = if title.is_empty() { FALLBACK_TITLE.to_string() } else { title };
     let at = thread.messages.iter().position(|m| m.id == trigger_id).unwrap_or(thread.messages.len());
-    let request = user_request(&thread.messages, at)
-        .map(|m| quoted(&m.body))
-        .unwrap_or_else(|| "(no message from the user)".to_string());
+    let request_message = user_request(&thread.messages, at);
+    let request = request_message.map(|m| quoted(&m.body)).unwrap_or_else(|| "(no message from the user)".to_string());
     let before = &thread.messages[..at];
-    let recent: Vec<String> =
-        before[before.len().saturating_sub(CONTEXT_MESSAGES)..].iter().map(context_line).collect();
+    let recent_messages = &before[before.len().saturating_sub(CONTEXT_MESSAGES)..];
+    let recent: Vec<String> = recent_messages.iter().map(context_line).collect();
     let recent = if recent.is_empty() { "(none)".to_string() } else { recent.join("\n") };
+    let attachments = attachments::section(attachments_root, thread, request_message, recent_messages);
     let task = format!(
         "Plan the following request. The user made it in a thread of the Agents HUB of cli-companion, and the \
-secretary @{secretary} handed it over to you.\n\n## User request (verbatim)\n\n{request}\n\n## Goal\n\n{goal}\n\n\
-## Thread summary\n\n{summary}\n\n## Recent messages of the thread (oldest first)\n\n{recent}\n",
+secretary @{secretary} handed it over to you.\n\n## User request (verbatim)\n\n{request}\n\n{attachments}## Goal\n\n\
+{goal}\n\n## Thread summary\n\n{summary}\n\n## Recent messages of the thread (oldest first)\n\n{recent}\n",
         summary = thread.summary.as_deref().unwrap_or("(none)"),
     );
     PlanOrder { title, task }
@@ -180,7 +194,18 @@ fn context_line(m: &Message) -> String {
         Author::System => "app".to_string(),
         Author::Bot { name } => format!("@{name}"),
     };
-    format!("- [{author}] {}", clip_with_ellipsis(&m.body, CONTEXT_ENTRY_KEPT).replace('\n', " / "))
+    let body = clip_with_ellipsis(&m.body, CONTEXT_ENTRY_KEPT).replace('\n', " / ");
+    format!("- [{author}] {body}{}", attached_names(m))
+}
+
+/// ` [attached: a.png, b.txt]` (i percorsi sono nella sezione "Attachments"), o
+/// niente se il messaggio non ha allegati.
+fn attached_names(m: &Message) -> String {
+    if m.attachments.is_empty() {
+        return String::new();
+    }
+    let names: Vec<&str> = m.attachments.iter().map(|a| a.name.as_str()).collect();
+    format!(" [attached: {}]", names.join(", "))
 }
 
 #[cfg(test)]

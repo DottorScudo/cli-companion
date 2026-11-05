@@ -736,6 +736,17 @@ La logica (menzioni, sessioni, ciclo, contesto, tool) è pura o generica sui tra
 `ProposalBoard`: i test usano un modello finto (`engine/fake.rs`) che risponde con sequenze scritte a mano, un host
 finto e una board finta (`engine/fixtures.rs`), senza rete.
 
+### Allegati nel contesto dei segretari
+
+Un segretario vede degli allegati solo **nome, tipo e dimensione** (`hub/attachments/listing.rs`, puro): mai il
+contenuto né il percorso, e in questa versione nessuna immagine va al modello. Nel contesto del risveglio e nei
+messaggi nuovi di un turno successivo (`output::message`, lo stesso di `thread_read`) il messaggio ha
+`attachments: [{ name, type, size }]`, con la dimensione leggibile («1.5 KB»). Se il messaggio che apre il turno ha
+allegati, dopo il testo c'è un blocco `Attachments:` con una riga `nome (tipo, dimensione)` per allegato e la nota che
+il segretario non può aprirli: può dire all'utente «ho visto che hai allegato X» e, se la richiesta ne ha bisogno,
+passarla alla pianificazione (`open_plan_task`), dove il pianificatore li legge (vedi "Pianificazione dal thread").
+Senza allegati il contesto è identico a prima.
+
 ### Menzioni e risveglio
 
 `hub_send` salva il messaggio dell'utente e poi chiama `SecretaryEngine::on_message`, che decide chi svegliare
@@ -865,7 +876,7 @@ campi della struttura coincidano. Gli argomenti vuoti valgono `{}`. Solo `open_p
 | Tool | Argomenti | Effetto |
 |---|---|---|
 | `board_status` | `workspace?` (il **nome** del workspace, senza distinguere maiuscole e spazi ai bordi; vale anche l'id; al massimo 200 caratteri); filtri in AND: `status?` (array senza ripetizioni di `queued`, `running`, `done`, `failed`), `attention?` (`true` = solo i task che aspettano l'utente: il worker aspetta lui, una domanda senza risposta o l'agente non pronto), `kind?` (`work`, `review`, `plan`), `query?` (testo senza distinguere maiuscole in id, titolo, riassunto del report, nota e specifica del task; al massimo 200 caratteri; vuoto = nessuna ricerca); pagina: `offset?` (da 0, default 0) e `limit?` (da 1 a 40, default 20) | una pagina della board del workspace del canale, o di quello indicato se il segretario ha quel canale, con `workspace` (id) e `workspace_name`: conteggi per stato dell'intera board (mai filtrati), proposte pendenti, `paused`, `total` (i task che soddisfano i filtri), `offset`, `limit`, `next_offset` (solo se ci sono altri risultati) e i task **dal piu' recente** (ora di creazione; a parita', l'ultimo aggiunto alla board) con `id`, `title`, `status`, `attention`, `waiting_on`, riassunto del report (300 caratteri), nota (200), `created_at` e `updated_at` (UTC); la specifica si cerca ma non si restituisce. Le righe sono quelle di `list_tasks` (`compact_row`), che non cambia; filtro, ricerca e pagina sono in `hub/engine/board_query.rs`. Nel Generale senza `workspace` l'errore elenca i nomi dei workspace leggibili; un nome sconosciuto elenca i nomi possibili, un nome ambiguo (due workspace con lo stesso nome) elenca gli id tra cui scegliere |
-| `thread_read` | — | titolo, canale (con `workspace_name` nel canale di un workspace), stato, task e proposta collegati, riassunto e ultimi 20 messaggi (autore, ora UTC, testo tagliato a 1000 caratteri, dati dell'evento senza i campi vuoti), più `older_messages` |
+| `thread_read` | — | titolo, canale (con `workspace_name` nel canale di un workspace), stato, task e proposta collegati, riassunto e ultimi 20 messaggi (autore, ora UTC, testo tagliato a 1000 caratteri, dati dell'evento senza i campi vuoti, e per ogni messaggio con allegati `attachments`: solo nome, tipo e dimensione, mai percorso né contenuto), più `older_messages` |
 | `post_message` | `body` (1..8000 caratteri) | un messaggio intermedio del segretario nel thread; la risposta finale è comunque il testo del modello |
 | `open_plan_task` | `goal` (1..4000 caratteri, ripulito dai caratteri di controllo) | crea un task `plan` in coda nel workspace del canale, collegato al thread, e rende il segretario titolare; esito `{ task_id, title, status }`. Nel Generale è un errore per il modello: deve chiedere all'utente il progetto |
 | `decide_proposal` | `accept` (bool), **nessun id** | accetta o scarta la proposta dell'evento a cui risponde il messaggio dell'utente; esito `{ proposal, decision, tasks_queued }` |
@@ -905,6 +916,13 @@ diretta «… le azioni sulla board non sono disponibili.».
 - Testo (inglese, lo legge il pianificatore, che non vede altro): la richiesta dell'utente **citata testualmente**
   (il messaggio del turno; in un risveglio da evento, l'ultimo messaggio dell'utente), il goal, il riassunto del thread
   e gli ultimi 10 messaggi prima del turno (autore e testo, 1000 caratteri ciascuno).
+- Allegati: se la richiesta citata o uno di quei messaggi ne ha, una sezione `## Attachments` (tra la richiesta e il
+  goal) li elenca con **percorso assoluto**, nome, tipo e dimensione (`engine/planning/attachments.rs`, puro; il
+  percorso lo ricava `attachments::layout::stored_file` dalla radice `hub_attachments/`, passata a `plan_order`) e
+  chiede al pianificatore di leggerli e di riportare i percorsi utili nelle specifiche dei task che propone, perché
+  i worker vedono solo la specifica. Ogni allegato compare una volta; nelle righe dei messaggi recenti resta
+  ` [attached: nome, ...]`. Mai il contenuto dei file. Senza allegati il testo è identico a prima; la sezione sta
+  nei limiti di testo del task (al più 5 allegati per messaggio e 11 messaggi).
 - Modello del pianificatore: la fascia `strong` dell'agente del workspace, cioè `opus` con Claude Code (vedi
   [BOARD.MD](BOARD.MD), "Task di pianificazione"): pianificare è il ragionamento più difficile e si fa una volta per
   obiettivo, mentre il core non nomina modelli. Se l'agente non dichiara le fasce vale il modello dei worker del
@@ -953,6 +971,10 @@ deterministico, gratuito e funziona anche nei thread senza segretario titolare.
   del messaggio, **così com'è**, va all'azione `answer_question` registrata da `lib.rs`
   (`automation::answer_question`: segna la domanda sulla board e la digita nel terminale del worker solo se è fermo
   in attesa; nessun lock dell'HUB è in mano durante la consegna).
+- Se il messaggio ha allegati, al testo si aggiunge (dopo una riga vuota) «Attached files (read them at these absolute
+  paths):» e una riga per allegato con percorso assoluto, nome, tipo e dimensione (`direct_answer::answer_reply`,
+  che riceve la radice degli allegati); un messaggio con soli allegati consegna solo quell'elenco. Senza allegati
+  il testo resta quello scritto. Il limite di 4000 caratteri della board vale sul testo completo.
 - La domanda deve essere ancora in attesa **nel thread**: per il suo task l'ultimo evento è proprio quella domanda,
   del workspace del canale. Una domanda già risposta, o di un task concluso, fallito o ripartito, dà «Risposta non
   inviata: questa domanda ha già una risposta o il suo task non è più in attesa.» senza chiamare la board.
