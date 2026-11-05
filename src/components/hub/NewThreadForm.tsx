@@ -1,19 +1,25 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { createThread } from "../../app/actions/hub";
+import { createChat } from "../../app/actions/hubMessenger";
 import { errorMessage } from "../../lib/errors";
 import { THREAD_TITLE_MAX_CHARS, checkTitle } from "../../lib/hub";
+import type { HubChannel } from "../../lib/hub";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import ChannelSelect from "./ChannelSelect";
 
 interface Props {
+  /** Canale del thread; con `channels` è quello proposto, cambiabile. */
   channel: string;
+  /** Se c'è, il modulo lascia scegliere il workspace tra questi canali (vista messenger). */
+  channels?: readonly HubChannel[];
   onDone: () => void;
 }
 
-/** Titolo del nuovo thread del canale; si chiude da solo a creazione riuscita. */
-export default function NewThreadForm({ channel, onDone }: Props) {
+/** Titolo del nuovo thread (e, nella vista messenger, il suo workspace); si chiude da solo a creazione riuscita. */
+export default function NewThreadForm({ channel, channels, onDone }: Props) {
   const [title, setTitle] = useState("");
+  const [target, setTarget] = useState(channel);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,7 +33,7 @@ export default function NewThreadForm({ channel, onDone }: Props) {
     setError(null);
     setSaving(true);
     try {
-      await createThread(channel, checked.body);
+      await createChat(target, checked.body);
       onDone();
     } catch (err) {
       setError(errorMessage(err));
@@ -47,6 +53,16 @@ export default function NewThreadForm({ channel, onDone }: Props) {
         aria-label="Titolo del thread"
         className="h-8"
       />
+      {channels && (
+        <ChannelSelect
+          label="Workspace del thread"
+          channels={channels}
+          value={target}
+          disabled={saving}
+          onChange={setTarget}
+          className="h-8 text-[13px]"
+        />
+      )}
       {error && <p className="text-[11px] text-destructive">{error}</p>}
       <div className="flex gap-2">
         <Button type="submit" size="sm" disabled={saving || title.trim() === ""}>

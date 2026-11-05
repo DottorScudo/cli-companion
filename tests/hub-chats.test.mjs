@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import {
   CHAT_PREVIEW_CONCURRENCY,
   CHAT_PREVIEW_LIMIT,
+  chatCardLabel,
   chatList,
   messagePreviewText,
   previewAuthor,
+  previewLine,
   previewOf,
   previewsToRead,
   withPreview,
@@ -215,5 +217,31 @@ describe("mapLimit", () => {
     const done = [];
     await mapLimit([1, 2], 0, async (n) => void done.push(n));
     assert.deepEqual(done, [1, 2]);
+  });
+});
+
+describe("chatCardLabel", () => {
+  const entry = (extra = {}) => ({ thread: summary("a", extra), channelName: "Sito Web" });
+
+  it("titolo e workspace", () => {
+    assert.equal(chatCardLabel(entry(), false), "Thread a, Sito Web");
+  });
+
+  it("aggiunge chiusa, non letta e aspetta una tua risposta", () => {
+    assert.equal(
+      chatCardLabel(entry({ state: "closed", waiting_user: true }), true),
+      "Thread a, Sito Web, chiusa, non letta, aspetta una tua risposta",
+    );
+  });
+});
+
+describe("previewLine", () => {
+  it("in lettura vale i puntini", () => {
+    assert.equal(previewLine(undefined), "…");
+  });
+
+  it("autore e testo; senza messaggi nulla", () => {
+    assert.equal(previewLine({ updatedAt: 1, author: "Tu", text: "ciao", at: 1 }), "Tu: ciao");
+    assert.equal(previewLine({ updatedAt: 1, author: "", text: "", at: 0 }), "");
   });
 });

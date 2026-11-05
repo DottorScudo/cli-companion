@@ -1,21 +1,14 @@
 import { memo } from "react";
-import { formatRelative } from "../../lib/board";
-import { authorLabel } from "../../lib/hub";
-import { findSecretary } from "../../lib/hubSecretaries";
 import type { HubEvent, HubMessage, HubSecretary } from "../../lib/tauri";
-import BotAvatar from "../BotAvatar";
-import Markdown from "../tasks/Markdown";
 import type { ProposalStatus } from "../../lib/hubProposals";
 import type { QuestionState } from "../../lib/hubQuestions";
+import HubBotBubble from "./HubBotBubble";
+import HubBotMessage from "./HubBotMessage";
 import HubDeliveryFailure from "./HubDeliveryFailure";
 import HubEventRow from "./HubEventRow";
 import HubQuestionCard from "./HubQuestionCard";
 import HubProposalCard from "./HubProposalCard";
 import HubUserMessage from "./HubUserMessage";
-import ReplyReference from "./ReplyReference";
-import SecretaryBadge from "./SecretaryBadge";
-
-const AVATAR_SIZE = 28;
 
 interface Props {
   channel: string;
@@ -34,12 +27,14 @@ interface Props {
   questionState?: QuestionState;
   /** Se il messaggio è l'esito «Risposta non inviata», l'evento della domanda a cui si riferisce. */
   failedQuestion?: HubEvent;
+  /** Vista messenger: le risposte di segretari e sistema sono bolle a sinistra, non riquadri. */
+  bubbles?: boolean;
   onReply: (messageId: string) => void;
 }
 
 /**
  * Un messaggio della conversazione: testo dell'utente (bolla a destra),
- * risposta di un segretario (avatar, nome e badge) o del sistema, oppure
+ * risposta di un segretario o del sistema (riquadro, o bolla nella vista messenger), oppure
  * evento in forma compatta, o scheda (proposta, domanda di un worker); tutti
  * tranne l'utente stanno a sinistra.
  */
@@ -54,6 +49,7 @@ function HubMessageItem({
   proposalStatus,
   questionState,
   failedQuestion,
+  bubbles = false,
   onReply,
 }: Props) {
   const proposalId = message.event?.proposal_id;
@@ -102,32 +98,8 @@ function HubMessageItem({
       />
     );
   }
-  const isSecretary = author.type === "bot";
-  const secretary = author.type === "bot" ? findSecretary(secretaries, author.name) : undefined;
-  return (
-    <article
-      className={
-        isSecretary
-          ? "flex gap-2.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2"
-          : "flex flex-col gap-1 rounded-lg border bg-card px-3 py-2"
-      }
-    >
-      {author.type === "bot" && (
-        <BotAvatar name={author.name} size={AVATAR_SIZE} image={secretary?.image ?? undefined} className="mt-0.5" />
-      )}
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <header className="flex items-baseline gap-2">
-          <span className="text-[12px] font-semibold">
-            {isSecretary ? `@${authorLabel(author)}` : authorLabel(author)}
-          </span>
-          {isSecretary && <SecretaryBadge />}
-          <span className="text-[11px] text-muted-foreground">{formatRelative(message.created_at, now)}</span>
-        </header>
-        {target && <ReplyReference target={target} />}
-        <Markdown source={message.body} mentions={mentions} />
-      </div>
-    </article>
-  );
+  const Bot = bubbles ? HubBotBubble : HubBotMessage;
+  return <Bot message={message} target={target} now={now} secretaries={secretaries} mentions={mentions} />;
 }
 
 export default memo(HubMessageItem);

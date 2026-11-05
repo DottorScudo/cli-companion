@@ -14,6 +14,7 @@ import HubComposer from "./HubComposer";
 import HubMessageItem from "./HubMessageItem";
 import ThreadOwner from "./ThreadOwner";
 import ThreadSession from "./ThreadSession";
+import WorkspaceTerminalsButton from "./WorkspaceTerminalsButton";
 import TypingIndicator from "./TypingIndicator";
 
 const NO_SECRETARIES: readonly HubSecretary[] = [];
@@ -25,8 +26,15 @@ function EmptyState({ children }: { children: string }) {
   return <p className="m-auto max-w-xs px-6 text-center text-xs text-muted-foreground">{children}</p>;
 }
 
+interface Props {
+  channel: string;
+  channelName: string;
+  /** Vista messenger: workspace e «Terminali» nell'intestazione, messaggi dei segretari come bolle. */
+  messenger: boolean;
+}
+
 /** Colonna della conversazione del thread selezionato, con il compositore in fondo. */
-export default function HubConversation({ channel }: { channel: string }) {
+export default function HubConversation({ channel, channelName, messenger }: Props) {
   const threadId = useStore(hubStore, (s) => s.threadId);
   const thread = useStore(hubStore, (s) => s.thread);
   const settings = useStore(hubStore, (s) => s.settings);
@@ -52,7 +60,11 @@ export default function HubConversation({ channel }: { channel: string }) {
   if (threadId === null) {
     return (
       <section aria-label="Conversazione" className="flex min-w-0 flex-1 flex-col">
-        <EmptyState>Scegli un thread dall’elenco, oppure creane uno nuovo.</EmptyState>
+        <EmptyState>
+          {messenger
+            ? "Scegli una chat dall’elenco, oppure creane una con +"
+            : "Scegli un thread dall’elenco, oppure creane uno nuovo."}
+        </EmptyState>
       </section>
     );
   }
@@ -68,6 +80,12 @@ export default function HubConversation({ channel }: { channel: string }) {
     <section aria-label="Conversazione" className="flex min-w-0 flex-1 flex-col">
       <header className="flex items-center gap-2 border-b px-4 py-2">
         <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold">{thread.title}</h2>
+        {messenger && (
+          <>
+            <span className="flex-shrink-0 text-[11px] text-muted-foreground">{channelName}</span>
+            <WorkspaceTerminalsButton channel={channel} channelName={channelName} />
+          </>
+        )}
         <ThreadOwner owner={thread.owner} />
         <ThreadSession channel={channel} threadId={thread.id} now={now} />
         <span className="rounded border px-1.5 py-px text-[10px] text-muted-foreground">
@@ -100,6 +118,7 @@ export default function HubConversation({ channel }: { channel: string }) {
               now={now}
               secretaries={secretaries}
               mentions={mentions}
+              bubbles={messenger}
               proposalStatus={cardStatus(m, statuses)}
               questionState={questions[m.id]}
               failedQuestion={failures[m.id]}

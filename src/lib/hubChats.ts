@@ -107,6 +107,21 @@ export function previewsToRead(
 const samePreview = (a: ThreadPreview, b: ThreadPreview): boolean =>
   a.updatedAt === b.updatedAt && a.author === b.author && a.text === b.text && a.at === b.at;
 
+/** Etichetta accessibile di una card: titolo, workspace, se è chiusa, se ha messaggi non letti e se aspetta l'utente. */
+export function chatCardLabel(entry: ChatEntry, unread: boolean): string {
+  const parts = [entry.thread.title, entry.channelName];
+  if (entry.thread.state !== "open") parts.push("chiusa");
+  if (unread) parts.push("non letta");
+  if (entry.thread.waiting_user) parts.push("aspetta una tua risposta");
+  return parts.join(", ");
+}
+
+/** Riga dell'anteprima: `undefined` = ancora in lettura ("…"), vuota = nessun messaggio. */
+export function previewLine(preview: ThreadPreview | undefined): string {
+  if (preview === undefined) return "…";
+  return preview.text === "" ? "" : `${preview.author}: ${preview.text}`;
+}
+
 /** Aggiunge o sostituisce l'anteprima di un thread; una più vecchia di quella nota non la sostituisce. */
 export function withPreview(
   previews: Readonly<Record<string, ThreadPreview>>,

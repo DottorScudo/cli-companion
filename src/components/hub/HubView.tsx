@@ -9,12 +9,15 @@ import HubThreadList from "./HubThreadList";
 
 /**
  * Centro del mondo Agents HUB: thread del canale e conversazione (la colonna
- * dei canali è `HubSidebar`, a sinistra). All'apertura rilegge il thread rimasto
- * aperto; poi segue `hub-update`, senza interrogazioni periodiche.
+ * dei canali, o delle chat nella vista messenger, è `HubSidebar`, a sinistra).
+ * Nella vista messenger i thread stanno nella sidebar e la conversazione ha
+ * tutta la larghezza. All'apertura rilegge il thread rimasto aperto; poi segue
+ * `hub-update`, senza interrogazioni periodiche.
  */
 export default function HubView() {
   const { channels, current } = useHubChannels();
   const channel = useStore(hubStore, (s) => s.channel);
+  const messenger = useStore(hubStore, (s) => s.viewMode === "messenger");
 
   useEffect(() => {
     const { channel: openChannel, threadId } = hubStore.getState();
@@ -28,8 +31,8 @@ export default function HubView() {
 
   return (
     <div className="flex h-full min-h-0">
-      <HubThreadList channel={current} channelName={channelName(channels, current)} />
-      <HubConversation channel={current} />
+      {!messenger && <HubThreadList channel={current} channelName={channelName(channels, current)} />}
+      <HubConversation channel={current} channelName={channelName(channels, current)} messenger={messenger} />
     </div>
   );
 }

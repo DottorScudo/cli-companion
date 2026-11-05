@@ -396,10 +396,30 @@ dei workspace visibili (`totalWaiting`).
 | Nomi riservati ai terminali | `lib/bots.ts`, `reservedBotNames` in `stores/hub.ts`, `app/actions/tabs.ts`, `app/events.ts`, `hooks/useSessionPersistence.ts` |
 
 Il mondo Agents HUB ha tre colonne: canali (a sinistra, nella colonna dello schermo), thread del canale (filtro
-Aperti/Tutti, «+» nuovo thread) e conversazione. Gli eventi sono righe compatte con
+Aperti/Tutti, «+» nuovo thread) e conversazione; con la vista messenger le prime due diventano l'elenco delle chat a sinistra. Gli eventi sono righe compatte con
 «Rispondi»: il compositore mostra il messaggio citato (annullabile) e invia con `reply_to`; la risposta riporta il
 riferimento all'originale, che sparisce se il messaggio è stato potato. Invio invia, Maiusc+Invio va a capo, al massimo
 8000 caratteri.
+
+**Vista messenger: interfaccia.** In cima alla colonna sinistra l'interruttore segmentato **Canali | Chat**
+(`HubViewSwitch`, `aria-pressed`, al posto del titolo «Canali») scrive la preferenza con `setHubViewMode`. Con
+«Canali» tutto resta com'è (`HubChannelList`, `HubThreadList`, messaggi a riquadri). Con «Chat» la colonna sinistra
+(`HubSidebar`) mostra `HubChatList` al posto dei canali e la colonna dei thread non c'è: `HubView` rende solo la
+conversazione a tutta larghezza. `HubChatList` ha la ricerca («Cerca chat…»), il «+», il filtro Aperti/Tutti
+(`HubSegmented`, lo stesso della vista per canale), il selettore del workspace (`ChannelSelect`: «Tutti i workspace»,
+Generale, ogni workspace visibile) e un `<ul>` di `HubChatCard`, una per chat: avatar del segretario titolare (icona
+neutra se manca), titolo (in grassetto se non letta), workspace, orario relativo, anteprima su una riga («…» mentre si
+legge), pallino «Aspetta una tua risposta», pallino dei non letti; le chiuse sono attenuate, la selezionata ha
+`aria-current`, l'`aria-label` riassume titolo, workspace, chiusa, non letta e attesa (`chatCardLabel`). Un clic fa
+`openChat`. Stati vuoti: «Nessuna chat. Crea un thread con +» e «Nessuna chat corrisponde alla ricerca o ai filtri.».
+Sotto restano i segretari (`HubSecretaryList`). Il «+» apre `NewThreadForm` con il selettore del workspace (default: il
+canale della chat aperta, se no il Generale) e crea con `createChat`; nella vista per canale il modulo non ha il
+selettore. La conversazione (`HubConversation`) ha nell'intestazione il nome del workspace e «Terminali»
+(`WorkspaceTerminalsButton`, anche nella colonna dei thread) e mostra i messaggi dei segretari e del sistema come
+bolle a sinistra (`HubBotBubble`, speculare alla bolla dell'utente); nella vista per canale restano i riquadri
+(`HubBotMessage`). Eventi, proposte, domande, typing, compositore e allegati sono gli stessi. Senza chat scelta: «Scegli
+una chat dall'elenco, oppure creane una con +». Badge «aspetta te» e notifiche non cambiano: le notifiche sono soppresse
+solo per il thread aperto e in vista, che `openChat` imposta insieme al canale.
 
 **Vista messenger (stato lato client).** Seconda modalità di visualizzazione dei thread, accanto a quella per canale: a
 sinistra le chat (un thread = una chat) di tutti i canali visibili, a destra la conversazione scelta. È solo una
