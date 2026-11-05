@@ -14,12 +14,14 @@
 //! - `mime`: il tipo dedotto da contenuto ed estensione (puro);
 //! - `layout`: i percorsi, con la validazione di ogni componente (puro);
 //! - `garbage`: quali file cancellare dopo un salvataggio (puro);
+//! - `incoming`: i file in arrivo come byte da una fonte esterna (piano, staging, nota);
 //! - `listing`: come gli allegati si raccontano a modelli e agenti (puro);
 //! - `storage`: le operazioni su disco (staging, spostamento, cancellazione);
 //! - `commands`: i comandi Tauri e il percorso assoluto di un allegato.
 
 pub mod commands;
 mod garbage;
+mod incoming;
 mod layout;
 pub mod listing;
 mod mime;
@@ -27,6 +29,7 @@ mod name;
 mod storage;
 
 pub use garbage::{garbage, Garbage};
+pub use incoming::{discard_staged_ids, skipped_note, stage_incoming, IncomingFile};
 pub use layout::stored_file;
 pub use storage::{discard, forget_channel, Claimed, NOT_FOUND};
 

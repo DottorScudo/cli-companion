@@ -146,10 +146,15 @@ I messaggi stanno dentro il thread: si leggono e si potano sempre insieme al lor
 resta uno solo. L'elenco (`hub_list_threads`) restituisce i riassunti, senza i messaggi.
 
 **Messaggio** (`HubMessage`): `id` (`msg-<millisecondi>-<n>`), `author`, `kind`, `body`, `reply_to`, `event`,
-`attachments`, `created_at`.
+`attachments`, `origin`, `created_at`.
 
 - `author`: `{ "type": "user" }` | `{ "type": "system" }` | `{ "type": "bot", "name": "mario" }` (un segretario:
-  `name` è il suo handle). Solo i messaggi `user` svegliano i segretari.
+  `name` è il suo handle) | `{ "type": "external", "connector": "gmail", "instance": "…", "name": "Anna" }` (un
+  elemento di una fonte esterna: contenuto non fidato, vedi "Risvegli da elementi esterni"). Le menzioni svegliano i
+  segretari solo nei messaggi `user`; un elemento `external` sveglia solo tramite la regola che lo ha consegnato.
+  Per un autore `external` `connector` e `instance` sono id validi (`valid_ref_id`) e `name` è ripulito (i
+  caratteri di controllo diventano spazi) e dev'essere di 1..120 caratteri (`text::external_name`); un messaggio
+  `external` richiede sempre un `origin` dello stesso connettore e della stessa istanza.
 - `kind`: `text` | `event`, ricavato da `event` (presente = `event`).
 - `reply_to`: id di un messaggio **dello stesso thread**; un id che non c'è è rifiutato. Se poi il messaggio
   citato viene potato, la UI lo tratta come assente.
@@ -166,12 +171,18 @@ resta uno solo. L'elenco (`hub_list_threads`) restituisce i riassunti, senza i m
   Ogni evento deve nominare il suo soggetto: `task_id` per gli eventi dei task, `proposal_id` per quelli delle
   proposte. `workspace` deve essere l'id di un workspace (non `general`); `summary` e `note` al massimo 8000
   caratteri. Nuovi tipi e campi si aggiungono come varianti e campi facoltativi (compatibile in lettura).
-- `attachments` (`HubAttachment[]`): gli allegati, solo nei messaggi `user` (vuoto negli altri e nei file scritti
+- `attachments` (`HubAttachment[]`): gli allegati, solo nei messaggi `user` e `external` (vuoto negli altri e nei file scritti
   prima, `#[serde(default)]`). Ogni allegato porta solo i metadati: `id` (`att-<millisecondi>-<n>`), `name` (il
   nome originale ripulito, vedi "Allegati"), `mime` (dedotto dalle firme dei primi byte, poi dall'estensione;
   `application/octet-stream` se ignoto: serve alla UI per l'anteprima, non filtra nulla) e `size` (byte). Nessun
   percorso: si ricava da cartella dati, canale, thread, `id` e `name`, e i byte non finiscono mai nel JSON. Con
   almeno un allegato `body` può essere vuoto.
+- `origin` (`HubMessageOrigin`, facoltativo): da dove viene un messaggio arrivato da fuori dell'app, cioè un
+  elemento di una fonte (autore `external`) o un messaggio dell'utente scritto in un canale di contatto (autore
+  `user`). Porta `connector`, `instance` (id validi) ed `external_id`, l'id dell'elemento nel servizio esterno
+  (1..256 caratteri, senza caratteri di controllo; non si ripulisce perché è la chiave del dedupe). Assente nei
+  messaggi scritti nell'app e nei file scritti prima (`serde(default)`). Con `instance` ed `external_id` la
+  consegna riconosce un elemento già consegnato in un thread (vedi "API interna").
 
 **Riassunto** (`HubThreadSummary`): `id`, `channel`, `title`, `state`, `task_count`, `message_count`,
 `waiting_user`, `owner` (il titolare del thread, `null` se non ne ha), `created_at`, `updated_at`; elenco dal più recente.
@@ -270,7 +281,7 @@ Assunzioni di questa tappa, tutte in costanti di `hub/text.rs`, `hub/threads.rs`
 | Limite | Valore | Comportamento |
 |---|---|---|
 | Testo di un messaggio | 1..8000 caratteri dopo il trim (0..8000 con almeno un allegato) | rifiutato se vuoto o troppo lungo; ammessi a capo e tabulazioni, non gli altri caratteri di controllo |
-| Allegati di un messaggio | 5 | rifiutato oltre; solo i messaggi dell'utente |
+| Allegati di un messaggio | 5 | rifiutato oltre; solo i messaggi dell'utente e dei mittenti esterni |
 | Dimensione di un allegato | 10 MB | rifiutato al caricamento |
 | Nome di un allegato | 1..120 caratteri dopo la pulizia | rifiutato (vedi "Allegati") |
 | Allegato nello staging | 24 ore | tolto, insieme a quelli di un avvio precedente |
@@ -279,6 +290,9 @@ Assunzioni di questa tappa, tutte in costanti di `hub/text.rs`, `hub/threads.rs`
 | Thread chiusi per canale | 200 | alla chiusura si tolgono i chiusi aggiornati da più tempo (mai quello appena chiuso); gli aperti non si potano |
 | Task collegati a un thread | 200 | rifiutato oltre |
 | Nome di un bot autore | 1..24 caratteri | come i nomi della pool di `bots.rs` |
+| Nome di un mittente esterno | 1..120 caratteri dopo la pulizia | i caratteri di controllo diventano spazi, il resto oltre il limite si taglia con «…»; vuoto = rifiutato |
+| `external_id` di un'origine | 1..256 caratteri | rifiutato se vuoto, troppo lungo o con caratteri di controllo |
+| Testo di una consegna esterna | fino a 8000 caratteri | non si rifiuta: si ripulisce e si taglia con «… (troncato)», lasciando posto alla nota sugli allegati non importati |
 
 Un thread chiuso accetta ancora messaggi (per esempio gli eventi dei suoi task) e resta chiuso.
 
@@ -290,8 +304,8 @@ id: tempo e id li passa il chiamante. La usano i comandi e gli eventi della boar
 | Operazione | Funzione |
 |---|---|
 | Creare un thread | `create_thread(channel, id, title, now)` |
-| Aggiungere un messaggio | `add_message(thread_id, NewMessage { id, author, body, reply_to, event }, now)` |
-| Aggiungere un messaggio con allegati | `add_message_with_attachments(thread_id, new, attachments, now)` (solo `user`) |
+| Aggiungere un messaggio | `add_message(thread_id, NewMessage { id, author, body, reply_to, event, origin }, now)` |
+| Aggiungere un messaggio con allegati | `add_message_with_attachments(thread_id, new, attachments, now)` (solo `user` ed `external`) |
 | Allegato di un thread | `attachment(thread_id, attachment_id)` |
 | Chiudere / riaprire | `set_state(thread_id, ThreadState::Closed \| Open, now)` |
 | Collegare task | `link_tasks(thread_id, task_ids, now)` (tutto o niente) |
@@ -301,6 +315,35 @@ id: tempo e id li passa il chiamante. La usano i comandi e gli eventi della boar
 | Elenco | `summaries()` |
 
 Gli errori sono in italiano (li legge l'utente); un'operazione che fallisce non cambia nulla.
+
+Per i canali di contatto e i connettori (docs/CONNECTORS.MD) ci sono quattro porte, tutte bloccanti (fuori dal main
+thread) e senza dipendere da `connectors`:
+
+| Porta | Funzione |
+|---|---|
+| Messaggio dell'utente | `hub::send::send_user_message(app, UserMessage { channel, thread_id, body, reply_to, attachment_ids, origin })`: la stessa strada di `hub_send` (`append_user_message`, poi risposta diretta a un worker o `SecretaryEngine::on_message`); controlla da sé l'HUB acceso. Con `origin` il messaggio non notifica, come quelli dell'app |
+| Messaggio dell'utente con allegati come byte | `hub::send::send_user_files(app, message, files)`: mette i file nello staging con gli stessi limiti dell'app, aggiunge al testo la nota `Allegati non importati: a.pdf (troppo grande), b.exe (nome non valido)` (nomi ripuliti e tagliati; il testo si accorcia per farle posto) e invia; se l'invio fallisce cancella i file dallo staging. I file oltre 5, oltre 10 MB o con un nome inutilizzabile si saltano senza fermare il messaggio |
+| Messaggio di un mittente esterno | `hub::ingress::deliver_external(app, ExternalDelivery { channel, target, author, body, files, origin, wake }) -> DeliveryOutcome { thread_id, message_id, duplicate }` |
+| Destinatario delle notifiche | `hub::set_notice_sink(app, sink)` con un `NoticeSink` (vedi "Notifiche") |
+
+`deliver_external` (`hub/ingress.rs`; parte pura in `hub/ingress/`: `check`, `body`, `apply`) lavora così:
+
+- errore con l'HUB spento, il canale (o il thread indicato) mancante, un autore che non è `external` o un'origine
+  di un altro connettore o istanza, un testo vuoto senza allegati;
+- `target`: `Existing(thread_id)` (un thread chiuso si **riapre**, come fanno gli eventi della board) oppure
+  `New { title }` (thread creato nello stesso salvataggio; titolo ripulito su una riga, «Senza titolo» se vuoto);
+- **dedupe**: se il thread di destinazione ha già un messaggio con lo stesso `(instance, external_id)` non scrive
+  nulla, non notifica e non sveglia nessuno e ritorna `duplicate: true` con l'id di quel messaggio. Lo controlla
+  una lettura prima di preparare gli allegati e di nuovo dentro il salvataggio (corsa tra due consegne): in quel caso
+  gli allegati preparati si cancellano;
+- **testo**: ripulito dai caratteri di controllo e tagliato a 8000 caratteri totali con il suffisso «… (troncato)»,
+  con la nota sugli allegati non importati su una riga a parte in fondo;
+- **allegati**: i `files` si preparano nello staging fuori dal lock dell'HUB, poi si spostano nella cartella del
+  thread (`Claimed`) e si salvano con il messaggio; se non si salva, tornano nello staging e si cancellano;
+- dopo il salvataggio: un `hub-update`, la notifica `External { name }` (vedi "Notifiche") e il risveglio:
+  `wake` è `None`, `Owner` (il titolare del thread; senza titolare solo una riga di log) o `Secretary(nome)`, e
+  chiama `SecretaryEngine::on_external` (vedi "Risvegli da elementi esterni"). Mai `on_message` né le menzioni: il
+  testo esterno è un dato non fidato.
 
 ## Comandi Tauri
 
@@ -702,15 +745,18 @@ nel log e non ferma gli altri; un thread creato per un collegamento che fallisce
 Con l'HUB acceso i messaggi dei thread producono una **notifica di sistema**. Il backend decide cosa notificare e
 quando ed emette l'evento `hub-notify`; il **frontend** decide se mostrarla e la mostra. Codice in
 `hub/notify.rs` e `hub/notify/`: `notice` (i DTO), `kind` (tipi, titoli, suoni, significatività), `text` (il
-corpo, puro), `pending` (il raggruppamento, puro) e `dispatch` (la colla con Tauri, `HubNotifier`, stato gestito).
+corpo, puro), `pending` (il raggruppamento, puro) `sinks` (i destinatari oltre al frontend e la decisione di chi riceve, puro) e `dispatch` (la colla con Tauri,
+`HubNotifier`, stato gestito).
 
 ### Quando notifica
 
-Mai per i messaggi dell'utente né per quelli di sistema scritti dal motore (avvisi, «Risposta inviata»).
+Mai per i messaggi dell'utente (anche quelli con `origin`, scritti da un canale di contatto) né per quelli di
+sistema scritti dal motore (avvisi, «Risposta inviata»).
 
 | Origine | Tipo | Titolo | Suono |
 |---|---|---|---|
 | Risposta di un segretario in un thread (`append_text`) | Reply | «@nome ti ha risposto» | ding |
+| Messaggio di un mittente esterno (`deliver_external`) | External | «Nuovo da <nome>» | ding |
 | Domanda di un worker | Question | «Un worker ha una domanda» | attenzione |
 | Task fallito | TaskFailed | «Task fallito» | attenzione |
 | Task in attenzione | TaskAttention | «Un task richiede attenzione» | attenzione |
@@ -720,7 +766,7 @@ Mai per i messaggi dell'utente né per quelli di sistema scritti dal motore (avv
 | Task di revisione finito | ReviewDone | «Revisione finita» | ding |
 | Altro task finito | TaskDone | «Task finito» | ding |
 
-Gli eventi della board li raccoglie `route` (`Routed.notices`, una `EventNotice { thread_id, kind, text }` per
+Gli eventi della board li raccoglie `route` (`Routed.notices`, una `EventNotice { thread_id, message_id, kind, text }` per
 messaggio che notifica, con il corpo del messaggio come testo; il mapping puro è in `events/notices.rs`) e li offre
 `HubFeed` dopo i `hub-update`. Creato, avviato, eliminato, domanda risposta e proposta accettata o scartata non
 notificano.
@@ -729,17 +775,31 @@ notificano.
 
 Per thread, in una **finestra di 3 secondi** (`GROUP_WINDOW`) che parte dal primo candidato: se ne arrivano altri
 dello stesso thread resta **uno solo**, il più significativo, e a parità l'ultimo arrivato. La significatività, dalla
-maggiore: risposta, domanda, task fallito, task in attenzione, pianificazione senza proposta, proposta, thread
+maggiore: risposta, messaggio esterno, domanda, task fallito, task in attenzione, pianificazione senza proposta, proposta, thread
 concluso, revisione, task finito. Così un evento seguito dalla risposta del titolare dà una notifica sola (la
-risposta). A fine finestra `HubNotifier` ricontrolla le impostazioni, poi emette. Nessun lock resta preso durante
-l'attesa o l'emissione; spegnere l'HUB butta i candidati in attesa (`hub_set_enabled`).
+risposta). A fine finestra `HubNotifier` ricontrolla le impostazioni, poi consegna (vedi "Destinatari"). Nessun lock
+resta preso durante l'attesa, l'emissione o la consegna ai sink; spegnere l'HUB butta i candidati in attesa (`hub_set_enabled`).
 
 ### Contenuto
 
-`HubNotice { channel, thread_id, title, body, sound }` (`sound` è `ding` o `attention`). `body` ha al massimo due
+`HubNotice { channel, thread_id, message_id, title, body, sound }` (`sound` è `ding` o `attention`; `message_id` è il
+messaggio del thread che ha causato la notifica, quello che ha vinto nel raggruppamento). `body` ha al massimo due
 righe: «<canale> · <titolo del thread>» (il canale è il **nome** del workspace, «Generale» per il Generale,
 «Workspace» se non esiste più: mai un id) e, se il messaggio non è vuoto, la sua prima riga non vuota, ripulita e
 tagliata a 120 caratteri con «…» (mai in mezzo a un carattere).
+
+### Destinatari
+
+Oltre al frontend le notifiche raggruppate vanno ai **sink**: `pub trait NoticeSink: Send + Sync { fn deliver(&self, notice: &HubNotice); }`
+(`hub/notify/sinks.rs`), che chi li possiede registra con `hub::set_notice_sink(app, Arc<dyn NoticeSink>)`, per esempio
+un connettore che gira la notifica a un canale di contatto. `deliver` gira su un thread del pool bloccante, mai con
+un lock dell'HUB preso, e può bloccare; non deve andare in panico.
+
+La decisione è pura (`Targets::resolve(enabled, notifications, has_sinks)`): il raggruppamento parte se l'HUB è
+acceso **e** (le notifiche di sistema sono accese **o** c'è almeno un sink). A fine finestra i sink ricevono ogni
+notifica raggruppata **anche con l'interruttore delle notifiche spento** (con l'HUB spento nessuno riceve nulla);
+l'evento `hub-notify` verso il frontend esce solo con HUB **e** interruttore accesi. Quindi l'interruttore
+riguarda solo il toast del frontend.
 
 ### Visibilità, click, suoni (frontend)
 
@@ -755,7 +815,7 @@ secondo.
 
 **Notifiche di sistema** (`notifications` in `HubSettings`, comando `hub_set_notifications`): **acceso di
 default**, anche per i file scritti prima del campo (`Default` scritto a mano). Sta nell'accordion «Sessioni dei
-segretari» della pagina Impostazioni. Conta solo con l'HUB acceso.
+segretari» della pagina Impostazioni. Conta solo con l'HUB acceso. Non spegne i sink registrati (vedi "Destinatari").
 
 ### Doppioni con `task-notify`
 
@@ -819,8 +879,12 @@ Senza allegati il contesto è identico a prima.
 (`Sessions::route`, puro). Fa eccezione la risposta («Rispondi») a un evento `task_question`: è la risposta
 diretta al worker e non sveglia nessun segretario, nemmeno con una menzione (vedi "Domande dei worker").
 
-- solo i messaggi dell'utente svegliano qualcuno: quelli dei bot e di sistema mai (niente catene bot-bot); gli
-  eventi della board svegliano solo il titolare del thread, con le regole di "Risvegli da evento";
+- solo i messaggi dell'utente svegliano qualcuno **tramite le menzioni**: quelli dei bot, di sistema e di autori
+  `external` mai (niente catene bot-bot, e un'email con «@mario» non sveglia nessuno: `Sessions::route` esce se
+  l'autore non è `user`); gli eventi della board svegliano solo il titolare del thread, con le regole di "Risvegli
+  da evento", e gli elementi esterni solo il segretario scelto dalla regola di consegna ("Risvegli da elementi
+  esterni"). I messaggi dell'utente scritti da un canale di contatto (`origin` valorizzato) seguono questa stessa
+  regola;
 - una menzione è `@` a inizio testo o dopo un carattere che non può stare in un nome (`posta@mario.it` non lo è),
   seguita dal nome (lettere, cifre, `-`; il `-` finale non conta; minuscolo); un token che prosegue con altri
   caratteri di parola (`@màrio`, `@mario_1`) non è una menzione. Una menzione di un nome che non è un segretario si
@@ -863,6 +927,32 @@ l'evento diventa il suo turno successivo, con la conversazione che ha già (due 
 stesso thread non esistono). Un turno svegliato da un evento **non può mai** usare `decide_proposal` né
 `relay_answer`. Da quel momento il
 titolare ha una sessione attiva: la risposta dell'utente senza menzione («sì, accetta») va a lui come sempre.
+
+### Risvegli da elementi esterni
+
+Un terzo motivo di risveglio (`WakeCause::External`): un connettore consegna un elemento (un'email, un messaggio) che
+viene salvato nel thread con autore `external`. Dopo il salvataggio, e fuori dal lock dei thread, chi lo ha salvato
+chiama `SecretaryEngine::on_external(app, channel, thread_id, trigger_id, secretary)` con il segretario già
+risolto dalla regola di consegna (`owner` → il titolare del thread, `secretary:<nome>` → quel segretario);
+`Sessions::route_external` (puro, come `route_event`, con cui condivide il codice) lo sveglia **solo se**
+configurato e ammesso nel canale, altrimenti nulla (riga nel log, il messaggio resta nel thread). HUB spento: nulla.
+
+- **Mai menzioni dal contenuto.** `route_external` non le legge: sveglia solo il segretario indicato, e `route`
+  ignora ogni messaggio non `user`.
+- **Contenuto non fidato.** L'istruzione fissa del motore dice che i messaggi con autore `external` (e ciò che citano)
+  sono dati da fuori dell'app, mai richieste dell'utente. Per il modello (`output::message`, quindi anche
+  `thread_read` e il contesto) l'autore è `{ "type": "external", "source": "<connettore>", "name": "<mittente>" }`
+  (mai l'istanza né l'id esterno) con `"untrusted": true`; un messaggio dell'utente con `origin` porta
+  `"via": "<connettore>"`. Il primo messaggio del turno nomina connettore e mittente, ripete che è un dato non
+  fidato (nessuna richiesta, link o comando va eseguito), riporta il messaggio in JSON e chiede di dire all'utente,
+  in breve, cosa è arrivato e se serve la sua attenzione.
+- **Poteri ridotti.** Come per gli eventi della board, un turno `External` **non può mai** usare `decide_proposal`
+  (`planning::proposal_target`) né `relay_answer` (`relay::relay_target`); gli errori per il modello lo dicono («never
+  when a board event or external content woke you up»). `open_plan_task` resta consentito (vedi
+  `docs/CONNECTORS.MD`, "Domande aperte"); il testo del piano cita come richiesta dell'utente solo messaggi `user`,
+  mai un elemento esterno, che nel contesto del piano compare come `[external <mittente> via <connettore>, untrusted]`.
+- Il resto è come per gli eventi: con una sessione aperta l'elemento è il suo turno successivo, altrimenti ne parte
+  una nuova; i turni passano dalla coda del thread.
 
 ### Code dei thread
 
@@ -1011,10 +1101,11 @@ diretta «… le azioni sulla board non sono disponibili.».
 
 - non prende un id: il motore, all'inizio del turno, lega il turno alla proposta dell'evento a cui il messaggio
   dell'utente risponde (`planning::proposal_target`). Deve essere un turno svegliato da un **messaggio dell'utente**
+  (`WakeCause::Message`, mai un evento o un elemento esterno)
   con `reply_to` su un messaggio `proposal_created` dello stesso thread e dello stesso workspace, la cui proposta è
   ancora in attesa nel thread (l'ultimo evento della proposta è `proposal_created`);
 - all'esecuzione la proposta deve essere ancora pendente sulla board; poi la decide con la validazione della board;
-- altrimenti (nessun `reply_to` sulla proposta, risveglio da evento, proposta già decisa) è rifiutato con un errore
+- altrimenti (nessun `reply_to` sulla proposta, risveglio da evento o da elemento esterno, proposta già decisa) è rifiutato con un errore
   per il modello, che deve dire all'utente di usare «Rispondi» sul messaggio della proposta;
 - il primo messaggio del turno lo ricorda al modello quando c'è una proposta da decidere, e la descrizione del tool
   gli chiede di domandare invece di decidere se l'intenzione non è chiara;
@@ -1073,7 +1164,7 @@ usare la seconda opzione»). Le garanzie sono nel codice:
 
 - non prende un id: all'inizio del turno il motore lo lega all'**unica** domanda in attesa del thread
   (`relay::relay_target`), e solo in un turno svegliato da un **messaggio dell'utente**;
-- nessuna domanda in attesa, o un risveglio da evento: errore per il modello. Più di una domanda in attesa: errore
+- nessuna domanda in attesa, un risveglio da evento o da elemento esterno: errore per il modello. Più di una domanda in attesa: errore
   che chiede al modello di domandare all'utente quale, e di dirgli di usare «Rispondi» sull'evento di quella
   domanda (che diventa una risposta diretta);
 - consegnata, il thread mostra cosa è stato inviato: «@mario ha inviato al worker questa risposta: …»; un errore

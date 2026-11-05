@@ -8,7 +8,7 @@ use super::workspace_names::WorkspaceNames;
 use crate::board::{compact_row, BoardView, TaskView};
 use crate::hub::attachments::listing;
 use crate::hub::channel::Channel;
-use crate::hub::model::{Attachment, Message, Thread};
+use crate::hub::model::{Attachment, Author, Message, Thread};
 use crate::validate::clip_with_ellipsis;
 use serde_json::{json, Map, Value};
 
@@ -87,14 +87,21 @@ pub fn messages(list: &[Message], names: &WorkspaceNames) -> Value {
 
 /// Un messaggio: autore, ora (UTC), testo tagliato, gli allegati (solo nome,
 /// tipo e dimensione: mai percorso o contenuto) e, per gli eventi, i dati
-/// dell'evento senza i campi vuoti.
+/// dell'evento senza i campi vuoti. Un autore esterno ha `untrusted`; un
+/// messaggio dell'utente scritto da un canale di contatto ha `via`.
 pub fn message(m: &Message, names: &WorkspaceNames) -> Value {
     let mut out = json!({
         "id": m.id,
-        "from": serde_json::to_value(&m.author).unwrap_or(Value::Null),
+        "from": author(&m.author),
         "at": timestamp(m.created_at),
         "body": clip_with_ellipsis(&m.body, BODY_KEPT),
     });
+    // Il testo di un autore esterno e' un dato non fidato: il modello lo vede marcato.
+    if matches!(m.author, Author::External { .. }) {
+        out["untrusted"] = Value::Bool(true);
+    } else if let Some(origin) = &m.origin {
+        out["via"] = Value::from(origin.connector.as_str());
+    }
     if let Some(reply_to) = &m.reply_to {
         out["reply_to"] = Value::from(reply_to.as_str());
     }
@@ -108,6 +115,14 @@ pub fn message(m: &Message, names: &WorkspaceNames) -> Value {
         }
     }
     out
+}
+
+/// L'autore: per uno esterno solo connettore e nome, mai l'istanza.
+fn author(author: &Author) -> Value {
+    match author {
+        Author::External { connector, name, .. } => json!({ "type": "external", "source": connector, "name": name }),
+        other => serde_json::to_value(other).unwrap_or(Value::Null),
+    }
 }
 
 fn attachment(a: &Attachment) -> Value {
@@ -150,6 +165,30 @@ mod tests {
             message(&msg("m2", Author::Bot { name: "mario".into() }, "x", 0), &names())["from"]["name"],
             "mario"
         );
+    }
+
+    #[test]
+    fn an_external_author_shows_the_source_and_is_marked_untrusted_without_the_instance() {
+        let m = fixtures::external("m1", "gmail", "Anna <anna@example.com>", "ciao @mario");
+        let v = message(&m, &names());
+        assert_eq!(v["from"], json!({"type": "external", "source": "gmail", "name": "Anna <anna@example.com>"}));
+        assert_eq!(v["untrusted"], true);
+        assert!(!v.to_string().contains("inst-1") && v.get("via").is_none());
+    }
+
+    #[test]
+    fn a_user_message_from_a_contact_channel_says_which_connector_and_is_not_untrusted() {
+        let mut m = msg("m1", Author::User, "stato?", 0);
+        m.origin = Some(crate::hub::model::MessageOrigin {
+            connector: "telegram".into(),
+            instance: "inst-1".into(),
+            external_id: "42".into(),
+        });
+        let v = message(&m, &names());
+        assert_eq!(v["via"], "telegram");
+        assert!(v.get("untrusted").is_none() && !v.to_string().contains("inst-1") && !v.to_string().contains("42"));
+        let plain = message(&msg("m2", Author::User, "x", 0), &names());
+        assert!(plain.get("via").is_none() && plain.get("untrusted").is_none());
     }
 
     /// Board di `n` task `t-0..` in coda, creati un secondo uno dopo l'altro, con una specifica riservata.

@@ -1,0 +1,123 @@
+//! I destinatari delle notifiche oltre al frontend: un `NoticeSink` registrato
+//! (per esempio un connettore che le gira a un canale di contatto) riceve ogni
+//! notifica raggruppata, con l'HUB acceso, anche se l'interruttore delle
+//! notifiche di sistema e' spento: quell'interruttore riguarda solo il toast
+//! del frontend. La decisione e' pura, cosi' si prova senza Tauri.
+
+use super::notice::HubNotice;
+use std::sync::Arc;
+
+/// Chi riceve le notifiche raggruppate dell'HUB oltre al frontend. `deliver` e'
+/// chiamato su un thread del pool bloccante, mai con un lock dell'HUB preso, e
+/// puo' bloccare: per un lavoro lungo il sink si tiene una sua coda. Non deve
+/// andare in panico; un errore va nel suo log.
+pub trait NoticeSink: Send + Sync {
+    fn deliver(&self, notice: &HubNotice);
+}
+
+/// A chi va una notifica, dato lo stato delle impostazioni e dei sink.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Targets {
+    /// L'evento `hub-notify` verso il frontend: HUB acceso e notifiche accese.
+    pub frontend: bool,
+    /// I sink registrati: HUB acceso e almeno un sink.
+    pub sinks: bool,
+}
+
+impl Targets {
+    pub fn resolve(enabled: bool, notifications: bool, has_sinks: bool) -> Self {
+        Self { frontend: enabled && notifications, sinks: enabled && has_sinks }
+    }
+
+    /// Serve raggruppare le notifiche solo se qualcuno le riceve.
+    pub fn any(self) -> bool {
+        self.frontend || self.sinks
+    }
+}
+
+/// Consegna `notice` ai destinatari di `targets`: i sink uno dopo l'altro, poi
+/// `emit` per il frontend.
+pub fn dispatch(notice: &HubNotice, targets: Targets, sinks: &[Arc<dyn NoticeSink>], emit: impl FnOnce(&HubNotice)) {
+    if targets.sinks {
+        for sink in sinks {
+            sink.deliver(notice);
+        }
+    }
+    if targets.frontend {
+        emit(notice);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::notice::HubNoticeSound;
+    use super::*;
+    use crate::hub::channel::Channel;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct Recorder(Mutex<Vec<HubNotice>>);
+
+    impl NoticeSink for Recorder {
+        fn deliver(&self, notice: &HubNotice) {
+            self.0.lock().unwrap().push(notice.clone());
+        }
+    }
+
+    fn notice() -> HubNotice {
+        HubNotice {
+            channel: Channel::General,
+            thread_id: "thr-1".into(),
+            message_id: "msg-1".into(),
+            title: "t".into(),
+            body: "b".into(),
+            sound: HubNoticeSound::Ding,
+        }
+    }
+
+    /// Esegue `dispatch` e ritorna (notifiche ai sink, emissioni al frontend).
+    fn run(enabled: bool, notifications: bool, registered: bool) -> (usize, usize) {
+        let recorder = Arc::new(Recorder::default());
+        let sinks: Vec<Arc<dyn NoticeSink>> = if registered { vec![recorder.clone()] } else { Vec::new() };
+        let targets = Targets::resolve(enabled, notifications, registered);
+        let mut emitted = 0;
+        dispatch(&notice(), targets, &sinks, |_| emitted += 1);
+        let delivered = recorder.0.lock().unwrap().len();
+        (delivered, emitted)
+    }
+
+    #[test]
+    fn a_sink_receives_the_notice_even_with_the_notifications_switch_off() {
+        assert_eq!(run(true, false, true), (1, 0));
+    }
+
+    #[test]
+    fn the_frontend_is_emitted_only_with_the_switch_on() {
+        assert_eq!(run(true, true, false), (0, 1));
+        assert_eq!(run(true, true, true), (1, 1));
+        assert_eq!(run(true, false, false), (0, 0));
+    }
+
+    #[test]
+    fn nothing_goes_out_with_the_hub_off() {
+        for notifications in [false, true] {
+            assert_eq!(run(false, notifications, true), (0, 0));
+        }
+    }
+
+    #[test]
+    fn grouping_is_needed_only_when_someone_listens() {
+        assert!(Targets::resolve(true, true, false).any());
+        assert!(Targets::resolve(true, false, true).any());
+        assert!(!Targets::resolve(true, false, false).any());
+        assert!(!Targets::resolve(false, true, true).any());
+    }
+
+    #[test]
+    fn every_registered_sink_is_called() {
+        let (a, b) = (Arc::new(Recorder::default()), Arc::new(Recorder::default()));
+        let sinks: Vec<Arc<dyn NoticeSink>> = vec![a.clone(), b.clone()];
+        dispatch(&notice(), Targets::resolve(true, false, true), &sinks, |_| {});
+        assert_eq!((a.0.lock().unwrap().len(), b.0.lock().unwrap().len()), (1, 1));
+    }
+}

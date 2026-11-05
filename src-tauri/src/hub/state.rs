@@ -142,7 +142,14 @@ mod tests {
     }
 
     fn user(id: &str, body: &str) -> NewMessage {
-        NewMessage { id: id.to_string(), author: Author::User, body: body.to_string(), reply_to: None, event: None }
+        NewMessage {
+            id: id.to_string(),
+            author: Author::User,
+            body: body.to_string(),
+            reply_to: None,
+            event: None,
+            origin: None,
+        }
     }
 
     /// Un allegato gia' nella cartella del thread, come dopo `Claimed::take`.

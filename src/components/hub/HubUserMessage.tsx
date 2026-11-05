@@ -1,4 +1,5 @@
 import { formatRelative } from "../../lib/board";
+import { viaLabel } from "../../lib/hub";
 import type { HubMessage } from "../../lib/tauri";
 import Markdown from "../tasks/Markdown";
 import HubMessageAttachments from "./HubMessageAttachments";
@@ -29,7 +30,10 @@ export default function HubUserMessage({ channel, threadId, message, target, now
       {target && <ReplyReference target={target} />}
       {message.body !== "" && <Markdown source={message.body} mentions={mentions} />}
       <HubMessageAttachments channel={channel} threadId={threadId} attachments={message.attachments} />
-      <span className="self-end text-[11px] text-muted-foreground">{formatRelative(message.created_at, now)}</span>
+      <span className="self-end text-[11px] text-muted-foreground">
+        {message.origin && <>{viaLabel(message.origin.connector)} · </>}
+        {formatRelative(message.created_at, now)}
+      </span>
     </article>
   );
 }

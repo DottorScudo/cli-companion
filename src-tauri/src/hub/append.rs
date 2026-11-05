@@ -7,7 +7,7 @@
 use super::attachments::{self, Claimed};
 use super::channel::Channel;
 use super::commands::{emit_update, ensure_channel, hub_dirs_of};
-use super::model::{Attachment, Author, Message};
+use super::model::{Attachment, Author, Message, MessageOrigin};
 use super::notify::{HubNotifier, NoticeKind};
 use super::state::{HubState, MESSAGE_ID_PREFIX};
 use super::threads::{summary, NewMessage, THREAD_NOT_FOUND};
@@ -23,23 +23,25 @@ pub struct TextMessage {
 /// Aggiunge il messaggio (validato da `ChannelThreads::add_message`), lo salva
 /// ed emette `hub-update`. Il canale di un workspace deve esistere ancora.
 pub fn append_text(app: &AppHandle, channel: &Channel, thread_id: &str, text: TextMessage) -> Result<Message, String> {
-    append(app, channel, thread_id, text, Vec::new())
+    append(app, channel, thread_id, text, Vec::new(), None)
 }
 
 /// Messaggio dell'utente con gli allegati `attachment_ids` (gia' nello
 /// staging, vedi `attachments`): li sposta nella cartella del thread, salva il
-/// messaggio e, se il salvataggio fallisce, li riporta nello staging. Senza
-/// allegati e' `append_text`.
+/// messaggio e, se il salvataggio fallisce, li riporta nello staging. `origin`
+/// dice da dove viene un messaggio scritto in un canale di contatto (vedi
+/// `send`). Senza allegati ne' origine e' `append_text`.
 pub fn append_user_message(
     app: &AppHandle,
     channel: &Channel,
     thread_id: &str,
     text: TextMessage,
     attachment_ids: &[String],
+    origin: Option<MessageOrigin>,
 ) -> Result<Message, String> {
     attachments::validate_ids(attachment_ids)?;
     if attachment_ids.is_empty() {
-        return append_text(app, channel, thread_id, text);
+        return append(app, channel, thread_id, text, Vec::new(), origin);
     }
     let dirs = hub_dirs_of(app)?;
     // Niente cartelle per un canale o un thread che non ci sono.
@@ -48,7 +50,7 @@ pub fn append_user_message(
         return Err(THREAD_NOT_FOUND.to_string());
     }
     let claimed = Claimed::take(&dirs.attachments, channel, thread_id, attachment_ids)?;
-    append(app, channel, thread_id, text, claimed.attachments().to_vec()).inspect_err(|_| claimed.release())
+    append(app, channel, thread_id, text, claimed.attachments().to_vec(), origin).inspect_err(|_| claimed.release())
 }
 
 fn append(
@@ -57,14 +59,16 @@ fn append(
     thread_id: &str,
     text: TextMessage,
     attachments: Vec<Attachment>,
+    origin: Option<MessageOrigin>,
 ) -> Result<Message, String> {
     let dirs = hub_dirs_of(app)?;
     let state = app.state::<HubState>();
     let now = chrono::Utc::now().timestamp_millis();
-    // Notifica solo la risposta di un segretario: mai l'utente ne' il motore.
+    // Notifica solo la risposta di un segretario: mai l'utente (anche se scrive
+    // da un canale di contatto) ne' il motore.
     let replying_bot = match &text.author {
         Author::Bot { name } => Some(name.clone()),
-        Author::User | Author::System => None,
+        Author::User | Author::System | Author::External { .. } => None,
     };
     let new = NewMessage {
         id: state.next_id(MESSAGE_ID_PREFIX, now),
@@ -72,6 +76,7 @@ fn append(
         body: text.body,
         reply_to: text.reply_to,
         event: None,
+        origin,
     };
     let (message, touched) = state.update(&dirs, channel, |list| {
         // Sotto il lock dell'HUB: una rimozione del workspace in corso aspetta.
@@ -82,7 +87,7 @@ fn append(
     })?;
     emit_update(app, &touched);
     if let Some(bot) = replying_bot {
-        app.state::<HubNotifier>().notify(app, &touched, NoticeKind::Reply { bot }, &message.body);
+        app.state::<HubNotifier>().notify(app, &touched, &message.id, NoticeKind::Reply { bot }, &message.body);
     }
     Ok(message)
 }

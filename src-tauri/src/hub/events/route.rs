@@ -290,11 +290,11 @@ impl Router<'_> {
     ) -> Result<String, String> {
         let id = (self.next_id)(MESSAGE_ID_PREFIX);
         let text = notice.as_ref().map(|_| body.clone());
-        let new = NewMessage { id: id.clone(), author: Author::System, body, reply_to: None, event };
+        let new = NewMessage { id: id.clone(), author: Author::System, body, reply_to: None, event, origin: None };
         self.list.add_message(thread, new, self.now)?;
         self.touch(thread);
         if let (Some(kind), Some(text)) = (notice, text) {
-            self.notices.push(EventNotice { thread_id: thread.to_string(), kind, text });
+            self.notices.push(EventNotice { thread_id: thread.to_string(), message_id: id.clone(), kind, text });
         }
         Ok(id)
     }

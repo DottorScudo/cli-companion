@@ -119,17 +119,37 @@ impl SecretaryEngine {
                     idle,
                     now_ms(),
                 );
-                if routing.woken.is_empty() {
-                    log::info!(
-                        "hub: @{} non puo' rispondere, evento solo nel thread {}",
-                        wake.secretary,
-                        wake.thread_id
-                    );
-                }
-                inner.run_routing(app, &key, &routing);
-                woken |= !routing.woken.is_empty();
+                woken |= inner.run_wake(app, &key, &wake.secretary, &routing);
             }
         }
+        if woken {
+            self.emit_status(app);
+        }
+    }
+
+    /// Un elemento esterno appena salvato come messaggio `trigger_id` del
+    /// thread: sveglia `secretary` (gia' risolto da chi chiama: il titolare o
+    /// il segretario nominato dalla regola di consegna), mai per le menzioni
+    /// del testo. Da chiamare dopo aver rilasciato il lock dei thread; veloce:
+    /// accoda soltanto.
+    pub fn on_external(&self, app: &AppHandle, channel: &Channel, thread_id: &str, trigger_id: &str, secretary: &str) {
+        let settings = app.state::<HubSettingsStore>().get();
+        if !settings.enabled {
+            return;
+        }
+        let key = ThreadKey::new(channel, thread_id);
+        let woken = {
+            let mut inner = self.lock();
+            let routing = inner.sessions.route_external(
+                &key,
+                secretary,
+                trigger_id,
+                &settings.secretaries,
+                idle_ms(&settings.session),
+                now_ms(),
+            );
+            inner.run_wake(app, &key, secretary, &routing)
+        };
         if woken {
             self.emit_status(app);
         }
@@ -228,6 +248,17 @@ impl SecretaryEngine {
 }
 
 impl Inner {
+    /// Chiude un risveglio di un solo segretario (evento o elemento esterno):
+    /// se non e' partito nessun turno lo dice nel log (il messaggio resta nel
+    /// thread), altrimenti avvia la coda. `true` se ha svegliato qualcuno.
+    fn run_wake(&mut self, app: &AppHandle, key: &ThreadKey, secretary: &str, routing: &Routing) -> bool {
+        if routing.woken.is_empty() {
+            log::info!("hub: @{secretary} non puo' rispondere, messaggio solo nel thread {}", key.thread_id);
+        }
+        self.run_routing(app, key, routing);
+        !routing.woken.is_empty()
+    }
+
     /// Avvia (o rianima) l'esecutore della coda e lo schedulatore se il
     /// risveglio ha accodato dei turni.
     fn run_routing(&mut self, app: &AppHandle, key: &ThreadKey, routing: &Routing) {

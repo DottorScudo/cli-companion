@@ -35,11 +35,14 @@
 //!   segretari) e i suoi comandi;
 //! - `api_key`: la API key del provider nel portachiavi del sistema;
 //! - `append`: l'aggiunta di un messaggio di testo con salvataggio ed evento;
+//! - `send`: l'invio di un messaggio dell'utente (app e canali di contatto);
+//! - `ingress`: la consegna dei messaggi di mittenti esterni (connettori);
 //! - `attachments`: gli allegati dei messaggi dell'utente (staging, file, pulizia, comandi);
 //! - `commands`: i comandi dei thread e l'evento;
 //! - `events`: gli eventi della board nei thread (diff, instradamento, `HubFeed`);
 //! - `engine`: il motore dei segretari (menzioni, sessioni, tool calling);
-//! - `notify`: le notifiche di sistema dei messaggi dei thread (evento `hub-notify`).
+//! - `notify`: le notifiche di sistema dei messaggi dei thread (evento `hub-notify`)
+//!   e i `NoticeSink` che le ricevono oltre al frontend.
 
 mod actions;
 mod api_key;
@@ -51,9 +54,11 @@ mod direct_answer;
 pub mod engine;
 mod events;
 mod files;
+pub mod ingress;
 mod model;
 mod notify;
 mod questions;
+pub mod send;
 pub mod settings;
 mod state;
 mod text;
@@ -65,11 +70,16 @@ pub use api_key::ApiKey;
 pub use attachments::commands::purge_staging_in_background as purge_attachment_staging;
 pub use engine::SecretaryEngine;
 pub use events::{BoardSource, HubFeed};
-pub use notify::{validate_thread_ref, HubNotifier};
+#[expect(unused_imports, reason = "API dei connettori: la usera' connectors (fase 2)")]
+pub use model::{Author, Message, MessageOrigin};
+#[expect(unused_imports, reason = "API dei connettori: la usera' connectors (fase 2)")]
+pub use notify::HubNotice;
+pub use notify::{validate_thread_ref, HubNotifier, NoticeSink};
 pub use settings::{load_from_disk, new_store as new_settings_store};
 pub use state::HubState;
 
 use crate::board::BoardView;
+use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
 /// Registra la sorgente delle viste correnti delle board, usata all'accensione
@@ -84,6 +94,14 @@ pub fn set_board_source(app: &AppHandle, source: BoardSource) {
 /// funzioni di `automation`, come la sorgente delle viste.
 pub fn set_board_actions(app: &AppHandle, actions: BoardActions) {
     app.state::<HubBoardActions>().set(actions);
+}
+
+/// Registra un destinatario delle notifiche raggruppate dell'HUB oltre al
+/// frontend (un connettore che le gira a un canale di contatto). Lo registra
+/// chi lo possiede, una volta; vale finche' l'app gira.
+#[expect(dead_code, reason = "API dei connettori: la usera' connectors (fase 2)")]
+pub fn set_notice_sink(app: &AppHandle, sink: Arc<dyn NoticeSink>) {
+    app.state::<HubNotifier>().add_sink(sink);
 }
 
 /// Una vista della board e' stata appena pubblicata (revisione nuova). Con

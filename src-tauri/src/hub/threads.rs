@@ -11,7 +11,7 @@
 use super::attachments;
 use super::channel::Channel;
 use super::model::{
-    Attachment, Author, HubEvent, HubQuestion, Message, MessageKind, Thread, ThreadState, ThreadSummary,
+    Attachment, Author, HubEvent, HubQuestion, Message, MessageKind, MessageOrigin, Thread, ThreadState, ThreadSummary,
 };
 use super::text::{self, BODY_MAX};
 use super::waiting::waiting_user;
@@ -38,6 +38,8 @@ pub struct NewMessage {
     pub body: String,
     pub reply_to: Option<String>,
     pub event: Option<HubEvent>,
+    /// Da dove viene, se arriva da fuori dell'app (vedi `MessageOrigin`).
+    pub origin: Option<MessageOrigin>,
 }
 
 impl ChannelThreads {
@@ -98,7 +100,7 @@ impl ChannelThreads {
     }
 
     /// Come `add_message`, con gli allegati (solo i metadati, gia' nella
-    /// cartella del thread). Solo l'utente puo' allegare; con almeno un
+    /// cartella del thread). Solo l'utente e un mittente esterno possono allegare; con almeno un
     /// allegato il testo puo' essere vuoto.
     pub fn add_message_with_attachments(
         &mut self,
@@ -108,11 +110,12 @@ impl ChannelThreads {
         now: i64,
     ) -> Result<&Message, String> {
         let body = if attachments.is_empty() { text::body(&new.body)? } else { text::optional_body(&new.body)? };
-        if !attachments.is_empty() && new.author != Author::User {
-            return Err("solo i messaggi dell'utente possono avere allegati".to_string());
+        if !attachments.is_empty() && !matches!(new.author, Author::User | Author::External { .. }) {
+            return Err("solo i messaggi dell'utente o di un mittente esterno possono avere allegati".to_string());
         }
         attachments::validate(&attachments)?;
         let author = validated_author(new.author)?;
+        let origin = validated_origin(new.origin, &author)?;
         if let Some(event) = &new.event {
             validate_event(event)?;
         }
@@ -134,6 +137,7 @@ impl ChannelThreads {
             reply_to: new.reply_to,
             event: new.event,
             attachments,
+            origin,
             created_at: now,
         });
         let excess = thread.messages.len().saturating_sub(MESSAGES_MAX);
@@ -181,7 +185,38 @@ pub fn summary(t: &Thread) -> ThreadSummary {
 fn validated_author(author: Author) -> Result<Author, String> {
     match author {
         Author::Bot { name } => Ok(Author::Bot { name: text::bot_name(&name)? }),
+        Author::External { connector, instance, name } => {
+            check_ref("connettore", &connector)?;
+            check_ref("istanza", &instance)?;
+            Ok(Author::External { connector, instance, name: text::external_name(&name)? })
+        }
         other => Ok(other),
+    }
+}
+
+/// L'origine di un messaggio: id validi e `external_id` nei limiti. Un autore
+/// `external` ne ha sempre una, del suo stesso connettore e della sua stessa
+/// istanza.
+fn validated_origin(origin: Option<MessageOrigin>, author: &Author) -> Result<Option<MessageOrigin>, String> {
+    if let Some(origin) = &origin {
+        check_ref("connettore", &origin.connector)?;
+        check_ref("istanza", &origin.instance)?;
+        text::external_id(&origin.external_id)?;
+    }
+    if let Author::External { connector, instance, .. } = author {
+        let matches = origin.as_ref().is_some_and(|o| &o.connector == connector && &o.instance == instance);
+        if !matches {
+            return Err("un messaggio esterno richiede un'origine dello stesso connettore e istanza".to_string());
+        }
+    }
+    Ok(origin)
+}
+
+fn check_ref(label: &str, value: &str) -> Result<(), String> {
+    if text::valid_ref_id(value) {
+        Ok(())
+    } else {
+        Err(format!("id del {label} non valido"))
     }
 }
 
@@ -231,3 +266,6 @@ pub use lifecycle::TASKS_PER_THREAD_MAX;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod external_tests;

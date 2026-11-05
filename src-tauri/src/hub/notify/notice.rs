@@ -27,6 +27,8 @@ pub struct HubNotice {
     #[ts(type = "string")]
     pub channel: Channel,
     pub thread_id: String,
+    /// Il messaggio del thread che ha causato la notifica.
+    pub message_id: String,
     pub title: String,
     /// Al piu' due righe: "canale · thread" e, se c'e', il messaggio.
     pub body: String,
@@ -76,12 +78,14 @@ mod tests {
         let notice = HubNotice {
             channel: Channel::General,
             thread_id: "thr-1".into(),
+            message_id: "msg-1".into(),
             title: "t".into(),
             body: "b".into(),
             sound: HubNoticeSound::Attention,
         };
         let json = serde_json::to_value(&notice).unwrap();
         assert_eq!(json["thread_id"], "thr-1");
+        assert_eq!(json["message_id"], "msg-1");
         assert_eq!(json["channel"], "general");
         assert_eq!(json["sound"], "attention");
         assert_eq!(serde_json::to_value(HubNoticeSound::Ding).unwrap(), "ding");

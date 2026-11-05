@@ -147,10 +147,16 @@ pub fn purge_staging_in_background(app: &AppHandle) {
     });
 }
 
-/// La radice degli allegati e un id nuovo; intanto via lo staging scaduto.
-fn prepare_staging(app: &AppHandle) -> Result<(PathBuf, String), String> {
+/// La radice degli allegati, dopo aver tolto lo staging scaduto.
+pub(super) fn staging_root(app: &AppHandle) -> Result<PathBuf, String> {
     let root = hub_dirs_of(app)?.attachments;
     purge_expired(&root);
+    Ok(root)
+}
+
+/// La radice degli allegati e un id nuovo.
+fn prepare_staging(app: &AppHandle) -> Result<(PathBuf, String), String> {
+    let root = staging_root(app)?;
     let id = app.state::<HubState>().next_id(ATTACHMENT_ID_PREFIX, chrono::Utc::now().timestamp_millis());
     Ok((root, id))
 }

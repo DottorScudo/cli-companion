@@ -5,12 +5,13 @@
 use super::kind::NoticeKind;
 use super::notice::{HubNotice, HUB_NOTIFY_EVENT};
 use super::pending::{Candidate, Pending, ThreadKey};
+use super::sinks::{dispatch, NoticeSink, Targets};
 use super::text;
 use crate::hub::channel::Channel;
 use crate::hub::model::ThreadSummary;
 use crate::hub::settings::HubSettingsStore;
 use crate::workspaces::WorkspaceStore;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -18,18 +19,33 @@ use tauri::{AppHandle, Emitter, Manager};
 /// un evento seguito dalla risposta del titolare diventa una notifica sola.
 const GROUP_WINDOW: Duration = Duration::from_secs(3);
 
-/// Stato Tauri: i candidati in attesa della fine della loro finestra.
+/// Stato Tauri: i candidati in attesa della fine della loro finestra e i
+/// destinatari registrati oltre al frontend.
 #[derive(Default)]
 pub struct HubNotifier {
     pending: Mutex<Pending>,
+    sinks: Mutex<Vec<Arc<dyn NoticeSink>>>,
 }
 
 impl HubNotifier {
-    /// Un candidato per il thread `summary`: `message_text` e' il messaggio che
-    /// l'ha causato. Non fa nulla con l'HUB o le notifiche spenti. Veloce: la
-    /// finestra e l'emissione girano su un thread a parte.
-    pub fn notify(&self, app: &AppHandle, summary: &ThreadSummary, kind: NoticeKind, message_text: &str) {
-        if !notifications_on(app) {
+    /// Registra un destinatario delle notifiche oltre al frontend (vedi `sinks`).
+    pub fn add_sink(&self, sink: Arc<dyn NoticeSink>) {
+        self.lock_sinks().push(sink);
+    }
+
+    /// Un candidato per il thread `summary`: `message_id` e `message_text` sono
+    /// il messaggio che l'ha causato. Non fa nulla se nessuno riceverebbe la
+    /// notifica (HUB spento, o notifiche spente e nessun sink). Veloce: la
+    /// finestra e la consegna girano su un thread a parte.
+    pub fn notify(
+        &self,
+        app: &AppHandle,
+        summary: &ThreadSummary,
+        message_id: &str,
+        kind: NoticeKind,
+        message_text: &str,
+    ) {
+        if !targets_of(app, self.has_sinks()).any() {
             return;
         }
         let workspace_name = match &summary.channel {
@@ -37,7 +53,7 @@ impl HubNotifier {
             Channel::Workspace(id) => app.state::<WorkspaceStore>().find(id).map(|w| w.name),
         };
         let key = (summary.channel.clone(), summary.id.clone());
-        let candidate = candidate(summary, &kind, message_text, workspace_name.as_deref());
+        let candidate = candidate(summary, message_id, &kind, message_text, workspace_name.as_deref());
         if !self.lock().offer(key.clone(), candidate) {
             return;
         }
@@ -55,16 +71,28 @@ impl HubNotifier {
         self.lock().clear();
     }
 
-    /// Chiude la finestra di `key` ed emette quanto resta, se le notifiche
-    /// sono ancora accese.
+    /// Chiude la finestra di `key` e consegna quanto resta ai destinatari
+    /// ancora attivi. I sink si copiano prima: nessun lock resta preso durante
+    /// la consegna.
     fn flush(&self, app: &AppHandle, key: &ThreadKey) {
-        let notice = self.lock().take(key);
-        let Some(notice) = notice.filter(|_| notifications_on(app)) else {
+        let Some(notice) = self.lock().take(key) else {
             return;
         };
-        if let Err(e) = app.emit(HUB_NOTIFY_EVENT, notice) {
-            log::warn!("hub: notifica non emessa: {e}");
-        }
+        let sinks = self.lock_sinks().clone();
+        let targets = targets_of(app, !sinks.is_empty());
+        dispatch(&notice, targets, &sinks, |notice| {
+            if let Err(e) = app.emit(HUB_NOTIFY_EVENT, notice) {
+                log::warn!("hub: notifica non emessa: {e}");
+            }
+        });
+    }
+
+    fn has_sinks(&self) -> bool {
+        !self.lock_sinks().is_empty()
+    }
+
+    fn lock_sinks(&self) -> MutexGuard<'_, Vec<Arc<dyn NoticeSink>>> {
+        self.sinks.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn lock(&self) -> MutexGuard<'_, Pending> {
@@ -72,12 +100,13 @@ impl HubNotifier {
     }
 }
 
-fn notifications_on(app: &AppHandle) -> bool {
-    app.state::<HubSettingsStore>().read(|s| s.enabled && s.notifications)
+fn targets_of(app: &AppHandle, has_sinks: bool) -> Targets {
+    app.state::<HubSettingsStore>().read(|s| Targets::resolve(s.enabled, s.notifications, has_sinks))
 }
 
 fn candidate(
     summary: &ThreadSummary,
+    message_id: &str,
     kind: &NoticeKind,
     message_text: &str,
     workspace_name: Option<&str>,
@@ -88,6 +117,7 @@ fn candidate(
         notice: HubNotice {
             channel: summary.channel.clone(),
             thread_id: summary.id.clone(),
+            message_id: message_id.to_string(),
             title: kind.title(),
             body: text::body(&channel, &summary.title, message_text),
             sound: kind.sound(),
@@ -120,20 +150,21 @@ mod tests {
     #[test]
     fn a_reply_candidate_carries_title_sound_and_names_instead_of_ids() {
         let s = summary(Channel::Workspace("ws-9-9".into()));
-        let c = candidate(&s, &NoticeKind::Reply { bot: "ada".into() }, "Fatto.\nAltro", Some("Sito"));
+        let c = candidate(&s, "msg-7-1", &NoticeKind::Reply { bot: "ada".into() }, "Fatto.\nAltro", Some("Sito"));
         assert_eq!(c.priority, Priority::Reply);
         assert_eq!(c.notice.title, "@ada ti ha risposto");
         assert_eq!(c.notice.body, "Sito · Migrazione\nFatto.");
         assert_eq!(c.notice.sound, HubNoticeSound::Ding);
+        assert_eq!(c.notice.message_id, "msg-7-1");
         assert_eq!((c.notice.channel, c.notice.thread_id.as_str()), (Channel::Workspace("ws-9-9".into()), "thr-1-1"));
     }
 
     #[test]
     fn the_general_channel_and_a_removed_workspace_have_fixed_names() {
-        let general = candidate(&summary(Channel::General), &NoticeKind::TaskFailed, "", None);
+        let general = candidate(&summary(Channel::General), "m", &NoticeKind::TaskFailed, "", None);
         assert_eq!(general.notice.body, "Generale · Migrazione");
         assert_eq!(general.notice.sound, HubNoticeSound::Attention);
-        let gone = candidate(&summary(Channel::Workspace("ws-9-9".into())), &NoticeKind::TaskDone, "ok", None);
+        let gone = candidate(&summary(Channel::Workspace("ws-9-9".into())), "m", &NoticeKind::TaskDone, "ok", None);
         assert_eq!(gone.notice.body, "Workspace · Migrazione\nok");
         assert!(!gone.notice.body.contains("ws-9-9"));
     }
@@ -143,7 +174,7 @@ mod tests {
         let notifier = HubNotifier::default();
         let s = summary(Channel::General);
         let key = (s.channel.clone(), s.id.clone());
-        notifier.lock().offer(key.clone(), candidate(&s, &NoticeKind::TaskDone, "x", None));
+        notifier.lock().offer(key.clone(), candidate(&s, "m", &NoticeKind::TaskDone, "x", None));
         notifier.discard();
         assert!(notifier.lock().take(&key).is_none());
     }

@@ -18,6 +18,12 @@
 //! stesso thread non possono esistere). Un turno svegliato da un evento non puo'
 //! decidere una proposta (`WakeCause`).
 //!
+//! Risvegli da elementi esterni (`route_external`): un connettore consegna un
+//! elemento (un'email, un messaggio) e la regola di consegna sceglie il
+//! segretario. Come per gli eventi, mai menzioni (un testo esterno con @mario
+//! non sveglia nessuno: `route` ignora chi non e' l'utente) e il turno
+//! (`WakeCause::External`) non puo' decidere proposte ne' rispondere ai worker.
+//!
 //! Ogni thread ha una coda (`Lane`) di lavori eseguiti uno alla volta, nello
 //! stesso ordine: un messaggio che arriva mentre un segretario lavora aspetta
 //! il suo turno. Il riassunto di una sessione scaduta passa dalla stessa coda,
@@ -60,6 +66,9 @@ pub enum WakeCause {
     Message,
     /// Un evento della board nel thread del segretario titolare.
     BoardEvent,
+    /// Un elemento consegnato da una fonte esterna (un connettore): contenuto
+    /// non fidato, mai una richiesta dell'utente.
+    External,
 }
 
 /// Un lavoro della coda di un thread.
@@ -188,11 +197,42 @@ impl Sessions {
         idle: i64,
         now: i64,
     ) -> Routing {
+        self.route_to(key, secretary, trigger, WakeCause::BoardEvent, secretaries, idle, now)
+    }
+
+    /// Un elemento esterno (il messaggio `trigger`) sveglia `secretary`, scelto
+    /// dalla regola di consegna (titolare del thread o segretario nominato), se
+    /// puo' rispondere nel canale. Mai menzioni: il testo esterno non decide
+    /// chi si sveglia.
+    pub fn route_external(
+        &mut self,
+        key: &ThreadKey,
+        secretary: &str,
+        trigger: &str,
+        secretaries: &[Secretary],
+        idle: i64,
+        now: i64,
+    ) -> Routing {
+        self.route_to(key, secretary, trigger, WakeCause::External, secretaries, idle, now)
+    }
+
+    /// Il risveglio di un solo segretario, scelto da chi chiama e non dal testo.
+    #[expect(clippy::too_many_arguments, reason = "tutto il contesto del risveglio, funzione pura")]
+    fn route_to(
+        &mut self,
+        key: &ThreadKey,
+        secretary: &str,
+        trigger: &str,
+        cause: WakeCause,
+        secretaries: &[Secretary],
+        idle: i64,
+        now: i64,
+    ) -> Routing {
         let mut routing = Routing::default();
         if usable(secretaries, secretary, &key.channel).is_some() {
             routing.woken.push(secretary.to_string());
         }
-        self.enqueue(key, &mut routing, trigger, WakeCause::BoardEvent, idle, now);
+        self.enqueue(key, &mut routing, trigger, cause, idle, now);
         routing
     }
 

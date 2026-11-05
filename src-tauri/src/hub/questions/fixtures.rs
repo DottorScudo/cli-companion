@@ -18,6 +18,7 @@ pub fn event_message(id: &str, event: HubEvent) -> Message {
         reply_to: None,
         event: Some(HubEvent { workspace: Some(WS.to_string()), ..event }),
         attachments: Vec::new(),
+        origin: None,
         created_at: 0,
     }
 }
@@ -43,6 +44,7 @@ pub fn user(id: &str, body: &str, to: Option<&str>) -> Message {
         reply_to: to.map(str::to_string),
         event: None,
         attachments: Vec::new(),
+        origin: None,
         created_at: 0,
     }
 }

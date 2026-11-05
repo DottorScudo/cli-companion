@@ -39,6 +39,7 @@ pub fn msg(id: &str, author: Author, body: &str, at: i64) -> Message {
         reply_to: None,
         event: None,
         attachments: Vec::new(),
+        origin: None,
         created_at: at,
     }
 }
@@ -49,6 +50,13 @@ pub fn user(id: &str, body: &str) -> Message {
 
 pub fn bot(id: &str, name: &str, body: &str) -> Message {
     msg(id, Author::Bot { name: name.to_string() }, body, 0)
+}
+
+/// Un elemento arrivato da una fonte esterna (connettore `connector`, mittente `name`).
+pub fn external(id: &str, connector: &str, name: &str, body: &str) -> Message {
+    let author =
+        Author::External { connector: connector.to_string(), instance: "inst-1".to_string(), name: name.to_string() };
+    msg(id, author, body, 0)
 }
 
 /// Thread `t1` del workspace di prova con i messaggi dati.

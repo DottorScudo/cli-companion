@@ -5,7 +5,11 @@ import type { HubNoticeSound } from "./HubNoticeSound";
  * Una notifica per un thread. Mai id interni nei testi: `channel` e
  * `thread_id` servono solo ad aprire il thread al click.
  */
-export type HubNotice = { channel: string, thread_id: string, title: string, 
+export type HubNotice = { channel: string, thread_id: string, 
+/**
+ * Il messaggio del thread che ha causato la notifica.
+ */
+message_id: string, title: string, 
 /**
  * Al piu' due righe: "canale · thread" e, se c'e', il messaggio.
  */

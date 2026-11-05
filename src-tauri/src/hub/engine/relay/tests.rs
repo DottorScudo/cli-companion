@@ -15,6 +15,13 @@ fn a_board_event_turn_can_never_answer() {
 }
 
 #[test]
+fn an_external_item_turn_can_never_answer() {
+    let t = thread(vec![question_event("e1", "a", "q-1-1")]);
+    assert_eq!(relay_target(&t, WakeCause::External), Err(NOT_FROM_USER));
+    assert!(NOT_FROM_USER.contains("external content"));
+}
+
+#[test]
 fn no_question_or_several_questions_have_no_target() {
     let answered = thread(vec![
         question_event("e1", "a", "q-1-1"),

@@ -75,7 +75,7 @@ export function messagePreviewText(message: HubMessage): string {
   return message.event ? eventLook(message.event.kind).label : "";
 }
 
-/** "Tu", "@segretario" o "Sistema". */
+/** "Tu", "@segretario", "Sistema" o il nome del mittente esterno. */
 export function previewAuthor(author: HubMessage["author"]): string {
   return author.type === "bot" ? `@${authorLabel(author)}` : authorLabel(author);
 }

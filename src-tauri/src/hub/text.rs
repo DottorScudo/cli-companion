@@ -9,6 +9,12 @@ pub const TITLE_MAX: usize = 120;
 pub const BODY_MAX: usize = 8000;
 /// Lunghezza del nome di un bot, in caratteri (come i nomi della pool di `bots.rs`).
 pub const BOT_NAME_MAX: usize = 24;
+/// Lunghezza del nome di un mittente esterno (autore `external`), in caratteri.
+pub const EXTERNAL_NAME_MAX: usize = 120;
+/// Lunghezza dell'id di un elemento nel servizio esterno (`MessageOrigin::external_id`), in caratteri.
+pub const EXTERNAL_ID_MAX: usize = 256;
+/// Il segno che il testo di un messaggio e' stato tagliato per stare nel limite.
+pub const TRUNCATED_SUFFIX: &str = "… (troncato)";
 /// Lunghezza di un id di riferimento (proposta, stato), in byte.
 const REF_ID_MAX: usize = 64;
 
@@ -20,6 +26,29 @@ pub fn title(raw: &str) -> Result<String, String> {
 /// Nome di un bot autore: trim, 1..=`BOT_NAME_MAX` caratteri, una riga sola.
 pub fn bot_name(raw: &str) -> Result<String, String> {
     single_line("nome del bot", raw, BOT_NAME_MAX)
+}
+
+/// Nome di un mittente esterno: i caratteri di controllo diventano spazi, poi
+/// trim e 1..=`EXTERNAL_NAME_MAX` caratteri (tagliato con "…" se piu' lungo).
+pub fn external_name(raw: &str) -> Result<String, String> {
+    let name = clean_line(raw, EXTERNAL_NAME_MAX - 1);
+    if name.is_empty() {
+        return Err("il nome del mittente esterno è vuoto".to_string());
+    }
+    Ok(name)
+}
+
+/// Id di un elemento nel servizio esterno: 1..=`EXTERNAL_ID_MAX` caratteri, senza
+/// caratteri di controllo. Non si ripulisce: l'id e' la chiave del dedupe.
+pub fn external_id(raw: &str) -> Result<String, String> {
+    let chars = raw.chars().count();
+    if chars == 0 || chars > EXTERNAL_ID_MAX {
+        return Err(format!("l'id esterno deve avere da 1 a {EXTERNAL_ID_MAX} caratteri"));
+    }
+    if raw.chars().any(char::is_control) {
+        return Err("l'id esterno contiene caratteri non validi".to_string());
+    }
+    Ok(raw.to_string())
 }
 
 /// Testo di un messaggio: trim, non vuoto, al massimo `BODY_MAX` caratteri.
@@ -42,6 +71,28 @@ pub fn optional_body(raw: &str) -> Result<String, String> {
         return Err("il messaggio contiene caratteri non validi".to_string());
     }
     Ok(text.to_string())
+}
+
+/// Il testo di un messaggio che arriva da fuori (non fidato) e la sua eventuale
+/// riga di nota, pronti per `body`: i caratteri di controllo (a capo e
+/// tabulazioni esclusi) diventano spazi e il testo si taglia, con
+/// `TRUNCATED_SUFFIX`, perche' con la nota (su una riga a parte, in fondo) stia
+/// in `BODY_MAX` caratteri. Puo' tornare vuoto.
+pub fn body_with_note(raw: &str, note: Option<&str>) -> String {
+    let note_len = note.map_or(0, |n| n.chars().count() + 1);
+    let text = clean_text(raw, usize::MAX);
+    let budget = BODY_MAX.saturating_sub(note_len);
+    let text = if text.chars().count() > budget {
+        let keep = budget.saturating_sub(TRUNCATED_SUFFIX.chars().count());
+        format!("{}{TRUNCATED_SUFFIX}", text.chars().take(keep).collect::<String>())
+    } else {
+        text
+    };
+    match (text.is_empty(), note) {
+        (_, None) => text,
+        (true, Some(note)) => note.to_string(),
+        (false, Some(note)) => format!("{text}\n{note}"),
+    }
 }
 
 /// Id di un riferimento generato dall'app (proposta) o di un valore breve
@@ -122,6 +173,39 @@ mod tests {
         assert_eq!(clean_text(" riga 1\n\triga 2\u{0} ", 20), "riga 1\n\triga 2");
         assert_eq!(clean_line(&"é".repeat(5), 3), "ééé…");
         assert_eq!(clean_text("\u{7} ", 5), "");
+    }
+
+    #[test]
+    fn external_bodies_are_cleaned_and_cut_to_leave_room_for_the_note() {
+        assert_eq!(body_with_note(" ciao\u{0}\nmondo ", None), "ciao \nmondo");
+        assert_eq!(body_with_note("ciao", Some("nota")), "ciao\nnota");
+        assert_eq!(body_with_note("  ", Some("nota")), "nota");
+        assert_eq!(body_with_note("", None), "");
+        let exact = "x".repeat(BODY_MAX);
+        assert_eq!(body_with_note(&exact, None), exact);
+        let cut = body_with_note(&format!("{exact}y"), None);
+        assert_eq!(cut.chars().count(), BODY_MAX);
+        assert!(cut.ends_with(TRUNCATED_SUFFIX));
+        let with_note = body_with_note(&"é".repeat(BODY_MAX), Some("Allegati non importati: a.pdf (troppo grande)"));
+        assert_eq!(with_note.chars().count(), BODY_MAX);
+        assert!(with_note.contains(&format!("{TRUNCATED_SUFFIX}\nAllegati")));
+        assert!(optional_body(&with_note).is_ok());
+    }
+
+    #[test]
+    fn external_names_are_cleaned_and_must_not_be_empty() {
+        assert_eq!(external_name("  Mario\nRossi\u{1b} ").unwrap(), "Mario Rossi");
+        assert_eq!(external_name(&"é".repeat(EXTERNAL_NAME_MAX + 5)).unwrap().chars().count(), EXTERNAL_NAME_MAX);
+        assert!(external_name(" \n\u{7} ").is_err() && external_name("").is_err());
+    }
+
+    #[test]
+    fn external_ids_are_bounded_and_have_no_control_characters() {
+        assert_eq!(external_id("<a@b.c>").unwrap(), "<a@b.c>");
+        assert!(external_id(&"x".repeat(EXTERNAL_ID_MAX)).is_ok());
+        for bad in ["", "a\nb", "a\u{0}", &"x".repeat(EXTERNAL_ID_MAX + 1)] {
+            assert!(external_id(bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

@@ -45,6 +45,7 @@ mod tests {
                 ..HubEvent::new(kind)
             }),
             attachments: Vec::new(),
+            origin: None,
             created_at: 0,
         }
     }
@@ -58,6 +59,7 @@ mod tests {
             reply_to: None,
             event: None,
             attachments: Vec::new(),
+            origin: None,
             created_at: 0,
         }
     }

@@ -7,7 +7,7 @@
 //! - `decide_proposal`: senza id. La proposta e' quella dell'evento a cui
 //!   risponde (`reply_to`) il messaggio dell'utente che ha svegliato il turno
 //!   (`proposal_target`), ancora pendente; un turno svegliato da un evento
-//!   della board non ne ha mai una. La decisione resta dell'utente: il codice
+//!   della board o da un elemento esterno non ne ha mai una. La decisione resta dell'utente: il codice
 //!   garantisce che solo una sua risposta esplicita a quell'evento la renda
 //!   possibile.
 //!
@@ -44,7 +44,7 @@ const THREAD_GONE: &str = "This thread no longer exists.";
 const THREAD_FULL: &str = "This thread already has the maximum number of linked tasks: ask the user to continue in a \
 new thread.";
 const NOT_A_REPLY: &str = "decide_proposal works only when the user's message that woke you up is a reply to a \
-pending proposal event of this thread, never when a board event woke you up. Do not decide: tell the user to use \
+pending proposal event of this thread, never when a board event or external content woke you up. Do not decide: tell the user to use \
 Reply on the proposal message and say whether to accept or reject it.";
 const NOT_PENDING: &str = "That proposal is no longer pending: it was already accepted or rejected. Tell the user.";
 
@@ -67,6 +67,7 @@ pub trait ProposalBoard {
 /// messaggio dell'utente (`cause`) che risponde a un evento "proposta" del
 /// thread, del workspace del thread, ancora pendente nel thread.
 pub fn proposal_target(thread: &Thread, trigger_id: &str, cause: WakeCause) -> Option<ProposalRef> {
+    // Solo un messaggio dell'utente: mai un evento della board ne' un elemento esterno.
     if cause != WakeCause::Message {
         return None;
     }
@@ -194,6 +195,7 @@ fn context_line(m: &Message) -> String {
         Author::User => "user".to_string(),
         Author::System => "app".to_string(),
         Author::Bot { name } => format!("@{name}"),
+        Author::External { connector, name, .. } => format!("external {name} via {connector}, untrusted"),
     };
     let body = clip_with_ellipsis(&m.body, CONTEXT_ENTRY_KEPT).replace('\n', " / ");
     format!("- [{author}] {body}{}", attached_names(m))

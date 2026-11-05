@@ -6,6 +6,8 @@ import {
   THREAD_TITLE_MAX_CHARS,
   appendMessage,
   authorLabel,
+  connectorLabel,
+  viaLabel,
   channelName,
   checkBody,
   checkTitle,
@@ -265,6 +267,18 @@ describe("hub: testi", () => {
     assert.equal(authorLabel({ type: "user" }), "Tu");
     assert.equal(authorLabel({ type: "system" }), "Sistema");
     assert.equal(authorLabel({ type: "bot", name: "Mario" }), "Mario");
+    assert.equal(
+      authorLabel({ type: "external", connector: "mail", instance: "i1", name: "Anna Rossi" }),
+      "Anna Rossi",
+    );
+  });
+});
+
+describe("hub: connettori", () => {
+  it("connectorLabel e viaLabel usano l'id del connettore", () => {
+    assert.equal(connectorLabel("mail"), "Mail");
+    assert.equal(connectorLabel(""), "");
+    assert.equal(viaLabel("chat"), "via Chat");
   });
 });
 

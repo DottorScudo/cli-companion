@@ -116,6 +116,7 @@ describe("anteprima dell'ultimo messaggio", () => {
     assert.equal(previewAuthor({ type: "user" }), "Tu");
     assert.equal(previewAuthor({ type: "bot", name: "mario" }), "@mario");
     assert.equal(previewAuthor({ type: "system" }), "Sistema");
+    assert.equal(previewAuthor({ type: "external", connector: "mail", instance: "i1", name: "Anna" }), "Anna");
   });
 
   it("testo su una riga, accorciato", () => {
@@ -143,6 +144,17 @@ describe("anteprima dell'ultimo messaggio", () => {
       message({ author: { type: "bot", name: "bolt" }, body: "due", created_at: 7 }),
     ]);
     assert.deepEqual(previewOf(t), { updatedAt: 9, author: "@bolt", text: "due", at: 7 });
+  });
+
+  it("previewOf con ultimo messaggio esterno: nome del mittente", () => {
+    const t = thread([
+      message({
+        author: { type: "external", connector: "mail", instance: "i1", name: "Anna" },
+        body: "ciao",
+        created_at: 5,
+      }),
+    ]);
+    assert.deepEqual(previewOf(t), { updatedAt: 9, author: "Anna", text: "ciao", at: 5 });
   });
 
   it("senza messaggi: nessuna anteprima, ma ricordata per non rileggere", () => {

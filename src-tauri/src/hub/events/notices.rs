@@ -11,6 +11,7 @@ use crate::hub::notify::NoticeKind;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventNotice {
     pub thread_id: String,
+    pub message_id: String,
     pub kind: NoticeKind,
     pub text: String,
 }

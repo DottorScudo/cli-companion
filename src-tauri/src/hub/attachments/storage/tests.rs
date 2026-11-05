@@ -157,3 +157,14 @@ fn reading_a_missing_attachment_is_a_clear_error() {
     let root = temp_root("read");
     assert_eq!(read(&root.join("nope")).unwrap_err(), NOT_FOUND);
 }
+
+#[test]
+fn unused_staged_attachments_are_discarded_and_missing_ones_ignored() {
+    let root = temp_root("discard-staged");
+    stage_bytes(&root, "att-1-1", "a.txt", b"a").unwrap();
+    stage_bytes(&root, "att-1-2", "b.txt", b"b").unwrap();
+    discard_staged(&root, &ids(&["att-1-1", "att-9-9", "../x"]));
+    assert!(staged(&root, "att-1-1").is_err());
+    assert!(staged(&root, "att-1-2").is_ok());
+    fs::remove_dir_all(&root).unwrap();
+}

@@ -3,12 +3,10 @@
 //! riassunto aggiornato del thread toccato. Le letture funzionano anche con
 //! l'HUB spento (non creano file); le scritture sono rifiutate.
 
-use super::append::{append_user_message, TextMessage};
 use super::channel::Channel;
-use super::direct_answer::deliver_if_answer;
-use super::engine::SecretaryEngine;
 use super::files::HubDirs;
-use super::model::{Author, Message, Thread, ThreadSummary};
+use super::model::{Message, Thread, ThreadSummary};
+use super::send::{send_user_message, UserMessage};
 use super::settings::is_enabled;
 use super::state::{HubState, THREAD_ID_PREFIX};
 use super::threads::{summary, THREAD_NOT_FOUND};
@@ -71,10 +69,9 @@ pub async fn hub_create_thread(app: AppHandle, channel: String, title: String) -
 /// Messaggio dell'utente in un thread; `reply_to` deve essere dello stesso
 /// thread. `attachments` sono gli id degli allegati gia' nello staging
 /// (`hub_stage_attachment_*`; assente o vuoto = nessuno): con almeno un
-/// allegato il testo puo' essere vuoto. Dopo il salvataggio, una risposta a una
-/// domanda di un worker ancora in attesa va al worker cosi' com'e'
-/// (`direct_answer`, senza modello); altrimenti il motore dei segretari decide
-/// chi svegliare (menzioni o titolare della sessione) e lavora in background.
+/// allegato il testo puo' essere vuoto. L'invio e' quello di `send`: una risposta
+/// a una domanda di un worker va al worker, altrimenti il motore dei segretari
+/// decide chi svegliare e lavora in background.
 #[tauri::command]
 pub async fn hub_send(
     app: AppHandle,
@@ -88,12 +85,8 @@ pub async fn hub_send(
     ensure_enabled(&app)?;
     let attachments = attachments.unwrap_or_default();
     crate::blocking(move || {
-        let text = TextMessage { author: Author::User, body, reply_to };
-        let message = append_user_message(&app, &channel, &thread_id, text, &attachments)?;
-        if !deliver_if_answer(&app, &channel, &thread_id, &message) {
-            app.state::<SecretaryEngine>().on_message(&app, &channel, &thread_id, &message);
-        }
-        Ok(message)
+        let message = UserMessage { channel, thread_id, body, reply_to, attachment_ids: attachments, origin: None };
+        send_user_message(&app, message)
     })
     .await
 }

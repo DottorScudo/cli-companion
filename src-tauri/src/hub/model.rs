@@ -20,7 +20,11 @@ pub enum ThreadState {
     Closed,
 }
 
-/// Chi ha scritto un messaggio. `bot` e' un segretario (`name` = il suo handle).
+/// Chi ha scritto un messaggio. `bot` e' un segretario (`name` = il suo handle);
+/// `external` e' un mittente fuori dall'app arrivato da una fonte (un'email):
+/// `connector` e `instance` sono gli id del connettore e dell'istanza che lo
+/// hanno consegnato, `name` come si presenta il mittente (ripulito, 1..=120
+/// caratteri). Il suo testo e' un dato non fidato, mai una richiesta dell'utente.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(export, rename = "HubAuthor")]
@@ -28,6 +32,20 @@ pub enum Author {
     User,
     System,
     Bot { name: String },
+    External { connector: String, instance: String, name: String },
+}
+
+/// Da dove viene un messaggio arrivato da fuori dell'app: un elemento di una
+/// fonte (autore `external`) o un messaggio dell'utente scritto in un canale di
+/// contatto (autore `user`). `external_id` e' l'id dell'elemento nel servizio
+/// esterno (1..=256 caratteri, senza caratteri di controllo): con `instance`
+/// identifica l'elemento per il dedupe.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, rename = "HubMessageOrigin")]
+pub struct MessageOrigin {
+    pub connector: String,
+    pub instance: String,
+    pub external_id: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -179,6 +197,11 @@ pub struct Message {
     /// file scritti prima.
     #[serde(default)]
     pub attachments: Vec<Attachment>,
+    /// Da dove viene il messaggio, se e' arrivato da fuori dell'app (vedi
+    /// `MessageOrigin`). Assente nei messaggi scritti nell'app e nei file
+    /// scritti prima.
+    #[serde(default)]
+    pub origin: Option<MessageOrigin>,
     pub created_at: i64,
 }
 

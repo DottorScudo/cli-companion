@@ -180,5 +180,17 @@ export function authorLabel(author: HubMessage["author"]): string {
       return "Sistema";
     case "bot":
       return author.name;
+    case "external":
+      return author.name;
   }
+}
+
+/** Etichetta del connettore: l'id così com'è, con l'iniziale maiuscola (nessun nome noto in codice). */
+export function connectorLabel(connector: string): string {
+  return connector === "" ? "" : connector.charAt(0).toUpperCase() + connector.slice(1);
+}
+
+/** «via Connettore»: da dove arriva un messaggio esterno o scritto dall'utente da un canale di contatto. */
+export function viaLabel(connector: string): string {
+  return `via ${connectorLabel(connector)}`;
 }

@@ -99,7 +99,17 @@ function HubMessageItem({
     );
   }
   const Bot = bubbles ? HubBotBubble : HubBotMessage;
-  return <Bot message={message} target={target} now={now} secretaries={secretaries} mentions={mentions} />;
+  return (
+    <Bot
+      channel={channel}
+      threadId={threadId}
+      message={message}
+      target={target}
+      now={now}
+      secretaries={secretaries}
+      mentions={mentions}
+    />
+  );
 }
 
 export default memo(HubMessageItem);

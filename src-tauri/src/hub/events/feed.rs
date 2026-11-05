@@ -194,7 +194,7 @@ fn apply(app: &AppHandle, board: &BoardSnapshot, events: &[BoardEvent]) -> Resul
     let notifier = app.state::<HubNotifier>();
     for notice in &routed.notices {
         if let Some(summary) = routed.touched.iter().find(|s| s.id == notice.thread_id) {
-            notifier.notify(app, summary, notice.kind.clone(), &notice.text);
+            notifier.notify(app, summary, &notice.message_id, notice.kind.clone(), &notice.text);
         }
     }
     app.state::<SecretaryEngine>().on_events(app, &channel, &routed.wakes);

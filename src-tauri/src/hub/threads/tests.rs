@@ -14,7 +14,14 @@ fn with_thread(id: &str, now: i64) -> ChannelThreads {
 }
 
 fn user_text(id: &str, body: &str) -> NewMessage {
-    NewMessage { id: id.to_string(), author: Author::User, body: body.to_string(), reply_to: None, event: None }
+    NewMessage {
+        id: id.to_string(),
+        author: Author::User,
+        body: body.to_string(),
+        reply_to: None,
+        event: None,
+        origin: None,
+    }
 }
 
 fn event(id: &str, kind: HubEventKind, task: &str) -> NewMessage {
@@ -24,6 +31,7 @@ fn event(id: &str, kind: HubEventKind, task: &str) -> NewMessage {
         body: format!("evento {kind:?}"),
         reply_to: None,
         event: Some(HubEvent::of_task(kind, task)),
+        origin: None,
     }
 }
 

@@ -62,6 +62,7 @@ mod tests {
             body: String::new(),
             reply_to: None,
             event: None,
+            origin: None,
             attachments: attachments
                 .iter()
                 .map(|a| Attachment {

@@ -3,6 +3,7 @@ import type { HubAttachment } from "./HubAttachment";
 import type { HubAuthor } from "./HubAuthor";
 import type { HubEvent } from "./HubEvent";
 import type { HubMessageKind } from "./HubMessageKind";
+import type { HubMessageOrigin } from "./HubMessageOrigin";
 
 export type HubMessage = { id: string, author: HubAuthor, kind: HubMessageKind, body: string, 
 /**
@@ -15,4 +16,10 @@ reply_to: string | null, event: HubEvent | null,
  * `hub_attachments/`, vedi `attachments`). Vuoto negli altri messaggi e nei
  * file scritti prima.
  */
-attachments: Array<HubAttachment>, created_at: number, };
+attachments: Array<HubAttachment>, 
+/**
+ * Da dove viene il messaggio, se e' arrivato da fuori dell'app (vedi
+ * `MessageOrigin`). Assente nei messaggi scritti nell'app e nei file
+ * scritti prima.
+ */
+origin: HubMessageOrigin | null, created_at: number, };

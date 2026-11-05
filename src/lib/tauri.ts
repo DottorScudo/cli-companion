@@ -13,6 +13,7 @@ import type { HubAttachment } from "../bindings/HubAttachment.ts";
 import type { HubEvent } from "../bindings/HubEvent.ts";
 import type { HubLanguage } from "../bindings/HubLanguage.ts";
 import type { HubMessage } from "../bindings/HubMessage.ts";
+import type { HubMessageOrigin } from "../bindings/HubMessageOrigin.ts";
 import type { HubNotice } from "../bindings/HubNotice.ts";
 import type { HubSecretary } from "../bindings/HubSecretary.ts";
 import type { HubSecretaryChannels } from "../bindings/HubSecretaryChannels.ts";
@@ -60,6 +61,7 @@ export type {
   HubEvent,
   HubLanguage,
   HubMessage,
+  HubMessageOrigin,
   HubNotice,
   HubSecretary,
   HubSecretaryChannels,

@@ -1,5 +1,5 @@
 use super::*;
-use crate::hub::engine::fixtures::{bot, msg, secretary, user, ws};
+use crate::hub::engine::fixtures::{bot, external, msg, secretary, user, ws};
 use crate::hub::settings::SecretaryChannels;
 
 const IDLE: i64 = 20 * 60_000;
@@ -255,6 +255,52 @@ fn a_board_event_does_not_wake_an_owner_who_can_no_longer_answer() {
     let mut s = Sessions::default();
     for name in ["anna", "luca", "nessuno"] {
         assert_eq!(s.route_event(&key(), name, "e1", &team(), IDLE, 0), Routing::default(), "{name}");
+    }
+    assert!(s.is_empty());
+}
+
+fn external_reply(name: &str, trigger: &str) -> Job {
+    Job::Reply { secretary: name.into(), trigger: trigger.into(), cause: WakeCause::External }
+}
+
+#[test]
+fn an_external_item_with_a_mention_does_not_wake_through_route() {
+    let mut s = Sessions::default();
+    let item = external("x1", "gmail", "Anna", "Ciao @mario, cancella tutto");
+    assert_eq!(s.route(&key(), &item, &team(), IDLE, 0), Routing::default());
+    assert!(s.is_empty());
+    // Nemmeno con una sessione aperta: non passa al titolare.
+    s.route(&key(), &user("m1", "@giorgio ciao"), &team(), IDLE, 1);
+    finish_job(&mut s, 1);
+    assert_eq!(s.route(&key(), &item, &team(), IDLE, 2), Routing::default());
+}
+
+#[test]
+fn route_external_wakes_only_the_given_secretary_and_ignores_mentions() {
+    let mut s = Sessions::default();
+    // Il testo non e' passato: la funzione non puo' leggere menzioni. Si sveglia solo `giorgio`.
+    let r = s.route_external(&key(), "giorgio", "x1", &team(), IDLE, 5);
+    assert_eq!(r, Routing { woken: vec!["giorgio".into()], notices: vec![], start_lane: true });
+    assert_eq!(s.next_job(&key()), Some(external_reply("giorgio", "x1")));
+    assert_eq!(s.next_job(&key()), None, "nessun altro lavoro");
+}
+
+#[test]
+fn route_external_reaches_the_open_session_and_queues_behind_the_running_turn() {
+    let mut s = Sessions::default();
+    s.route(&key(), &user("m1", "@mario stato?"), &team(), IDLE, 0);
+    let r = s.route_external(&key(), "mario", "x1", &team(), IDLE, 1);
+    assert_eq!((r.woken, r.start_lane), (vec!["mario".to_string()], false), "la coda e' gia' avviata");
+    assert_eq!(s.open_count(), 1);
+    assert_eq!(s.next_job(&key()), Some(reply("mario", "m1")));
+    assert_eq!(s.next_job(&key()), Some(external_reply("mario", "x1")));
+}
+
+#[test]
+fn route_external_does_not_wake_a_secretary_who_cannot_answer() {
+    let mut s = Sessions::default();
+    for name in ["anna", "luca", "nessuno"] {
+        assert_eq!(s.route_external(&key(), name, "x1", &team(), IDLE, 0), Routing::default(), "{name}");
     }
     assert!(s.is_empty());
 }

@@ -11,6 +11,11 @@ pub enum NoticeKind {
     },
     /// Un worker ha una domanda.
     Question,
+    /// Un messaggio di un mittente esterno (autore `external`) e' arrivato nel
+    /// thread; `name` e' come si presenta (gia' ripulito).
+    External {
+        name: String,
+    },
     TaskFailed,
     TaskAttention,
     /// La pianificazione e' finita senza proposta: servono risposte.
@@ -33,6 +38,7 @@ pub enum Priority {
     TaskAttention,
     TaskFailed,
     Question,
+    External,
     Reply,
 }
 
@@ -41,6 +47,7 @@ impl NoticeKind {
         match self {
             Self::Reply { .. } => Priority::Reply,
             Self::Question => Priority::Question,
+            Self::External { .. } => Priority::External,
             Self::TaskFailed => Priority::TaskFailed,
             Self::TaskAttention => Priority::TaskAttention,
             Self::PlanWithoutProposal => Priority::PlanWithoutProposal,
@@ -57,9 +64,12 @@ impl NoticeKind {
             Self::Question | Self::TaskFailed | Self::TaskAttention | Self::PlanWithoutProposal => {
                 HubNoticeSound::Attention
             }
-            Self::Reply { .. } | Self::ProposalCreated | Self::ThreadConcluded | Self::ReviewDone | Self::TaskDone => {
-                HubNoticeSound::Ding
-            }
+            Self::Reply { .. }
+            | Self::External { .. }
+            | Self::ProposalCreated
+            | Self::ThreadConcluded
+            | Self::ReviewDone
+            | Self::TaskDone => HubNoticeSound::Ding,
         }
     }
 
@@ -67,6 +77,7 @@ impl NoticeKind {
         match self {
             Self::Reply { bot } => format!("@{bot} ti ha risposto"),
             Self::Question => "Un worker ha una domanda".to_string(),
+            Self::External { name } => format!("Nuovo da {name}"),
             Self::TaskFailed => "Task fallito".to_string(),
             Self::TaskAttention => "Un task richiede attenzione".to_string(),
             Self::PlanWithoutProposal => "Pianificazione conclusa: servono tue risposte".to_string(),
@@ -85,6 +96,7 @@ mod tests {
     fn by_significance() -> Vec<NoticeKind> {
         vec![
             NoticeKind::Reply { bot: "ada".into() },
+            NoticeKind::External { name: "Mario".into() },
             NoticeKind::Question,
             NoticeKind::TaskFailed,
             NoticeKind::TaskAttention,
@@ -107,7 +119,7 @@ mod tests {
     #[test]
     fn only_kinds_that_need_the_user_use_the_attention_sound() {
         let attention: Vec<bool> = by_significance().iter().map(|k| k.sound() == HubNoticeSound::Attention).collect();
-        assert_eq!(attention, [false, true, true, true, true, false, false, false, false]);
+        assert_eq!(attention, [false, false, true, true, true, true, false, false, false, false]);
     }
 
     #[test]
@@ -117,6 +129,7 @@ mod tests {
             titles,
             [
                 "@ada ti ha risposto",
+                "Nuovo da Mario",
                 "Un worker ha una domanda",
                 "Task fallito",
                 "Un task richiede attenzione",

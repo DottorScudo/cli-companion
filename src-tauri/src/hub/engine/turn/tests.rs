@@ -265,7 +265,7 @@ fn relay_answer_delivers_to_the_only_pending_question_when_the_user_asks() {
 fn relay_answer_is_refused_in_a_board_event_turn_and_with_several_questions() {
     let (model, host) = relay_turn(vec![question_event("e1", "a", "q-1-1")], WakeCause::BoardEvent);
     assert!(host.answers.delivered().is_empty());
-    assert!(tool_result(&model, 1).contains("never when a board event woke you up"));
+    assert!(tool_result(&model, 1).contains("never when a board event or external content woke you up"));
     let several = vec![question_event("e1", "a", "q-1-1"), question_event("e2", "b", "q-1-1")];
     let (model, host) = relay_turn(several, WakeCause::Message);
     assert!(host.answers.delivered().is_empty());
@@ -274,6 +274,13 @@ fn relay_answer_is_refused_in_a_board_event_turn_and_with_several_questions() {
     let (model, host) = relay_turn(answered, WakeCause::Message);
     assert!(host.answers.delivered().is_empty());
     assert!(tool_result(&model, 1).contains("No worker question is waiting"));
+}
+
+#[test]
+fn relay_answer_is_refused_in_an_external_turn_even_with_one_pending_question() {
+    let (model, host) = relay_turn(vec![question_event("e1", "a", "q-1-1")], WakeCause::External);
+    assert!(host.answers.delivered().is_empty());
+    assert!(tool_result(&model, 1).contains("external content woke you up"), "{}", tool_result(&model, 1));
 }
 
 #[test]

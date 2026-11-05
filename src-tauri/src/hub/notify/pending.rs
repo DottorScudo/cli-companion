@@ -65,6 +65,7 @@ mod tests {
         let notice = HubNotice {
             channel: Channel::General,
             thread_id: thread.to_string(),
+            message_id: "msg-1".to_string(),
             title: title.to_string(),
             body: String::new(),
             sound: HubNoticeSound::Ding,

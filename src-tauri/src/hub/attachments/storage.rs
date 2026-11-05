@@ -204,6 +204,17 @@ pub fn discard(root: &Path, channel: &Channel, garbage: &super::Garbage) {
     }
 }
 
+/// Toglie dallo staging gli allegati `ids` mai usati (un messaggio che non e'
+/// stato salvato, un duplicato). Un id non valido o gia' assente non e' un errore.
+pub fn discard_staged(root: &Path, ids: &[String]) {
+    for id in ids {
+        match layout::staged_dir(root, id) {
+            Ok(dir) => remove_dir(&dir),
+            Err(e) => log::warn!("hub: allegato in staging non eliminato: {e}"),
+        }
+    }
+}
+
 /// Cancella tutti gli allegati del canale (il workspace e' stato rimosso).
 pub fn forget_channel(root: &Path, channel: &Channel) {
     remove_dir(&layout::channel_dir(root, channel));
