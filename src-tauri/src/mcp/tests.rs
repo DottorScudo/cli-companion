@@ -32,13 +32,19 @@ const WORKER_TOOLS_CEILING: usize = 3_050;
 /// get_task_details and propose_tasks definitions.
 /// 5_200 = 4_050 plus run_e2e and get_e2e_result (measured 5_163).
 const REVIEWER_TOOLS_CEILING: usize = 5_200;
+/// The worker set with the Agents HUB on: the hub-off set plus ask_user (measured 3_698).
+const WORKER_HUB_TOOLS_CEILING: usize = 3_750;
 const SESSION_INSTRUCTIONS_CEILING: usize = 700;
+/// The worker server instructions with the Agents HUB on (measured 238).
+const WORKER_HUB_INSTRUCTIONS_CEILING: usize = 300;
 /// The reviewer server instructions (measured 345).
 const REVIEWER_INSTRUCTIONS_CEILING: usize = 400;
 
 /// Backend finto: registra le chiamate (con l'attesa concessa) e risponde con `reply`.
 struct Fake {
     role: &'static str,
+    /// L'Agents HUB che `whoami` dichiara.
+    hub: bool,
     reply: Result<Value, String>,
     calls: Mutex<Vec<(String, Value)>>,
     timeouts: Mutex<Vec<(String, Duration)>>,
@@ -46,7 +52,12 @@ struct Fake {
 
 impl Fake {
     fn new(role: &'static str) -> Self {
-        Self { role, reply: Ok(json!({ "ok": 1 })), calls: Mutex::default(), timeouts: Mutex::default() }
+        Self { role, hub: false, reply: Ok(json!({ "ok": 1 })), calls: Mutex::default(), timeouts: Mutex::default() }
+    }
+
+    /// Come `new`, ma `whoami` dichiara l'Agents HUB acceso.
+    fn with_hub(role: &'static str) -> Self {
+        Self { hub: true, ..Self::new(role) }
     }
 
     fn calls(&self) -> Vec<(String, Value)> {
@@ -64,6 +75,9 @@ impl Backend for Fake {
         self.timeouts.lock().unwrap().push((method.to_string(), timeout));
         if method == "whoami" {
             let mut v = json!({ "role": self.role, "session": "t1" });
+            if self.hub {
+                v["hub"] = json!(true);
+            }
             if self.role == "session" {
                 v["workspace"] = json!({"name":"Proj","kind":"wsl","path":"/home/u/app"});
             }
@@ -92,13 +106,23 @@ fn size_budget_of_the_model_facing_text() {
     let session = serde_json::to_string(&session_tools()).unwrap().chars().count();
     let worker = serde_json::to_string(&worker_tools()).unwrap().chars().count();
     let reviewer = serde_json::to_string(&reviewer_tools()).unwrap().chars().count();
-    let reviewer_instr = instructions(Some(Role::Reviewer), None).chars().count();
-    let instr = instructions(Some(Role::Session), Some("Proj (wsl, /home/u/app)")).chars().count();
+    let reviewer_instr = instructions(Some(Role::Reviewer), None, false).chars().count();
+    let instr = instructions(Some(Role::Session), Some("Proj (wsl, /home/u/app)"), false).chars().count();
     assert!(session <= SESSION_TOOLS_CEILING, "session tools are {session} chars, ceiling {SESSION_TOOLS_CEILING}");
     assert!(worker <= WORKER_TOOLS_CEILING, "worker tools are {worker} chars, ceiling {WORKER_TOOLS_CEILING}");
     assert!(
         instr <= SESSION_INSTRUCTIONS_CEILING,
         "session instructions are {instr} chars, ceiling {SESSION_INSTRUCTIONS_CEILING}"
+    );
+    let worker_hub = serde_json::to_string(&tools_for(Role::Worker, true)).unwrap().chars().count();
+    let worker_hub_instr = instructions(Some(Role::Worker), None, true).chars().count();
+    assert!(
+        worker_hub <= WORKER_HUB_TOOLS_CEILING,
+        "worker tools with the hub are {worker_hub} chars, ceiling {WORKER_HUB_TOOLS_CEILING}"
+    );
+    assert!(
+        worker_hub_instr <= WORKER_HUB_INSTRUCTIONS_CEILING,
+        "worker instructions with the hub are {worker_hub_instr} chars, ceiling {WORKER_HUB_INSTRUCTIONS_CEILING}"
     );
     assert!(
         reviewer <= REVIEWER_TOOLS_CEILING,
@@ -463,7 +487,7 @@ fn a_failed_whoami_in_initialize_asks_for_one_series_of_retries() {
     assert!(!s.claim_retry());
     for id in 2..=3 {
         let r = send(&s, &b, json!({"jsonrpc":"2.0","id":id,"method":"initialize","params":{}})).unwrap();
-        assert_eq!(r["result"]["instructions"], instructions(None, None));
+        assert_eq!(r["result"]["instructions"], instructions(None, None, false));
     }
     assert!(s.claim_retry());
     assert!(!s.claim_retry(), "a single series per process");
@@ -485,7 +509,7 @@ fn initialize_answers_quickly_when_the_app_accepts_but_never_answers() {
     let elapsed = started.elapsed();
     assert!(elapsed < Duration::from_secs(5), "initialize took {elapsed:?}");
     assert_eq!(r["result"]["capabilities"]["tools"]["listChanged"], true);
-    assert_eq!(r["result"]["instructions"], instructions(None, None));
+    assert_eq!(r["result"]["instructions"], instructions(None, None, false));
     assert!(s.claim_retry(), "a real backend that does not answer is retried in the background");
     drop(listener);
 }
@@ -687,7 +711,7 @@ fn propose_settings_has_no_agent_specific_fields_at_the_top_level() {
 
 #[test]
 fn get_workspace_settings_points_to_the_agents() {
-    let tools = tools_for(Role::Session);
+    let tools = tools_for(Role::Session, false);
     let read = tools.iter().find(|t| t["name"] == "get_workspace_settings").unwrap();
     assert!(read["description"].as_str().unwrap().contains("enabled agents"));
 }
@@ -699,28 +723,120 @@ fn tool_names(tools: &[Value]) -> Vec<String> {
 
 #[test]
 fn every_mcp_tool_is_a_method_allowed_for_its_role() {
-    for role in Role::ALL {
-        let listed = tool_names(&tools_for(role));
-        let unique: HashSet<&String> = listed.iter().collect();
-        assert_eq!(unique.len(), listed.len(), "{}: duplicate tool names {listed:?}", role.as_str());
-        for name in &listed {
-            assert!(Method::parse(name).is_some(), "{}: tool {name} is not an RPC method", role.as_str());
+    for hub in [true, false] {
+        for role in Role::ALL {
+            let listed = tool_names(&tools_for(role, hub));
+            let unique: HashSet<&String> = listed.iter().collect();
+            assert_eq!(unique.len(), listed.len(), "{}: duplicate tool names {listed:?}", role.as_str());
+            for name in &listed {
+                assert!(Method::parse(name).is_some(), "{}: tool {name} is not an RPC method", role.as_str());
+            }
+            let expected: HashSet<&str> = Method::ALL
+                .into_iter()
+                .filter(|m| m.allows(role) && !m.is_handshake() && (hub || !m.requires_hub()))
+                .map(|m| m.name())
+                .collect();
+            let actual: HashSet<&str> = listed.iter().map(String::as_str).collect();
+            assert_eq!(actual, expected, "{} (hub {hub}): the tools differ from the role table", role.as_str());
         }
-        let expected: HashSet<&str> =
-            Method::ALL.into_iter().filter(|m| m.allows(role) && !m.is_handshake()).map(|m| m.name()).collect();
-        let actual: HashSet<&str> = listed.iter().map(String::as_str).collect();
-        assert_eq!(actual, expected, "{}: the tools differ from the role table", role.as_str());
     }
 }
 
 #[test]
 fn the_handshake_has_no_tool_for_any_role() {
     for role in Role::ALL {
-        let listed = tool_names(&tools_for(role));
+        let listed = tool_names(&tools_for(role, true));
         for m in Method::ALL.into_iter().filter(|m| m.is_handshake()) {
             assert!(!listed.iter().any(|n| n == m.name()), "{}: {}", role.as_str(), m.name());
         }
     }
+}
+
+fn list_for(b: &Fake) -> Vec<String> {
+    names(&send(&Server::default(), b, json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})).unwrap())
+}
+
+#[test]
+fn ask_user_is_listed_only_with_the_hub_and_only_for_worker_and_planner() {
+    assert_eq!(list_for(&Fake::new("worker")), ["get_task", "complete_task", "run_e2e", "get_e2e_result"]);
+    assert_eq!(
+        list_for(&Fake::with_hub("worker")),
+        ["get_task", "complete_task", "ask_user", "run_e2e", "get_e2e_result"]
+    );
+    assert!(!list_for(&Fake::new("planner")).contains(&"ask_user".to_string()));
+    assert_eq!(
+        list_for(&Fake::with_hub("planner")),
+        [
+            "get_task",
+            "complete_task",
+            "ask_user",
+            "propose_tasks",
+            "list_tasks",
+            "get_task_details",
+            "get_workspace_settings"
+        ]
+    );
+    for role in ["reviewer", "session"] {
+        assert!(!list_for(&Fake::with_hub(role)).contains(&"ask_user".to_string()), "{role}");
+    }
+}
+
+#[test]
+fn whoami_without_the_hub_field_means_the_hub_is_off() {
+    let server = Server::default();
+    server.role(&Fake::new("worker")).unwrap();
+    assert!(!server.hub());
+    let server = Server::default();
+    server.role(&Fake::with_hub("worker")).unwrap();
+    assert!(server.hub());
+}
+
+#[test]
+fn ask_user_is_unknown_without_the_hub_and_forwarded_with_it() {
+    let args = json!({"question":"Which one?","options":["a","b"]});
+    let msg = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ask_user","arguments":args}});
+    let off = Fake::new("worker");
+    let r = send(&Server::default(), &off, msg.clone()).unwrap();
+    assert_eq!(r["result"]["isError"], true);
+    assert_eq!(r["result"]["content"][0]["text"], "unknown tool, or not available for this session: ask_user");
+    assert!(off.calls().iter().all(|(m, _)| m == "whoami"));
+    let on = Fake::with_hub("worker");
+    let r = send(&Server::default(), &on, msg).unwrap();
+    assert!(r["result"].get("isError").is_none());
+    assert!(on.calls().contains(&("ask_user".to_string(), args)));
+}
+
+#[test]
+fn the_ask_user_schema_limits_are_the_board_ones() {
+    use crate::board::{OPTIONS_MAX, OPTION_MAX, QUESTION_MAX};
+    let tools = tools_for(Role::Worker, true);
+    let t = tools.iter().find(|t| t["name"] == "ask_user").unwrap();
+    let props = &t["inputSchema"]["properties"];
+    assert_eq!(keys(props), ["options", "question"]);
+    assert_eq!(props["question"]["minLength"], 1);
+    assert_eq!(props["question"]["maxLength"], QUESTION_MAX);
+    assert_eq!(props["options"]["maxItems"], OPTIONS_MAX);
+    assert_eq!(props["options"]["items"]["minLength"], 1);
+    assert_eq!(props["options"]["items"]["maxLength"], OPTION_MAX);
+    assert_eq!(t["inputSchema"]["required"], json!(["question"]));
+}
+
+#[test]
+fn the_instructions_of_worker_and_planner_follow_the_hub() {
+    let worker = instructions(Some(Role::Worker), None, false);
+    let worker_hub = instructions(Some(Role::Worker), None, true);
+    assert!(worker.ends_with("ask in plain text and end your turn: the user answers in your terminal."));
+    assert!(worker_hub.ends_with("call ask_user and end your turn: the answer arrives in your terminal."));
+    assert_eq!(worker.split(" If ").next(), worker_hub.split(" If ").next());
+    let planner = instructions(Some(Role::Planner), None, false);
+    let planner_hub = instructions(Some(Role::Planner), None, true);
+    assert!(planner.contains("list your questions for the user in the summary"));
+    assert!(planner_hub.contains("call ask_user") && !planner_hub.contains("Nobody reads"));
+    for role in [Role::Reviewer, Role::Session] {
+        assert_eq!(instructions(Some(role), Some("W"), false), instructions(Some(role), Some("W"), true));
+    }
+    let r = send(&Server::default(), &Fake::with_hub("worker"), json!({"jsonrpc":"2.0","id":1,"method":"initialize"}));
+    assert_eq!(r.unwrap()["result"]["instructions"], worker_hub);
 }
 
 #[test]

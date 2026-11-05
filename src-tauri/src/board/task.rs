@@ -2,7 +2,8 @@
 //! scritture dello stato sono tutte in `lifecycle`.
 
 use super::{
-    PreviousAttempt, Run, RunPhase, Task, TaskReport, TaskSpec, TaskState, TaskStatus, WorkerActivity, WorkerStatus,
+    PreviousAttempt, Run, RunPhase, Task, TaskQuestion, TaskReport, TaskSpec, TaskState, TaskStatus, WorkerActivity,
+    WorkerStatus,
 };
 use crate::agents::registry;
 
@@ -148,6 +149,20 @@ impl Task {
     /// Il worker aspetta l'utente.
     pub fn needs_attention(&self) -> bool {
         self.run().is_some_and(|r| matches!(r.phase, RunPhase::Live { worker, .. } if worker.needs_attention()))
+    }
+
+    /// Le domande del worker all'utente, dalla piu' vecchia.
+    pub fn questions(&self) -> &[TaskQuestion] {
+        &self.questions
+    }
+
+    /// La domanda in attesa di risposta: l'ultima, se non ha risposta, il task e' in
+    /// corso e l'ha fatta il tentativo attuale (le domande di un tentativo finito o
+    /// precedente non aspettano piu' nessuno).
+    pub fn pending_question(&self) -> Option<&TaskQuestion> {
+        self.questions
+            .last()
+            .filter(|q| q.answered_at.is_none() && q.attempt == self.attempts && self.status() == TaskStatus::Running)
     }
 
     /// Dopo un riavvio dell'app nessuna esecuzione E2E e' piu' in corso

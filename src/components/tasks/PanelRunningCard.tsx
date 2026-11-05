@@ -1,5 +1,5 @@
 import { AlertTriangle, Loader2 } from "lucide-react";
-import { PREPARING_LABEL, displayStatus } from "../../lib/board";
+import { PREPARING_LABEL, displayStatus, hasPendingQuestion } from "../../lib/board";
 import type { Task } from "../../lib/board";
 import { runningMeta } from "../../lib/taskPanel";
 import { cn } from "@/lib/utils";
@@ -26,12 +26,18 @@ interface PanelRunningCardProps {
 
 /**
  * Card di un task in corso: spinner ambra e "modello · tempo", oppure triangolo
- * arancione e "Richiede attenzione" (bordo evidenziato). Un solo pulsante.
+ * arancione e "Richiede attenzione" (bordo evidenziato); "Ha una domanda" se il worker aspetta una risposta. Un solo pulsante.
  */
 export default function PanelRunningCard({ task, now, agent = null, bot, botImage, onClick }: PanelRunningCardProps) {
   const attention = displayStatus(task) === "attention";
   const preparing = Boolean(task.preparing);
-  const meta = attention ? "Richiede attenzione" : preparing ? PREPARING_LABEL : runningMeta(task, now);
+  const meta = attention
+    ? "Richiede attenzione"
+    : hasPendingQuestion(task)
+      ? "Ha una domanda"
+      : preparing
+        ? PREPARING_LABEL
+        : runningMeta(task, now);
   return (
     <button
       type="button"

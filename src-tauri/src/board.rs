@@ -8,7 +8,7 @@
 //! Struttura: `model` (task, board e costanti), `state` (stato del ciclo di
 //! vita con i suoi dati), `lifecycle` (le transizioni e la tabella delle azioni:
 //! l'unico posto che scrive lo stato), `record` (formato sul filo del task),
-//! `task` (accessi), `agent` (agente di un task), `queue` (specifiche, proposte,
+//! `task` (accessi), `question` (domande del worker all'utente), `agent` (agente di un task), `queue` (specifiche, proposte,
 //! modifiche e riordino),
 //! `cascade` (dipendenze inverse), `scheduler`, `view` (vista per frontend e
 //! MCP), `worker` (stati del worker e tabella degli hook), `persist` (busta e
@@ -27,6 +27,7 @@ mod lifecycle;
 mod model;
 mod persist;
 mod plan;
+mod question;
 mod queue;
 mod record;
 mod recovery;
@@ -59,6 +60,7 @@ pub use model::{
 };
 pub use persist::{archive_line, board_store};
 pub use plan::{check_kind_input, check_plan_report, check_plan_spec, PLAN_KIND_RESERVED};
+pub use question::{parse_question, TaskQuestion, ANSWER_MAX, OPTIONS_MAX, OPTION_MAX, QUESTIONS_KEPT, QUESTION_MAX};
 pub use report::{build_report, parse_report_fields, ReportFields, TaskReport, TestRun, DIFFSTAT_MAX};
 pub use review::{check_review_deps, check_verdict, reviewed_tasks, TaskKind, Verdict};
 pub use scheduler::{schedule, SchedCtx};

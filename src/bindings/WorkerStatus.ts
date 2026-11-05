@@ -4,4 +4,4 @@
  * Stato di un worker sul filo (evento `automation-update`): l'unione degli
  * stati attivi (`WorkerActivity`) e di quelli finali (`WorkerEnd`).
  */
-export type WorkerStatus = "starting" | "running" | "background" | "needs_input" | "idle" | "completed" | "failed" | "closed";
+export type WorkerStatus = "starting" | "running" | "background" | "needs_input" | "idle" | "awaiting_answer" | "completed" | "failed" | "closed";

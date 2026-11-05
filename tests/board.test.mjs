@@ -18,6 +18,7 @@ import {
   doneTasks,
   effectiveDelivery,
   failedTasks,
+  hasPendingQuestion,
   filterTasks,
   formatDuration,
   formatRelative,
@@ -265,6 +266,11 @@ describe("board: testi", () => {
     assert.equal(formatRelative(NOW - 3 * DAY, NOW), "3 g fa");
     assert.match(formatRelative(NOW - 30 * DAY, NOW), /^\d\d\/\d\d\/\d{4}$/);
     assert.equal(updatedLabel({ updated_at: NOW - 20 * MIN }, NOW), "aggiornato 20 min fa");
+  });
+  it("domanda in sospeso: solo se il task ne ha una", () => {
+    assert.equal(hasPendingQuestion(task({ status: "running" })), false);
+    const question = { id: "q-1-1", attempt: 1, text: "Quale?", asked_at: NOW };
+    assert.equal(hasPendingQuestion(task({ status: "running", question })), true);
   });
   it("sotto-stato solo per i task in corso", () => {
     assert.equal(workerSubStatus(task({ status: "running", worker_status: "needs_input" })).text, "aspetta");

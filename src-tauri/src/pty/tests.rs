@@ -412,6 +412,7 @@ fn a_reserved_slot_has_no_live_session_yet() {
 
     assert_eq!(table.workspace_of_tab("tab-1"), None);
     assert!(table.writer(reservation.id()).is_none());
+    assert!(table.writer_of_tab("tab-1").is_none());
     assert!(table.session(reservation.id()).is_none());
     // `pty_close` o il reader di un'altra sessione non possono rubare la prenotazione.
     assert!(table.take_session(reservation.id()).is_none());
@@ -438,10 +439,13 @@ fn committed_session_is_found_by_tab_deterministically() {
     }
     assert_eq!(table.workspace_of_tab("tab-c"), None);
     assert_eq!(table.writer(id_a).map(|(_, tab)| tab).as_deref(), Some("tab-a"));
+    assert!(table.writer_of_tab("tab-a").is_some());
+    assert!(table.writer_of_tab("tab-c").is_none());
 
     // Rimossa la sessione, il tab non risolve piu' e puo' riaprirsi.
     let session = table.take_session(id_a).expect("sessione viva");
     assert_eq!(table.workspace_of_tab("tab-a"), None);
+    assert!(table.writer_of_tab("tab-a").is_none());
     assert!(table.take_session(id_a).is_none());
     drop(table);
     session.shutdown();

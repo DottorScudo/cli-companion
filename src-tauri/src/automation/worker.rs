@@ -140,19 +140,23 @@ pub struct HookEvent<'a> {
 
 impl Registry {
     /// Cambia l'attivita' di un worker (sul suo task) e la pubblica; l'ingresso
-    /// in attenzione notifica l'utente.
+    /// in attenzione o in attesa di una risposta notifica l'utente.
     pub(super) fn set_activity(&mut self, session: &str, activity: WorkerActivity, now: i64) {
         let Some(w) = self.workers.get(session) else {
             return;
         };
         let (ws, tid) = (w.workspace_id.clone(), w.task_id.clone());
-        let was_attention = self.worker_activity(session).is_some_and(WorkerActivity::needs_attention);
+        let before = self.worker_activity(session);
+        let was_attention = before.is_some_and(WorkerActivity::needs_attention);
         if self.boards.get_mut(&ws).is_some_and(|b| b.worker_changed(&tid, session, activity, now)) {
             self.mark_dirty(&ws);
         }
         self.touch(session, now);
         if activity.needs_attention() && !was_attention {
             self.notify(&ws, &tid, Some(session), "attention");
+        }
+        if activity == WorkerActivity::AwaitingAnswer && before != Some(activity) {
+            self.notify(&ws, &tid, Some(session), "question");
         }
     }
 
@@ -195,6 +199,7 @@ impl Registry {
                 let signal = WorkerSignal::TurnEnded {
                     background_work: hook.background_work.is_some_and(|n| n > 0),
                     stop_hook_active: hook.stop_hook_active == Some(true),
+                    question_pending: self.has_pending_question(tab),
                 };
                 if self.signal_worker(tab, signal, now) {
                     return Some(STOP_BLOCK_REASON.to_string());
@@ -215,9 +220,13 @@ impl Registry {
     }
 
     /// L'utente ha premuto Invio nel terminale del worker: se aspettava lui,
-    /// riprende a lavorare (nessun hook segnala la risposta).
+    /// riprende a lavorare (nessun hook segnala la risposta). Se aspettava la
+    /// risposta a una domanda, l'utente ha risposto qui: la domanda si chiude.
     pub fn user_input(&mut self, tab: &str, now: i64) {
         if self.workers.get(tab).is_some_and(|w| w.tab_open) {
+            if self.worker_activity(tab) == Some(WorkerActivity::AwaitingAnswer) {
+                self.close_question_answered_in_terminal(tab, now);
+            }
             self.signal_worker(tab, WorkerSignal::UserInput, now);
         }
     }

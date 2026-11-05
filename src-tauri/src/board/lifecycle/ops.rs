@@ -128,6 +128,44 @@ impl Board {
         self.apply_touching(id, event, now).is_ok()
     }
 
+    /// Il worker `session` fa una domanda all'utente. Ritorna l'id della domanda.
+    /// `Stale` se non e' il worker vivo del task o c'e' gia' una domanda in attesa.
+    pub fn ask_question(
+        &mut self,
+        id: &str,
+        session: &str,
+        text: String,
+        options: Vec<String>,
+        now: i64,
+    ) -> Result<String, LifecycleError> {
+        let event = TaskEvent::QuestionAsked { session: session.to_string(), text, options };
+        self.apply_touching(id, event, now)?;
+        let task = self.known(id)?;
+        task.questions().last().map(|q| q.id.clone()).ok_or(LifecycleError::Stale)
+    }
+
+    /// La domanda in attesa `question_id` del worker `session` ha avuto risposta
+    /// (`answer` = testo consegnato dall'app, `None` = risposta data nel terminale).
+    pub fn answer_question(
+        &mut self,
+        id: &str,
+        session: &str,
+        question_id: &str,
+        answer: Option<String>,
+        now: i64,
+    ) -> Result<(), LifecycleError> {
+        let event =
+            TaskEvent::QuestionAnswered { session: session.to_string(), question_id: question_id.to_string(), answer };
+        self.apply_touching(id, event, now)
+    }
+
+    /// Annulla `answer_question` quando la consegna nel terminale e' fallita:
+    /// `false` se la risposta non e' piu' quella dell'ultima domanda del worker.
+    pub fn answer_undelivered(&mut self, id: &str, session: &str, question_id: &str, now: i64) -> bool {
+        let event = TaskEvent::AnswerUndelivered { session: session.to_string(), question_id: question_id.to_string() };
+        self.apply_touching(id, event, now).is_ok()
+    }
+
     /// Riapre per `session` un task fallito perche' la sua sessione era finita
     /// al tentativo `attempt`: il worker che lo aveva era ancora vivo e
     /// riferisce. Solo se nessuno l'ha ripreso nel frattempo (ancora `failed`

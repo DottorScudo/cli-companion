@@ -125,6 +125,21 @@ pub fn workspace_of_tab(app: &AppHandle, tab_id: &str) -> Option<String> {
     registry.workspace_of_tab(tab_id).map(str::to_string)
 }
 
+/// Scrive `data` nel terminale del tab `tab_id` come se l'utente lo digitasse. Il lock
+/// della tabella si tiene solo per clonare la coda di scrittura: l'I/O lo fa il thread
+/// di scrittura della sessione, quindi nessun lock resta in mano mentre si scrive.
+pub fn write_to_tab(app: &AppHandle, tab_id: &str, data: &[u8]) -> Result<(), String> {
+    let writer = {
+        let state = app.state::<PtyState>();
+        let registry = state.registry.lock().unwrap();
+        registry.writer_of_tab(tab_id)
+    };
+    writer
+        .ok_or_else(|| "sessione non trovata".to_string())?
+        .send(data.to_vec())
+        .map_err(|_| "sessione chiusa".to_string())
+}
+
 /// Prepara le variabili d'ambiente del PTY del tab `tab_id`, che il frontend
 /// aprira' a breve: `pty_spawn` le applica una volta sola. Si chiama prima di
 /// annunciare il tab al frontend.

@@ -92,11 +92,11 @@ pub fn create_hub_plan_task<H: Host>(
 
 /// Risposta di `get_task` per un task di pianificazione: niente passi di
 /// consegna, l'ambiente e' quello di sola lettura.
-pub(super) fn get_task_json(info: &EnvInfo, workspace_rules: &str) -> Value {
+pub(super) fn get_task_json(info: &EnvInfo, workspace_rules: &str, ask_user: bool) -> Value {
     json!({
         "task": info.task.task,
         "title": info.task.title,
-        "instructions": texts::planner_instructions(info, workspace_rules),
+        "instructions": texts::planner_instructions(info, workspace_rules, ask_user),
         "environment": texts::planner_environment(info),
     })
 }

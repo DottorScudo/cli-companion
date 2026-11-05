@@ -5,8 +5,8 @@
 use super::agent_gate::{AgentGate, AgentUnavailableView};
 use super::cascade::{CascadeDelete, Waiters};
 use super::{
-    permits, Board, Op, Proposal, SettingsProposalView, Task, TaskAction, TaskKind, TaskStatus, MAX_PARALLEL_LIMIT,
-    MIN_PARALLEL_LIMIT,
+    permits, Board, Op, Proposal, SettingsProposalView, Task, TaskAction, TaskKind, TaskQuestion, TaskStatus,
+    MAX_PARALLEL_LIMIT, MIN_PARALLEL_LIMIT,
 };
 use crate::validate::clip_with_ellipsis;
 use crate::workspaces::{Delivery, Workspace};
@@ -43,6 +43,10 @@ pub struct TaskView {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub agent_unavailable: Option<AgentUnavailableView>,
+    /// Domanda del worker in attesa di risposta.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub question: Option<TaskQuestion>,
 }
 
 /// Intervallo ammesso per un valore numerico, estremi inclusi.
@@ -136,6 +140,9 @@ fn compact_row(v: &TaskView) -> Value {
             o["verdict"] = Value::from(v.as_str());
         }
     }
+    if let Some(q) = &v.question {
+        o["question"] = Value::from(clip_with_ellipsis(&q.text, COMPACT_NOTE_MAX));
+    }
     if let Some(n) = t.note() {
         o["note"] = Value::from(clip_with_ellipsis(n, COMPACT_NOTE_MAX));
     }
@@ -190,6 +197,7 @@ impl Board {
             can_reorder: permits(status, Op::Reorder),
             cascade,
             agent_unavailable: gate.unavailable(t),
+            question: t.pending_question().cloned(),
         }
     }
 

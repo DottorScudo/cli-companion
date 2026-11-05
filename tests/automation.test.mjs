@@ -28,6 +28,7 @@ describe("automazione: stati", () => {
       background: "in background",
       needs_input: "aspetta",
       idle: "fermo",
+      awaiting_answer: "aspetta una risposta",
       completed: "completato",
       failed: "fallito",
       closed: "chiuso",

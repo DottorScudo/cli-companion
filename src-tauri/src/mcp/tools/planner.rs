@@ -5,11 +5,25 @@
 use super::{get_task_details_tool, list_tasks_tool, propose_tasks_tool, tool};
 use serde_json::{json, Value};
 
-/// Istruzioni generali del server per il pianificatore.
-pub(super) const PLANNER_INSTRUCTIONS: &str = "cli-companion: you are an automated planner. Call get_task first and \
+/// Istruzioni generali del server per il pianificatore (Agents HUB spento).
+const PLANNER_INSTRUCTIONS: &str = "cli-companion: you are an automated planner. Call get_task first and \
     follow its instructions: explore the repository without changing anything, propose the tasks with a single \
     propose_tasks call (or list your questions for the user in the summary) and ALWAYS finish with complete_task. \
     Nobody reads your terminal: never wait for an answer.";
+
+/// Le stesse con l'Agents HUB acceso: un dubbio si chiede con `ask_user`.
+const PLANNER_INSTRUCTIONS_HUB: &str = "cli-companion: you are an automated planner. Call get_task first and follow its \
+    instructions: explore the repository without changing anything, propose the tasks with a single propose_tasks call \
+    and ALWAYS finish with complete_task. If a doubt blocks the plan, call ask_user and end your turn: the answer arrives \
+    in this terminal.";
+
+pub(super) fn planner_instructions(hub: bool) -> &'static str {
+    if hub {
+        PLANNER_INSTRUCTIONS_HUB
+    } else {
+        PLANNER_INSTRUCTIONS
+    }
+}
 
 pub fn planner_tools() -> Vec<Value> {
     vec![
@@ -65,6 +79,10 @@ mod tests {
     const PLANNER_TOOLS_CEILING: usize = 4_150;
     /// The planner server instructions (measured 339).
     const PLANNER_INSTRUCTIONS_CEILING: usize = 400;
+    /// The planner set with the Agents HUB on: the set above plus ask_user (measured 4_813).
+    const PLANNER_HUB_TOOLS_CEILING: usize = 4_850;
+    /// The planner server instructions with the Agents HUB on (measured 342).
+    const PLANNER_HUB_INSTRUCTIONS_CEILING: usize = 400;
 
     fn tool_named(name: &str) -> Value {
         planner_tools().into_iter().find(|t| t["name"] == name).unwrap()
@@ -74,11 +92,20 @@ mod tests {
     fn size_budget_of_the_planner_text() {
         let tools = serde_json::to_string(&planner_tools()).unwrap().chars().count();
         assert!(tools <= PLANNER_TOOLS_CEILING, "planner tools are {tools} chars, ceiling {PLANNER_TOOLS_CEILING}");
-        let text = instructions(Some(Role::Planner), None);
-        let n = text.chars().count();
-        assert!(n <= PLANNER_INSTRUCTIONS_CEILING, "planner instructions are {n} chars");
-        assert!(!text.contains('\n') && !text.contains("  "), "one line with single spaces");
-        assert!(text.contains("automated planner") && text.contains("propose_tasks") && text.contains("complete_task"));
+        let hub_tools = serde_json::to_string(&tools_for(Role::Planner, true)).unwrap().chars().count();
+        assert!(
+            hub_tools <= PLANNER_HUB_TOOLS_CEILING,
+            "planner tools with the hub are {hub_tools} chars, ceiling {PLANNER_HUB_TOOLS_CEILING}"
+        );
+        for (hub, ceiling) in [(false, PLANNER_INSTRUCTIONS_CEILING), (true, PLANNER_HUB_INSTRUCTIONS_CEILING)] {
+            let text = instructions(Some(Role::Planner), None, hub);
+            let n = text.chars().count();
+            assert!(n <= ceiling, "planner instructions (hub {hub}) are {n} chars, ceiling {ceiling}");
+            assert!(!text.contains('\n') && !text.contains("  "), "one line with single spaces");
+            assert!(
+                text.contains("automated planner") && text.contains("propose_tasks") && text.contains("complete_task")
+            );
+        }
     }
 
     #[test]
@@ -92,7 +119,7 @@ mod tests {
         let settings = tool_named("get_workspace_settings");
         assert!(!settings["description"].as_str().unwrap().contains("propose_settings"));
         let names: Vec<String> =
-            tools_for(Role::Planner).iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
+            tools_for(Role::Planner, false).iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
         assert_eq!(
             names,
             ["get_task", "complete_task", "propose_tasks", "list_tasks", "get_task_details", "get_workspace_settings"]

@@ -20,6 +20,9 @@ pub enum WorkerStatus {
     NeedsInput,
     /// L'agente ha finito il turno senza `complete_task`.
     Idle,
+    /// Ha fatto una domanda con `ask_user` e aspetta la risposta dell'utente: non
+    /// e' un abbandono ne' un permesso.
+    AwaitingAnswer,
     Completed,
     Failed,
     Closed,
@@ -35,6 +38,7 @@ impl WorkerStatus {
             WorkerStatus::Background => Some(WorkerActivity::Background),
             WorkerStatus::NeedsInput => Some(WorkerActivity::NeedsInput),
             WorkerStatus::Idle => Some(WorkerActivity::Idle),
+            WorkerStatus::AwaitingAnswer => Some(WorkerActivity::AwaitingAnswer),
             WorkerStatus::Completed | WorkerStatus::Failed | WorkerStatus::Closed => None,
         }
     }
@@ -52,10 +56,13 @@ pub enum WorkerActivity {
     NeedsInput,
     /// L'agente ha finito il turno senza `complete_task`.
     Idle,
+    /// Ha fatto una domanda con `ask_user` e aspetta la risposta dell'utente.
+    AwaitingAnswer,
 }
 
 impl WorkerActivity {
-    /// Il worker aspetta l'utente.
+    /// Il worker aspetta l'utente (un permesso o un lavoro da riprendere). Chi ha fatto
+    /// una domanda aspetta l'utente ma non e' "attenzione": la domanda ha la sua notifica.
     pub fn needs_attention(self) -> bool {
         matches!(self, WorkerActivity::NeedsInput | WorkerActivity::Idle)
     }
@@ -69,6 +76,7 @@ impl From<WorkerActivity> for WorkerStatus {
             WorkerActivity::Background => WorkerStatus::Background,
             WorkerActivity::NeedsInput => WorkerStatus::NeedsInput,
             WorkerActivity::Idle => WorkerStatus::Idle,
+            WorkerActivity::AwaitingAnswer => WorkerStatus::AwaitingAnswer,
         }
     }
 }
@@ -105,6 +113,8 @@ pub enum WorkerSignal {
         background_work: bool,
         /// Lo Stop hook era gia' stato bloccato una volta.
         stop_hook_active: bool,
+        /// Il task ha una domanda in attesa di risposta (`ask_user`).
+        question_pending: bool,
     },
     /// L'utente ha premuto Invio nel terminale.
     UserInput,
@@ -129,15 +139,23 @@ impl WorkerActivity {
         match signal {
             WorkerSignal::PermissionPrompt => go(WorkerActivity::NeedsInput),
             WorkerSignal::TurnEnded { background_work: true, .. } => go(WorkerActivity::Background),
+            // Domanda all'utente: si aspetta la risposta, senza sollecitare il worker.
+            WorkerSignal::TurnEnded { background_work: false, question_pending: true, .. } => {
+                go(WorkerActivity::AwaitingAnswer)
+            }
             // Prima volta senza report: si fa proseguire il turno. Un nuovo
             // turno dopo la risposta dell'utente non e' piu' attesa.
-            WorkerSignal::TurnEnded { background_work: false, stop_hook_active: false } => {
+            WorkerSignal::TurnEnded { background_work: false, stop_hook_active: false, question_pending: false } => {
                 let to = self.needs_attention().then_some(WorkerActivity::Running);
                 WorkerStep { to, block_stop: true }
             }
             // Gia' sollecitato e ancora nessun report: aspetta l'utente.
-            WorkerSignal::TurnEnded { background_work: false, stop_hook_active: true } => go(WorkerActivity::Idle),
-            WorkerSignal::UserInput if self.needs_attention() => go(WorkerActivity::Running),
+            WorkerSignal::TurnEnded { background_work: false, stop_hook_active: true, question_pending: false } => {
+                go(WorkerActivity::Idle)
+            }
+            WorkerSignal::UserInput if self.needs_attention() || self == WorkerActivity::AwaitingAnswer => {
+                go(WorkerActivity::Running)
+            }
             WorkerSignal::TaskRead if self == WorkerActivity::Starting => go(WorkerActivity::Running),
             WorkerSignal::UserInput | WorkerSignal::TaskRead => stay,
         }

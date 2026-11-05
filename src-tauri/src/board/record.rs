@@ -6,8 +6,8 @@
 //! appartengono allo stato cadono.
 
 use super::{
-    E2eRun, FailCause, Finished, PreviousAttempt, Run, RunPhase, Task, TaskKind, TaskReport, TaskState, TaskStatus,
-    WorkerActivity, WorkerStatus, WorktreeInfo,
+    E2eRun, FailCause, Finished, PreviousAttempt, Run, RunPhase, Task, TaskKind, TaskQuestion, TaskReport, TaskState,
+    TaskStatus, WorkerActivity, WorkerStatus, WorktreeInfo,
 };
 use serde::{Deserialize, Serialize, Serializer};
 use ts_rs::{Config, TypeVisitor, TS};
@@ -34,6 +34,7 @@ pub(super) struct TaskRecord {
     note: Option<String>,
     report: Option<TaskReport>,
     e2e_run: Option<E2eRun>,
+    questions: Vec<TaskQuestion>,
     previous_attempt: Option<PreviousAttempt>,
     created_at: i64,
     updated_at: i64,
@@ -89,6 +90,7 @@ impl From<TaskRecord> for Task {
             note: r.note,
             worktree: r.worktree,
             e2e_run: r.e2e_run,
+            questions: r.questions,
             created_at: r.created_at,
             updated_at: r.updated_at,
         }
@@ -121,6 +123,9 @@ struct TaskRecordRef<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(as = "Option<E2eRun>", optional)]
     e2e_run: &'a Option<E2eRun>,
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    #[ts(as = "Option<Vec<TaskQuestion>>", optional)]
+    questions: &'a [TaskQuestion],
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     previous_attempt: Option<&'a PreviousAttempt>,
@@ -181,6 +186,7 @@ impl Serialize for Task {
             note: &self.note,
             report: self.report(),
             e2e_run: &self.e2e_run,
+            questions: &self.questions,
             previous_attempt: self.previous_attempt(),
             created_at: self.created_at,
             updated_at: self.updated_at,

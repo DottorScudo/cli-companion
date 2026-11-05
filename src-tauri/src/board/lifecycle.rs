@@ -1,5 +1,5 @@
 //! Ciclo di vita dei task: l'unico posto che scrive `Task::state`, `attempts`,
-//! `note` e `last_report`. Ogni transizione e' un `TaskEvent` applicato con
+//! `note`, `last_report` e `questions`. Ogni transizione e' un `TaskEvent` applicato con
 //! `Task::apply`; `actions` ha la tabella delle azioni dell'utente e `ops` i
 //! metodi di `Board` che trovano il task e applicano l'evento.
 
@@ -12,6 +12,7 @@ use std::fmt;
 
 mod actions;
 mod ops;
+mod question;
 
 pub use actions::{permits, Op, TaskAction};
 
@@ -51,6 +52,16 @@ pub enum TaskEvent {
     /// Il worker `session` del tentativo `attempt`, la cui sessione era finita
     /// senza report, riferisce ancora: `failed` -> `running`.
     Reopen { session: String, attempt: u32, note: String },
+    /// Il worker `session` fa una domanda all'utente (`ask_user`): serve un worker
+    /// vivo e nessuna domanda ancora in attesa.
+    QuestionAsked { session: String, text: String, options: Vec<String> },
+    /// La domanda `question_id` del worker `session` ha avuto risposta: `answer` e' il
+    /// testo consegnato dall'app, `None` se l'utente ha risposto nel terminale. Il
+    /// worker riprende a lavorare.
+    QuestionAnswered { session: String, question_id: String, answer: Option<String> },
+    /// La consegna nel terminale di una risposta data dall'app e' fallita: la
+    /// domanda torna in attesa (annulla `QuestionAnswered`).
+    AnswerUndelivered { session: String, question_id: String },
 }
 
 /// Perche' una transizione o un'azione e' stata rifiutata.
@@ -136,6 +147,13 @@ impl Task {
             TaskEvent::Retry => self.retry(now),
             TaskEvent::MarkDone => self.mark_done(now),
             TaskEvent::Reopen { session, attempt, note } => self.reopen(session, attempt, note, now),
+            TaskEvent::QuestionAsked { session, text, options } => self.question_asked(&session, text, options, now),
+            TaskEvent::QuestionAnswered { session, question_id, answer } => {
+                self.question_answered(&session, &question_id, answer, now)
+            }
+            TaskEvent::AnswerUndelivered { session, question_id } => {
+                self.answer_undelivered(&session, &question_id, now)
+            }
         }
     }
 

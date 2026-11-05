@@ -1,14 +1,18 @@
 use super::*;
-use WorkerActivity::{Background, Idle, NeedsInput, Running, Starting};
+use WorkerActivity::{AwaitingAnswer, Background, Idle, NeedsInput, Running, Starting};
 
-const ACTIVITIES: [WorkerActivity; 5] = [Starting, Running, Background, NeedsInput, Idle];
+const ACTIVITIES: [WorkerActivity; 6] = [Starting, Running, Background, NeedsInput, Idle, AwaitingAnswer];
 
 fn step(to: Option<WorkerActivity>, block_stop: bool) -> WorkerStep {
     WorkerStep { to, block_stop }
 }
 
 fn turn_ended(background_work: bool, stop_hook_active: bool) -> WorkerSignal {
-    WorkerSignal::TurnEnded { background_work, stop_hook_active }
+    WorkerSignal::TurnEnded { background_work, stop_hook_active, question_pending: false }
+}
+
+fn turn_ended_with_question(background_work: bool, stop_hook_active: bool) -> WorkerSignal {
+    WorkerSignal::TurnEnded { background_work, stop_hook_active, question_pending: true }
 }
 
 /// Lo stato che la tabella produce da `from` con `signal`.
@@ -35,6 +39,25 @@ fn a_turn_ended_with_background_work_moves_to_background_and_never_blocks() {
 }
 
 #[test]
+fn a_pending_question_makes_the_worker_wait_for_the_answer_without_blocking_the_stop() {
+    for from in ACTIVITIES {
+        for stop_hook_active in [false, true] {
+            let expected = if from == AwaitingAnswer { None } else { Some(AwaitingAnswer) };
+            let signal = turn_ended_with_question(false, stop_hook_active);
+            assert_eq!(on(from, signal), step(expected, false), "{from:?}");
+        }
+    }
+}
+
+#[test]
+fn background_work_wins_over_a_pending_question() {
+    for from in ACTIVITIES {
+        let expected = if from == Background { None } else { Some(Background) };
+        assert_eq!(on(from, turn_ended_with_question(true, false)), step(expected, false), "{from:?}");
+    }
+}
+
+#[test]
 fn the_first_turn_end_without_a_report_blocks_the_stop_and_resumes_a_waiting_worker() {
     for from in ACTIVITIES {
         let expected = from.needs_attention().then_some(Running);
@@ -53,7 +76,7 @@ fn the_second_turn_end_without_a_report_leaves_the_worker_idle() {
 #[test]
 fn user_input_resumes_only_a_worker_that_was_waiting() {
     for from in ACTIVITIES {
-        let expected = from.needs_attention().then_some(Running);
+        let expected = (from.needs_attention() || from == AwaitingAnswer).then_some(Running);
         assert_eq!(on(from, WorkerSignal::UserInput), step(expected, false), "{from:?}");
     }
 }
@@ -70,6 +93,7 @@ fn reading_the_task_moves_only_a_starting_worker_to_running() {
 fn only_waiting_activities_need_attention() {
     let waiting: Vec<_> = ACTIVITIES.into_iter().filter(|a| a.needs_attention()).collect();
     assert_eq!(waiting, [NeedsInput, Idle]);
+    assert!(!AwaitingAnswer.needs_attention());
 }
 
 #[test]
@@ -90,13 +114,24 @@ fn the_wire_status_maps_to_and_from_the_activity_and_the_end() {
 
 #[test]
 fn worker_statuses_keep_their_wire_strings() {
-    let names = ["starting", "running", "background", "needs_input", "idle", "completed", "failed", "closed"];
+    let names = [
+        "starting",
+        "running",
+        "background",
+        "needs_input",
+        "idle",
+        "awaiting_answer",
+        "completed",
+        "failed",
+        "closed",
+    ];
     let all = [
         WorkerStatus::Starting,
         WorkerStatus::Running,
         WorkerStatus::Background,
         WorkerStatus::NeedsInput,
         WorkerStatus::Idle,
+        WorkerStatus::AwaitingAnswer,
         WorkerStatus::Completed,
         WorkerStatus::Failed,
         WorkerStatus::Closed,

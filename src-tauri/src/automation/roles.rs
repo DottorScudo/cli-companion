@@ -66,6 +66,8 @@ pub enum Method {
     DeleteSkill,
     GetWorkspaceSettings,
     ProposeSettings,
+    /// Domanda bloccante all'utente: solo con l'Agents HUB acceso (vedi `requires_hub`).
+    AskUser,
 }
 
 /// Tutti i ruoli.
@@ -80,9 +82,13 @@ const PROPOSERS: &[Role] = &[Role::Session, Role::Reviewer, Role::Planner];
 const SESSION_AND_PLANNER: &[Role] = &[Role::Session, Role::Planner];
 /// Strumenti dell'utente (coda, skill, impostazioni): vietati ai worker.
 const SESSION_ONLY: &[Role] = &[Role::Session];
+/// Chi puo' fare una domanda bloccante all'utente: il worker e il pianificatore.
+/// Il revisore e' escluso di proposito: il suo lavoro e' un verdetto, quindi un
+/// dubbio che blocca diventa un rilievo o una revisione fallita e resta non interattivo.
+const ASKERS: &[Role] = &[Role::Worker, Role::Planner];
 
 impl Method {
-    pub const ALL: [Method; 15] = [
+    pub const ALL: [Method; 16] = [
         Method::Whoami,
         Method::GetTask,
         Method::CompleteTask,
@@ -98,6 +104,7 @@ impl Method {
         Method::DeleteSkill,
         Method::GetWorkspaceSettings,
         Method::ProposeSettings,
+        Method::AskUser,
     ];
 
     /// Nome sul filo.
@@ -118,6 +125,7 @@ impl Method {
             Method::DeleteSkill => "delete_skill",
             Method::GetWorkspaceSettings => "get_workspace_settings",
             Method::ProposeSettings => "propose_settings",
+            Method::AskUser => "ask_user",
         }
     }
 
@@ -130,6 +138,7 @@ impl Method {
         match self {
             Method::Whoami => EVERYONE,
             Method::GetTask | Method::CompleteTask => AUTOMATED,
+            Method::AskUser => ASKERS,
             Method::RunE2e | Method::GetE2eResult => E2E_RUNNERS,
             Method::ProposeTasks | Method::GetTaskDetails => PROPOSERS,
             Method::ListTasks | Method::GetWorkspaceSettings => SESSION_AND_PLANNER,
@@ -144,6 +153,29 @@ impl Method {
 
     pub fn allows(self, role: Role) -> bool {
         self.roles().contains(&role)
+    }
+
+    /// `true` se il metodo esiste solo con l'Agents HUB acceso: l'utente risponde
+    /// attraverso l'HUB, senza non c'e' nessuno che possa farlo.
+    pub fn requires_hub(self) -> bool {
+        match self {
+            Method::AskUser => true,
+            Method::Whoami
+            | Method::GetTask
+            | Method::CompleteTask
+            | Method::RunE2e
+            | Method::GetE2eResult
+            | Method::ProposeTasks
+            | Method::ListTasks
+            | Method::GetTaskDetails
+            | Method::UpdateTask
+            | Method::DeleteTask
+            | Method::SaveSkill
+            | Method::ListSkills
+            | Method::DeleteSkill
+            | Method::GetWorkspaceSettings
+            | Method::ProposeSettings => false,
+        }
     }
 
     /// `true` per l'handshake, che non ha un tool MCP.
@@ -163,7 +195,8 @@ impl Method {
             | Method::ListSkills
             | Method::DeleteSkill
             | Method::GetWorkspaceSettings
-            | Method::ProposeSettings => false,
+            | Method::ProposeSettings
+            | Method::AskUser => false,
         }
     }
 }
@@ -252,5 +285,12 @@ mod tests {
         ] {
             assert_eq!(who(m), vec![Role::Session], "{}", m.name());
         }
+        assert_eq!(who(Method::AskUser), vec![Role::Worker, Role::Planner]);
+    }
+
+    #[test]
+    fn only_ask_user_requires_the_hub() {
+        let gated: Vec<Method> = Method::ALL.into_iter().filter(|m| m.requires_hub()).collect();
+        assert_eq!(gated, vec![Method::AskUser]);
     }
 }

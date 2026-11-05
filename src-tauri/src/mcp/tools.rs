@@ -7,7 +7,8 @@
 
 use crate::agents::{registry, tier_models, PermissionMode, TierModels};
 use crate::automation::settings::REASON_MAX;
-use crate::automation::Role;
+use crate::automation::{Method, Role};
+use crate::board::{OPTIONS_MAX, OPTION_MAX, QUESTION_MAX};
 use crate::workspaces::{
     DeliveryMode, MergeMethod, MAX_COMMAND_LEN, MAX_E2E_TIMEOUT_MIN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_AGENTS,
     MAX_PATCH_LAUNCHES, MAX_PATCH_REPOS, MAX_REPO_COMMANDS, MAX_REPO_COMMAND_LEN, MAX_REPO_PATH_LEN, MAX_RULES_LEN,
@@ -17,8 +18,8 @@ use serde_json::{json, Value};
 
 mod planner;
 
+use planner::planner_instructions;
 pub use planner::planner_tools;
-use planner::PLANNER_INSTRUCTIONS;
 
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
     json!({
@@ -501,17 +502,50 @@ pub fn reviewer_tools() -> Vec<Value> {
     tools
 }
 
-pub fn tools_for(role: Role) -> Vec<Value> {
-    match role {
+/// `ask_user`: condiviso da worker e pianificatore, esiste solo con l'Agents HUB.
+fn ask_user_tool() -> Value {
+    tool(
+        "ask_user",
+        "Ask the user one blocking question through the app, only when the code cannot settle the doubt. One at a \
+         time: a second question is refused until the first is answered. Returns at once; then end your turn: the \
+         answer arrives as the user's next message in this terminal.",
+        json!({
+            "question": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": QUESTION_MAX,
+                "description": "One clear question, with the context needed to answer it."
+            },
+            "options": {
+                "type": "array",
+                "maxItems": OPTIONS_MAX,
+                "items": { "type": "string", "minLength": 1, "maxLength": OPTION_MAX },
+                "description": "Short choices the user can pick, when known."
+            }
+        }),
+        &["question"],
+    )
+}
+
+/// I tool del ruolo. I metodi che richiedono l'Agents HUB (`Method::requires_hub`)
+/// compaiono solo con `hub` e se la tabella dei ruoli li concede; `ask_user`
+/// segue `complete_task`.
+pub fn tools_for(role: Role, hub: bool) -> Vec<Value> {
+    let mut tools = match role {
         Role::Session => session_tools(),
         Role::Worker => worker_tools(),
         Role::Reviewer => reviewer_tools(),
         Role::Planner => planner_tools(),
+    };
+    if hub && Method::AskUser.requires_hub() && Method::AskUser.allows(role) {
+        let after = tools.iter().position(|t| t["name"] == "complete_task").map_or(0, |i| i + 1);
+        tools.insert(after, ask_user_tool());
     }
+    tools
 }
 
 /// Istruzioni generali restituite in `initialize`.
-pub fn instructions(role: Option<Role>, workspace: Option<&str>) -> String {
+pub fn instructions(role: Option<Role>, workspace: Option<&str>, hub: bool) -> String {
     match role {
         Some(Role::Session) => {
             let mut text = "cli-companion: you may propose tasks for this workspace's queue with propose_tasks. The user \
@@ -526,16 +560,24 @@ pub fn instructions(role: Option<Role>, workspace: Option<&str>) -> String {
             }
             text
         }
-        Some(Role::Worker) => "cli-companion: you are an automated worker. Call get_task first, deliver the work as the \
-             delivery steps say and ALWAYS finish with complete_task. If you need a decision from the user, ask in plain text \
-             and end your turn: the user answers in your terminal."
-            .to_string(),
+        Some(Role::Worker) => {
+            let ask = if hub {
+                "If a doubt blocks you, call ask_user and end your turn: the answer arrives in your terminal."
+            } else {
+                "If you need a decision from the user, ask in plain text and end your turn: the user answers in your \
+                 terminal."
+            };
+            format!(
+                "cli-companion: you are an automated worker. Call get_task first, deliver the work as the delivery steps \
+                 say and ALWAYS finish with complete_task. {ask}"
+            )
+        }
         Some(Role::Reviewer) => "cli-companion: you are an automated reviewer. Call get_task first and follow its instructions: verify \
              the integrated result of the reviewed tasks without changing files, propose fix tasks with propose_tasks when needed \
              and ALWAYS finish with complete_task and a verdict. If you need a decision from the user, ask in plain text and end \
              your turn."
             .to_string(),
-        Some(Role::Planner) => PLANNER_INSTRUCTIONS.to_string(),
+        Some(Role::Planner) => planner_instructions(hub).to_string(),
         None => "cli-companion: tools are only available in cli-companion terminals with the app running.".to_string(),
     }
 }

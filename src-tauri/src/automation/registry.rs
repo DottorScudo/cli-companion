@@ -19,7 +19,7 @@ pub struct Notice {
     pub task_id: String,
     /// Tab del worker, se esiste ancora (il toast cliccabile porta li').
     pub tab_id: Option<String>,
-    /// `attention` | `failed`
+    /// `attention` | `failed` | `question`
     pub kind: &'static str,
     /// Titolo del task.
     pub title: String,
@@ -218,13 +218,14 @@ impl Registry {
         }
     }
 
-    /// Notifica di sistema per il task del worker (`attention` | `failed`).
+    /// Notifica di sistema per il task del worker (`attention` | `failed` | `question`).
     pub(super) fn notify(&mut self, ws: &str, tid: &str, tab: Option<&str>, kind: &'static str) {
         let Some(t) = self.boards.get(ws).and_then(|b| b.task(tid)) else {
             return;
         };
         let body = match kind {
             "attention" => format!("{} richiede attenzione", t.title),
+            "question" => format!("{} ha una domanda", t.title),
             _ => format!("{} è fallito", t.title),
         };
         let notice = Notice {
@@ -242,7 +243,7 @@ impl Registry {
 
     /// `get_task`: istruzioni, ambiente e passi di consegna del task. La prima
     /// volta il worker passa a `running`.
-    pub fn get_task(&mut self, session: &str, ws: &Workspace, now: i64) -> Result<Value, String> {
+    pub fn get_task(&mut self, session: &str, ws: &Workspace, ask_user: bool, now: i64) -> Result<Value, String> {
         let w = self.live_worker(session)?;
         let (ws_id, tid, env) = (w.workspace_id.clone(), w.task_id.clone(), w.env.clone());
         let unassigned = || TASK_UNASSIGNED.to_string();
@@ -260,11 +261,11 @@ impl Registry {
         };
         let mut out = match t.kind {
             TaskKind::Review => review::get_task_json(&info, &ws.worker.rules, b),
-            TaskKind::Plan => planner::get_task_json(&info, &ws.worker.rules),
+            TaskKind::Plan => planner::get_task_json(&info, &ws.worker.rules, ask_user),
             TaskKind::Work => serde_json::json!({
                 "task": t.task,
                 "title": t.title,
-                "instructions": board::texts::instructions(&info, &ws.worker.rules),
+                "instructions": board::texts::instructions(&info, &ws.worker.rules, ask_user),
                 "environment": board::texts::environment(&info),
                 "delivery": board::texts::delivery_steps(&info),
             }),

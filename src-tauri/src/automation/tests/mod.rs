@@ -19,6 +19,7 @@ mod e2e_cancel;
 mod e2e_manual;
 mod hub_hook;
 mod plan;
+mod questions;
 mod ready;
 mod reconcile;
 mod reconcile_git;
@@ -51,6 +52,9 @@ type SkillDir = (String, Result<std::path::PathBuf, String>);
 
 /// Variabili d'ambiente preparate per un tab: (tab, variabili).
 type StagedEnv = (String, Vec<(String, String)>);
+
+/// Scrittura in un terminale: (tab, byte).
+type TabWrite = (String, Vec<u8>);
 
 /// Lavoro differito di `Host::defer`.
 type Job = Box<dyn FnOnce() + Send>;
@@ -126,6 +130,11 @@ struct FakeHost {
     readiness: Arc<Mutex<HashMap<String, Option<Readiness>>>>,
     /// Agenti di cui `probe_agent` e' stato chiesto.
     probed: Arc<Mutex<Vec<String>>>,
+    /// Agents HUB acceso (spento di default).
+    hub: Arc<std::sync::atomic::AtomicBool>,
+    /// Scritture nei terminali (tab, byte) e interruttore che le fa fallire.
+    tab_writes: Arc<Mutex<Vec<TabWrite>>>,
+    write_fails: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl FakeHost {
@@ -219,6 +228,17 @@ impl FakeHost {
     fn probed(&self) -> Vec<String> {
         self.probed.lock().unwrap().clone()
     }
+    fn set_hub(&self, on: bool) {
+        self.hub.store(on, std::sync::atomic::Ordering::SeqCst);
+    }
+    /// Da ora le scritture nei terminali falliscono.
+    fn fail_tab_writes(&self) {
+        self.write_fails.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    /// Scritture riuscite nei terminali, in ordine.
+    fn tab_writes(&self) -> Vec<TabWrite> {
+        self.tab_writes.lock().unwrap().clone()
+    }
 }
 
 impl Host for FakeHost {
@@ -261,6 +281,16 @@ impl Host for FakeHost {
     fn emit_spawn(&self, ev: &SpawnEvent) {
         self.spawns.lock().unwrap().push(ev.clone());
         self.log.lock().unwrap().push(format!("spawn:{}:{}", ev.tab_id, ev.command));
+    }
+    fn hub_enabled(&self) -> bool {
+        self.hub.load(std::sync::atomic::Ordering::SeqCst)
+    }
+    fn write_to_tab(&self, tab_id: &str, data: &[u8]) -> Result<(), String> {
+        if self.write_fails.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("sessione chiusa".to_string());
+        }
+        self.tab_writes.lock().unwrap().push((tab_id.to_string(), data.to_vec()));
+        Ok(())
     }
     fn emit_close(&self, tab_id: &str) {
         self.log.lock().unwrap().push(format!("close:{tab_id}"));

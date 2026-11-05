@@ -82,8 +82,9 @@ Task:
   "agent": "claude-code",   // sempre valorizzato: risolto alla creazione (agente del task, poi del workspace, poi il predefinito globale) e non cambia con i predefiniti
   "model": null,            // null = modello dei worker del workspace
   "status": "queued",       // queued | running | done | failed
-  "worker_status": null,    // starting | running | background | needs_input | idle | ... (come oggi)
+  "worker_status": null,    // starting | running | background | needs_input | idle | awaiting_answer | ... (come oggi)
   "session": null,          // tab del worker corrente
+  "questions": [],          // TaskQuestion: storico delle domande del worker all'utente (ask_user), omesso se vuoto; ultime 20 (le più vecchie cadono), non si azzera con i tentativi
   "attempts": 0,
   "previous_attempt": null, // { summary?, note? } del tentativo fallito, dopo "Riprova"; lo legge get_task
   "worktree": null,         // { path, branch, base, setup_done } solo in modalità parallela
@@ -94,6 +95,23 @@ Task:
   "created_at": 0, "updated_at": 0, "started_at": null, "finished_at": null
 }
 ```
+
+TaskQuestion (da `ask_user`, solo con l'Agents HUB acceso; i campi opzionali sono omessi se assenti):
+
+```jsonc
+{
+  "id": "q-<tentativo>-<n>", // n = posizione (da 1) fra le domande di quel tentativo
+  "attempt": 1,             // `attempts` del task quando è stata fatta
+  "text": "...",            // 1..=2000 caratteri (QUESTION_MAX)
+  "options": ["..."],       // risposte suggerite: max 5 (OPTIONS_MAX), 1..=80 caratteri (OPTION_MAX), su una riga, uniche
+  "asked_at": 0,
+  "answered_at": 0,         // presente = chiusa
+  "answer": "..."           // testo consegnato dall'app (max 4000, ANSWER_MAX); assente con answered_at = risposta data nel terminale
+}
+```
+
+Le costanti stanno in `board/question.rs` e sono le stesse dello schema del tool MCP. Si tengono le ultime
+20 domande per task (`QUESTIONS_KEPT`). Ne esiste al più una in attesa (senza `answered_at`).
 
 TaskReport (da `complete_task`):
 
@@ -169,7 +187,7 @@ Limiti: 200 task per board, 20 task per proposta, 20 proposte pendenti per board
 | status | UI | note |
 |---|---|---|
 | `queued` | **Da fare** | parte quando: coda non in pausa, fascia aperta (se il workspace la usa), tutte le dipendenze `done`, slot libero. Con dipendenze non `done` la vista espone `waiting_on`. |
-| `running` | **In corso** | con `worker_status` `needs_input` o `idle` la vista espone `attention: true` → badge "Richiede attenzione". |
+| `running` | **In corso** | con `worker_status` `needs_input` o `idle` la vista espone `attention: true` → badge "Richiede attenzione". Con `worker_status` `awaiting_answer` il worker aspetta la risposta a una sua domanda: è "in attesa dell'utente" ma **non** `attention` (nessun badge, il Task panel mostra "Ha una domanda"). |
 | `done` | **Fatto** | consegnato. Terminale. Sblocca i dipendenti. |
 | `failed` | **Fallito** | `note`/`report.summary` dicono perché. "Riprova" lo rimette in coda. |
 
@@ -182,7 +200,7 @@ e nessuna `session`; un battito di vita lo tiene d'occhio il guardiano degli avv
 che non sono più quelli del task è rifiutato (`Stale`) e non cambia niente.
 
 `BoardView` = board + per task: `waiting_on: string[]` (dipendenze non `done`, solo per
-`queued`), `attention: bool`, `allowed_actions`, `can_edit`, `can_reorder` e `cascade` (vedi "Azioni consentite"); + `rev` monotona (come oggi), `schedule_blocked: bool` (fascia
+`queued`), `attention: bool`, `question?: TaskQuestion` (la domanda in attesa di risposta, se c'è; la UI la mostra nel dettaglio del task, "Domanda del worker"), `allowed_actions`, `can_edit`, `can_reorder` e `cascade` (vedi "Azioni consentite"); + `rev` monotona (come oggi), `schedule_blocked: bool` (fascia
 chiusa per un workspace che usa le fasce), `delivery` del workspace (comodità per la UI) e `limits: { max_parallel: { min, max } }`
 (gli estremi di `max_parallel`, gli stessi che validano `board_set` e `set_board`: la UI li legge da qui).
 
@@ -502,8 +520,19 @@ esecuzioni in corso; archiviare o rimuovere il workspace annulla quelle di tutto
   task is done, deliver it and call complete_task. If you are waiting for the user's
   decision, end your turn again: the user will answer here." Alla seconda il worker diventa
   `idle` → `attention`. `needs_input` (permesso in attesa) → `attention`.
+- Domanda all'utente (solo con l'Agents HUB acceso): il worker chiama `ask_user`, che registra la
+  domanda sul task e ritorna subito; il worker chiude il turno. Allo Stop hook con una domanda in
+  attesa l'app **non blocca** il turno (niente promemoria) e il worker passa a `awaiting_answer`
+  (non `attention`, perché l'utente risponde dall'HUB). La risposta (`answer_question`, vedi
+  "Rispondere a una domanda") arriva nel terminale come prossimo messaggio dell'utente: la
+  domanda si chiude e il worker torna `running`. Se invece l'utente preme Invio nel terminale
+  mentre il worker è `awaiting_answer`, `pty_write` chiude la domanda senza testo (`answered_at`
+  senza `answer`) e riprende il worker. Un permesso richiesto durante la domanda porta il worker a
+  `needs_input` → `attention`: lì Invio approva il permesso e non chiude la domanda, e
+  `answer_question` è rifiutata finché il permesso non è risolto.
 - Notifiche di sistema (in italiano): quando un task entra in `attention` ("<titolo>
-  richiede attenzione") o in `failed` ("<titolo> è fallito"). Niente notifica per `done`.
+  richiede attenzione"), in `failed` ("<titolo> è fallito") o il suo worker comincia ad aspettare
+  una risposta ("<titolo> ha una domanda"). Niente notifica per `done`.
 
 ## Autenticazione delle sessioni e ruoli
 
@@ -540,11 +569,16 @@ automated sessions" (a un worker); un tab di un workspace archiviato risponde "w
 |---|:-:|:-:|:-:|:-:|
 | `whoami` (handshake del server MCP, non è un tool) | sì | sì | sì | sì |
 | `get_task`, `complete_task` | sì | sì | sì | no |
+| `ask_user` (solo con l'Agents HUB acceso) | sì | no | sì | no |
 | `run_e2e`, `get_e2e_result` | sì | sì | no | no |
 | `propose_tasks`, `get_task_details` | no | sì | sì | sì |
 | `list_tasks`, `get_workspace_settings` | no | no | sì | sì |
 | `update_task`, `delete_task`, `propose_settings` | no | no | no | sì |
 | `save_skill`, `list_skills`, `delete_skill` | no | no | no | sì |
+
+`ask_user` richiede l'Agents HUB (`Method::requires_hub`): è l'HUB che porta la domanda all'utente e raccoglie la risposta; senza HUB
+nessuno potrebbe rispondere. Il revisore non lo ha apposta: la sua verifica non deve fermarsi su una risposta, e i dubbi
+li mette nel verdetto.
 
 ## Tool MCP
 
@@ -601,6 +635,42 @@ impostazioni o di skill; tutti gli altri metodi di sessione restano vietati):
 Istruzioni del server MCP per il reviewer (inglese): automated reviewer; call get_task first;
 verify the integrated result without changing files; propose fixes with propose_tasks; always
 finish with complete_task and a verdict.
+
+`whoami` risponde anche `hub: bool` (l'Agents HUB è acceso) a ogni ruolo; il server MCP lo legge una
+volta col ruolo (assente = spento). Con l'HUB acceso le istruzioni di worker e pianificatore dicono di
+chiamare `ask_user` per un dubbio che blocca (invece di chiedere a parole); a HUB spento sono quelle di prima.
+
+`ask_user { question, options? }` (worker e planner, **solo con l'HUB acceso**; elencato subito dopo
+`complete_task`): chiede all'utente una domanda bloccante.
+- `question`: stringa 1..=2000 caratteri; `options`: al più 5 stringhe di 1..=80 caratteri, su una riga, uniche.
+  Lo schema del tool usa le costanti di `board/question.rs`.
+- Risposta: `{ question_id, message: "Question sent to the user. End your turn now: the answer will arrive as
+  the user's next message in this terminal." }`. Ritorna subito: il worker chiude il turno e la risposta
+  gli arriva nel terminale.
+- Errori (inglese): HUB spento ("ask_user is not available: the Agents HUB is off. Ask in plain text and end
+  your turn."; senza HUB il tool non è nemmeno elencato); un'altra domanda in attesa ("a question is already
+  waiting for the user's answer: end your turn now, the answer will arrive in this terminal"); parametri non
+  validi (testo vuoto o troppo lungo, troppe opzioni, opzione vuota, su più righe, doppia o troppo lunga).
+
+### Rispondere a una domanda (`answer_question`)
+
+API interna per l'Agents HUB (`automation::answer_question(app, ws_id, task_id, question_id, text)`, non un
+comando Tauri né un tool). Consegna la risposta dell'utente a una domanda del worker: la chiude sul task e la
+digita nel terminale del worker, che riprende (`running`). Non blocca: la scrittura è sincrona sul terminale, l'invio
+è differito di 150 ms. Errori in italiano, per l'interfaccia:
+- "Task non trovato." / "Domanda non trovata." / "La domanda ha già una risposta.";
+- "Il worker del task non è più attivo (tab chiuso o lavoro finito): la domanda resta registrata." (domanda non più in attesa o tab chiuso);
+- mai sopra un permesso in attesa: "Il worker aspetta un permesso nel terminale: rispondi lì prima di inviare la risposta.";
+- mai mentre lavora: "Il worker sta ancora lavorando: la risposta si può inviare quando si ferma in attesa.";
+- "La risposta è vuota." / "La risposta è troppo lunga (massimo 4000 caratteri).";
+- "Il terminale del worker non è raggiungibile: la domanda resta in attesa." (la domanda torna in attesa).
+
+Nessun lock è in mano mentre si scrive nel terminale. Codifica (`automation/answer_input.rs`): a capo
+normalizzati a `\n`, tabulazioni in spazi, ogni altro carattere di controllo rimosso (ESC compreso: nessuna
+sequenza di escape), spazi ai bordi tolti; una riga si digita com'è, più righe si incollano con il
+"bracketed paste" di xterm (gli a capo non inviano), poi un `\r` differito invia. Sono input standard dei
+terminali dei coding agent TUI: non serve un contratto dell'agente (se un agente avesse bisogno di tasti
+diversi, si aggiunge un contratto in `agents/contracts/` invece di distinguere l'agente nel core).
 
 Planner (worker di un task `plan`; tool in `mcp/tools/planner.rs`; mai `update_task`,
 `delete_task`, E2E, `propose_settings` o tool di skill):
@@ -1028,7 +1098,7 @@ Argomenti camelCase lato JS.
   un repository è partita o conclusa; `repo` = chiave del repository, `.` = la root; le
   esecuzioni dei task passano da `board-update`), `task-notify` (notifica di sistema, vedi sotto). L'evento `user-request` non
   esiste più.
-- `task-notify`: `{ workspace_id, task_id, tab_id: string|null, kind: "attention"|"failed", title,
+- `task-notify`: `{ workspace_id, task_id, tab_id: string|null, kind: "attention"|"failed"|"question", title,
   body }`; `title` è il titolo del task, `body` il testo italiano ("<titolo> richiede attenzione" /
   "<titolo> è fallito") e `tab_id` il tab del worker se esiste ancora. Il frontend mostra la
   notifica di sistema (come per le altre notifiche, solo con la finestra non in primo piano).
@@ -1039,7 +1109,10 @@ Argomenti camelCase lato JS.
   thread dedicato che scrive gli eventi nei thread fuori da ogni lock della board); l'host finto dei test
   la registra. Board, `BoardView` e `task-notify` non cambiano. Vedi [HUB.MD](HUB.MD), "Eventi della board".
 - Attenzione: nessun hook dice che l'utente ha risposto. `pty_write` avvisa il backend quando
-  nel terminale di un worker in `needs_input`/`idle` si preme Invio e il worker torna `running`.
+  nel terminale di un worker in `needs_input`/`idle` si preme Invio e il worker torna `running`; in
+  `awaiting_answer` Invio riprende il worker e chiude la domanda senza testo.
+- `task-notify.kind` è `attention`, `failed` o `question` ("<titolo> ha una domanda", quando il worker
+  comincia ad aspettare la risposta).
 
 ## UI
 

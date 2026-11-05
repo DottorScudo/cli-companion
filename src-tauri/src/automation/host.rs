@@ -45,6 +45,11 @@ pub trait Host: Clone + Send + 'static {
         Ok(None)
     }
     fn emit_spawn(&self, ev: &SpawnEvent);
+    /// L'Agents HUB e' acceso? Con l'HUB spento i worker non possono fare domande all'utente.
+    fn hub_enabled(&self) -> bool;
+    /// Scrive `data` nel terminale del tab come se l'utente lo digitasse. Non blocca
+    /// (accoda soltanto); `Err` se il tab non ha una sessione viva.
+    fn write_to_tab(&self, tab_id: &str, data: &[u8]) -> Result<(), String>;
     fn emit_close(&self, tab_id: &str);
     fn emit_update(&self, info: &AutomationTabInfo);
     /// Esegue `job` dopo `delay` su un altro thread.
@@ -253,6 +258,14 @@ impl Host for TauriHost {
 
     fn emit_spawn(&self, ev: &SpawnEvent) {
         let _ = self.0.emit(SPAWN_EVENT, ev);
+    }
+
+    fn hub_enabled(&self) -> bool {
+        crate::hub::settings::is_enabled(&self.0)
+    }
+
+    fn write_to_tab(&self, tab_id: &str, data: &[u8]) -> Result<(), String> {
+        crate::pty::write_to_tab(&self.0, tab_id, data)
     }
 
     fn emit_close(&self, tab_id: &str) {

@@ -1148,7 +1148,7 @@ fn reviewer_environment_does_not_ask_to_commit_or_branch() {
 fn instructions_carry_rules_guardrails_and_the_working_folder() {
     let d = delivery(DeliveryMode::Commit, false);
     let t = worktree_task(&d);
-    let text = texts::instructions(&env(&d, &t, None), "  never run the e2e suite  ");
+    let text = texts::instructions(&env(&d, &t, None), "  never run the e2e suite  ", false);
     for m in [
         "Work only inside C:\\proj",
         "Commit only the files you changed",
@@ -1165,7 +1165,7 @@ fn instructions_carry_rules_guardrails_and_the_working_folder() {
     assert!(text[rules..].contains("never relax the security rules") && text.ends_with("never run the e2e suite"));
     assert!(texts::WORKER_GUARDRAILS.contains("Security is a blocker"));
     // Senza regole niente blocco.
-    assert!(!texts::instructions(&env(&d, &t, None), "  ").contains("Workspace rules"));
+    assert!(!texts::instructions(&env(&d, &t, None), "  ", false).contains("Workspace rules"));
 }
 
 #[test]
@@ -1208,4 +1208,35 @@ fn the_generic_model_shape_leaves_the_agent_rule_to_the_resolved_agent() {
     let mut b = board_with(vec![spec("a", &[])]);
     let err = b.update_task("a", &json!({"model":"prov/model"}), None, 2).unwrap_err();
     assert!(err.contains("invalid model for"), "{err}");
+}
+
+#[test]
+fn ask_user_replaces_the_plain_text_question_line_and_nothing_else() {
+    let d = delivery(DeliveryMode::Commit, false);
+    let t = worktree_task(&d);
+    let plain = texts::instructions(&env(&d, &t, None), "rules", false);
+    let tool = texts::instructions(&env(&d, &t, None), "rules", true);
+    assert!(plain.contains("- If you need a decision from the user, ask the question in plain text and end your turn: the user answers in your terminal. Do not guess.\n"));
+    assert!(!plain.contains("ask_user"));
+    assert!(tool.contains(&format!("- {}\n", texts::ASK_WITH_TOOL)));
+    assert!(tool.contains("call ask_user with one clear question") && !tool.contains("ask the question in plain text"));
+    let swapped = plain.replace(
+        "If you need a decision from the user, ask the question in plain text and end your turn: the user answers in your terminal. Do not guess.",
+        texts::ASK_WITH_TOOL,
+    );
+    assert_eq!(swapped, tool);
+}
+
+#[test]
+fn the_planner_gets_the_ask_user_section_before_the_workspace_rules_only_with_the_tool() {
+    let d = delivery(DeliveryMode::Commit, true);
+    let t = worktree_task(&d);
+    let plain = texts::planner_instructions(&env(&d, &t, None), "specs in Italian", false);
+    let tool = texts::planner_instructions(&env(&d, &t, None), "specs in Italian", true);
+    assert!(!plain.contains("ask_user") && !plain.contains("## Asking the user"));
+    let section = texts::PLANNER_ASK_USER.trim_end();
+    assert!(tool.contains(section) && section.starts_with("## Asking the user"));
+    assert!(tool.find(section).unwrap() < tool.find("Workspace rules (always apply").unwrap());
+    assert!(tool.ends_with("specs in Italian"));
+    assert_eq!(tool.replace(&format!("\n\n{section}"), ""), plain);
 }

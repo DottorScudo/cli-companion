@@ -5,6 +5,7 @@ import type { E2eRun } from "./E2eRun";
 import type { PreviousAttempt } from "./PreviousAttempt";
 import type { TaskAction } from "./TaskAction";
 import type { TaskKind } from "./TaskKind";
+import type { TaskQuestion } from "./TaskQuestion";
 import type { TaskReport } from "./TaskReport";
 import type { TaskStatus } from "./TaskStatus";
 import type { WorkerStatus } from "./WorkerStatus";
@@ -44,7 +45,11 @@ cascade: CascadeDelete,
  * workspace: parte da solo appena lo diventa. Assente se l'agente e'
  * pronto o la sua prontezza si sta ancora controllando.
  */
-agent_unavailable?: AgentUnavailableView, id: string, title: string, task: string, depends_on: Array<string>, repo: string | null, agent: string, model: string | null, kind: TaskKind, e2e?: boolean, status: TaskStatus, worker_status: WorkerStatus | null, session: string | null, attempts: number, worktree: WorktreeInfo | null, last_report: string | null, note: string | null, report: TaskReport | null, e2e_run?: E2eRun, previous_attempt?: PreviousAttempt, created_at: number, updated_at: number, started_at: number | null, finished_at: number | null, 
+agent_unavailable?: AgentUnavailableView, 
+/**
+ * Domanda del worker in attesa di risposta.
+ */
+question?: TaskQuestion, id: string, title: string, task: string, depends_on: Array<string>, repo: string | null, agent: string, model: string | null, kind: TaskKind, e2e?: boolean, status: TaskStatus, worker_status: WorkerStatus | null, session: string | null, attempts: number, worktree: WorktreeInfo | null, last_report: string | null, note: string | null, report: TaskReport | null, e2e_run?: E2eRun, questions?: Array<TaskQuestion>, previous_attempt?: PreviousAttempt, created_at: number, updated_at: number, started_at: number | null, finished_at: number | null, 
 /**
  * Passo di preparazione in corso: solo in uscita, mai riletto.
  */

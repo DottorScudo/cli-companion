@@ -247,6 +247,11 @@ export function canOpenTerminal(task: Pick<Task, "session">): boolean {
   return typeof task.session === "string" && task.session !== "";
 }
 
+/** Il worker ha fatto una domanda all'utente e aspetta la risposta. */
+export function hasPendingQuestion(task: Pick<Task, "question">): boolean {
+  return Boolean(task.question);
+}
+
 /** Link della PR, se la consegna ne ha creata una. */
 export function prUrl(task: Pick<Task, "report">): string | null {
   const u = task.report?.pr_url;

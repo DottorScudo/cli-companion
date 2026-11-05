@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::agents::Readiness;
-use crate::board::{parse_max_parallel, AgentGate, AgentUnavailableView, TaskSpec};
+use crate::board::{parse_max_parallel, AgentGate, AgentUnavailableView, TaskEvent, TaskSpec, WorkerActivity};
 use serde_json::json;
 use TaskAction::{Delete, DeleteCascade, MarkDone, Retry, Stop, ToTop};
 
@@ -214,4 +214,46 @@ fn no_reason_is_exposed_while_the_agent_is_being_checked_or_is_ready() {
         assert_eq!(v.tasks[0].agent_unavailable, None);
         assert!(serde_json::to_value(&v.tasks[0]).unwrap().get("agent_unavailable").is_none());
     }
+}
+
+/// Board con il task `a` in corso e il worker `w1` con una domanda in attesa.
+fn board_with_a_question() -> Board {
+    let mut b = Board::new("ws-1");
+    let mut t = Task::from_spec(TaskSpec { id: "a".into(), title: "A".into(), ..TaskSpec::default() }, 1);
+    t.apply(TaskEvent::Start, 2).unwrap();
+    t.apply(TaskEvent::WorkerSpawned { attempt: 1, session: "w1".into(), worktree: None, note: None }, 3).unwrap();
+    let ask =
+        TaskEvent::QuestionAsked { session: "w1".into(), text: "Which db?".into(), options: vec!["SQLite".into()] };
+    t.apply(ask, 4).unwrap();
+    t.apply(TaskEvent::WorkerChanged { session: "w1".into(), activity: WorkerActivity::AwaitingAnswer }, 5).unwrap();
+    b.tasks.push(t);
+    b
+}
+
+#[test]
+fn the_pending_question_is_in_the_view_and_does_not_need_attention() {
+    let b = board_with_a_question();
+    let v = view(&b, "a");
+    assert_eq!(v.question.as_ref().map(|q| q.text.as_str()), Some("Which db?"));
+    assert!(!v.attention, "awaiting_answer is not attention");
+    let json = v.to_json(true);
+    assert_eq!(json["worker_status"], "awaiting_answer");
+    assert_eq!(json["question"]["id"], "q-1-1");
+    assert_eq!(json["question"]["options"], json!(["SQLite"]));
+    let list = b.view_with(None, false, &AgentGate::default()).to_list_json(None);
+    assert_eq!(list["tasks"][0]["question"], "Which db?");
+    assert!(list["tasks"][0].get("attention").is_none());
+}
+
+#[test]
+fn an_answered_question_leaves_the_view() {
+    let mut b = board_with_a_question();
+    let answered = TaskEvent::QuestionAnswered { session: "w1".into(), question_id: "q-1-1".into(), answer: None };
+    b.task_mut("a").unwrap().apply(answered, 9).unwrap();
+    let v = view(&b, "a");
+    assert!(v.question.is_none());
+    assert!(v.to_json(true).get("question").is_none());
+    assert_eq!(v.to_json(true)["questions"][0]["answered_at"], 9);
+    let list = b.view_with(None, false, &AgentGate::default()).to_list_json(None);
+    assert!(list["tasks"][0].get("question").is_none());
 }

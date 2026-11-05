@@ -42,6 +42,7 @@ describe("botActivity", () => {
       starting: "working",
       needs_input: "attention",
       idle: "attention",
+      awaiting_answer: "idle",
       background: "background",
       completed: "completed",
       failed: "failed",

@@ -1,7 +1,8 @@
 //! Punti d'ingresso dall'app reale: RPC dal socket, eventi degli hook, input
 //! dell'utente, uscita dall'app, caricamento delle board all'avvio e viste
 //! correnti delle board (la base degli eventi dell'Agents HUB all'accensione),
-//! creazione dei task di pianificazione e decisione delle proposte per l'HUB.
+//! creazione dei task di pianificazione, decisione delle proposte e risposta alle
+//! domande dei worker per l'HUB.
 
 use super::*;
 
@@ -99,6 +100,20 @@ pub fn board_views(app: &AppHandle) -> Vec<BoardView> {
 /// pianificazione. Ritorna l'id del task. Fa git: da chiamare fuori dal main thread.
 pub fn queue_hub_plan_task(app: &AppHandle, ws_id: &str, title: &str, task: &str) -> Result<String, String> {
     planner::create_hub_plan_task(&app.state::<AutomationState>(), &TauriHost(app.clone()), ws_id, title, task)
+}
+
+/// Consegna la risposta dell'utente a una domanda di un worker (`ask_user`): la segna
+/// sul task e la digita nel terminale del worker (vedi `questions`). L'API con cui
+/// l'Agents HUB risponde per conto dell'utente. Non blocca: la scrittura nel
+/// terminale si accoda.
+pub fn answer_question(
+    app: &AppHandle,
+    ws_id: &str,
+    task_id: &str,
+    question_id: &str,
+    text: &str,
+) -> Result<(), String> {
+    app.state::<AutomationState>().answer_question(&TauriHost(app.clone()), ws_id, task_id, question_id, text)
 }
 
 /// Accetta o scarta una proposta per conto dell'Agents HUB: lo stesso codice

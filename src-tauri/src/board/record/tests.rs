@@ -128,6 +128,7 @@ fn cases() -> Vec<(&'static str, Task, OldTask)> {
         (WorkerActivity::Background, WorkerStatus::Background),
         (WorkerActivity::NeedsInput, WorkerStatus::NeedsInput),
         (WorkerActivity::Idle, WorkerStatus::Idle),
+        (WorkerActivity::AwaitingAnswer, WorkerStatus::AwaitingAnswer),
     ] {
         add(
             "live",
@@ -275,6 +276,45 @@ fn an_empty_or_partial_record_is_a_queued_task() {
     assert_eq!((t.status(), t.attempts()), (TaskStatus::Queued, 0));
     let extra: Task = serde_json::from_value(json!({"id": "a", "unknown_field": 1, "held": true})).unwrap();
     assert_eq!(extra.id, "a");
+}
+
+fn question(id: &str, answered: bool) -> TaskQuestion {
+    TaskQuestion {
+        id: id.into(),
+        attempt: 1,
+        text: "Which db?".into(),
+        options: vec!["Postgres".into(), "SQLite".into()],
+        asked_at: 5,
+        answered_at: answered.then_some(6),
+        answer: answered.then(|| "Postgres".to_string()),
+    }
+}
+
+#[test]
+fn a_file_without_questions_stays_valid_and_writes_none() {
+    let t = read(json!({"status": "queued"}));
+    assert!(t.questions().is_empty());
+    assert!(serde_json::to_value(&t).unwrap().get("questions").is_none());
+}
+
+#[test]
+fn questions_are_written_after_the_e2e_run_and_read_back() {
+    let mut t = read(json!({"status": "queued"}));
+    t.questions = vec![question("q-1-1", true), question("q-1-2", false)];
+    let wire = serde_json::to_value(&t).unwrap();
+    assert_eq!(wire["questions"][0]["answer"], "Postgres");
+    assert!(wire["questions"][1].get("answered_at").is_none() && wire["questions"][1].get("answer").is_none());
+    let text = serde_json::to_string(&t).unwrap();
+    assert!(text.find("\"questions\"").unwrap() > text.find("\"attempts\"").unwrap());
+    assert!(text.find("\"questions\"").unwrap() < text.find("\"created_at\"").unwrap());
+    let back: Task = serde_json::from_str(&text).unwrap();
+    assert_eq!(back.questions(), t.questions());
+    // Una domanda senza opzioni non scrive il campo.
+    let mut bare = question("q-1-3", false);
+    bare.options.clear();
+    assert!(serde_json::to_value(&bare).unwrap().get("options").is_none());
+    let read_back: TaskQuestion = serde_json::from_value(serde_json::to_value(&bare).unwrap()).unwrap();
+    assert_eq!(read_back, bare);
 }
 
 #[test]

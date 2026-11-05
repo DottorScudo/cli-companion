@@ -3,7 +3,7 @@
 //! `lifecycle` e `scheduler`.
 
 use super::record::TaskRecord;
-use super::{E2eRun, SettingsProposal, TaskKind, TaskSpec, TaskState};
+use super::{E2eRun, SettingsProposal, TaskKind, TaskQuestion, TaskSpec, TaskState};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -88,7 +88,7 @@ pub struct PreviousAttempt {
 }
 
 /// Un task della board. Lo stato del ciclo di vita e i campi che ne dipendono
-/// (`attempts`, `note`, `last_report`) si leggono con gli accessori e li scrive
+/// (`attempts`, `note`, `last_report`, `questions`) si leggono con gli accessori e li scrive
 /// solo `lifecycle` (`Task::apply`). Sul filo (file e frontend) il task e' un
 /// record piatto: vedi `record`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
@@ -113,6 +113,8 @@ pub struct Task {
     pub worktree: Option<WorktreeInfo>,
     /// Ultima esecuzione degli E2E del tentativo in corso (o dell'ultimo).
     pub e2e_run: Option<E2eRun>,
+    /// Domande del worker all'utente, dalla piu' vecchia (le scrive solo `lifecycle`).
+    pub(in crate::board) questions: Vec<TaskQuestion>,
     pub created_at: i64,
     pub updated_at: i64,
 }

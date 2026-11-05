@@ -8,6 +8,15 @@ use crate::workspaces::{Delivery, DeliveryMode, RepoConfig};
 /// Standard di ingegneria che ogni worker riceve, prima delle regole del workspace.
 pub const WORKER_GUARDRAILS: &str = include_str!("prompts/worker_guardrails.md");
 
+/// Aggiunta alle istruzioni del pianificatore quando `ask_user` e' disponibile.
+pub const PLANNER_ASK_USER: &str = include_str!("prompts/planner_ask_user.md");
+
+/// Cosa fa un worker che ha bisogno di una decisione dell'utente, senza `ask_user`.
+const ASK_IN_TEXT: &str = "If you need a decision from the user, ask the question in plain text and end your turn: the user answers in your terminal. Do not guess.";
+
+/// Lo stesso con `ask_user` (Agents HUB acceso): la risposta arriva nel terminale come messaggio dell'utente.
+pub const ASK_WITH_TOOL: &str = "If a doubt really blocks you and the code cannot settle it, call ask_user with one clear question (with options when possible), then end your turn: the answer arrives as the user's next message in your terminal. Use it only for blocking doubts; never ask in plain text and never guess.";
+
 /// Istruzioni del revisore di un task `review` (al posto di quelle e dei passi di consegna del worker).
 pub const REVIEWER_INSTRUCTIONS: &str = include_str!("prompts/reviewer_instructions.md");
 
@@ -51,8 +60,10 @@ impl EnvInfo<'_> {
     }
 }
 
-/// Istruzioni comuni, standard di ingegneria e regole del workspace.
-pub fn instructions(e: &EnvInfo, workspace_rules: &str) -> String {
+/// Istruzioni comuni, standard di ingegneria e regole del workspace. Con `ask_user`
+/// il worker chiede le decisioni bloccanti con il tool invece che in testo semplice.
+pub fn instructions(e: &EnvInfo, workspace_rules: &str, ask_user: bool) -> String {
+    let ask = if ask_user { ASK_WITH_TOOL } else { ASK_IN_TEXT };
     let mut s = format!(
         "You are an automated cli-companion worker. The app does not deliver anything for you: you deliver the work yourself, \
          following the delivery steps returned with the task.\n\
@@ -63,8 +74,7 @@ pub fn instructions(e: &EnvInfo, workspace_rules: &str) -> String {
          - When the delivery succeeded, call complete_task with status \"completed\" (with `commit`, and `pr_url` in PR mode).\n\
          - If you cannot complete or deliver (a conflict you cannot resolve, failing tests, a missing tool or authentication), \
          call complete_task with status \"failed\" and the reason in `summary`.\n\
-         - If you need a decision from the user, ask the question in plain text and end your turn: the user answers in your terminal. \
-         Do not guess.\n\
+         - {ask}\n\
          - Background commands are fine: your session resumes by itself when they finish. The task must still end with complete_task.",
         dir = e.workdir
     );
@@ -91,13 +101,18 @@ pub fn reviewer_instructions(e: &EnvInfo, workspace_rules: &str, reviewed_e2e: b
 }
 
 /// Istruzioni del pianificatore di un task `plan`: cartella di lavoro, regole
-/// del pianificatore e del workspace (contesto per le specifiche).
-pub fn planner_instructions(e: &EnvInfo, workspace_rules: &str) -> String {
+/// del pianificatore e del workspace (contesto per le specifiche). Con `ask_user`
+/// la sezione sulle domande all'utente precede le regole del workspace.
+pub fn planner_instructions(e: &EnvInfo, workspace_rules: &str, ask_user: bool) -> String {
     let mut s = format!(
         "You are an automated cli-companion planner. Work only inside {dir}; never touch other folders.\n\n{PLANNER_INSTRUCTIONS}",
         dir = e.workdir
     );
     s.truncate(s.trim_end().len());
+    if ask_user {
+        s.push_str("\n\n");
+        s.push_str(PLANNER_ASK_USER.trim_end());
+    }
     push_workspace_rules(&mut s, workspace_rules);
     s
 }

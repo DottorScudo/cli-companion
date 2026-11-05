@@ -7,7 +7,8 @@
 //! coda e le impostazioni e propone (`planner`), senza E2E; la sessione
 //! normale, Intake compreso, gestisce la coda (`boards`),
 //! le skill globali (`skills`) e le impostazioni del workspace (`settings`).
-//! `whoami` e' l'handshake del server MCP, non un tool.
+//! `whoami` e' l'handshake del server MCP, non un tool; dice anche se l'Agents
+//! HUB e' acceso (`hub`), da cui dipendono i tool riservati all'HUB (`ask_user`).
 
 use super::*;
 use serde_json::json;
@@ -58,9 +59,13 @@ pub fn dispatch<H: Host>(
     if host.tab_workspace(session).is_some_and(|w| w.archived) {
         return Err("workspace is archived".to_string());
     }
+    if method.requires_hub() && !host.hub_enabled() {
+        return Err(questions::HUB_OFF.to_string());
+    }
     match method {
         Method::Whoami => Ok(whoami(host, session, role)),
-        Method::GetTask => get_task(st, host, session),
+        Method::GetTask => get_task(st, host, session, role),
+        Method::AskUser => questions::ask_user(st, host, session, params),
         Method::CompleteTask => complete_task(st, host, session, params),
         Method::RunE2e => e2e::tools::run_e2e(st, host, session),
         Method::GetE2eResult => e2e::tools::get_e2e_result(st, session, params),
@@ -85,7 +90,7 @@ pub fn dispatch<H: Host>(
 /// Ruolo del chiamante e, per una sessione normale, il suo workspace: lo usa il
 /// server MCP per scegliere i tool e scrivere le istruzioni.
 fn whoami<H: Host>(host: &H, session: &str, role: Role) -> Value {
-    let mut out = json!({ "role": role.as_str(), "session": session });
+    let mut out = json!({ "role": role.as_str(), "session": session, "hub": host.hub_enabled() });
     if role == Role::Session {
         if let Some(w) = host.tab_workspace(session) {
             out["workspace"] = json!({ "name": w.name, "kind": w.kind, "path": w.path });
@@ -94,10 +99,12 @@ fn whoami<H: Host>(host: &H, session: &str, role: Role) -> Value {
     out
 }
 
-fn get_task<H: Host>(st: &AutomationState, host: &H, session: &str) -> Result<Value, String> {
+fn get_task<H: Host>(st: &AutomationState, host: &H, session: &str, role: Role) -> Result<Value, String> {
     let (ws_id, _) = st.worker_task_of(session).ok_or_else(|| "reserved for automated sessions".to_string())?;
     let ws = host.workspace(&ws_id).ok_or_else(|| "workspace not found".to_string())?;
-    st.run(host, |r| r.get_task(session, &ws, now_millis()))
+    // `ask_user` solo con l'HUB acceso e a chi puo' chiamarlo; calcolato fuori dal lock.
+    let ask_user = host.hub_enabled() && Method::AskUser.allows(role);
+    st.run(host, |r| r.get_task(session, &ws, ask_user, now_millis()))
 }
 
 fn complete_task<H: Host>(st: &AutomationState, host: &H, session: &str, params: &Value) -> Result<Value, String> {

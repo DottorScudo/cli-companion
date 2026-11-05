@@ -115,13 +115,13 @@ pub fn handle_message(server: &Server, msg: &Value, backend: &dyn Backend) -> Op
                     "protocolVersion": version,
                     "capabilities": { "tools": { "listChanged": true } },
                     "serverInfo": { "name": "cli-companion", "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": instructions(role, server.workspace().as_deref()),
+                    "instructions": instructions(role, server.workspace().as_deref(), server.hub()),
                 }),
             )
         }
         "ping" => ok_response(id, json!({})),
         "tools/list" => {
-            let tools = server.role(backend).map(tools_for).unwrap_or_default();
+            let tools = server.role(backend).map(|role| tools_for(role, server.hub())).unwrap_or_default();
             server.tools_listed(tools.is_empty());
             ok_response(id, json!({ "tools": tools }))
         }
@@ -148,7 +148,7 @@ fn call_tool(server: &Server, params: &Value, backend: &dyn Backend) -> Value {
     let Some(name) = params.get("name").and_then(Value::as_str) else {
         return tool_result("the tool name is missing".to_string(), true);
     };
-    if !tools_for(role).iter().any(|t| t["name"] == name) {
+    if !tools_for(role, server.hub()).iter().any(|t| t["name"] == name) {
         return tool_result(format!("unknown tool, or not available for this session: {name}"), true);
     }
     let args = match params.get("arguments") {

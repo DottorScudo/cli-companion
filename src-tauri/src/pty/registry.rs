@@ -119,6 +119,12 @@ impl Registry {
         slot.session.as_ref().map(|s| (s.writer.clone(), slot.tab_id.clone()))
     }
 
+    /// Coda di scrittura del tab con una sessione viva (non una prenotazione).
+    pub fn writer_of_tab(&self, tab_id: &str) -> Option<Sender<Vec<u8>>> {
+        let slot = self.slots.get(self.tabs.get(tab_id)?)?;
+        slot.session.as_ref().map(|s| s.writer.clone())
+    }
+
     /// Toglie dalla tabella la sessione viva `id` (non una prenotazione: e'
     /// di chi sta avviando la shell).
     pub fn take_session(&mut self, id: u32) -> Option<PtySession> {

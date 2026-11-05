@@ -30,6 +30,7 @@
 //! - `roles`: tabella unica dei metodi RPC e dei ruoli che possono chiamarli.
 //! - `state`, `host`, `rpc`: stato Tauri, effetti verso l'esterno, smistamento RPC.
 //! - `agent_probe`: prontezza degli agenti nel target del workspace, in cache.
+//! - `questions`, `answer_input`: domande dei worker all'utente (`ask_user`) e consegna della risposta.
 //! - `boards`, `worktrees`, `review`, `planner`, `settings`, `skills`, `e2e`, `auto`:
 //!   operazioni sulle board e funzioni dei singoli ambiti.
 
@@ -50,6 +51,7 @@ use tauri::{AppHandle, Manager};
 
 mod agent_probe;
 mod agent_session;
+mod answer_input;
 mod auth;
 pub mod auto;
 mod board_files;
@@ -61,6 +63,7 @@ mod hooks;
 mod host;
 mod planner;
 mod process;
+mod questions;
 mod registry;
 mod review;
 mod roles;
@@ -78,12 +81,13 @@ use auth::authenticate;
 pub use auth::SessionCredential;
 use auth::SessionKeys;
 pub use bridge::{
-    board_views, decide_hub_proposal, flush_on_exit, handle_rpc, load_boards, on_hook_event, queue_hub_plan_task,
-    user_input, IpcBridge,
+    answer_question, board_views, decide_hub_proposal, flush_on_exit, handle_rpc, load_boards, on_hook_event,
+    queue_hub_plan_task, user_input, IpcBridge,
 };
 pub use commands::*;
 pub use host::{Host, TauriHost};
 pub use planner::{create_plan_task, PlanRequest};
+pub use questions::ASK_USER_SENT;
 #[cfg(test)]
 use registry::MAX_TRACKED_WORKERS;
 pub(crate) use registry::TASK_UNASSIGNED;

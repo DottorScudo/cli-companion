@@ -22,6 +22,9 @@ enum Retry {
 #[derive(Debug, Default)]
 struct State {
     role: Option<Role>,
+    /// L'Agents HUB e' acceso (da `whoami`, risolto col ruolo): senza, i tool
+    /// che richiedono una risposta dell'utente non esistono.
+    hub: bool,
     /// Workspace della sessione (da `whoami`), a parole: serve alle istruzioni.
     workspace: Option<String>,
     /// Arrivata `notifications/initialized`: da qui il server puo' notificare.
@@ -40,8 +43,8 @@ pub struct Server {
     state: Arc<Mutex<State>>,
 }
 
-/// Ruolo e workspace dalla risposta di `whoami`.
-fn parse_whoami(v: &Value) -> Result<(Role, Option<String>), String> {
+/// Ruolo, HUB (assente = spento) e workspace dalla risposta di `whoami`.
+fn parse_whoami(v: &Value) -> Result<(Role, bool, Option<String>), String> {
     let role = v
         .get("role")
         .and_then(Value::as_str)
@@ -51,7 +54,8 @@ fn parse_whoami(v: &Value) -> Result<(Role, Option<String>), String> {
         let field = |k: &str| w.get(k).and_then(Value::as_str);
         Some(format!("{} ({}, {})", field("name")?, field("kind")?, field("path")?))
     });
-    Ok((role, workspace))
+    let hub = v.get("hub").and_then(Value::as_bool).unwrap_or(false);
+    Ok((role, hub, workspace))
 }
 
 impl Server {
@@ -62,12 +66,18 @@ impl Server {
         if let Some(role) = lock(&self.state).role {
             return Ok(role);
         }
-        let (role, workspace) = parse_whoami(&backend.rpc("whoami", &json!({}), ROLE_TIMEOUT)?)?;
+        let (role, hub, workspace) = parse_whoami(&backend.rpc("whoami", &json!({}), ROLE_TIMEOUT)?)?;
         let state = &mut *lock(&self.state);
         if state.role.is_none() {
+            state.hub = hub;
             state.workspace = workspace;
         }
         Ok(*state.role.get_or_insert(role))
+    }
+
+    /// L'Agents HUB e' acceso; false finche' il ruolo non e' risolto.
+    pub(super) fn hub(&self) -> bool {
+        lock(&self.state).hub
     }
 
     pub(super) fn workspace(&self) -> Option<String> {
