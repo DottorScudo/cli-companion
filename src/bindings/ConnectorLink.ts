@@ -20,4 +20,8 @@ external_chat: string,
 /**
  * Il nome esterno ripulito, solo per l'interfaccia.
  */
-display_name: string, current: ConnectorLinkThread | null, muted_until: number | null, created_at: number, };
+display_name: string, current: ConnectorLinkThread | null, 
+/**
+ * Il canale scelto con `/ws`: li' `/new` apre i thread. Assente = quello del thread corrente, o il Generale.
+ */
+channel?: string, muted_until: number | null, created_at: number, };

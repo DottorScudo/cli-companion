@@ -227,16 +227,18 @@ fn a_fake_contact_receives_sends_and_answers_pairing() {
         external_id: "7".to_string(),
         account: "42".to_string(),
         chat: "42".to_string(),
+        sender_name: "Mario".to_string(),
         text: "/start CODICE".to_string(),
         reply_to_external: None,
         files: Vec::new(),
         pairing_code: Some("CODICE".to_string()),
+        command: None,
     };
     contact.push(Ok(ReceiveBatch { messages: vec![inbound.clone()], cursor: json!(8) }));
     let batch = block_on(contact.receive(&t.ctx, None)).unwrap();
     assert_eq!((batch.messages, batch.cursor), (vec![inbound], json!(8)));
     let out = OutboundMessage { chat: "42".to_string(), text: "ciao".to_string(), reply_to_external: Some("7".into()) };
-    assert_eq!(block_on(contact.send(&t.ctx, &out)).unwrap(), "ext-1");
+    assert_eq!(block_on(contact.send(&t.ctx, &out)).unwrap(), vec!["ext-1".to_string()]);
     let outcome = PairingOutcome::Linked { display_name: "Mario".to_string() };
     block_on(contact.pairing_reply(&t.ctx, &outcome, "42")).unwrap();
     assert_eq!(contact.pairing.lock().unwrap().as_slice(), &[(outcome, "42".to_string())]);

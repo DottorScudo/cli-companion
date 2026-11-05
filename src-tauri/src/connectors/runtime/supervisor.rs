@@ -19,7 +19,7 @@ use crate::connectors::ids::IdGenerator;
 use crate::connectors::limits::{ITEMS_PER_ROUND, MIN_INTERVAL, ROUND_TIMEOUT};
 use crate::connectors::model::{ConnectorInstance, THREAD_GONE};
 use crate::connectors::runtime::backoff::{jitter_from, Backoff};
-use crate::connectors::runtime::contact::ContactCtx;
+use crate::connectors::runtime::contact::{ContactCtx, ContactSession};
 use crate::connectors::runtime::contact_loop::run_contact;
 use crate::connectors::runtime::health::{HealthState, StatusRegistry};
 use crate::connectors::runtime::http::ContextHttp;
@@ -28,7 +28,7 @@ use crate::connectors::runtime::round::{run_round, RoundCtx, RoundEnd, RoundResu
 use crate::connectors::runtime::store::{update_blocking, ConnectorsStore, StateStore};
 use crate::connectors::runtime::time::Sleeper;
 use crate::connectors::secrets::InstanceSecrets;
-use crate::hub::HubNotice;
+use crate::hub::ContactNotice;
 use crate::secrets::SecretStore;
 use serde_json::Value;
 use std::sync::{Arc, OnceLock};
@@ -57,7 +57,7 @@ pub struct Job {
     /// Lo stato condiviso con eventuali azioni dell'interfaccia; il task lo riempie dal disco.
     pub state: StateHandle,
     /// Le notifiche dell'HUB, per i canali di contatto che le dichiarano.
-    pub notices: Option<Receiver<HubNotice>>,
+    pub notices: Option<Receiver<ContactNotice>>,
     /// L'epoca di questa esecuzione (`StatusRegistry::begin_run`): solo con quella lo stato di salute si scrive.
     pub epoch: u64,
 }
@@ -180,6 +180,7 @@ pub async fn run(env: Arc<Env>, job: Job) {
                 pairing: &env.pairing,
                 ids: &env.ids,
                 clock: &*env.clock,
+                session: ContactSession::default(),
             };
             run_contact(&env, &instance.id, epoch, &cc, notices, &mut pace).await;
         }

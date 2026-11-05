@@ -15,7 +15,8 @@ pub use connector::{Connector, ConnectorImpl, ContactConnector, SourceConnector}
 pub use context::{Clock, ConnectorContext, ContextParts, HubPort, StateHandle, SystemClock};
 pub use error::ConnectorError;
 pub use items::{
-    ActionOutcome, ActiveRoute, InboundMessage, OutboundMessage, PairingOutcome, PollBatch, ReceiveBatch, SourceItem,
+    ActionOutcome, ActiveRoute, ContactCommand, InboundMessage, OutboundMessage, PairingOutcome, PollBatch,
+    ReceiveBatch, RemoteFile, SourceItem,
 };
 
 use std::future::Future;

@@ -23,7 +23,8 @@
 //! - `state`: lo stato di un'istanza (cursori, id visti, mappe), limitato;
 //! - `secrets`: i segreti di un'istanza nel portachiavi;
 //! - `runtime`: la parte che esegue (supervisori, salute, abbinamento, notifiche);
-//! - `lifecycle`: il runtime come ascoltatore del ciclo di vita dell'HUB.
+//! - `lifecycle`: il runtime come ascoltatore del ciclo di vita dell'HUB;
+//! - `telegram`: il connettore `contact` di riferimento (Bot API di Telegram).
 //!
 //! Come aggiungere un connettore: una cartella `connectors/<nome>/` che implementa
 //! `SourceConnector` o `ContactConnector` e una riga in `registry.rs`; i test
@@ -45,6 +46,7 @@ pub mod registry;
 pub mod runtime;
 pub mod secrets;
 pub mod state;
+mod telegram;
 #[cfg(test)]
 pub(crate) mod testing;
 

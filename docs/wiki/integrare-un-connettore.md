@@ -105,10 +105,13 @@ pub trait SourceConnector: Connector {
 }
 
 pub trait ContactConnector: Connector {
+    fn wants_notice(&self, config: &Value, category: NoticeCategory) -> bool;
     fn receive<'a>(&'a self, ctx: &'a ConnectorContext, cursor: Option<Value>)
         -> BoxFuture<'a, Result<ReceiveBatch, ConnectorError>>;
     fn send<'a>(&'a self, ctx: &'a ConnectorContext, out: &'a OutboundMessage)
-        -> BoxFuture<'a, Result<String, ConnectorError>>;
+        -> BoxFuture<'a, Result<Vec<String>, ConnectorError>>;
+    fn fetch_file<'a>(&'a self, ctx: &'a ConnectorContext, file: &'a RemoteFile)
+        -> BoxFuture<'a, Result<IncomingFile, ConnectorError>>;
     fn pairing_reply<'a>(&'a self, ctx: &'a ConnectorContext, outcome: &'a PairingOutcome, chat: &'a str)
         -> BoxFuture<'a, Result<(), ConnectorError>>;
 }
@@ -122,9 +125,16 @@ connettore smette di compilare finché non decide.
   Ogni `SourceItem` dice per quale regola (`route`) è stato letto, con `external_id` (1..256 caratteri, base della
   dedupe), `conversation_key` (per le regole `per_conversation`), `title`, `sender`, `body` già pronto e gli allegati
   come byte. `more: true` fa partire subito il giro successivo. **Non consegna e non salva il cursore.**
-- **`receive`** (contatto): long polling con un timeout del servizio più breve di quello del runtime. Restituisce i
-  messaggi `InboundMessage` (con `pairing_code` se il testo è un invito ad abbinare) e il cursore nuovo.
-- **`send`**: manda una notifica a una chat collegata e ritorna l'id esterno del messaggio (serve per le risposte).
+- **`receive`** (contatto): long polling con un timeout del servizio più breve di `limits::RECEIVE_TIMEOUT`.
+  Restituisce i messaggi `InboundMessage` già tradotti — `pairing_code` se il testo è un invito ad abbinare,
+  `command` (`ContactCommand`) se è un comando, `reply_to_external` per una risposta, `sender_name`, gli allegati come
+  `RemoteFile` **non scaricati** — e il cursore nuovo. I messaggi che il canale non gestisce (gruppi, modificati,
+  sticker) non diventano `InboundMessage`. Comandi, collegamenti, thread corrente e testi delle risposte sono del
+  runtime (`runtime/contact/`), uguali per ogni canale.
+- **`send`**: manda un testo a una chat collegata, spezzandolo al limite del servizio e rispettandone la frequenza, e
+  ritorna l'id esterno di ogni parte (servono per le risposte).
+- **`fetch_file`**: scarica un allegato; il runtime lo chiede solo per un account collegato ed entro i limiti dell'HUB.
+- **`wants_notice`**: pura, dice se la configurazione dell'istanza vuole le notifiche di un tipo (`NoticeCategory`).
 - **`pairing_reply`**: risponde a chi ha presentato un codice (benvenuto, codice errato, troppi tentativi).
 - **`action`**: `Authorize` (di solito apre il browser e salva il refresh token con `ctx.set_secret`), `Pair` (il
   codice emesso dal runtime è in `ctx.pairing_code()`: va mostrato all'utente, il connettore può metterlo in un

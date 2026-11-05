@@ -5,6 +5,7 @@
 
 use crate::connectors::contracts::{BoxFuture, HubPort};
 use crate::hub::attachments::IncomingFile;
+use crate::hub::contact::{self, ChannelEntry, ThreadEntry};
 use crate::hub::ingress::{deliver_external, DeliveryOutcome, ExternalDelivery};
 use crate::hub::send::{send_user_files, send_user_message, UserMessage};
 use crate::hub::{thread_exists, Channel, Message};
@@ -36,5 +37,21 @@ impl HubPort for TauriHubPort {
         let app = self.0.clone();
         let (channel, thread_id) = (channel.clone(), thread_id.to_string());
         Box::pin(crate::blocking(move || thread_exists(&app, &channel, &thread_id)))
+    }
+
+    fn channels(&self) -> BoxFuture<'_, Result<Vec<ChannelEntry>, String>> {
+        let app = self.0.clone();
+        Box::pin(crate::blocking(move || contact::channels(&app)))
+    }
+
+    fn open_threads(&self) -> BoxFuture<'_, Result<Vec<ThreadEntry>, String>> {
+        let app = self.0.clone();
+        Box::pin(crate::blocking(move || contact::open_threads(&app)))
+    }
+
+    fn create_thread<'a>(&'a self, channel: &'a Channel, title: &'a str) -> BoxFuture<'a, Result<String, String>> {
+        let app = self.0.clone();
+        let (channel, title) = (channel.clone(), title.to_string());
+        Box::pin(crate::blocking(move || contact::create_thread(&app, &channel, &title).map(|thread| thread.id)))
     }
 }

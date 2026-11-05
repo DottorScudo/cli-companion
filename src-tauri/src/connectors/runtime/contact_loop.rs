@@ -1,17 +1,17 @@
 //! Il ciclo di un canale di contatto: due attivita' nello stesso task, cosi'
 //! fermare il task ferma tutto. La ricezione continua (`receive` con cursore, a
-//! lungo polling) porta i messaggi in entrata; l'uscita legge la coda delle
+//! lungo polling, con il tetto `RECEIVE_TIMEOUT`) porta i messaggi in entrata; l'uscita legge la coda delle
 //! notifiche dell'HUB (`notices`, limitata) e le manda ai collegamenti. Il
 //! cursore si salva solo dopo aver trattato tutto il lotto (almeno una volta, con
 //! dedupe per id esterno).
 
 use crate::connectors::contracts::{ConnectorError, ReceiveBatch};
-use crate::connectors::limits::{CALL_TIMEOUT, ROUND_TIMEOUT};
+use crate::connectors::limits::{RECEIVE_TIMEOUT, ROUND_TIMEOUT};
 use crate::connectors::runtime::contact::ContactCtx;
 use crate::connectors::runtime::supervisor::{mark_stopped, save_state, Env, Pace};
 use crate::connectors::runtime::time::with_timeout;
 use crate::connectors::state::MAIN_CURSOR;
-use crate::hub::HubNotice;
+use crate::hub::ContactNotice;
 use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
 
@@ -24,7 +24,7 @@ pub async fn run_contact(
     instance: &str,
     epoch: u64,
     cc: &ContactCtx<'_>,
-    notices: Option<Receiver<HubNotice>>,
+    notices: Option<Receiver<ContactNotice>>,
     pace: &mut Pace<'_>,
 ) {
     let outgoing = async {
@@ -49,7 +49,7 @@ pub async fn run_notices(
     instance: &str,
     epoch: u64,
     cc: &ContactCtx<'_>,
-    mut rx: Receiver<HubNotice>,
+    mut rx: Receiver<ContactNotice>,
 ) -> bool {
     while let Some(notice) = rx.recv().await {
         if let Err(error) = cc.send_notice(&notice).await {
@@ -75,7 +75,7 @@ async fn handle_batch(cc: &ContactCtx<'_>, batch: &ReceiveBatch) -> Result<(), C
 async fn receive_loop(env: &Env, instance: &str, cc: &ContactCtx<'_>, pace: &mut Pace<'_>) {
     loop {
         let cursor = cc.state.lock().cursor(MAIN_CURSOR).cloned();
-        let received = with_timeout(CALL_TIMEOUT, cc.connector.receive(cc.ctx, cursor)).await;
+        let received = with_timeout(RECEIVE_TIMEOUT, cc.connector.receive(cc.ctx, cursor)).await;
         let handled = match received {
             Ok(batch) => handle_batch(cc, &batch).await.map(|()| batch),
             Err(e) => Err(e),

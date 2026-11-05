@@ -5,10 +5,10 @@ use crate::connectors::model::{ConnectorsFile, RouteThread, RouteWake, THREAD_GO
 use crate::connectors::runtime::health::ConnectorStatus;
 use crate::connectors::state::MAIN_CURSOR;
 use crate::connectors::testing::{
-    batch, inbound, instance, item, link, new_contact, new_source, route, FakeClock, FakeContact, FakeHub, FakeSource,
-    HubCall, InstantSleeper, MemoryStates, RecordingEmitter, FAKE_CONTACT, FAKE_SOURCE, INSTANCE,
+    batch, contact_notice, inbound, instance, item, link, new_contact, new_source, route, FakeClock, FakeContact,
+    FakeHub, FakeSource, HubCall, InstantSleeper, MemoryStates, RecordingEmitter, FAKE_CONTACT, FAKE_SOURCE, INSTANCE,
 };
-use crate::hub::{Channel, HubNoticeSound};
+use crate::hub::{Channel, ContactNotice};
 use crate::secrets::MemorySecrets;
 use serde_json::json;
 use std::time::Duration;
@@ -307,14 +307,31 @@ fn the_contact_loop_forwards_inbound_messages_then_saves_the_cursor() {
 }
 
 #[test]
-fn a_hub_failure_in_a_batch_keeps_the_old_cursor_and_backs_off() {
+fn a_hub_failure_in_a_batch_is_reported_to_the_user_and_the_cursor_moves_on() {
     let rig = contact_rig(0);
     let contact = new_contact();
     *rig.hub.fail_with.lock().unwrap() = Some("HUB spento".to_string());
     contact.push(Ok(ReceiveBatch { messages: vec![inbound("m1", "u1", "ciao")], cursor: json!(10) }));
     rig.run_contact(contact);
+    assert_eq!(contact.sent_texts(), vec!["Messaggio non consegnato: HUB spento".to_string()]);
+    assert_eq!(
+        rig.states.get(INSTANCE).cursor(MAIN_CURSOR),
+        Some(&json!(10)),
+        "il messaggio e' trattato: non si ripresenta"
+    );
+    assert!(!rig.history().contains(&HealthState::Backoff));
+}
+
+#[test]
+fn an_auth_error_while_replying_keeps_the_old_cursor_and_ends_the_loop() {
+    let rig = contact_rig(10);
+    let contact = new_contact();
+    *contact.send_error.lock().unwrap() = Some(ConnectorError::Auth("x".to_string()));
+    let help = crate::connectors::testing::command("c1", "u1", crate::connectors::contracts::ContactCommand::Help);
+    contact.push(Ok(ReceiveBatch { messages: vec![help], cursor: json!(10) }));
+    rig.run_contact(contact);
     assert_eq!(rig.states.get(INSTANCE).cursor(MAIN_CURSOR), None);
-    assert!(rig.history().contains(&HealthState::Backoff));
+    assert_eq!(rig.status().state, HealthState::NeedsAuth);
 }
 
 #[test]
@@ -327,15 +344,8 @@ fn a_contact_auth_error_ends_the_loop() {
     assert!(rig.sleeper.secs().is_empty());
 }
 
-fn notice(n: usize) -> HubNotice {
-    HubNotice {
-        channel: Channel::General,
-        thread_id: "thr-1".to_string(),
-        message_id: format!("msg-{n}"),
-        title: format!("Titolo {n}"),
-        body: "corpo".to_string(),
-        sound: HubNoticeSound::Ding,
-    }
+fn notice(n: usize) -> ContactNotice {
+    contact_notice(&format!("msg-{n}"), &format!("corpo {n}"))
 }
 
 fn run_notices_for(rig: &Rig, contact: &'static FakeContact, count: usize) -> bool {
@@ -350,6 +360,7 @@ fn run_notices_for(rig: &Rig, contact: &'static FakeContact, count: usize) -> bo
         pairing: &rig.env.pairing,
         ids: &rig.env.ids,
         clock: &*rig.clock,
+        session: ContactSession::default(),
     };
     let (tx, rx) = tokio::sync::mpsc::channel(8);
     for n in 0..count {
@@ -371,7 +382,7 @@ fn queued_notices_are_sent_to_the_links_and_the_state_is_saved() {
     let contact = new_contact();
     assert!(run_notices_for(&rig, contact, 2), "il canale si e' chiuso");
     let texts: Vec<String> = contact.sent.lock().unwrap().iter().map(|m| m.text.clone()).collect();
-    assert_eq!(texts, vec!["Titolo 0\ncorpo", "Titolo 1\ncorpo"]);
+    assert_eq!(texts, vec!["Generale › Piano\ncorpo 0", "Generale › Piano\ncorpo 1"]);
     assert_eq!(rig.states.saves(), 2);
 }
 

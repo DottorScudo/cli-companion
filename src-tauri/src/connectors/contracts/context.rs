@@ -16,6 +16,7 @@ use crate::connectors::runtime::http::ContextHttp;
 use crate::connectors::secrets::InstanceSecrets;
 use crate::connectors::state::InstanceState;
 use crate::hub::attachments::IncomingFile;
+use crate::hub::contact::{ChannelEntry, ThreadEntry};
 use crate::hub::ingress::{DeliveryOutcome, ExternalDelivery, ExternalWake};
 use crate::hub::send::UserMessage;
 use crate::hub::{Channel, Message};
@@ -56,6 +57,13 @@ pub trait HubPort: Send + Sync {
         -> BoxFuture<'_, Result<Message, String>>;
     /// Il thread esiste ancora nel canale? Errore se non si puo' sapere (HUB spento): non e' "no".
     fn thread_exists<'a>(&'a self, channel: &'a Channel, thread_id: &'a str) -> BoxFuture<'a, Result<bool, String>>;
+    /// I canali dell'HUB col loro nome (Generale per primo). Solo per il runtime dei
+    /// canali di contatto (`/ws`): `ConnectorContext` non la espone ai connettori.
+    fn channels(&self) -> BoxFuture<'_, Result<Vec<ChannelEntry>, String>>;
+    /// I thread aperti di tutti i canali (`/threads`). Solo per il runtime.
+    fn open_threads(&self) -> BoxFuture<'_, Result<Vec<ThreadEntry>, String>>;
+    /// Apre un thread libero nel canale (`/new`) e ne ritorna l'id. Solo per il runtime.
+    fn create_thread<'a>(&'a self, channel: &'a Channel, title: &'a str) -> BoxFuture<'a, Result<String, String>>;
 }
 
 /// Lo stato dell'istanza condiviso fra connettore e supervisore (che lo salva).

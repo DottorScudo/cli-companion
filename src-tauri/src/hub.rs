@@ -40,6 +40,7 @@
 //! - `lifecycle`: gli ascoltatori di acceso/spento e della rimozione di un workspace;
 //! - `attachments`: gli allegati dei messaggi dell'utente (staging, file, pulizia, comandi);
 //! - `commands`: i comandi dei thread e l'evento;
+//! - `contact`: canali e thread aperti, e la creazione di un thread, per i canali di contatto;
 //! - `events`: gli eventi della board nei thread (diff, instradamento, `HubFeed`);
 //! - `engine`: il motore dei segretari (menzioni, sessioni, tool calling);
 //! - `notify`: le notifiche di sistema dei messaggi dei thread (evento `hub-notify`)
@@ -52,6 +53,7 @@ mod append;
 pub mod attachments;
 mod channel;
 pub mod commands;
+pub mod contact;
 mod direct_answer;
 pub mod engine;
 mod events;
@@ -79,9 +81,9 @@ pub use events::{BoardSource, HubFeed};
 pub use lifecycle::{HubLifecycle, HubLifecycleListeners};
 pub use model::Message;
 pub use model::{Author, MessageOrigin};
+pub use notify::{validate_thread_ref, ContactNotice, HubNotifier, NoticeCategory, NoticeSink};
 #[cfg(test)]
-pub use notify::HubNoticeSound;
-pub use notify::{validate_thread_ref, HubNotice, HubNotifier, NoticeSink};
+pub use notify::{HubNotice, HubNoticeSound};
 pub use settings::{load_from_disk, new_store as new_settings_store};
 pub use state::HubState;
 pub use text::{valid_ref_id, BOT_NAME_MAX};

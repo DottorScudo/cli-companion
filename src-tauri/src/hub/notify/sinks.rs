@@ -4,7 +4,7 @@
 //! notifiche di sistema e' spento: quell'interruttore riguarda solo il toast
 //! del frontend. La decisione e' pura, cosi' si prova senza Tauri.
 
-use super::notice::HubNotice;
+use super::notice::{ContactNotice, HubNotice};
 use std::sync::Arc;
 
 /// Chi riceve le notifiche raggruppate dell'HUB oltre al frontend. `deliver` e'
@@ -12,7 +12,7 @@ use std::sync::Arc;
 /// puo' bloccare: per un lavoro lungo il sink si tiene una sua coda. Non deve
 /// andare in panico; un errore va nel suo log.
 pub trait NoticeSink: Send + Sync {
-    fn deliver(&self, notice: &HubNotice);
+    fn deliver(&self, notice: &ContactNotice);
 }
 
 /// A chi va una notifica, dato lo stato delle impostazioni e dei sink.
@@ -37,41 +37,53 @@ impl Targets {
 
 /// Consegna `notice` ai destinatari di `targets`: i sink uno dopo l'altro, poi
 /// `emit` per il frontend.
-pub fn dispatch(notice: &HubNotice, targets: Targets, sinks: &[Arc<dyn NoticeSink>], emit: impl FnOnce(&HubNotice)) {
+pub fn dispatch(
+    contact: &ContactNotice,
+    targets: Targets,
+    sinks: &[Arc<dyn NoticeSink>],
+    emit: impl FnOnce(&HubNotice),
+) {
     if targets.sinks {
         for sink in sinks {
-            sink.deliver(notice);
+            sink.deliver(contact);
         }
     }
     if targets.frontend {
-        emit(notice);
+        emit(&contact.notice);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::notice::HubNoticeSound;
+    use super::super::notice::{HubNoticeSound, NoticeCategory};
     use super::*;
     use crate::hub::channel::Channel;
     use std::sync::Mutex;
 
     #[derive(Default)]
-    struct Recorder(Mutex<Vec<HubNotice>>);
+    struct Recorder(Mutex<Vec<ContactNotice>>);
 
     impl NoticeSink for Recorder {
-        fn deliver(&self, notice: &HubNotice) {
+        fn deliver(&self, notice: &ContactNotice) {
             self.0.lock().unwrap().push(notice.clone());
         }
     }
 
-    fn notice() -> HubNotice {
-        HubNotice {
+    fn notice() -> ContactNotice {
+        let notice = HubNotice {
             channel: Channel::General,
             thread_id: "thr-1".into(),
             message_id: "msg-1".into(),
             title: "t".into(),
             body: "b".into(),
             sound: HubNoticeSound::Ding,
+        };
+        ContactNotice {
+            notice,
+            category: NoticeCategory::TaskDone,
+            channel_name: "Generale".into(),
+            thread_title: "Piano".into(),
+            text: "testo".into(),
         }
     }
 

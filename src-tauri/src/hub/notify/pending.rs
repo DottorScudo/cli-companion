@@ -2,7 +2,7 @@
 //! stessa finestra diventano una notifica sola, la piu' significativa.
 
 use super::kind::Priority;
-use super::notice::HubNotice;
+use super::notice::ContactNotice;
 use crate::hub::channel::Channel;
 use std::collections::HashMap;
 
@@ -13,7 +13,7 @@ pub type ThreadKey = (Channel, String);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Candidate {
     pub priority: Priority,
-    pub notice: HubNotice,
+    pub notice: ContactNotice,
 }
 
 /// I candidati in attesa, uno per thread.
@@ -42,7 +42,7 @@ impl Pending {
     }
 
     /// Chiude la finestra del thread e ne consegna la notifica.
-    pub fn take(&mut self, key: &ThreadKey) -> Option<HubNotice> {
+    pub fn take(&mut self, key: &ThreadKey) -> Option<ContactNotice> {
         self.slots.remove(key).map(|c| c.notice)
     }
 
@@ -54,7 +54,7 @@ impl Pending {
 
 #[cfg(test)]
 mod tests {
-    use super::super::notice::HubNoticeSound;
+    use super::super::notice::{HubNotice, HubNoticeSound, NoticeCategory};
     use super::*;
 
     fn key(thread: &str) -> ThreadKey {
@@ -69,6 +69,13 @@ mod tests {
             title: title.to_string(),
             body: String::new(),
             sound: HubNoticeSound::Ding,
+        };
+        let notice = ContactNotice {
+            notice,
+            category: NoticeCategory::TaskDone,
+            channel_name: "Generale".to_string(),
+            thread_title: "Titolo".to_string(),
+            text: String::new(),
         };
         Candidate { priority, notice }
     }
@@ -85,8 +92,8 @@ mod tests {
         let mut p = Pending::default();
         assert!(p.offer(key("a"), candidate("a", Priority::Reply, "a")));
         assert!(p.offer(key("b"), candidate("b", Priority::TaskDone, "b")));
-        assert_eq!(p.take(&key("b")).unwrap().title, "b");
-        assert_eq!(p.take(&key("a")).unwrap().title, "a");
+        assert_eq!(p.take(&key("b")).unwrap().notice.title, "b");
+        assert_eq!(p.take(&key("a")).unwrap().notice.title, "a");
     }
 
     #[test]
@@ -94,10 +101,10 @@ mod tests {
         let mut p = Pending::default();
         p.offer(key("a"), candidate("a", Priority::TaskFailed, "evento"));
         p.offer(key("a"), candidate("a", Priority::Reply, "risposta"));
-        assert_eq!(p.take(&key("a")).unwrap().title, "risposta");
+        assert_eq!(p.take(&key("a")).unwrap().notice.title, "risposta");
         p.offer(key("a"), candidate("a", Priority::Reply, "risposta"));
         p.offer(key("a"), candidate("a", Priority::TaskFailed, "evento"));
-        assert_eq!(p.take(&key("a")).unwrap().title, "risposta");
+        assert_eq!(p.take(&key("a")).unwrap().notice.title, "risposta");
     }
 
     #[test]
@@ -105,7 +112,7 @@ mod tests {
         let mut p = Pending::default();
         p.offer(key("a"), candidate("a", Priority::Question, "prima"));
         p.offer(key("a"), candidate("a", Priority::Question, "dopo"));
-        assert_eq!(p.take(&key("a")).unwrap().title, "dopo");
+        assert_eq!(p.take(&key("a")).unwrap().notice.title, "dopo");
     }
 
     #[test]

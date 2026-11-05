@@ -214,7 +214,6 @@ impl ContextHttp {
     }
 
     /// Alza il tetto della risposta (per scaricare un allegato).
-    #[expect(dead_code, reason = "serve ai connettori che scaricano allegati: nessuno e' registrato")]
     pub fn with_max_body(mut self, max_body: usize) -> Self {
         self.max_body = max_body;
         self

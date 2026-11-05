@@ -46,17 +46,55 @@ pub struct PollBatch {
 /// Un messaggio arrivato a un canale di contatto.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboundMessage {
+    /// L'id del messaggio nel servizio: base della dedupe e di `origin.external_id`.
     pub external_id: String,
     /// L'account esterno che l'ha scritto (stringa opaca).
     pub account: String,
     /// La chat in cui rispondere.
     pub chat: String,
+    /// Come si presenta il mittente (nome o username), per il collegamento; vuoto se ignoto.
+    pub sender_name: String,
     pub text: String,
     /// L'id esterno del messaggio a cui risponde, se e' una risposta.
     pub reply_to_external: Option<String>,
-    pub files: Vec<IncomingFile>,
+    /// Gli allegati, ancora da scaricare con `ContactConnector::fetch_file`.
+    pub files: Vec<RemoteFile>,
     /// Il codice di abbinamento, se il messaggio e' un invito ad abbinare (`/start <codice>`).
     pub pairing_code: Option<String>,
+    /// Il comando, se il messaggio lo e': allora `text` non va nel thread.
+    pub command: Option<ContactCommand>,
+}
+
+/// Un allegato di un messaggio in entrata, non ancora scaricato: il runtime lo
+/// chiede al connettore (`ContactConnector::fetch_file`) solo per un account
+/// collegato ed entro i limiti degli allegati dell'HUB.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteFile {
+    /// L'id del file nel servizio (opaco, per `fetch_file`).
+    pub id: String,
+    /// Il nome come lo mostra il servizio (lo ripulisce l'HUB).
+    pub name: String,
+    /// La dimensione in byte dichiarata dal servizio, se la conosce.
+    pub size: Option<u64>,
+}
+
+/// Un comando scritto dall'utente nella chat (`/threads`, `/use 2`...). Il
+/// connettore lo riconosce secondo la sintassi del servizio; il runtime lo
+/// esegue e risponde (docs/CONNECTORS.MD §10). L'argomento e' il testo dopo il
+/// comando, senza spazi ai bordi (vuoto se manca).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContactCommand {
+    Help,
+    Threads,
+    Use(String),
+    Workspaces(String),
+    New(String),
+    Status,
+    Mute(String),
+    Unmute,
+    Unlink,
+    /// Un comando che il connettore non conosce: il runtime risponde con l'aiuto.
+    Unknown,
 }
 
 /// L'esito di `receive`: i messaggi e il cursore da salvare dopo la consegna.
@@ -66,10 +104,12 @@ pub struct ReceiveBatch {
     pub cursor: Value,
 }
 
-/// Un messaggio da mandare a una chat collegata.
+/// Un messaggio da mandare a una chat collegata. Il testo puo' superare il limite
+/// del servizio: il connettore lo spezza (`send` ritorna l'id di ogni parte).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutboundMessage {
     pub chat: String,
+    /// Testo semplice, senza markup.
     pub text: String,
     /// L'id esterno del messaggio a cui legare la risposta.
     pub reply_to_external: Option<String>,

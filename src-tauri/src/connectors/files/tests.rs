@@ -58,6 +58,7 @@ fn link(id: &str, instance: &str) -> ConnectorLink {
         external_chat: "42".to_string(),
         display_name: "Mario".to_string(),
         current: Some(LinkThread { channel: Channel::General, thread_id: "thr-1-1".to_string() }),
+        channel: None,
         muted_until: None,
         created_at: 3,
     }

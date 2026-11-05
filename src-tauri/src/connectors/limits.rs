@@ -16,10 +16,8 @@ pub const SEEN_MAX: usize = 5000;
 /// esterno <-> id del messaggio dell'HUB): le meno recenti escono per prime.
 pub const MAP_MAX: usize = 2000;
 /// Chiavi private di un connettore nel suo stato.
-#[cfg_attr(not(test), expect(dead_code, reason = "lo stato privato lo scrive solo un connettore registrato"))]
 pub const CUSTOM_KEYS_MAX: usize = 64;
 /// Dimensione massima, serializzata, di un valore privato di un connettore.
-#[cfg_attr(not(test), expect(dead_code, reason = "lo stato privato lo scrive solo un connettore registrato"))]
 pub const CUSTOM_VALUE_MAX: usize = 64 * 1024;
 
 /// Intervallo minimo fra due giri di una fonte.
@@ -28,6 +26,11 @@ pub const MIN_INTERVAL: Duration = Duration::from_secs(60);
 pub const ITEMS_PER_ROUND: usize = 20;
 /// Tetto di una singola chiamata al servizio.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(30);
+/// Tetto di una ricezione a lungo polling di un canale di contatto: l'attesa del
+/// servizio (al piu' `LONG_POLL_MAX`) piu' un margine.
+pub const RECEIVE_TIMEOUT: Duration = Duration::from_secs(70);
+/// L'attesa massima che un connettore puo' chiedere al servizio in un long polling.
+pub const LONG_POLL_MAX: Duration = Duration::from_secs(55);
 /// Tetto di un giro intero.
 pub const ROUND_TIMEOUT: Duration = Duration::from_secs(120);
 /// Tetto di un'azione dell'interfaccia (prova, abbinamento, consenso OAuth: l'utente puo' impiegare del tempo).
@@ -41,16 +44,8 @@ pub const RETRY_AFTER_MAX: Duration = Duration::from_secs(3600);
 /// Dimensione massima di una risposta HTTP normale.
 pub const RESPONSE_MAX: usize = 1024 * 1024;
 /// Dimensione massima di una risposta con un allegato: il limite dell'HUB piu' un margine.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "lo usa il client HTTP, raggiungibile solo da un connettore registrato")
-)]
 pub const RESPONSE_MAX_FILES: usize = 10 * 1024 * 1024 + 256 * 1024;
 /// Redirect seguiti al massimo per richiesta.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "lo usa il client HTTP, raggiungibile solo da un connettore registrato")
-)]
 pub const REDIRECTS_MAX: usize = 5;
 
 /// Lunghezza massima, in caratteri, di una etichetta di istanza o di regola.

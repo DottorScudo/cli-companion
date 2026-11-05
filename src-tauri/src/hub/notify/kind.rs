@@ -1,6 +1,6 @@
 //! I tipi di notifica, con titolo, suono e significativita'.
 
-use super::notice::HubNoticeSound;
+use super::notice::{HubNoticeSound, NoticeCategory};
 
 /// Perche' si notifica.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +55,22 @@ impl NoticeKind {
             Self::ThreadConcluded => Priority::ThreadConcluded,
             Self::ReviewDone => Priority::ReviewDone,
             Self::TaskDone => Priority::TaskDone,
+        }
+    }
+
+    /// Il tipo senza dati, per chi filtra le notifiche.
+    pub fn category(&self) -> NoticeCategory {
+        match self {
+            Self::Reply { .. } => NoticeCategory::Reply,
+            Self::Question => NoticeCategory::Question,
+            Self::External { .. } => NoticeCategory::External,
+            Self::TaskFailed => NoticeCategory::TaskFailed,
+            Self::TaskAttention => NoticeCategory::TaskAttention,
+            Self::PlanWithoutProposal => NoticeCategory::PlanWithoutProposal,
+            Self::ProposalCreated => NoticeCategory::ProposalCreated,
+            Self::ThreadConcluded => NoticeCategory::ThreadConcluded,
+            Self::ReviewDone => NoticeCategory::ReviewDone,
+            Self::TaskDone => NoticeCategory::TaskDone,
         }
     }
 
@@ -120,6 +136,27 @@ mod tests {
     fn only_kinds_that_need_the_user_use_the_attention_sound() {
         let attention: Vec<bool> = by_significance().iter().map(|k| k.sound() == HubNoticeSound::Attention).collect();
         assert_eq!(attention, [false, false, true, true, true, true, false, false, false, false]);
+    }
+
+    #[test]
+    fn every_kind_has_its_own_category() {
+        use NoticeCategory as C;
+        let categories: Vec<NoticeCategory> = by_significance().iter().map(NoticeKind::category).collect();
+        assert_eq!(
+            categories,
+            [
+                C::Reply,
+                C::External,
+                C::Question,
+                C::TaskFailed,
+                C::TaskAttention,
+                C::PlanWithoutProposal,
+                C::ProposalCreated,
+                C::ThreadConcluded,
+                C::ReviewDone,
+                C::TaskDone,
+            ]
+        );
     }
 
     #[test]

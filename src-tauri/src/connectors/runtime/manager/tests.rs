@@ -4,10 +4,10 @@ use crate::connectors::model::{ConnectorsFile, LinkThread, RouteThread, RouteWak
 use crate::connectors::registry::test_registry::Registered;
 use crate::connectors::runtime::health::ConnectorStatus;
 use crate::connectors::testing::{
-    instance, link, new_contact, new_source, route, FakeClock, FakeHub, FakeSource, MemoryStates, ParkedSleeper,
-    RecordingEmitter, INSTANCE,
+    contact_notice, instance, link, new_contact, new_source, route, FakeClock, FakeHub, FakeSource, MemoryStates,
+    ParkedSleeper, RecordingEmitter, INSTANCE,
 };
-use crate::hub::{Channel, HubNotice, HubNoticeSound, NoticeSink};
+use crate::hub::{Channel, NoticeSink};
 use crate::secrets::MemorySecrets;
 use serde_json::json;
 use std::time::{Duration, Instant};
@@ -181,14 +181,7 @@ fn a_contact_instance_registers_for_notices_and_stopping_drops_them() {
     let f = fixture(contact_file());
     f.rt.set_hub_enabled(true);
     assert_eq!(f.rt.notices.registered(), 1);
-    let notice = HubNotice {
-        channel: Channel::General,
-        thread_id: "thr-1".to_string(),
-        message_id: "msg-1".to_string(),
-        title: "t".to_string(),
-        body: "b".to_string(),
-        sound: HubNoticeSound::Ding,
-    };
+    let notice = contact_notice("msg-1", "testo");
     f.rt.notice_sink().deliver(&notice);
     f.rt.set_hub_enabled(false);
     assert_eq!(f.rt.notices.registered(), 0);

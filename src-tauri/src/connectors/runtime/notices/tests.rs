@@ -1,7 +1,7 @@
 use super::*;
 use crate::connectors::model::{ConnectorInstance, ConnectorNotices, ConnectorsFile};
 use crate::connectors::testing::{FAKE_CONTACT, FAKE_SOURCE, INSTANCE};
-use crate::hub::Channel;
+use crate::hub::{Channel, HubNotice, NoticeCategory};
 use serde_json::json;
 
 fn instance(notices_all: bool, enabled: bool) -> ConnectorInstance {
@@ -24,14 +24,21 @@ fn router_with(inst: ConnectorInstance) -> NoticeRouter {
     NoticeRouter::new(store)
 }
 
-fn notice(n: usize) -> HubNotice {
-    HubNotice {
+fn notice(n: usize) -> ContactNotice {
+    let notice = HubNotice {
         channel: Channel::General,
         thread_id: "thr-1".to_string(),
         message_id: format!("msg-{n}"),
         title: "t".to_string(),
         body: "b".to_string(),
         sound: crate::hub::HubNoticeSound::Ding,
+    };
+    ContactNotice {
+        notice,
+        category: NoticeCategory::Reply,
+        channel_name: "Generale".to_string(),
+        thread_title: "Titolo".to_string(),
+        text: "testo".to_string(),
     }
 }
 
@@ -40,7 +47,7 @@ fn a_notice_reaches_a_registered_instance_with_the_switch_on() {
     let router = router_with(instance(true, true));
     let mut rx = router.register(INSTANCE, &FAKE_CONTACT).unwrap();
     router.deliver(&notice(1));
-    assert_eq!(rx.try_recv().unwrap().message_id, "msg-1");
+    assert_eq!(rx.try_recv().unwrap().notice.message_id, "msg-1");
 }
 
 #[test]
@@ -82,7 +89,7 @@ fn unregistering_or_clearing_stops_the_flow() {
     router.deliver(&notice(1));
     router.clear();
     router.deliver(&notice(2));
-    assert_eq!(rx.try_recv().unwrap().message_id, "msg-1");
+    assert_eq!(rx.try_recv().unwrap().notice.message_id, "msg-1");
     assert!(rx.try_recv().is_err());
     router.register(INSTANCE, &FAKE_CONTACT).unwrap();
     router.unregister(INSTANCE);

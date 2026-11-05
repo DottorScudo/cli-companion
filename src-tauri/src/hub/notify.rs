@@ -13,7 +13,8 @@
 //! (`set_notice_sink`), anche con l'interruttore delle notifiche spento.
 //!
 //! Un file per responsabilita':
-//! - `notice`: i DTO verso il frontend (`HubNotice`, suono, riferimento al thread);
+//! - `notice`: i DTO verso il frontend (`HubNotice`, suono, riferimento al thread) e
+//!   quello per i sink (`ContactNotice`, col tipo e il testo completo);
 //! - `kind`: i tipi di notifica, con titolo, suono e significativita';
 //! - `text`: il corpo (canale · thread, prima riga del messaggio), puro;
 //! - `pending`: il raggruppamento per thread, puro;
@@ -26,11 +27,11 @@ mod kind;
 mod notice;
 mod pending;
 mod sinks;
-mod text;
+pub(super) mod text;
 
 pub use dispatch::HubNotifier;
 pub use kind::NoticeKind;
+pub use notice::{validate_thread_ref, ContactNotice, NoticeCategory};
 #[cfg(test)]
-pub use notice::HubNoticeSound;
-pub use notice::{validate_thread_ref, HubNotice};
+pub use notice::{HubNotice, HubNoticeSound};
 pub use sinks::NoticeSink;

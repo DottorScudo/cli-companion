@@ -1,9 +1,9 @@
 # Connettori dell'Agents HUB
 
 Documento di progetto e riferimento del codice di `src-tauri/src/connectors/`: i **connettori** estendono
-l'[Agents HUB](HUB.MD) verso l'esterno. Le fasi 1 (fondamenta nell'HUB) e 2 (runtime, registro, comandi Tauri) sono
-consegnate; il registro di produzione è ancora vuoto (primi connettori reali: fasi 4 e 5) e l'interfaccia generica è
-la fase 3 (vedi "Fasi"). Dove una decisione cambia un comportamento descritto in HUB.MD lo si dice esplicitamente
+l'[Agents HUB](HUB.MD) verso l'esterno. Sono consegnate le fasi 1 (fondamenta nell'HUB), 2 (runtime, registro,
+comandi Tauri), 3 (interfaccia generica) e 4 (Telegram, il primo connettore del registro); Gmail è la fase 5 (vedi
+"Fasi"). Dove una decisione cambia un comportamento descritto in HUB.MD lo si dice esplicitamente
 come **cambiamento previsto**; finché la fase che lo introduce non è consegnata vale HUB.MD. La ricetta per
 aggiungere un connettore è in [wiki/integrare-un-connettore.md](wiki/integrare-un-connettore.md).
 
@@ -224,10 +224,16 @@ pub trait SourceConnector: Connector {
 }
 
 pub trait ContactConnector: Connector {
-    /// Long polling: aspetta (con timeout) i messaggi in entrata e restituisce anche il cursore nuovo.
+    /// Pura: la configurazione chiede di inoltrare le notifiche di questo tipo?
+    fn wants_notice(&self, config: &Value, category: NoticeCategory) -> bool;
+    /// Long polling (al più `RECEIVE_TIMEOUT`, 70 s): i messaggi in entrata, già tradotti (testo, risposta,
+    /// comando, codice di abbinamento, allegati NON scaricati), e il cursore nuovo.
     fn receive<'a>(&'a self, ctx: &'a ConnectorContext, cursor: Option<Value>) -> BoxFuture<'a, Result<ReceiveBatch, ConnectorError>>;
-    /// Manda un messaggio a una chat collegata; ritorna l'id esterno.
-    fn send<'a>(&'a self, ctx: &'a ConnectorContext, out: &'a OutboundMessage) -> BoxFuture<'a, Result<String, ConnectorError>>;
+    /// Manda un messaggio a una chat collegata, spezzato al limite del servizio e con la sua frequenza;
+    /// ritorna l'id esterno di ogni parte.
+    fn send<'a>(&'a self, ctx: &'a ConnectorContext, out: &'a OutboundMessage) -> BoxFuture<'a, Result<Vec<String>, ConnectorError>>;
+    /// Scarica un allegato in entrata: il runtime lo chiede solo per un account collegato ed entro i limiti.
+    fn fetch_file<'a>(&'a self, ctx: &'a ConnectorContext, file: &'a RemoteFile) -> BoxFuture<'a, Result<IncomingFile, ConnectorError>>;
     /// Un account ha presentato un codice di abbinamento: il connettore risponde come crede (benvenuto, errore generico).
     fn pairing_reply<'a>(&'a self, ctx: &'a ConnectorContext, outcome: &'a PairingOutcome, chat: &'a str) -> BoxFuture<'a, Result<(), ConnectorError>>;
 }
@@ -557,23 +563,35 @@ del segretario svegliato dà una notifica sola (la risposta).
 monouso** (12 caratteri casuali da `getrandom`, alfabeto senza ambiguità, valido 10 minuti, tenuto solo in memoria)
 e lo mostra con le istruzioni del connettore (Telegram: un link `https://t.me/<bot>?start=<codice>` e il testo
 `/start <codice>`). Il primo messaggio con il codice valido, da una **chat privata**, crea il `ContactLink` e
-consuma il codice; il bot risponde con il benvenuto e `/help`. Un codice sbagliato o scaduto risponde in modo
-generico e conta per il limite di frequenza (§11). Il collegamento si revoca dall'interfaccia (e con `/stop` dalla
-chat).
+consuma il codice; il bot risponde con il benvenuto e l'aiuto (`/help`). Il nome mostrato del collegamento è quello
+del mittente (`InboundMessage.sender_name`, ripulito). Un codice sbagliato o scaduto risponde in modo generico e conta
+per il limite di frequenza (§11). Il collegamento si revoca dall'interfaccia o con `/unlink` (alias `/stop`) dalla
+chat.
+
+**Chi fa cosa.** Il connettore traduce: riconosce comandi, codici di abbinamento, risposte e allegati secondo la
+sintassi del servizio, spezza i testi al limite del servizio e ne rispetta la frequenza. Il runtime
+(`connectors/runtime/contact/`) decide: dedupe, abbinamento, collegamenti, thread corrente, esecuzione dei comandi e
+testi delle risposte (`replies.rs`, uguali per ogni canale di contatto), limiti degli allegati, mappa delle risposte.
+Un account non collegato non arriva mai all'HUB e i suoi allegati non si scaricano.
 
 **Notifiche in uscita.** Le stesse notifiche dell'HUB, dopo lo **stesso raggruppamento** di `HubNotifier`
-(finestra di 3 s, una per thread): **cambiamento previsto** di `hub/notify/dispatch.rs`, che a fine finestra
-consegna la notizia a ogni destinatario registrato (`hub::set_notice_sink`) invece di emettere solo `hub-notify`.
-Ogni destinatario ha il suo interruttore: il frontend continua a guardare `notifications`; un canale di contatto
-guarda `notices` dell'istanza (generale + per tipo: risposte, domande, fallimenti, attenzione, proposte, conclusioni,
-fonti) e `muted_until` del collegamento, **indipendenti** da `notifications`. Il DTO verso i contatti
-(`ContactNotice`) porta, oltre a `HubNotice`, l'id del messaggio dell'HUB che l'ha causata e il suo **testo
-completo** (una risposta del segretario va letta intera fuori dall'app, non in 120 caratteri), tagliato al limite del
-servizio (Telegram 4096, spezzato in più messaggi se serve, al massimo 3). Il messaggio inviato riporta canale e
-titolo del thread; il suo id esterno entra nella mappa id esterno ↔ messaggio HUB.
+(finestra di 3 s, una per thread): a fine finestra `hub/notify/dispatch.rs` consegna la notizia a ogni destinatario
+registrato (`hub::set_notice_sink`) oltre a emettere `hub-notify`. Ogni destinatario ha il suo interruttore: il
+frontend continua a guardare `notifications`; un canale di contatto guarda `notices.all` dell'istanza, i **tipi** scelti
+nella sua configurazione (`ContactConnector::wants_notice`: Telegram ha un interruttore per tipo nei campi del
+descrittore) e `muted_until` del collegamento, **indipendenti** da `notifications`. Il DTO verso i contatti
+(`ContactNotice`) porta, oltre a `HubNotice` (con l'id del messaggio dell'HUB che l'ha causata), il tipo
+(`NoticeCategory`), i nomi di canale e thread e il **testo completo** del messaggio (una risposta del segretario va
+letta intera fuori dall'app, non in 120 caratteri). Il testo inviato è `«<canale> › <titolo del thread>»`, a capo, il
+testo (o il titolo della notifica se il messaggio è vuoto), spezzato dal connettore al limite del servizio (Telegram
+4096, al massimo 3 parti). Ogni parte inviata entra nella mappa id esterno → `(canale, thread, messaggio HUB)`
+(`runtime/contact/refs.rs`, valore codificato nello stato dell'istanza).
 
-**Messaggi in entrata.** Da un collegamento: vanno al **thread corrente** del collegamento con `send_user_message` (o `send_user_files` se hanno allegati). Senza
-thread corrente il bot risponde con l'elenco (`/threads`) e non salva nulla.
+**Messaggi in entrata.** Da un collegamento: vanno al **thread corrente** del collegamento con `send_user_message` (o
+`send_user_files` se hanno allegati), con `origin { connector, instance, external_id }`: sono messaggi dell'utente,
+quindi menzioni, titolare della sessione e risposte dirette funzionano come nell'app. Senza thread corrente il bot
+spiega come sceglierne uno e non salva nulla; un thread corrente sparito si azzera con un avviso. Un errore dell'HUB
+(testo troppo lungo, thread chiuso al limite…) si racconta nella chat e il messaggio non si ritenta.
 
 **Risposte.** Rispondere (la funzione «rispondi» del servizio) a un messaggio del bot = messaggio **nello stesso
 thread** di quella notifica, con `reply_to` sul messaggio dell'HUB che l'ha causata (dalla mappa), e quel thread
@@ -586,21 +604,27 @@ va al thread corrente senza `reply_to`, con un avviso.
 
 | Comando | Effetto |
 |---|---|
-| `/help` | elenco dei comandi |
-| `/threads` | i thread aperti del canale corrente (prima quelli che aspettano l'utente, `waiting_user`), numerati, al massimo 10 |
-| `/use <n>` | rende corrente il thread n dell'ultimo elenco |
-| `/ws [nome]` | senza argomento elenca i canali (Generale e workspace per **nome**, mai per id); con un nome cambia canale |
-| `/new <titolo>` | crea un thread nel canale corrente (`create_thread`) e lo rende corrente |
-| `/status` | riepilogo: thread corrente, thread che aspettano l'utente per canale, segretari svegli |
-| `/mute [minuti\|off]` | silenzia le notifiche del collegamento (default 60 minuti) o le riattiva |
-| `/stop` | revoca il collegamento |
+| `/help` | elenco dei comandi (anche `/start` senza codice; un comando sconosciuto risponde con l'aiuto) |
+| `/threads` | i thread aperti di tutti i canali (prima quelli che aspettano l'utente, `waiting_user`, poi i più recenti), numerati, al massimo 10, ciascuno con il nome del canale |
+| `/use <n>` | rende corrente il thread n dell'ultimo elenco (l'elenco sta in memoria: dopo un riavvio va rifatto `/threads`) |
+| `/ws [n\|nome]` | senza argomento elenca i canali (Generale e workspace per **nome**, mai per id); con un numero o un nome sceglie il canale di `/new` (`ConnectorLink.channel`) |
+| `/new <titolo>` | crea un thread nel canale scelto con `/ws` (altrimenti quello del thread corrente, altrimenti Generale) e lo rende corrente |
+| `/status` | riepilogo: thread corrente, thread che aspettano l'utente (in tutto e per canale), notifiche silenziate o no |
+| `/mute [minuti]` | silenzia le notifiche del collegamento: senza argomento fino a `/unmute`, con un numero per quei minuti (al più 7 giorni) |
+| `/unmute` | riattiva le notifiche |
+| `/unlink` (`/stop`) | revoca il collegamento |
 
-**Allegati in entrata**: documenti e foto della chat si scaricano entro `ATTACHMENT_SIZE_MAX` e `ATTACHMENTS_MAX` per
-messaggio (Telegram raggruppa le foto in album: un album = un messaggio dell'HUB), con `stage_bytes`; quelli oltre i
-limiti si rifiutano con un avviso nella chat. **In uscita** v1 non manda file: la notifica dice «2 allegati
-nell'HUB».
+**Allegati in entrata**: documenti e foto della chat (di una foto la dimensione più grande) si scaricano con
+`fetch_file` entro `ATTACHMENT_SIZE_MAX` e `ATTACHMENTS_MAX` per messaggio (Telegram raggruppa le foto in album: un
+album nello stesso lotto = un messaggio dell'HUB) e passano da `send_user_files`; quelli oltre i limiti o non
+scaricabili si saltano con un avviso nella chat. Sticker, vocali, video e simili senza testo si ignorano (riga nel
+log). **In uscita** v1 non manda file.
 
-**Dedupe**: per `update_id` (Telegram) nell'insieme dei visti, oltre all'offset.
+**Dedupe**: per id esterno del messaggio (`<chat>:<message_id>` per Telegram) nell'insieme dei visti, oltre al
+cursore (`offset` = ultimo `update_id` + 1) salvato dopo l'elaborazione del lotto.
+
+**Limite in entrata**: al più 20 messaggi al minuto per account collegato; gli altri si scartano, con un solo avviso
+per finestra.
 
 **Messaggi modificati**: ignorati in v1 (il bot non risponde; il testo nell'HUB resta quello originale).
 
@@ -654,21 +678,49 @@ successiva, con lo stesso contratto `ContactConnector`.
 
 ### Telegram (`connectors/telegram/`, `contact`)
 
-- **Configurazione**: un campo `secret` `bot_token` (creato dall'utente con @BotFather; l'aiuto lo spiega). Host:
+**Creare il bot e abbinarlo** (guida per l'utente):
+
+1. In Telegram apri una chat con **@BotFather**, scrivi `/newbot`, scegli un nome e uno username che finisca con
+   `bot` (es. `mio_hub_bot`). BotFather risponde con il **token** (`123456789:AA…`): è una password, non condividerlo.
+2. Nell'app: Impostazioni › Connettori › Telegram › «Aggiungi», incolla il token nel campo «Token del bot» (va nel
+   portachiavi del sistema, mai su disco) e scegli quali notifiche inoltrare. «Prova» chiama `getMe` e mostra il
+   nome del bot.
+3. Abilita l'istanza (serve l'HUB acceso) e premi «Abbina un account»: l'app mostra un codice valido 10 minuti e il
+   link `https://t.me/<bot>?start=<codice>`. Apri il link dal telefono (o scrivi al bot `/start <codice>`): il bot
+   risponde con il benvenuto e l'aiuto.
+4. Scegli dove scrivere con `/threads` e `/use <n>` (o `/ws` e `/new <titolo>`), oppure rispondi direttamente alle
+   notifiche. Il collegamento si revoca dalle impostazioni o con `/unlink`.
+
+Il bot va usato solo in chat privata: aggiunto a un gruppo esce da solo. Se il bot aveva un webhook, il primo avvio
+lo toglie (webhook e `getUpdates` si escludono).
+
+**Codice** (`connectors/telegram/`):
+
+- **Configurazione**: un campo `secret` `bot_token` (formato `<cifre>:<almeno 30 caratteri A-Za-z0-9_->` controllato
+  prima di ogni chiamata) e otto interruttori `bool` per i tipi di notifica: risposta di un segretario, domanda di un
+  worker, task fallito, task che richiede attenzione, proposta, pianificazione senza proposta, thread concluso (tutti
+  accesi), task o revisione finiti (spento). Gli elementi delle fonti (`External`) non si inoltrano in v1. Host:
   `api.telegram.org`. Capacità: `receive_notices`, `send_as_user`. Azioni: `test` (`getMe`, mostra il nome del bot),
-  `pair`.
-- **Ricezione**: long polling `getUpdates` con `offset` = ultimo `update_id` + 1 (salvato nello stato dopo la
-  consegna), `timeout` 50 s, `allowed_updates: ["message", "my_chat_member"]`. All'abilitazione `deleteWebhook` (i due modi si
-  escludono). Il servizio conserva gli update non letti per 24 ore.
-- **Abbinamento**: `/start <codice>` in chat privata (`chat.type == "private"`), deep link `t.me/<bot>?start=<codice>`
-  (il payload di `/start` ammette `A-Za-z0-9_-` fino a 64 caratteri). `my_chat_member` verso un gruppo → `leaveChat`.
-- **Invio**: `sendMessage` in testo semplice (nessun `parse_mode`: niente escape di Markdown/HTML da sbagliare),
-  limite **4096 caratteri** per messaggio; `reply_parameters` per legare la risposta. Frequenza: **~1 messaggio al
-  secondo per chat** (e 30 al secondo in tutto per il bot): una coda d'uscita per collegamento, e un 429 con
-  `retry_after` dal corpo della risposta.
-- **Allegati**: `getFile` + download da `api.telegram.org/file/bot…` (la Bot API scarica al più 20 MB, il limite
-  dell'HUB è più stretto).
-- **Messaggi**: `message.reply_to_message.message_id` → mappa → `reply_to`; `edited_message` non si richiede.
+  `pair` (link `t.me` con il codice del runtime).
+- **Token**: nel percorso degli URL della Bot API (`/bot<token>/<metodo>`, `/file/bot<token>/<percorso>`): mai nei
+  log, negli errori (testi fissi, al più il codice d'errore), nei DTO, nello stato o nei messaggi.
+- **Ricezione**: long polling `getUpdates` (`timeout` 50 s, richiesta HTTP entro 60 s, sotto il `RECEIVE_TIMEOUT` del
+  runtime) con `offset` = ultimo `update_id` + 1 (cursore salvato dal runtime dopo il lotto),
+  `allowed_updates: ["message", "my_chat_member"]`. Al primo avvio (nessun cursore) `deleteWebhook` e si parte da
+  *adesso* (`offset: -1`). Il servizio conserva gli update non letti per 24 ore. Il parsing (`updates.rs`, puro) non
+  va mai in panico: un update inatteso si ignora con una riga nel log (solo il tipo).
+- **Abbinamento e comandi**: `/start <codice>` in chat privata (`chat.type == "private"`; il payload ammette
+  `A-Za-z0-9_-` fino a 64 caratteri); `/nome[@bot] argomenti` → `ContactCommand` (`commands.rs`, puro).
+  `my_chat_member` verso un gruppo → `leaveChat`. Messaggi di gruppi e canali, modificati, sticker: ignorati.
+- **Invio**: `sendMessage` in testo semplice (nessun `parse_mode`: niente escape di Markdown/HTML da sbagliare), senza
+  anteprima dei link, parti di al più **4096 unità UTF-16** tagliate a fine riga o parola, al massimo 3
+  (`text.rs`, puro); `reply_parameters` sulla prima parte per legare la risposta. Frequenza: **~1 messaggio al
+  secondo per chat** (`pacer.rs`, puro); un 429 diventa `RateLimited` con il `retry_after` del corpo.
+- **Errori**: 401/404 → `Auth` (token rifiutato: `needs_auth`); 429 → `RateLimited`; 409 (webhook o un altro client)
+  e ogni altro errore, compreso 403 di un utente che ha bloccato il bot → `Transient`.
+- **Allegati**: `getFile` + download da `api.telegram.org/file/bot…` (percorso validato, risposta limitata a
+  `RESPONSE_MAX_FILES`; la Bot API scarica al più 20 MB, il limite dell'HUB è più stretto).
+- **Messaggi**: id esterno `<chat>:<message_id>`; `message.reply_to_message` → `<chat>:<id>` → mappa → `reply_to`.
 
 ### Gmail (`connectors/gmail/`, `source`)
 
@@ -705,7 +757,7 @@ successiva, con lo stesso contratto `ContactConnector`.
 | **1. Fondamenta HUB** (consegnata) | `Author::External`, `origin` e `external_id` dei messaggi (ts-rs, compatibilità in lettura), allegati da byte per `external`; `hub::send::send_user_message` e `send_user_files` (con `hub_send` adattatore), `hub::ingress::deliver_external`; `WakeCause::ExternalItem` e `Sessions::route_external`, contenuto non fidato nel contesto; `NoticeKind::External`, destinatari multipli in `HubNotifier` (`set_notice_sink`, `message_id` in `HubNotice`); resa dei messaggi esterni nella conversazione. **`set_lifecycle_listener` non è in questa fase: passa alla fase 2** | test unitari dei nuovi percorsi, `hub_send` invariato |
 | **2. Runtime e registro** (consegnata) | `hub::set_lifecycle_listener` (HUB spento o acceso, workspace rimosso); `connectors/`: contratti, descrittore e validazione, registro, `connectors.json` e `connector_state/`, supervisori, backoff, salute (`connector-status`), client HTTP con allowlist, segreti, abbinamento, comandi Tauri; un connettore finto nei test, conformance e test architetturali | un connettore finto consegna e riceve end-to-end nei test |
 | **3. Interfaccia generica** (consegnata, tranne i collegamenti) | Impostazioni › Connettori (`ConnectorsPage`: disponibili, istanze, stato in tempo reale, azioni, segreti in sola scrittura), form dei campi dal descrittore (`lib/connectorForm.ts`), regole delle fonti (`lib/connectorRoutes.ts`, editor nelle impostazioni), «Fonti collegate» nell'intestazione del thread; resta da fare l'elenco dei collegamenti dei canali di contatto e l'elenco dei permessi del descrittore | nessun componente nomina un connettore |
-| **4. Telegram** | connettore `contact` di riferimento | abbinamento, notifiche, risposte, comandi, allegati |
+| **4. Telegram** (consegnata) | connettore `contact` di riferimento; nel runtime: `ContactNotice` con tipo e testo completo, filtro per tipo (`wants_notice`), comandi e testi delle risposte, mappa delle risposte con canale e thread, allegati scaricati solo per gli account collegati (`fetch_file`), `HubPort::{channels, open_threads, create_thread}` (`hub::contact`), `ConnectorLink.channel` | abbinamento, notifiche, risposte, comandi, allegati |
 | **5. Gmail** | connettore `source` di riferimento | OAuth, regole, consegna, risveglio |
 | poi | Discord (gateway WebSocket), adattatore sidecar (B), altre fonti (calendario, RSS, issue tracker…) | |
 
@@ -713,18 +765,13 @@ Alla fine della fase 2 la ricetta «Aggiungere un connettore» è in `CONTRIBUTI
 [wiki/integrare-un-connettore.md](wiki/integrare-un-connettore.md), sul modello di
 [wiki/integrare-un-coding-agent.md](wiki/integrare-un-coding-agent.md).
 
-**Rinviato dalla fase 2** (non ancora fatto, da riprendere con la fase 4 che è la prima a usarli):
+**Ancora rinviato** (dalla fase 2):
 
-- il DTO `ContactNotice` con il **testo completo** della notifica: oggi `NoticeRouter` inoltra ai canali di contatto
-  l'`HubNotice` così com'è (titolo e testo ridotto a due righe);
-- gli interruttori **per tipo** di notifica (`notices.replies`, `questions`, …): oggi conta solo `notices.all`, perché
-  `HubNotice` non porta il tipo; i campi esistono già in `ConnectorNotices` e `connector_update_instance` non li
-  modifica ancora;
+- gli interruttori per tipo di `ConnectorNotices` (`notices.replies`, `questions`, …) restano inutilizzati: il filtro
+  per tipo dei canali di contatto sta nella configurazione del connettore (`wants_notice`, dai campi del
+  descrittore), così l'interfaccia generica lo mostra senza componenti dedicati; conta solo `notices.all`;
 - i test dei **timeout** delle singole chiamate (30 s) e del giro (2 min): `with_timeout` e il tetto del giro sono nel
-  supervisore ma coperti solo dai test di logica con l'attesa finta, non da test che scadono davvero;
-- finché il registro di produzione è vuoto, i pezzi raggiungibili solo da un connettore (contesto, client HTTP,
-  stato privato, alcune varianti dei contratti) hanno un `expect(dead_code)` mirato; l'aggiunta del primo connettore
-  fa fallire clippy sugli `expect` non più soddisfatti, e vanno tolti.
+  supervisore ma coperti solo dai test di logica con l'attesa finta, non da test che scadono davvero.
 
 ## Domande aperte
 

@@ -1,0 +1,98 @@
+use super::*;
+use serde_json::json;
+
+fn body(value: &Value) -> Vec<u8> {
+    serde_json::to_vec(value).unwrap()
+}
+
+fn error_body(code: u64, description: &str) -> Vec<u8> {
+    body(&json!({"ok": false, "error_code": code, "description": description}))
+}
+
+#[test]
+fn an_ok_response_yields_its_result() {
+    let ok = body(&json!({"ok": true, "result": {"id": 7}}));
+    assert_eq!(classify(200, &ok).unwrap(), json!({"id": 7}));
+    let list = body(&json!({"ok": true, "result": []}));
+    assert_eq!(classify(200, &list).unwrap(), json!([]));
+}
+
+#[test]
+fn unauthorized_and_not_found_stop_with_auth() {
+    for code in [401u16, 404] {
+        let error = classify(code, &error_body(u64::from(code), "Unauthorized")).unwrap_err();
+        assert!(matches!(error, ConnectorError::Auth(_)), "{code}: {error}");
+    }
+    // Anche con un corpo che non e' JSON conta lo stato.
+    assert!(matches!(classify(401, b"<html>").unwrap_err(), ConnectorError::Auth(_)));
+}
+
+#[test]
+fn too_many_requests_carry_the_retry_after() {
+    let limited = body(&json!({
+        "ok": false, "error_code": 429, "description": "Too Many Requests: retry after 7",
+        "parameters": {"retry_after": 7}
+    }));
+    assert_eq!(
+        classify(429, &limited).unwrap_err(),
+        ConnectorError::RateLimited { retry_after: Some(Duration::from_secs(7)) }
+    );
+    assert_eq!(classify(429, b"").unwrap_err(), ConnectorError::RateLimited { retry_after: None });
+    let odd = body(&json!({"ok": false, "error_code": 429, "parameters": {"retry_after": "molto"}}));
+    assert_eq!(classify(429, &odd).unwrap_err(), ConnectorError::RateLimited { retry_after: None });
+}
+
+#[test]
+fn conflicts_forbidden_bad_requests_and_server_errors_are_retried() {
+    for code in [400u16, 403, 409, 500, 502, 503, 418] {
+        let error = classify(code, &error_body(u64::from(code), "x")).unwrap_err();
+        assert!(matches!(error, ConnectorError::Transient(_)), "{code}: {error}");
+        assert!(!error.stops_the_supervisor());
+    }
+}
+
+#[test]
+fn unexpected_shapes_are_transient() {
+    for (status, raw) in [
+        (200u16, b"".as_slice()),
+        (200, b"non json"),
+        (200, b"null"),
+        (200, b"[]"),
+        (200, br#"{"ok": true}"#),
+        (200, br#"{"ok": "si", "result": 1}"#),
+        (200, br#"{"ok": false}"#),
+        (500, b"<html>Bad gateway</html>"),
+    ] {
+        let error = classify(status, raw).unwrap_err();
+        assert!(matches!(error, ConnectorError::Transient(_)), "{status} {raw:?}: {error}");
+    }
+}
+
+#[test]
+fn the_json_error_code_wins_over_a_generic_status() {
+    let error = classify(200, &error_body(401, "x")).unwrap_err();
+    assert!(matches!(error, ConnectorError::Auth(_)));
+}
+
+#[test]
+fn a_success_status_with_ok_false_is_never_a_result() {
+    assert!(classify(200, &body(&json!({"ok": false, "result": 1}))).is_err());
+}
+
+#[test]
+fn the_description_never_leaks() {
+    for code in [400u16, 401, 403, 404, 409, 429, 500] {
+        let raw = body(&json!({
+            "ok": false, "error_code": code, "description": "Bad Request: 123456:SECRET-TOKEN-VALUE"
+        }));
+        let error = classify(code, &raw).unwrap_err();
+        let shown = format!("{error} {error:?}");
+        assert!(!shown.contains("SECRET") && !shown.contains("Bad Request"), "{shown}");
+    }
+}
+
+#[test]
+fn error_of_never_returns_a_result() {
+    assert!(matches!(error_of(200, b"{}"), ConnectorError::Transient(_)));
+    assert!(matches!(error_of(404, b"binario\xff"), ConnectorError::Auth(_)));
+}

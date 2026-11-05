@@ -7,8 +7,8 @@
 //!
 //! Si leggono i soli identificatori e stringhe del codice di produzione (lo scanner
 //! di `agents/architecture/scanner.rs`): restano fuori commenti, test e moduli
-//! dichiarati `#[cfg(test)] mod x;`. Con il registro vuoto l'elenco dei connettori
-//! noti e' vuoto: la sua utilita' la prova un caso sintetico.
+//! dichiarati `#[cfg(test)] mod x;`. L'elenco dei connettori
+//! noti coincide con il registro di produzione; i casi sintetici provano le regole.
 
 use super::registry;
 use crate::agents::architecture::scanner::{scan, Token, TokenKind};
@@ -25,7 +25,7 @@ struct Known {
 
 /// Connettori noti al test. Aggiungendo un connettore: una riga qui (e una in
 /// `tests/architecture.test.mjs`).
-const KNOWN: &[Known] = &[];
+const KNOWN: &[Known] = &[Known { folder: "telegram", id: "telegram" }];
 
 /// Cartelle di `connectors/` che non sono connettori.
 const CORE_FOLDERS: [&str; 8] =
@@ -36,7 +36,8 @@ const REGISTRATION_FILES: [&str; 2] = ["connectors.rs", "connectors/registry.rs"
 
 /// Cosa un connettore puo' importare da `crate::hub::`: la porta d'ingresso e i
 /// tipi pubblici del modello (autore, messaggio, origine, canale, allegati in arrivo).
-const ALLOWED_HUB: [&str; 7] = ["ingress", "attachments", "Author", "Message", "MessageOrigin", "Channel", "HubNotice"];
+const ALLOWED_HUB: [&str; 8] =
+    ["ingress", "attachments", "Author", "Message", "MessageOrigin", "Channel", "HubNotice", "NoticeCategory"];
 
 /// I moduli di `hub` che un connettore non deve toccare nemmeno dentro un
 /// `use crate::hub::{...}` (dove si vede solo la prima voce).
@@ -257,8 +258,9 @@ mod tests {
     }
 
     #[test]
-    fn the_known_list_is_empty_until_a_real_connector_exists() {
-        assert!(KNOWN.is_empty() && registry::all().is_empty());
+    fn the_known_list_matches_the_production_registry() {
+        let registered: Vec<_> = registry::all().iter().map(|c| c.descriptor().id).collect();
+        assert_eq!(registered, KNOWN.iter().map(|c| c.id).collect::<Vec<_>>());
     }
 
     #[test]

@@ -5,7 +5,7 @@
 //! test in parallelo se lo contenderebbero.
 
 use super::{FakeContact, FakeSource, FAKE_SOURCE, INSTANCE};
-use crate::connectors::contracts::{BoxFuture, InboundMessage, PollBatch, SourceItem};
+use crate::connectors::contracts::{BoxFuture, ContactCommand, InboundMessage, PollBatch, SourceItem};
 use crate::connectors::descriptor::{ConnectorDescriptor, HubCapability, Permissions};
 use crate::connectors::model::{
     ConnectorInstance, ConnectorLink, ConnectorNotices, ConnectorRoute, LinkThread, RouteThread, RouteWake,
@@ -14,7 +14,7 @@ use crate::connectors::runtime::health::{ConnectorStatus, StatusEmitter};
 use crate::connectors::runtime::store::StateStore;
 use crate::connectors::runtime::time::Sleeper;
 use crate::connectors::state::InstanceState;
-use crate::hub::Channel;
+use crate::hub::{Channel, ContactNotice, HubNotice, HubNoticeSound, NoticeCategory};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -86,11 +86,37 @@ pub fn inbound(external_id: &str, account: &str, text: &str) -> InboundMessage {
         external_id: external_id.to_string(),
         account: account.to_string(),
         chat: format!("chat-{account}"),
+        sender_name: String::new(),
         text: text.to_string(),
         reply_to_external: None,
         files: Vec::new(),
         pairing_code: None,
+        command: None,
     }
+}
+
+/// Una notifica dell'HUB per il thread `thr-1` del Generale (titolo del thread "Piano").
+pub fn contact_notice(message_id: &str, text: &str) -> ContactNotice {
+    let notice = HubNotice {
+        channel: Channel::General,
+        thread_id: "thr-1".to_string(),
+        message_id: message_id.to_string(),
+        title: "Nuova risposta".to_string(),
+        body: "Generale · Piano".to_string(),
+        sound: HubNoticeSound::Ding,
+    };
+    ContactNotice {
+        notice,
+        category: NoticeCategory::Reply,
+        channel_name: "Generale".to_string(),
+        thread_title: "Piano".to_string(),
+        text: text.to_string(),
+    }
+}
+
+/// Un comando (`/threads`...) scritto da `account`.
+pub fn command(external_id: &str, account: &str, command: ContactCommand) -> InboundMessage {
+    InboundMessage { command: Some(command), ..inbound(external_id, account, "/comando") }
 }
 
 pub fn link(id: &str, account: &str, current: Option<&str>) -> ConnectorLink {
@@ -101,6 +127,7 @@ pub fn link(id: &str, account: &str, current: Option<&str>) -> ConnectorLink {
         external_chat: format!("chat-{account}"),
         display_name: account.to_string(),
         current: current.map(|t| LinkThread { channel: Channel::General, thread_id: t.to_string() }),
+        channel: None,
         muted_until: None,
         created_at: 1,
     }

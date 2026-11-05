@@ -35,6 +35,37 @@ pub struct HubNotice {
     pub sound: HubNoticeSound,
 }
 
+/// Il tipo di una notifica, come lo vede chi la riceve oltre al frontend (un
+/// canale di contatto la filtra per tipo). Una voce per `NoticeKind`, senza dati.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NoticeCategory {
+    Reply,
+    Question,
+    External,
+    TaskFailed,
+    TaskAttention,
+    PlanWithoutProposal,
+    ProposalCreated,
+    ThreadConcluded,
+    ReviewDone,
+    TaskDone,
+}
+
+/// Una notifica raggruppata per i `NoticeSink` (i canali di contatto): la
+/// `HubNotice` del frontend piu' il tipo, i nomi di canale e thread e il testo
+/// COMPLETO del messaggio che l'ha causata (una risposta va letta intera fuori
+/// dall'app, non in due righe). Tipo Rust, non un DTO del frontend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContactNotice {
+    pub notice: HubNotice,
+    pub category: NoticeCategory,
+    /// Il nome del canale per l'utente ("Generale", il nome del workspace): mai un id.
+    pub channel_name: String,
+    pub thread_title: String,
+    /// Il testo completo del messaggio (puo' essere vuoto, per esempio per un evento).
+    pub text: String,
+}
+
 /// Il thread da aprire al click su una toast; payload di
 /// `hub-notification-activated`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]

@@ -5,8 +5,8 @@
 
 use super::contracts::{
     ActionOutcome, ActiveRoute, BoxFuture, Clock, Connector, ConnectorContext, ConnectorError, ConnectorImpl,
-    ContactConnector, ContextParts, HubPort, OutboundMessage, PairingOutcome, PollBatch, ReceiveBatch, SourceConnector,
-    StateHandle,
+    ContactConnector, ContextParts, OutboundMessage, PairingOutcome, PollBatch, ReceiveBatch, RemoteFile,
+    SourceConnector, StateHandle,
 };
 use super::descriptor::{
     Action, ActionId, ConfigField, ConnectorDescriptor, ConnectorKind, DescriptorLimits, FieldKind, HubCapability,
@@ -16,13 +16,11 @@ use super::runtime::http::{shared_client, ContextHttp};
 use super::secrets::InstanceSecrets;
 use super::state::InstanceState;
 use crate::hub::attachments::IncomingFile;
-use crate::hub::ingress::{DeliveryOutcome, DeliveryTarget, ExternalDelivery};
-use crate::hub::send::UserMessage;
-use crate::hub::{Author, Channel, Message};
+use crate::hub::{Author, NoticeCategory};
 use crate::secrets::MemorySecrets;
 use serde_json::{json, Value};
-use std::collections::{HashSet, VecDeque};
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub const INSTANCE: &str = "con-1700000000000-1";
@@ -176,6 +174,9 @@ impl SourceConnector for FakeSource {
     }
 }
 
+/// L'esito di `fetch_file` per un id: i byte o un errore.
+type ScriptedFile = (String, Result<Vec<u8>, ConnectorError>);
+
 /// Un canale di contatto finto: registra i messaggi mandati e le risposte di abbinamento.
 pub struct FakeContact {
     script: Mutex<VecDeque<Result<ReceiveBatch, ConnectorError>>>,
@@ -183,6 +184,15 @@ pub struct FakeContact {
     pub pairing: Mutex<Vec<(PairingOutcome, String)>>,
     /// Se impostato, `send` fallisce con questo errore.
     pub send_error: Mutex<Option<ConnectorError>>,
+    /// I tipi di notifica che `wants_notice` rifiuta.
+    refused: Mutex<Vec<NoticeCategory>>,
+    /// In quante parti `send` spezza ogni messaggio (almeno una): un id per parte.
+    parts: AtomicUsize,
+    next_id: AtomicU64,
+    /// I file che `fetch_file` sa scaricare, per id.
+    files: Mutex<Vec<ScriptedFile>>,
+    /// Gli id dei file chiesti a `fetch_file`, in ordine.
+    pub fetched: Mutex<Vec<String>>,
 }
 
 impl FakeContact {
@@ -192,11 +202,36 @@ impl FakeContact {
             sent: Mutex::new(Vec::new()),
             pairing: Mutex::new(Vec::new()),
             send_error: Mutex::new(None),
+            refused: Mutex::new(Vec::new()),
+            parts: AtomicUsize::new(1),
+            next_id: AtomicU64::new(0),
+            files: Mutex::new(Vec::new()),
+            fetched: Mutex::new(Vec::new()),
         }
     }
 
     pub fn push(&self, result: Result<ReceiveBatch, ConnectorError>) {
         self.script.lock().unwrap().push_back(result);
+    }
+
+    /// Da ora `wants_notice` rifiuta questo tipo.
+    pub fn refuse(&self, category: NoticeCategory) {
+        self.refused.lock().unwrap().push(category);
+    }
+
+    /// Ogni `send` si spezza in `parts` parti.
+    pub fn split_sends_in(&self, parts: usize) {
+        self.parts.store(parts, Ordering::SeqCst);
+    }
+
+    /// Prepara l'esito di `fetch_file` per l'id `file_id`.
+    pub fn script_file(&self, file_id: &str, result: Result<Vec<u8>, ConnectorError>) {
+        self.files.lock().unwrap().push((file_id.to_string(), result));
+    }
+
+    /// I testi mandati, in ordine.
+    pub fn sent_texts(&self) -> Vec<String> {
+        self.sent.lock().unwrap().iter().map(|m| m.text.clone()).collect()
     }
 }
 
@@ -229,6 +264,10 @@ impl Connector for FakeContact {
 }
 
 impl ContactConnector for FakeContact {
+    fn wants_notice(&self, _config: &Value, category: NoticeCategory) -> bool {
+        !self.refused.lock().unwrap().contains(&category)
+    }
+
     fn receive<'a>(
         &'a self,
         _ctx: &'a ConnectorContext,
@@ -246,14 +285,30 @@ impl ContactConnector for FakeContact {
         &'a self,
         _ctx: &'a ConnectorContext,
         out: &'a OutboundMessage,
-    ) -> BoxFuture<'a, Result<String, ConnectorError>> {
+    ) -> BoxFuture<'a, Result<Vec<String>, ConnectorError>> {
         Box::pin(async move {
             if let Some(error) = self.send_error.lock().unwrap().clone() {
                 return Err(error);
             }
-            let mut sent = self.sent.lock().unwrap();
-            sent.push(out.clone());
-            Ok(format!("ext-{}", sent.len()))
+            self.sent.lock().unwrap().push(out.clone());
+            let parts = self.parts.load(Ordering::SeqCst).max(1);
+            Ok((0..parts).map(|_| format!("ext-{}", self.next_id.fetch_add(1, Ordering::SeqCst) + 1)).collect())
+        })
+    }
+
+    fn fetch_file<'a>(
+        &'a self,
+        _ctx: &'a ConnectorContext,
+        file: &'a RemoteFile,
+    ) -> BoxFuture<'a, Result<IncomingFile, ConnectorError>> {
+        Box::pin(async move {
+            self.fetched.lock().unwrap().push(file.id.clone());
+            let scripted = self.files.lock().unwrap().iter().find(|(id, _)| *id == file.id).map(|(_, r)| r.clone());
+            match scripted {
+                Some(Ok(bytes)) => Ok(IncomingFile { name: file.name.clone(), bytes }),
+                Some(Err(error)) => Err(error),
+                None => Err(ConnectorError::Transient("file non disponibile".to_string())),
+            }
         })
     }
 
@@ -276,103 +331,6 @@ pub static FAKE_CONTACT_CONNECTOR: FakeContact = FakeContact::new();
 /// I due connettori finti, come li registrerebbe `registry`.
 pub fn fakes() -> Vec<ConnectorImpl> {
     vec![ConnectorImpl::Source(&FAKE_SOURCE_CONNECTOR), ConnectorImpl::Contact(&FAKE_CONTACT_CONNECTOR)]
-}
-
-/// Una chiamata fatta alla porta HUB finta.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HubCall {
-    Deliver(ExternalDelivery),
-    SendUser(UserMessage),
-    SendUserFiles(UserMessage, Vec<IncomingFile>),
-}
-
-/// La porta HUB finta: registra le chiamate e risponde con id progressivi.
-#[derive(Default)]
-pub struct FakeHub {
-    pub calls: Mutex<Vec<HubCall>>,
-    pub fail_with: Mutex<Option<String>>,
-    pub threads: Mutex<HashSet<(String, String)>>,
-    /// Dalla N-esima chiamata (da 1) ogni chiamata fallisce: prova il fallimento a meta' di un giro.
-    pub fail_from: Mutex<Option<usize>>,
-}
-
-impl FakeHub {
-    pub fn calls(&self) -> Vec<HubCall> {
-        self.calls.lock().unwrap().clone()
-    }
-
-    fn failure(&self, call: usize) -> Option<String> {
-        let from = *self.fail_from.lock().unwrap();
-        let late = from.is_some_and(|from| call >= from).then(|| "HUB non disponibile".to_string());
-        self.fail_with.lock().unwrap().clone().or(late)
-    }
-
-    fn record(&self, call: HubCall) -> usize {
-        let mut calls = self.calls.lock().unwrap();
-        calls.push(call);
-        calls.len()
-    }
-
-    pub fn add_thread(&self, channel: &Channel, thread_id: &str) {
-        self.threads.lock().unwrap().insert((channel.as_str().to_string(), thread_id.to_string()));
-    }
-}
-
-fn fake_message(n: usize, body: &str) -> Message {
-    serde_json::from_value(json!({
-        "id": format!("msg-{n}"),
-        "author": {"type": "user"},
-        "kind": "text",
-        "body": body,
-        "created_at": 1
-    }))
-    .expect("messaggio finto valido")
-}
-
-impl HubPort for FakeHub {
-    fn deliver_external(&self, delivery: ExternalDelivery) -> BoxFuture<'_, Result<DeliveryOutcome, String>> {
-        Box::pin(async move {
-            let channel = delivery.channel.clone();
-            let existing = match &delivery.target {
-                DeliveryTarget::Existing(id) => Some(id.clone()),
-                DeliveryTarget::New { .. } => None,
-            };
-            let n = self.record(HubCall::Deliver(delivery));
-            if let Some(e) = self.failure(n) {
-                return Err(e);
-            }
-            // Un thread nuovo esiste da subito, come nell'HUB vero.
-            let thread_id = existing.unwrap_or_else(|| format!("thr-fake-{n}"));
-            self.add_thread(&channel, &thread_id);
-            Ok(DeliveryOutcome { thread_id, message_id: format!("msg-{n}"), duplicate: false })
-        })
-    }
-
-    fn send_user_message(&self, message: UserMessage) -> BoxFuture<'_, Result<Message, String>> {
-        Box::pin(async move {
-            let body = message.body.clone();
-            let n = self.record(HubCall::SendUser(message));
-            self.failure(n).map_or_else(|| Ok(fake_message(n, &body)), Err)
-        })
-    }
-
-    fn send_user_files(
-        &self,
-        message: UserMessage,
-        files: Vec<IncomingFile>,
-    ) -> BoxFuture<'_, Result<Message, String>> {
-        Box::pin(async move {
-            let body = message.body.clone();
-            let n = self.record(HubCall::SendUserFiles(message, files));
-            self.failure(n).map_or_else(|| Ok(fake_message(n, &body)), Err)
-        })
-    }
-
-    fn thread_exists<'a>(&'a self, channel: &'a Channel, thread_id: &'a str) -> BoxFuture<'a, Result<bool, String>> {
-        Box::pin(async move {
-            Ok(self.threads.lock().unwrap().contains(&(channel.as_str().to_string(), thread_id.to_string())))
-        })
-    }
 }
 
 /// Orologio finto: il tempo lo muove il test; i byte "casuali" sono una sequenza.
@@ -441,5 +399,7 @@ pub fn external_author() -> Author {
     }
 }
 
+mod hub;
 mod kit;
+pub use hub::*;
 pub use kit::*;

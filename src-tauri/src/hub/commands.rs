@@ -8,8 +8,8 @@ use super::files::HubDirs;
 use super::model::{Message, Thread, ThreadSummary};
 use super::send::{send_user_message, UserMessage};
 use super::settings::is_enabled;
-use super::state::{HubState, THREAD_ID_PREFIX};
-use super::threads::{summary, THREAD_NOT_FOUND};
+use super::state::HubState;
+use super::threads::THREAD_NOT_FOUND;
 use crate::store::data_dir;
 use crate::workspaces::WorkspaceStore;
 use tauri::{AppHandle, Emitter, Manager};
@@ -48,22 +48,7 @@ pub async fn hub_get_thread(app: AppHandle, channel: String, thread_id: String) 
 #[tauri::command]
 pub async fn hub_create_thread(app: AppHandle, channel: String, title: String) -> Result<Thread, String> {
     let channel = Channel::parse(&channel)?;
-    ensure_enabled(&app)?;
-    crate::blocking(move || {
-        let dirs = hub_dirs_of(&app)?;
-        let state = app.state::<HubState>();
-        let now = chrono::Utc::now().timestamp_millis();
-        let id = state.next_id(THREAD_ID_PREFIX, now);
-        let thread = state.update(&dirs, &channel, |list| {
-            // Sotto il lock dell'HUB: una rimozione del workspace in corso aspetta
-            // e poi cancella anche questo file.
-            ensure_channel(&app, &channel)?;
-            list.create_thread(&channel, id, &title, now).cloned()
-        })?;
-        emit_update(&app, &summary(&thread));
-        Ok(thread)
-    })
-    .await
+    crate::blocking(move || super::contact::create_thread(&app, &channel, &title)).await
 }
 
 /// Messaggio dell'utente in un thread; `reply_to` deve essere dello stesso

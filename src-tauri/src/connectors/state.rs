@@ -188,7 +188,6 @@ pub fn conversation_key(route: &str, key: &str) -> String {
 }
 
 /// Perche' una chiave privata del connettore non si puo' salvare.
-#[cfg_attr(not(test), expect(dead_code, reason = "lo stato privato lo scrive solo un connettore registrato"))]
 const CUSTOM_KEY_INVALID: &str = "chiave dello stato non valida";
 
 /// Lo stato persistente di un'istanza.
@@ -232,10 +231,17 @@ impl InstanceState {
         self.seen.insert(&seen_key(route, external_id));
     }
 
-    /// Lega un messaggio esterno a uno dell'HUB, nei due versi.
-    pub fn link_messages(&mut self, external_id: &str, hub_message_id: &str) {
-        self.external_to_hub.insert(external_id, hub_message_id);
+    /// Lega un messaggio esterno a uno dell'HUB, nei due versi. `stored` e' cio' che
+    /// l'id esterno ritrova (il riferimento completo al messaggio, `contact::refs`).
+    pub fn link_message_ref(&mut self, external_id: &str, hub_message_id: &str, stored: &str) {
+        self.external_to_hub.insert(external_id, stored);
         self.hub_to_external.insert(hub_message_id, external_id);
+    }
+
+    /// Come `link_message_ref`, con l'id del messaggio dell'HUB come valore.
+    #[cfg(test)]
+    pub fn link_messages(&mut self, external_id: &str, hub_message_id: &str) {
+        self.link_message_ref(external_id, hub_message_id, hub_message_id);
     }
 
     /// Toglie dai dati dell'istanza tutto cio' che riguarda la regola `route`
@@ -260,7 +266,6 @@ impl InstanceState {
     }
 
     /// Salva un valore privato del connettore, rispettando i tetti.
-    #[cfg_attr(not(test), expect(dead_code, reason = "lo scrive solo un connettore registrato"))]
     pub fn custom_set(&mut self, key: &str, value: Value) -> Result<(), String> {
         if !super::descriptor::validate::valid_key(key) {
             return Err(CUSTOM_KEY_INVALID.to_string());

@@ -39,6 +39,7 @@ fn link(id: &str, instance: &str, current: Option<LinkThread>) -> ConnectorLink 
         external_chat: "42".to_string(),
         display_name: "Mario".to_string(),
         current,
+        channel: None,
         muted_until: None,
         created_at: 1,
     }
@@ -203,6 +204,26 @@ fn forgetting_a_channel_drops_its_routes_and_resets_the_links_pointing_there() {
     assert_eq!(file.routes.len(), 1);
     assert_eq!((file.links[0].current.clone(), file.links[1].current.clone()), (None, Some(elsewhere)));
     assert_eq!(file.forget_channel(&ws("ws-1-1")), ForgottenChannel::default());
+}
+
+#[test]
+fn forgetting_a_channel_also_clears_the_channel_chosen_with_ws() {
+    let mut chosen = link("lnk-1-1", "con-1-1", None);
+    chosen.channel = Some(ws("ws-1-1"));
+    let mut other = link("lnk-1-2", "con-1-1", None);
+    other.channel = Some(Channel::General);
+    let mut file = ConnectorsFile { links: vec![chosen, other], ..ConnectorsFile::default() };
+    let forgotten = file.forget_channel(&ws("ws-1-1"));
+    assert_eq!(forgotten.links_reset, 1);
+    assert_eq!((file.links[0].channel.clone(), file.links[1].channel.clone()), (None, Some(Channel::General)));
+}
+
+#[test]
+fn a_link_saved_before_the_channel_field_still_loads_and_an_unset_channel_is_not_written() {
+    let old = r#"{"id":"lnk-1-1","instance":"con-1-1","external_account":"42","external_chat":"42","display_name":"M","created_at":1}"#;
+    let parsed: ConnectorLink = serde_json::from_str(old).unwrap();
+    assert_eq!(parsed.channel, None);
+    assert!(serde_json::to_value(&parsed).unwrap().get("channel").is_none());
 }
 
 #[test]

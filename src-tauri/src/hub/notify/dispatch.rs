@@ -3,13 +3,14 @@
 //! lock resta preso durante l'attesa o l'emissione.
 
 use super::kind::NoticeKind;
-use super::notice::{HubNotice, HUB_NOTIFY_EVENT};
+use super::notice::{ContactNotice, HubNotice, HUB_NOTIFY_EVENT};
 use super::pending::{Candidate, Pending, ThreadKey};
 use super::sinks::{dispatch, NoticeSink, Targets};
 use super::text;
 use crate::hub::channel::Channel;
 use crate::hub::model::ThreadSummary;
 use crate::hub::settings::HubSettingsStore;
+use crate::hub::text::{clean_line, TITLE_MAX};
 use crate::workspaces::WorkspaceStore;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -111,18 +112,24 @@ fn candidate(
     message_text: &str,
     workspace_name: Option<&str>,
 ) -> Candidate {
-    let channel = text::channel_name(&summary.channel, workspace_name);
-    Candidate {
-        priority: kind.priority(),
-        notice: HubNotice {
-            channel: summary.channel.clone(),
-            thread_id: summary.id.clone(),
-            message_id: message_id.to_string(),
-            title: kind.title(),
-            body: text::body(&channel, &summary.title, message_text),
-            sound: kind.sound(),
-        },
-    }
+    let channel_name = text::channel_name(&summary.channel, workspace_name);
+    let notice = HubNotice {
+        channel: summary.channel.clone(),
+        thread_id: summary.id.clone(),
+        message_id: message_id.to_string(),
+        title: kind.title(),
+        body: text::body(&channel_name, &summary.title, message_text),
+        sound: kind.sound(),
+    };
+    let contact = ContactNotice {
+        notice,
+        category: kind.category(),
+        // Il titolo di un thread e' gia' una riga di al piu' TITLE_MAX caratteri.
+        thread_title: clean_line(&summary.title, TITLE_MAX),
+        channel_name,
+        text: message_text.to_string(),
+    };
+    Candidate { priority: kind.priority(), notice: contact }
 }
 
 #[cfg(test)]
@@ -152,21 +159,24 @@ mod tests {
         let s = summary(Channel::Workspace("ws-9-9".into()));
         let c = candidate(&s, "msg-7-1", &NoticeKind::Reply { bot: "ada".into() }, "Fatto.\nAltro", Some("Sito"));
         assert_eq!(c.priority, Priority::Reply);
-        assert_eq!(c.notice.title, "@ada ti ha risposto");
-        assert_eq!(c.notice.body, "Sito · Migrazione\nFatto.");
-        assert_eq!(c.notice.sound, HubNoticeSound::Ding);
-        assert_eq!(c.notice.message_id, "msg-7-1");
-        assert_eq!((c.notice.channel, c.notice.thread_id.as_str()), (Channel::Workspace("ws-9-9".into()), "thr-1-1"));
+        assert_eq!(c.notice.notice.title, "@ada ti ha risposto");
+        assert_eq!(c.notice.notice.body, "Sito · Migrazione\nFatto.");
+        assert_eq!(c.notice.notice.sound, HubNoticeSound::Ding);
+        assert_eq!(c.notice.notice.message_id, "msg-7-1");
+        assert_eq!(
+            (c.notice.notice.channel, c.notice.notice.thread_id.as_str()),
+            (Channel::Workspace("ws-9-9".into()), "thr-1-1")
+        );
     }
 
     #[test]
     fn the_general_channel_and_a_removed_workspace_have_fixed_names() {
         let general = candidate(&summary(Channel::General), "m", &NoticeKind::TaskFailed, "", None);
-        assert_eq!(general.notice.body, "Generale · Migrazione");
-        assert_eq!(general.notice.sound, HubNoticeSound::Attention);
+        assert_eq!(general.notice.notice.body, "Generale · Migrazione");
+        assert_eq!(general.notice.notice.sound, HubNoticeSound::Attention);
         let gone = candidate(&summary(Channel::Workspace("ws-9-9".into())), "m", &NoticeKind::TaskDone, "ok", None);
-        assert_eq!(gone.notice.body, "Workspace · Migrazione\nok");
-        assert!(!gone.notice.body.contains("ws-9-9"));
+        assert_eq!(gone.notice.notice.body, "Workspace · Migrazione\nok");
+        assert!(!gone.notice.notice.body.contains("ws-9-9"));
     }
 
     #[test]

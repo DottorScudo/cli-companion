@@ -197,6 +197,10 @@ pub struct ConnectorLink {
     pub display_name: String,
     #[serde(default)]
     pub current: Option<LinkThread>,
+    /// Il canale scelto con `/ws`: li' `/new` apre i thread. Assente = quello del thread corrente, o il Generale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
+    pub channel: Option<Channel>,
     #[serde(default)]
     pub muted_until: Option<i64>,
     pub created_at: i64,
@@ -218,7 +222,7 @@ pub struct ConnectorsFile {
 pub struct ForgottenChannel {
     /// `(istanza, regola)` delle regole eliminate.
     pub routes: Vec<(String, String)>,
-    /// Collegamenti il cui thread corrente puntava al canale (ora `None`).
+    /// Collegamenti il cui thread corrente o canale scelto puntava al canale (ora `None`).
     pub links_reset: usize,
 }
 
@@ -336,7 +340,7 @@ impl ConnectorsFile {
     }
 
     /// Il canale e' sparito (workspace rimosso): via le regole con quel canale e il
-    /// thread corrente dei collegamenti che puntavano li'.
+    /// thread corrente e il canale scelto dei collegamenti che puntavano li'.
     pub fn forget_channel(&mut self, channel: &Channel) -> ForgottenChannel {
         let mut forgotten = ForgottenChannel::default();
         self.routes.retain(|r| {
@@ -347,8 +351,15 @@ impl ConnectorsFile {
             !gone
         });
         for link in &mut self.links {
-            if link.current.as_ref().is_some_and(|c| c.channel == *channel) {
+            let had_current = link.current.as_ref().is_some_and(|c| c.channel == *channel);
+            let had_channel = link.channel.as_ref() == Some(channel);
+            if had_current {
                 link.current = None;
+            }
+            if had_channel {
+                link.channel = None;
+            }
+            if had_current || had_channel {
                 forgotten.links_reset += 1;
             }
         }

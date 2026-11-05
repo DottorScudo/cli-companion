@@ -5,9 +5,11 @@
 
 use super::{
     ActionOutcome, ActiveRoute, BoxFuture, ConnectorContext, ConnectorError, OutboundMessage, PairingOutcome,
-    PollBatch, ReceiveBatch,
+    PollBatch, ReceiveBatch, RemoteFile,
 };
 use crate::connectors::descriptor::{ActionId, ConnectorDescriptor};
+use crate::hub::attachments::IncomingFile;
+use crate::hub::NoticeCategory;
 use serde_json::Value;
 
 pub trait Connector: Send + Sync {
@@ -47,20 +49,34 @@ pub trait SourceConnector: Connector {
 
 /// Un connettore `contact`: notifiche verso l'utente e suoi messaggi ai segretari.
 pub trait ContactConnector: Connector {
-    /// Long polling: aspetta (con un timeout) i messaggi in entrata e restituisce
-    /// anche il cursore nuovo, che il supervisore salva dopo la consegna.
+    /// Pura: la configurazione (gia' validata) chiede di inoltrare le notifiche di questo tipo?
+    fn wants_notice(&self, config: &Value, category: NoticeCategory) -> bool;
+
+    /// Long polling: aspetta (con un timeout, al piu' `limits::RECEIVE_TIMEOUT`)
+    /// i messaggi in entrata e restituisce anche il cursore nuovo, che il
+    /// supervisore salva dopo la consegna. Non scarica gli allegati (`fetch_file`).
     fn receive<'a>(
         &'a self,
         ctx: &'a ConnectorContext,
         cursor: Option<Value>,
     ) -> BoxFuture<'a, Result<ReceiveBatch, ConnectorError>>;
 
-    /// Manda un messaggio a una chat collegata; ritorna l'id esterno del messaggio.
+    /// Manda un messaggio a una chat collegata, spezzandolo se supera il limite del
+    /// servizio e rispettandone la frequenza; ritorna l'id esterno di ogni parte
+    /// inviata, in ordine (nessuno solo per un testo vuoto).
     fn send<'a>(
         &'a self,
         ctx: &'a ConnectorContext,
         out: &'a OutboundMessage,
-    ) -> BoxFuture<'a, Result<String, ConnectorError>>;
+    ) -> BoxFuture<'a, Result<Vec<String>, ConnectorError>>;
+
+    /// Scarica un allegato di un messaggio in entrata. Il runtime lo chiede solo
+    /// per un account collegato ed entro i limiti degli allegati dell'HUB.
+    fn fetch_file<'a>(
+        &'a self,
+        ctx: &'a ConnectorContext,
+        file: &'a RemoteFile,
+    ) -> BoxFuture<'a, Result<IncomingFile, ConnectorError>>;
 
     /// Un account ha presentato un codice di abbinamento dalla `chat`: il
     /// connettore risponde come crede (benvenuto, errore generico).
@@ -74,8 +90,8 @@ pub trait ContactConnector: Connector {
 
 /// Un connettore registrato, col suo tipo.
 #[derive(Clone, Copy)]
-#[cfg_attr(not(test), expect(dead_code, reason = "le varianti le costruisce il registro, che e' vuoto"))]
 pub enum ConnectorImpl {
+    #[cfg_attr(not(test), expect(dead_code, reason = "nessuna fonte e' ancora registrata (Gmail: fase 5)"))]
     Source(&'static dyn SourceConnector),
     Contact(&'static dyn ContactConnector),
 }

@@ -5,13 +5,14 @@
 //! Nei test un thread puo' sostituirlo con `test_registry`.
 
 use super::contracts::ConnectorImpl;
+use super::telegram;
 
 #[cfg(test)]
 pub(crate) mod test_registry;
 
 /// I connettori compilati nell'app. Per aggiungerne uno: una riga qui (e una nel test
-/// architetturale). Vuoto finche' non c'e' un connettore reale (fasi 4 e 5).
-static CONNECTORS: &[ConnectorImpl] = &[];
+/// architetturale).
+static CONNECTORS: &[ConnectorImpl] = &[ConnectorImpl::Contact(&telegram::TELEGRAM)];
 
 /// Tutti i connettori registrati.
 pub fn all() -> &'static [ConnectorImpl] {
@@ -33,8 +34,9 @@ mod tests {
     use crate::connectors::testing;
 
     #[test]
-    fn production_registry_has_no_connector_yet() {
-        assert!(all().is_empty());
+    fn production_registry_has_only_the_real_connectors() {
+        assert_eq!(all().len(), 1);
+        assert_eq!(find("telegram").map(|c| c.descriptor().id), Some("telegram"));
         assert!(find("fake-source").is_none());
     }
 
@@ -46,8 +48,8 @@ mod tests {
             assert_eq!(find("fake-source").map(|c| c.descriptor().id), Some("fake-source"));
             assert!(find("fake-contact").is_some() && find("nope").is_none());
             // Un altro thread vede il registro di produzione.
-            assert!(std::thread::spawn(|| all().is_empty()).join().unwrap());
+            assert!(std::thread::spawn(|| all().len() == 1).join().unwrap());
         }
-        assert!(all().is_empty());
+        assert_eq!(all().len(), 1);
     }
 }
