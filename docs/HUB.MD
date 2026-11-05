@@ -893,9 +893,14 @@ diretta al worker e non sveglia nessun segretario, nemmeno con una menzione (ved
   segretari, nell'ordine del testo, ciascuno con la sua sessione (una sessione aperta sullo stesso thread si
   riprende). Un segretario non configurato o non ammesso produce un messaggio di sistema che lo spiega, in
   risposta al messaggio («@anna non è configurato: …», «@luca non può essere menzionato in questo canale.»);
-- un messaggio **senza menzioni di segretari** va al **titolare** del thread: il segretario con la sessione attiva
-  più recente in quel thread (che sia ancora configurato e ammesso). Senza sessioni attive non sveglia nessuno e
-  resta come nota. Un messaggio che menziona solo segretari non svegliabili non passa al titolare.
+- un messaggio **senza menzioni di segretari** sveglia il primo segretario ancora configurato e ammesso nel canale
+  tra: l'**autore del messaggio a cui risponde** («Rispondi» su un messaggio di un segretario; non su un evento o un
+  messaggio di sistema), il titolare della **sessione attiva** più recente, il **titolare del thread** (`owner`) e
+  l'**ultimo segretario** che vi ha scritto (`Sessions::route` con `sessions::Fallback`, ricavato dal thread prima
+  del lock del motore). Anche un segretario addormentato (sessione scaduta, app riavviata, thread chiuso da «Tutti i
+  task sono conclusi», che resta chiuso) si risveglia così, con una sessione nuova. Se nessuno può rispondere, un
+  messaggio di sistema in risposta lo dice e suggerisce di menzionare un segretario con `@nome`. Un messaggio che
+  menziona solo segretari non svegliabili non ripiega sugli altri candidati.
 
 ### Risvegli da evento
 
@@ -926,7 +931,8 @@ usare «Rispondi» sul suo messaggio; un fallimento si spiega; la fine si riassu
 l'evento diventa il suo turno successivo, con la conversazione che ha già (due sessioni dello stesso segretario sullo
 stesso thread non esistono). Un turno svegliato da un evento **non può mai** usare `decide_proposal` né
 `relay_answer`. Da quel momento il
-titolare ha una sessione attiva: la risposta dell'utente senza menzione («sì, accetta») va a lui come sempre.
+titolare ha una sessione attiva: la risposta dell'utente senza menzione («sì, accetta») va a lui come sempre, e anche
+dopo la scadenza della sessione la risposta lo risveglia (è il titolare del thread).
 
 ### Risvegli da elementi esterni
 

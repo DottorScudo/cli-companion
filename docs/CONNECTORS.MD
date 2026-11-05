@@ -37,8 +37,10 @@ Due percorsi, che finiscono entrambi in `Sessions` (`hub/engine/sessions.rs`, pu
    in attesa, il testo va al worker così com'è (azione `answer_question` registrata da `lib.rs`) e nessun segretario
    si sveglia;
 3. altrimenti `SecretaryEngine::on_message` (`hub/engine/runtime.rs`) → `Sessions::route`: le menzioni `@nome`
-   (`engine/mentions.rs`) di segretari configurati e ammessi nel canale, oppure, senza menzioni, il titolare della
-   sessione più recente del thread. `route` esce subito se `message.author != Author::User`. Il turno si accoda con
+   (`engine/mentions.rs`) di segretari configurati e ammessi nel canale, oppure, senza menzioni, il primo candidato
+   svegliabile tra autore del messaggio a cui si risponde, titolare della sessione più recente, titolare del thread e
+   ultimo segretario che vi ha scritto (`sessions::Fallback`); se nessuno, un avviso di sistema nel thread.
+   `route` esce subito se `message.author != Author::User`. Il turno si accoda con
    `WakeCause::Message`.
 
 La logica di questi tre passi oggi vive **dentro il comando Tauri**: non c'è una funzione Rust riusabile da chi non

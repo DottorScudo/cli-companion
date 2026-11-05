@@ -18,14 +18,17 @@
 //!   punto di attesa non scrive piu' nulla nei thread (`is_current`).
 
 use super::jobs;
-use super::sessions::{Job, Notice, Routing, SessionTurn, Sessions, ThreadKey};
+use super::sessions::{Fallback, Job, Notice, Routing, SessionTurn, Sessions, ThreadKey};
 use super::status::{self, SecretaryStatus};
 use super::texts;
 use crate::hub::append::{append_text, TextMessage};
 use crate::hub::channel::Channel;
+use crate::hub::commands::hub_dirs_of;
 use crate::hub::events::EventWake;
 use crate::hub::model::{Author, Message};
 use crate::hub::settings::{HubSettingsStore, SessionSettings};
+use crate::hub::state::HubState;
+use crate::hub::threads::THREAD_NOT_FOUND;
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -63,19 +66,28 @@ pub fn idle_ms(session: &SessionSettings) -> i64 {
 }
 
 impl SecretaryEngine {
-    /// Un messaggio appena scritto nel thread: sveglia chi deve rispondere e
-    /// scrive gli avvisi delle menzioni rifiutate. Bloccante (scrive i thread):
-    /// fuori dal main thread.
+    /// Un messaggio dell'utente appena scritto nel thread: sveglia chi deve
+    /// rispondere (`Sessions::route`) e scrive gli avvisi delle menzioni
+    /// rifiutate o del messaggio che nessuno ha ricevuto. Bloccante (legge e
+    /// scrive i thread): fuori dal main thread.
     pub fn on_message(&self, app: &AppHandle, channel: &Channel, thread_id: &str, message: &Message) {
         let settings = app.state::<HubSettingsStore>().get();
-        if !settings.enabled {
+        if !settings.enabled || message.author != Author::User {
             return;
         }
         let key = ThreadKey::new(channel, thread_id);
+        // Prima del lock del motore: mai insieme ai lock dei thread.
+        let fallback = load_fallback(app, &key, message);
         let routing = {
             let mut inner = self.lock();
-            let routing =
-                inner.sessions.route(&key, message, &settings.secretaries, idle_ms(&settings.session), now_ms());
+            let routing = inner.sessions.route(
+                &key,
+                message,
+                &fallback,
+                &settings.secretaries,
+                idle_ms(&settings.session),
+                now_ms(),
+            );
             inner.run_routing(app, &key, &routing);
             routing
         };
@@ -83,10 +95,11 @@ impl SecretaryEngine {
             let text = match notice {
                 Notice::NotConfigured(name) => texts::not_configured(name),
                 Notice::NotAllowed(name) => texts::not_allowed(name),
+                Notice::Unanswered => texts::UNANSWERED.to_string(),
             };
             let system = TextMessage { author: Author::System, body: text, reply_to: Some(message.id.clone()) };
             if let Err(e) = append_text(app, channel, thread_id, system) {
-                log::error!("hub: avviso della menzione non scritto: {e}");
+                log::error!("hub: avviso del messaggio non scritto nel thread {thread_id}: {e}");
             }
         }
         if !routing.woken.is_empty() {
@@ -301,6 +314,20 @@ impl Inner {
             Err(e) => log::error!("hub: schedulatore delle sessioni non avviato: {e}"),
         }
     }
+}
+
+/// I candidati di ripiego del thread per `message`; vuoti (con un avviso nel
+/// log) se il thread non si legge: restano le sessioni attive.
+fn load_fallback(app: &AppHandle, key: &ThreadKey, message: &Message) -> Fallback {
+    let loaded = hub_dirs_of(app).and_then(|dirs| {
+        app.state::<HubState>()
+            .read(&dirs, &key.channel, |list| list.thread(&key.thread_id).map(|t| Fallback::of(t, message)))
+            .ok_or_else(|| THREAD_NOT_FOUND.to_string())
+    });
+    loaded.unwrap_or_else(|e| {
+        log::warn!("hub: thread {} non letto per scegliere il segretario: {e}", key.thread_id);
+        Fallback::default()
+    })
 }
 
 fn run_scheduler(app: &AppHandle) {

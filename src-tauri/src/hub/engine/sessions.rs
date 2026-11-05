@@ -7,8 +7,14 @@
 //! - solo i messaggi dell'utente svegliano qualcuno (mai bot ne' sistema);
 //! - le menzioni `@nome` di segretari configurati e ammessi nel canale
 //!   svegliano quei segretari, in ordine; le altre producono un avviso;
-//! - senza menzioni di segretari esistenti, il messaggio va al titolare: il
-//!   segretario con la sessione attiva piu' recente nel thread, se c'e'.
+//! - senza menzioni di segretari esistenti, il messaggio sveglia il primo
+//!   segretario che puo' rispondere nel canale tra: l'autore del messaggio a
+//!   cui l'utente risponde («Rispondi»), il titolare della sessione attiva piu'
+//!   recente, il titolare persistito del thread (`Thread::owner`) e l'ultimo
+//!   segretario che vi ha scritto (`Fallback`, ricavato dal chiamante). Cosi'
+//!   anche un segretario addormentato (sessione scaduta, app riavviata, thread
+//!   chiuso) si risveglia con una sessione nuova; se nessuno puo' rispondere,
+//!   `Notice::Unanswered` chiede un avviso nel thread al posto del silenzio.
 //!
 //! Risvegli da evento (`route_event`): alcuni eventi della board svegliano il
 //! segretario titolare del thread (`Thread::owner`, quello che ha aperto la
@@ -28,6 +34,10 @@
 //! stesso ordine: un messaggio che arriva mentre un segretario lavora aspetta
 //! il suo turno. Il riassunto di una sessione scaduta passa dalla stessa coda,
 //! cosi' una sessione nuova sullo stesso thread lo legge gia' aggiornato.
+
+mod fallback;
+
+pub use fallback::Fallback;
 
 use super::chat::ChatMessage;
 use super::mentions::mentions;
@@ -62,7 +72,7 @@ struct Session {
 /// Che cosa ha svegliato un turno.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WakeCause {
-    /// Un messaggio dell'utente (menzione o titolare della sessione).
+    /// Un messaggio dell'utente (menzione o segretario scelto da `route`).
     Message,
     /// Un evento della board nel thread del segretario titolare.
     BoardEvent,
@@ -97,11 +107,15 @@ struct Lane {
     running: bool,
 }
 
-/// Perche' una menzione non sveglia il segretario.
+/// Perche' un messaggio dell'utente non sveglia un segretario.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Notice {
+    /// Menzione di un segretario senza system prompt.
     NotConfigured(String),
+    /// Menzione di un segretario fuori dai suoi canali.
     NotAllowed(String),
+    /// Nessuna menzione e nessun candidato che possa rispondere.
+    Unanswered,
 }
 
 /// L'esito di `route`.
@@ -154,11 +168,13 @@ impl Sessions {
     }
 
     /// Decide chi sveglia il messaggio appena scritto nel thread `key`, apre o
-    /// rinnova le sessioni e accoda i turni. `secretaries` = l'elenco corrente.
+    /// rinnova le sessioni e accoda i turni. `secretaries` = l'elenco corrente;
+    /// `fallback` = i candidati del thread per un messaggio senza menzioni.
     pub fn route(
         &mut self,
         key: &ThreadKey,
         message: &Message,
+        fallback: &Fallback,
         secretaries: &[Secretary],
         idle: i64,
         now: i64,
@@ -170,7 +186,10 @@ impl Sessions {
         let mentioned: Vec<&Secretary> =
             mentions(&message.body).iter().filter_map(|name| secretaries.iter().find(|s| &s.name == name)).collect();
         if mentioned.is_empty() {
-            routing.woken.extend(self.owner(key, secretaries, idle, now));
+            match self.recipient(key, fallback, secretaries, idle, now) {
+                Some(name) => routing.woken.push(name),
+                None => routing.notices.push(Notice::Unanswered),
+            }
         }
         for secretary in mentioned {
             if !secretary.is_configured() {
@@ -254,7 +273,26 @@ impl Sessions {
         routing.start_lane = !routing.woken.is_empty() && self.claim_lane(key);
     }
 
-    /// Il titolare del thread: la sessione attiva piu' recente di un
+    /// Chi riceve un messaggio senza menzioni: il primo candidato di
+    /// `fallback` (con il titolare della sessione al suo posto) che puo'
+    /// rispondere nel canale.
+    fn recipient(
+        &self,
+        key: &ThreadKey,
+        fallback: &Fallback,
+        secretaries: &[Secretary],
+        idle: i64,
+        now: i64,
+    ) -> Option<String> {
+        let owner = self.owner(key, secretaries, idle, now);
+        let recipient = fallback
+            .candidates(owner.as_deref())
+            .find(|name| usable(secretaries, name, &key.channel).is_some())
+            .map(str::to_string);
+        recipient
+    }
+
+    /// Il titolare della sessione: la sessione attiva piu' recente di un
     /// segretario che puo' ancora rispondere in quel canale.
     fn owner(&self, key: &ThreadKey, secretaries: &[Secretary], idle: i64, now: i64) -> Option<String> {
         self.sessions

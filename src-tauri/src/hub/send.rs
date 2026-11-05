@@ -3,8 +3,11 @@
 //! dell'utente da un servizio esterno, vedi docs/CONNECTORS.MD): stessa strada
 //! per tutti. Dopo il salvataggio, una risposta a una domanda di un worker
 //! ancora in attesa va al worker cosi' com'e' (`direct_answer`, senza modello);
-//! altrimenti il motore dei segretari decide chi svegliare. Un messaggio con
-//! `origin` non notifica mai, come quelli scritti nell'app.
+//! altrimenti il motore dei segretari decide chi svegliare: i menzionati o, senza
+//! menzioni, l'autore del messaggio a cui si risponde, il titolare della sessione
+//! attiva, il titolare del thread o l'ultimo segretario che vi ha scritto (anche
+//! se dorme); se nessuno puo' rispondere, il thread riceve un avviso di sistema.
+//! Un messaggio con `origin` non notifica mai, come quelli scritti nell'app.
 //!
 //! Bloccante: va chiamato fuori dal main thread.
 

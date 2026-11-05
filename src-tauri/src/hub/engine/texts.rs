@@ -17,6 +17,9 @@ pub fn not_allowed(name: &str) -> String {
     format!("@{name} non può essere menzionato in questo canale.")
 }
 
+/// Un messaggio senza menzioni che nessun segretario del thread puo' ricevere.
+pub const UNANSWERED: &str = "Nessun segretario ha ricevuto questo messaggio: menzionane uno con @nome per svegliarlo.";
+
 /// Il segretario della sessione e' stato tolto, svuotato o escluso dal canale.
 pub fn secretary_gone(name: &str) -> String {
     format!("@{name} non è più disponibile in questo canale: la sua sessione è chiusa.")
