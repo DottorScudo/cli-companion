@@ -45,6 +45,7 @@ mod relay;
 mod runtime;
 mod sessions;
 pub mod status;
+mod task_page;
 mod texts;
 mod thread_page;
 mod tools;

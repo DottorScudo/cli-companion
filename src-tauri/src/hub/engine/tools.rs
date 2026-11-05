@@ -11,6 +11,7 @@ use super::board_query::BoardQuery;
 use super::chat::{ToolCall, ToolSpec};
 use super::planning::GOAL_MAX;
 use super::relay::QuestionSelector;
+use super::task_page::TaskPage;
 use super::thread_page::ThreadPage;
 use super::workspace_names::REFERENCE_MAX;
 use crate::hub::channel::Channel;
@@ -37,6 +38,8 @@ pub enum Invocation {
         /// `None` = la board del canale del thread.
         workspace: Option<String>,
         task_id: String,
+        /// `None` = la scheda intera del task.
+        page: Option<TaskPage>,
     },
     ThreadRead {
         page: ThreadPage,
@@ -254,8 +257,9 @@ pub fn parse(call: &ToolCall, secretary: &Secretary) -> Result<Invocation, ToolR
             Ok(Invocation::BoardOverview)
         }
         SecretaryTool::TaskDetails => {
-            let (workspace, task_id) = task_details::parse(&call.arguments).map_err(invalid)?;
-            Ok(Invocation::TaskDetails { workspace, task_id })
+            let task_details::Request { workspace, task_id, page } =
+                task_details::parse(&call.arguments).map_err(invalid)?;
+            Ok(Invocation::TaskDetails { workspace, task_id, page })
         }
         SecretaryTool::ThreadRead => {
             let page = thread_read::parse(&call.arguments).map_err(invalid)?;

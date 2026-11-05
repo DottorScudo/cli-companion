@@ -6,6 +6,7 @@ use crate::hub::engine::fixtures::{secretary, FakeBoard, WS};
 use crate::hub::engine::planning::{self, ProposalBoard, ProposalRef};
 use crate::hub::engine::relay::{self, relay_candidates, QuestionSelector, RelayCandidates};
 use crate::hub::engine::sessions::WakeCause;
+use crate::hub::engine::task_page::TaskPage;
 use crate::hub::engine::thread_page::ThreadPage;
 use crate::hub::model::HubEventKind;
 use crate::hub::model::RequestedAction;
@@ -13,6 +14,9 @@ use crate::hub::questions::fixtures::{question_event, question_ref, task_event, 
 use crate::hub::settings::SecretaryTool;
 use std::sync::Mutex;
 use tauri::async_runtime::block_on;
+
+/// Una chiamata a `task_details`: workspace, id del task e pezzo chiesto.
+type DetailsCall = (Option<String>, String, Option<TaskPage>);
 
 /// Host finto: board e thread fissi, registra messaggi, avvisi e piani;
 /// `decide_proposal` passa dalla regola vera (`planning::decide`) su una board
@@ -23,7 +27,7 @@ struct FakeHost {
     notices: Mutex<Vec<String>>,
     boards: Mutex<Vec<Option<String>>>,
     overviews: Mutex<usize>,
-    details: Mutex<Vec<(Option<String>, String)>>,
+    details: Mutex<Vec<DetailsCall>>,
     pages: Mutex<Vec<ThreadPage>>,
     plans: Mutex<Vec<String>>,
     proposal: Option<ProposalRef>,
@@ -63,8 +67,13 @@ impl TurnHost for FakeHost {
         Ok(json!({ "workspaces": [] }))
     }
 
-    async fn task_details(&self, workspace: Option<String>, task_id: String) -> Result<Value, String> {
-        self.details.lock().unwrap().push((workspace, task_id.clone()));
+    async fn task_details(
+        &self,
+        workspace: Option<String>,
+        task_id: String,
+        page: Option<TaskPage>,
+    ) -> Result<Value, String> {
+        self.details.lock().unwrap().push((workspace, task_id.clone(), page));
         match task_id.as_str() {
             "t-404" => Err("No task with id \"t-404\" on the board of workspace \"Muse Companion\".".to_string()),
             _ => Ok(json!({ "id": task_id, "status": "done", "report": { "commit": "abc1234" } })),
@@ -625,6 +634,7 @@ fn the_read_tools_reach_the_host_without_notices_and_without_using_the_change_li
     let reads = vec![
         call("r1", "board_overview", ""),
         call("r2", "task_details", r#"{"task_id":"t-1","workspace":"Sito Web"}"#),
+        call("r2b", "task_details", r#"{"task_id":"t-1","field":"report.summary","offset":40}"#),
         call("r3", "thread_read", r#"{"before":"m9"}"#),
         call("r4", "thread_read", r#"{"offset":20}"#),
     ];
@@ -633,7 +643,13 @@ fn the_read_tools_reach_the_host_without_notices_and_without_using_the_change_li
     let (end, _) = run(&model, &host, &secretary("mario"), 8);
     assert_eq!(end, TurnEnd::Reply("Fatto.".into()));
     assert_eq!(*host.overviews.lock().unwrap(), 1);
-    assert_eq!(*host.details.lock().unwrap(), [(Some("Sito Web".to_string()), "t-1".to_string())]);
+    assert_eq!(
+        *host.details.lock().unwrap(),
+        [
+            (Some("Sito Web".to_string()), "t-1".to_string(), None),
+            (None, "t-1".to_string(), Some(TaskPage { field: "report.summary".into(), offset: 40 })),
+        ]
+    );
     assert_eq!(*host.pages.lock().unwrap(), [ThreadPage::Before("m9".into()), ThreadPage::Offset(20)]);
     assert!(host.notices.lock().unwrap().is_empty());
     let messages = &model.requests()[1].messages;

@@ -3,6 +3,7 @@ use crate::board::ANSWER_MAX;
 use crate::board::{TaskKind, TaskStatus};
 use crate::hub::engine::board_query::{PAGE_DEFAULT, PAGE_MAX, QUERY_MAX};
 use crate::hub::engine::relay::QuestionSelector;
+use crate::hub::engine::task_page::TaskPage;
 use crate::hub::engine::thread_page::{ThreadPage, MESSAGE_ID_MAX};
 use crate::hub::engine::tools::relay_answer::QUESTION_ID_MAX;
 use crate::hub::engine::tools::task_details::TASK_ID_MAX;
@@ -52,7 +53,7 @@ fn schema_properties_match_the_argument_structs() {
             json!({"workspace": "ws-1", "status": ["failed"], "attention": true, "kind": "work", "query": "login", "updated_since": "2026-11-01", "updated_before": "2026-11-05", "offset": 0, "limit": 5}),
         ),
         ("board_overview", json!({})),
-        ("task_details", json!({"task_id": "t-1", "workspace": "ws-1"})),
+        ("task_details", json!({"task_id": "t-1", "workspace": "ws-1", "field": "task", "offset": 0})),
         ("post_message", json!({"body": "x"})),
         ("open_plan_task", json!({"goal": "Add a dark theme"})),
         ("decide_proposal", json!({"accept": true})),
@@ -391,11 +392,11 @@ fn task_details_takes_a_task_id_and_an_optional_workspace() {
     let s = secretary(&SecretaryTool::ALL);
     assert_eq!(
         parse(&call("task_details", r#"{"task_id":" t-7 "}"#), &s),
-        Ok(Invocation::TaskDetails { workspace: None, task_id: "t-7".into() })
+        Ok(Invocation::TaskDetails { workspace: None, task_id: "t-7".into(), page: None })
     );
     assert_eq!(
         parse(&call("task_details", r#"{"task_id":"t-7","workspace":" Sito Web "}"#), &s),
-        Ok(Invocation::TaskDetails { workspace: Some("Sito Web".into()), task_id: "t-7".into() })
+        Ok(Invocation::TaskDetails { workspace: Some("Sito Web".into()), task_id: "t-7".into(), page: None })
     );
     let long_id = json!({ "task_id": "t".repeat(TASK_ID_MAX + 1) }).to_string();
     let long_workspace = json!({ "task_id": "t-1", "workspace": "w".repeat(REFERENCE_MAX + 1) }).to_string();
@@ -405,6 +406,49 @@ fn task_details_takes_a_task_id_and_an_optional_workspace() {
         let err = parse(&call("task_details", args), &s).unwrap_err();
         assert!(matches!(err, ToolRejection::InvalidArguments { tool: SecretaryTool::TaskDetails, .. }), "{args}");
     }
+}
+
+#[test]
+fn task_details_reads_one_field_from_an_offset() {
+    let s = secretary(&SecretaryTool::ALL);
+    let page = |args: &str| match parse(&call("task_details", args), &s) {
+        Ok(Invocation::TaskDetails { page, .. }) => Ok(page),
+        Ok(other) => panic!("{other:?}"),
+        Err(ToolRejection::InvalidArguments { tool: SecretaryTool::TaskDetails, reason }) => Err(reason),
+        Err(other) => panic!("{other:?}"),
+    };
+    assert_eq!(
+        page(r#"{"task_id":"t-1","field":" task ","offset":2400}"#),
+        Ok(Some(TaskPage { field: "task".into(), offset: 2400 }))
+    );
+    assert_eq!(
+        page(r#"{"task_id":"t-1","field":"report.tests.2.details"}"#),
+        Ok(Some(TaskPage { field: "report.tests.2.details".into(), offset: 0 }))
+    );
+    for (args, reason) in [
+        (r#"{"task_id":"t-1","offset":5}"#, "`offset` needs `field`"),
+        (r#"{"task_id":"t-1","field":"session"}"#, "`field` must be one of"),
+        (r#"{"task_id":"t-1","field":"report.follow_ups.x"}"#, "`field` must be one of"),
+        (r#"{"task_id":"t-1","field":"task","offset":-1}"#, "do not match the schema"),
+        (r#"{"task_id":"t-1","field":3}"#, "do not match the schema"),
+    ] {
+        let got = page(args).unwrap_err();
+        assert!(got.contains(reason), "{args}: {got}");
+    }
+}
+
+#[test]
+fn task_details_documents_paging_for_the_model() {
+    let s = secretary(&SecretaryTool::ALL);
+    let spec = specs(&s).into_iter().find(|t| t.name == "task_details").unwrap();
+    assert!(spec.description.contains(
+        "When `more` is present the task was not returned in full: before answering about a field listed in \
+        `more`, read the rest with `field` and `offset` until `next_offset` is absent."
+    ));
+    assert!(!spec.description.contains("cut"));
+    let properties = &spec.parameters["properties"];
+    assert!(properties["field"]["description"].as_str().unwrap().contains("`report.follow_ups`"));
+    assert_eq!(properties["offset"]["minimum"], 0);
 }
 
 #[test]

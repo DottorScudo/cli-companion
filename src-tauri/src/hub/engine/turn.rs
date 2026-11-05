@@ -15,6 +15,7 @@ use super::board_query::BoardQuery;
 use super::chat::{ChatMessage, ChatModel, ChatRequest, ModelError, ModelReply, ToolCall};
 use super::context;
 use super::relay::QuestionSelector;
+use super::task_page::TaskPage;
 use super::texts;
 use super::thread_page::ThreadPage;
 use super::tools::{self, Invocation};
@@ -43,11 +44,13 @@ pub trait TurnHost: Send + Sync {
     ) -> impl Future<Output = Result<Value, String>> + Send;
     /// Il riepilogo di tutti i workspace che il segretario puo' consultare.
     fn board_overview(&self) -> impl Future<Output = Result<Value, String>> + Send;
-    /// Un task per intero, della board del workspace (`None` = quella del canale del thread).
+    /// Un task per intero, della board del workspace (`None` = quella del
+    /// canale del thread), o il pezzo `page` di un suo campo.
     fn task_details(
         &self,
         workspace: Option<String>,
         task_id: String,
+        page: Option<TaskPage>,
     ) -> impl Future<Output = Result<Value, String>> + Send;
     /// Il thread compatto, con la pagina di messaggi chiesta.
     fn thread_read(&self, page: ThreadPage) -> impl Future<Output = Result<Value, String>> + Send;
@@ -190,7 +193,7 @@ async fn invoke<H: TurnHost>(host: &H, invocation: Invocation) -> Result<Value, 
     match invocation {
         Invocation::BoardStatus { workspace, query } => host.board_status(workspace, query).await,
         Invocation::BoardOverview => host.board_overview().await,
-        Invocation::TaskDetails { workspace, task_id } => host.task_details(workspace, task_id).await,
+        Invocation::TaskDetails { workspace, task_id, page } => host.task_details(workspace, task_id, page).await,
         Invocation::ThreadRead { page } => host.thread_read(page).await,
         Invocation::PostMessage { body } => host.post_message(body).await.map(|()| json!({ "posted": true })),
         Invocation::OpenPlanTask { goal } => host.open_plan_task(goal).await,

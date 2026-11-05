@@ -103,7 +103,7 @@ mod tests {
         [
             Invocation::BoardStatus { workspace: None, query: BoardQuery::default() },
             Invocation::BoardOverview,
-            Invocation::TaskDetails { workspace: None, task_id: "t-1".into() },
+            Invocation::TaskDetails { workspace: None, task_id: "t-1".into(), page: None },
             Invocation::ThreadRead { page: Default::default() },
             Invocation::PostMessage { body: "Controllo.".into() },
             Invocation::OpenPlanTask { goal: "Add a login page".into() },

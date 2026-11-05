@@ -19,6 +19,7 @@ use super::planning::{self, PlanTicket, ProposalBoard, ProposalRef};
 use super::relay::{self, QuestionSelector, RelayCandidates};
 use super::runtime::SecretaryEngine;
 use super::sessions::{ThreadKey, WakeCause};
+use super::task_page::TaskPage;
 use super::thread_page::ThreadPage;
 use super::tools::{board_workspace, BoardAccessError};
 use super::turn::TurnHost;
@@ -287,7 +288,12 @@ impl TurnHost for AppTurnHost<'_> {
         Ok(output::board_overview(&views, self.names, self.secretary))
     }
 
-    async fn task_details(&self, workspace: Option<String>, task_id: String) -> Result<Value, String> {
+    async fn task_details(
+        &self,
+        workspace: Option<String>,
+        task_id: String,
+        page: Option<TaskPage>,
+    ) -> Result<Value, String> {
         let view = self.readable_board(workspace).await?;
         let task = view.tasks.iter().find(|v| v.task.id == task_id).ok_or_else(|| {
             format!(
@@ -296,7 +302,7 @@ impl TurnHost for AppTurnHost<'_> {
                 self.names.name_of(&view.workspace_id).unwrap_or("unknown")
             )
         })?;
-        Ok(output::task_details(task, &view.workspace_id, self.names))
+        output::task_details(task, &view.workspace_id, self.names, page.as_ref())
     }
 
     async fn thread_read(&self, page: ThreadPage) -> Result<Value, String> {
