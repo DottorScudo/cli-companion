@@ -40,6 +40,11 @@ impl SecretaryPreset {
 }
 
 /// I preset, nell'ordine in cui si propongono e si creano.
+///
+/// Ogni preset elenca i propri tool in modo esplicito, mai `SecretaryTool::ALL`:
+/// un tool nuovo non deve entrare da solo in un preset. In particolare i tool che
+/// modificano la board (cambiano o eliminano task) non vanno in un preset senza
+/// una scelta esplicita; il test `each_preset_has_the_tools_of_its_job` fissa le liste.
 pub const PRESETS: [SecretaryPreset; 3] = [
     SecretaryPreset {
         id: "coordinator",
@@ -47,7 +52,14 @@ pub const PRESETS: [SecretaryPreset; 3] = [
         description: "Trasforma i tuoi obiettivi in lavoro per gli agenti: apre i task di pianificazione e segue le proposte.",
         name: "mario",
         system_prompt: include_str!("presets/coordinator.md"),
-        tools: &SecretaryTool::ALL,
+        tools: &[
+            SecretaryTool::BoardStatus,
+            SecretaryTool::ThreadRead,
+            SecretaryTool::PostMessage,
+            SecretaryTool::OpenPlanTask,
+            SecretaryTool::DecideProposal,
+            SecretaryTool::RelayAnswer,
+        ],
     },
     SecretaryPreset {
         id: "analyst",
@@ -134,7 +146,10 @@ mod tests {
     #[test]
     fn each_preset_has_the_tools_of_its_job() {
         use SecretaryTool::*;
-        assert_eq!(find("coordinator").unwrap().tools, SecretaryTool::ALL);
+        assert_eq!(
+            find("coordinator").unwrap().tools,
+            [BoardStatus, ThreadRead, PostMessage, OpenPlanTask, DecideProposal, RelayAnswer]
+        );
         assert_eq!(find("analyst").unwrap().tools, [ThreadRead, PostMessage, OpenPlanTask]);
         assert_eq!(find("reporter").unwrap().tools, [BoardStatus, ThreadRead, PostMessage]);
         assert!(find("unknown").is_none());
