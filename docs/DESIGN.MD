@@ -105,9 +105,9 @@ test esclusi) sono queste:
 | `board` | `workspaces` (`Delivery`, `Workspace`, `SettingsPatch`), `agents` (agente predefinito), `validate`, `store` | `automation`, `ipc`, `pty`, `mcp`, `tauri` |
 | `ipc` | `agents` (contratto `HookEvents`, tipo `HookEventKind` e ricerca nel registro con `registry::find`), `platform` | `automation`, `board`, `workspaces` |
 | `pty` | `ipc` (nomi delle variabili e `is_valid_tab_id`), `platform`, `wsl`, `workspaces`, `automation` (credenziale di sessione e `user_input`) | `board` |
-| `automation` | `board`, `workspaces`, `agents`, `ipc` (tipi e trait), `platform`, `validate`, `wsl`, `schedule`, `user_skills`, `store`, `awake`, `pty` (solo `workspace_of_tab`, in `TauriHost`), `hub` (solo `board_published`, in `TauriHost`; `lib.rs` registra `board_views` come sorgente di `hub::set_board_source` e `queue_hub_plan_task` / `decide_hub_proposal` come azioni di `hub::set_board_actions`) | — |
+| `automation` | `board`, `workspaces`, `agents`, `ipc` (tipi e trait), `platform`, `validate`, `wsl`, `schedule`, `user_skills`, `store`, `awake`, `pty` (solo `workspace_of_tab`, in `TauriHost`), `hub` (solo `board_published`, in `TauriHost`; `lib.rs` registra `board_views` come sorgente di `hub::set_board_source` e `queue_hub_plan_task` / `decide_hub_proposal` / `answer_question` come azioni di `hub::set_board_actions`) | — |
 | `mcp` | `automation` (`Role`, `lock`, nomi dei metodi), `agents`, `workspaces`, `ipc` (client RPC) | `tauri` |
-| `hub` | `store`, `secrets` (API key del provider nel portachiavi), `bots` (validazione delle immagini dei segretari), `board` (`valid_id` e `BoardView` per gli eventi della board), `validate` (+ `workspaces` nei comandi e negli eventi della board, per sapere se il canale di un workspace esiste, anche nei canali di un segretario; le viste correnti delle board all'accensione e per il tool `board_status` dei segretari arrivano da una sorgente `BoardSource` registrata da `lib.rs`, e le azioni dei segretari sulla board, task di pianificazione e decisione di una proposta, da `BoardActions` registrate allo stesso modo); crate esterni `async-openai` e `reqwest` solo nel client del modello (`hub/engine/openai.rs`) | `automation`, `agents`, `ipc`, `pty`, `mcp` |
+| `hub` | `store`, `secrets` (API key del provider nel portachiavi), `bots` (validazione delle immagini dei segretari), `board` (`valid_id` e `BoardView` per gli eventi della board), `validate` (+ `workspaces` nei comandi e negli eventi della board, per sapere se il canale di un workspace esiste, anche nei canali di un segretario; le viste correnti delle board all'accensione e per il tool `board_status` dei segretari arrivano da una sorgente `BoardSource` registrata da `lib.rs`, e le azioni dei segretari sulla board, task di pianificazione, decisione di una proposta e risposta a una domanda di un worker, da `BoardActions` registrate allo stesso modo); crate esterni `async-openai` e `reqwest` solo nel client del modello (`hub/engine/openai.rs`) | `automation`, `agents`, `ipc`, `pty`, `mcp` |
 
 Le regole che questa tabella racchiude, e come sono garantite:
 
@@ -147,9 +147,11 @@ di ogni board, ma `hub` non nomina `automation`. `lib.rs`, che compone già entr
 solo al passaggio da spento ad acceso. Una sorgente iniettata invece di un comando nel livello di composizione
 lascia `hub_set_enabled` dov'è (con l'impostazione) e invece di una ripubblicazione forzata di tutte le board non
 emette `board-update` né salva file. Allo stesso modo le **azioni** dei segretari sulla board (`hub::BoardActions`:
-creare un task `plan`, decidere una proposta) sono puntatori a funzione che `lib.rs` registra con
-`hub::set_board_actions` (`automation::queue_hub_plan_task`, `automation::decide_hub_proposal`, lo stesso codice
-dei pulsanti del pannello Task): `hub` continua a non nominare `automation`.
+creare un task `plan`, decidere una proposta, rispondere a una domanda) sono puntatori a funzione che `lib.rs`
+registra con `hub::set_board_actions` (`automation::queue_hub_plan_task`, `automation::decide_hub_proposal`,
+`automation::answer_question`, lo stesso codice dei pulsanti del pannello Task e delle risposte nel terminale):
+`hub` continua a non nominare `automation`. La terza azione ha due utilizzatori: la **risposta diretta** a una
+domanda (`hub/direct_answer.rs`, senza passare dal modello) e il tool `relay_answer` dei segretari (`hub/engine/relay.rs`).
 
 ### Dove sta cosa
 
@@ -800,6 +802,7 @@ dati, consegna, scheduler, tool, UI): [BOARD.MD](BOARD.MD). Struttura a strati, 
   |---|:-:|:-:|:-:|:-:|
   | `whoami` (handshake, non è un tool) | sì | sì | sì | sì |
   | `get_task`, `complete_task` | sì | sì | sì | no |
+  | `ask_user` (solo con l'Agents HUB acceso) | sì | no | sì | no |
   | `run_e2e`, `get_e2e_result` | sì | sì | no | no |
   | `propose_tasks`, `get_task_details` | no | sì | sì | sì |
   | `list_tasks`, `get_workspace_settings` | no | no | sì | sì |
@@ -809,7 +812,8 @@ dati, consegna, scheduler, tool, UI): [BOARD.MD](BOARD.MD). Struttura a strati, 
   Il ruolo viene dal tab: il worker di un task `work` è `worker`, quello di un task `review` è `reviewer`, quello di
   un task `plan` è `planner`, ogni altro tab di cli-companion (Intake compreso, workspace = quello del tab) è
   `session`. Un tab di un workspace archiviato è
-  congelato. `settings.rs`: patch validata in `workspaces/settings_patch.rs`, proposte in `board/settings.rs`.
+  congelato. `ask_user` richiede l'HUB (`Method::requires_hub`): `whoami` riporta `hub` e senza HUB il tool non è
+  nemmeno elencato (contratto in BOARD.MD, "Domanda all'utente"). `settings.rs`: patch validata in `workspaces/settings_patch.rs`, proposte in `board/settings.rs`.
   `review.rs` ha ciò che il revisore legge in `get_task`; `planner.rs` il task di pianificazione (creazione
   dall'app con `create_plan_task`, `get_task` e tool del pianificatore, proposta unica); `skills.rs` i tool delle skill utente (la logica su file è in
   `user_skills`).
@@ -822,13 +826,23 @@ dati, consegna, scheduler, tool, UI): [BOARD.MD](BOARD.MD). Struttura a strati, 
 
 Stati del worker: `starting` -> `running` (`get_task`) -> `completed` | `failed`
 (`complete_task`) -> `closed` (tab chiuso). In mezzo, dagli hook di `--notify` (solo con segreto
-valido): `needs_input` (hook needs-input, tranne l'attesa `Idle`), `background` e `idle`.
-`Registry::on_hook` su `finished`: con `background_work > 0` -> `background`; altrimenti, con
+valido): `needs_input` (hook needs-input, tranne l'attesa `Idle`), `background`, `idle` e
+`awaiting_answer`. `Registry::on_hook` su `finished`: con `background_work > 0` -> `background`;
+con una domanda pendente (`ask_user`) -> `awaiting_answer`, senza bloccare lo Stop; altrimenti, con
 `stop_hook_active != true`, risposta `block` con `STOP_BLOCK_REASON` (promemoria in inglese);
 con `stop_hook_active == true` -> `idle`. `needs_input` e `idle` = "richiede attenzione" e
-mandano la notifica. Nessun hook segnala la risposta dell'utente: `pty_write` avvisa il backend
+mandano la notifica. `awaiting_answer` (worker fermo dopo `ask_user`) **non** richiede attenzione,
+perché l'utente risponde dall'HUB: la notifica è "<titolo> ha una domanda" (kind `question`).
+Nessun hook segnala la risposta dell'utente: `pty_write` avvisa il backend
 quando nel terminale di un worker in attesa si preme Invio (`Registry::user_input`) e il worker
-torna `running`.
+torna `running`; in `awaiting_answer` Invio chiude anche la domanda, senza testo. Un permesso richiesto
+durante la domanda porta a `needs_input`: lì Invio approva il permesso e la domanda resta aperta.
+
+`automation::answer_question` (`automation/questions.rs`, azione dell'HUB e non un comando né un tool) consegna
+la risposta dell'utente: la segna sulla board sotto il lock e la scrive nel tab del worker **fuori dai lock**
+(`automation/answer_input.rs`: testo ripulito da caratteri di controllo ed ESC, una riga digitata com'è, più righe
+in bracketed paste, Invio differito di 150 ms). Rifiuta la risposta con un permesso in attesa o mentre il worker
+lavora; se il terminale non è raggiungibile la domanda torna in attesa. Errori e codifica in BOARD.MD.
 
 Sessione dell'agente (`agent_session.rs`). Un processo secondario avviato dal worker (un
 `claude` figlio, un subagent) eredita `CLI_COMPANION_SESSION` e gli hook del plugin: i suoi
@@ -859,7 +873,7 @@ nota diventa `reopened: ...`. Tab chiuso davvero (`tab_closed`) o task ripreso d
 vale la regola normale (notifica solo se il report e' `failed`, nessuna per `done`).
 
 Notifiche di sistema: evento `task-notify` `{workspace_id, task_id, tab_id?, kind:
-"attention"|"failed", title, body}` (testo in italiano); il frontend mostra la notifica.
+"attention"|"failed"|"question", title, body}` (testo in italiano); il frontend mostra la notifica.
 
 Tutto cio' che legge il modello e' in inglese (`BOOTSTRAP_PROMPT`, `STOP_BLOCK_REASON`,
 istruzioni, ambiente e passi di consegna in `board/texts.rs`, `board/prompts/worker_guardrails.md`,
@@ -1236,7 +1250,9 @@ src/
   (`UiState.world`, `stores/view.ts` `activeWorld`; non persistito): la colonna di 260px mostra `AppSidebar` o `HubSidebar`
   e l'overlay `HubOverlay` copre i terminali (che restano montati). I segretari: sezione SEGRETARI nella colonna
   (`components/hub/HubSecretaryList.tsx`), messaggi, menzioni e compositore in `components/hub/`, logica pura in
-  `lib/hubSecretaries.ts`, impostazioni in `components/settings/HubPage.tsx` e `components/settings/hub/` (con
+  `lib/hubSecretaries.ts`, domande dei worker in `HubQuestionCard` (con `HubDeliveryFailure` per la risposta non
+  consegnata), `lib/hubQuestions.ts` (stato di una domanda ricavato dal thread) e `answerQuestion` / `openTaskThread`
+  in `app/actions/hub.ts`, impostazioni in `components/settings/HubPage.tsx` e `components/settings/hub/` (con
   `lib/hubSettings.ts` e `app/actions/hubSettings.ts`), nomi riservati ai terminali in `lib/bots.ts`. Dettagli in
   [HUB.MD](HUB.MD), "Interfaccia".
 - `components/PaneHeader.tsx` (30px): stato, etichetta mono (prefisso "workspace /" nella vista
@@ -1286,7 +1302,8 @@ src/
   scrollback e non vengono ripristinati.
 - **Tasks Manager** (`components/tasks/`, `lib/board.ts`, `lib/boardLayout.ts`, `hooks/useBoards.ts`, `stores/boards.ts`):
   `lib/board.ts` (zero-dep, testato) ha i tipi del contratto (`BoardView`, `Task`, `Proposal`,
-  `Delivery`), i quattro stati (+ "Richiede attenzione") con etichette e colori, selettori, ricerca/filtri,
+  `Delivery`), i quattro stati (+ "Richiede attenzione" e "In attesa di risposta", per un task con una domanda
+  pendente: stato `question` di `displayStatus`, distinto dall'attenzione) con etichette e colori, selettori, ricerca/filtri,
   formati di durata e consegna, `mergeBoard` per `rev`. `useBoardsSync` (montato da `App`) carica `board_get`
   e ascolta `board-update`, `useTaskNotify` ascolta `task-notify` (notifica di sistema); i componenti chiamano `api` e
   passano la `BoardView` restituita a `storeBoard` (`app/boards.ts`, che scrive in `boardsStore`: una `rev` più vecchia
