@@ -90,8 +90,15 @@ async fn reply(app: &AppHandle, key: &ThreadKey, name: &str, mut trigger: Trigge
         system: context::system_prompt(secretary, settings.language, &key.channel, &names),
         max_steps,
     };
-    let host =
-        AppTurnHost { io: &io, secretary, trigger: trigger.id, proposal: proposal.clone(), question, names: &names };
+    let host = AppTurnHost {
+        io: &io,
+        secretary,
+        trigger: trigger.id,
+        cause: trigger.cause,
+        proposal: proposal.clone(),
+        question,
+        names: &names,
+    };
     match run_turn(&model, &host, &spec, &mut turn.conversation).await {
         TurnEnd::Reply(text) => post_reply(&io, name, &text).await,
         TurnEnd::StepLimit => io.notice(texts::step_limit(name, max_steps)).await,

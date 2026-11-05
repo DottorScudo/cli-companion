@@ -61,20 +61,36 @@ pub fn notice(secretary: &str, invocation: &Invocation, outcome: &Value) -> Opti
         // eventi della proposta decisa.
         Invocation::PostMessage { .. } | Invocation::OpenPlanTask { .. } | Invocation::DecideProposal { .. } => None,
         Invocation::RelayAnswer { body, .. } => {
-            Some(texts::answer_relayed(secretary, outcome["task_id"].as_str().unwrap_or_default(), body))
+            Some(texts::answer_relayed(secretary, text_of(outcome, "task_id"), body))
         }
+        Invocation::TaskAction { op, .. } => {
+            Some(texts::task_changed(secretary, op, text_of(outcome, "title"), text_of(outcome, "before_title")))
+        }
+        // Solo cio' che e' cambiato davvero (`board_ops::control_board`).
+        Invocation::BoardControl { .. } => texts::board_changed(
+            secretary,
+            text_of(outcome, "workspace"),
+            outcome["changed"]["paused"].as_bool(),
+            outcome["changed"]["max_parallel"].as_u64(),
+        ),
     }
+}
+
+/// Un campo testuale dell'esito, vuoto se manca.
+fn text_of<'a>(outcome: &'a Value, field: &str) -> &'a str {
+    outcome[field].as_str().unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hub::engine::board_ops::{BoardChange, TaskOp};
     use crate::hub::engine::board_query::BoardQuery;
     use crate::hub::engine::relay::QuestionSelector;
     use serde_json::json;
 
     /// Una chiamata valida per ogni tool, nell'ordine canonico.
-    fn one_of_each() -> [Invocation; 8] {
+    fn one_of_each() -> [Invocation; 10] {
         [
             Invocation::BoardStatus { workspace: None, query: BoardQuery::default() },
             Invocation::BoardOverview,
@@ -84,6 +100,11 @@ mod tests {
             Invocation::OpenPlanTask { goal: "Add a login page".into() },
             Invocation::DecideProposal { accept: true },
             Invocation::RelayAnswer { body: "Use Postgres.".into(), selector: QuestionSelector::default() },
+            Invocation::TaskAction { workspace: None, task_id: "t-7".into(), op: TaskOp::Retry },
+            Invocation::BoardControl {
+                workspace: None,
+                change: BoardChange { paused: Some(true), max_parallel: None },
+            },
         ]
     }
 
@@ -95,7 +116,16 @@ mod tests {
     #[test]
     fn only_changes_other_than_post_message_count() {
         let counted: Vec<_> = SecretaryTool::ALL.into_iter().filter(|t| counts_toward_limit(*t)).collect();
-        assert_eq!(counted, [SecretaryTool::OpenPlanTask, SecretaryTool::DecideProposal, SecretaryTool::RelayAnswer]);
+        assert_eq!(
+            counted,
+            [
+                SecretaryTool::OpenPlanTask,
+                SecretaryTool::DecideProposal,
+                SecretaryTool::RelayAnswer,
+                SecretaryTool::TaskAction,
+                SecretaryTool::BoardControl
+            ]
+        );
     }
 
     #[test]
@@ -127,7 +157,7 @@ mod tests {
     #[test]
     fn only_changes_not_visible_in_the_thread_leave_a_notice() {
         assert_eq!(
-            one_of_each().map(|i| notice("mario", &i, &json!({ "task_id": "t-7" }))),
+            one_of_each().map(|i| notice("mario", &i, &outcome())),
             [
                 None,
                 None,
@@ -136,8 +166,27 @@ mod tests {
                 None,
                 None,
                 None,
-                Some("@mario ha inviato al worker del task t-7 questa risposta:\nUse Postgres.".into())
+                Some("@mario ha inviato al worker del task t-7 questa risposta:\nUse Postgres.".into()),
+                Some("@mario ha ritentato «Login».".into()),
+                Some("@mario ha messo in pausa la board di Sito Web.".into()),
             ]
+        );
+    }
+
+    /// Un esito con i campi letti dagli avvisi.
+    fn outcome() -> Value {
+        json!({ "task_id": "t-7", "title": "Login", "workspace": "Sito Web", "changed": { "paused": true } })
+    }
+
+    #[test]
+    fn a_board_control_that_changed_nothing_leaves_no_notice() {
+        let control = &one_of_each()[9];
+        let unchanged = json!({ "workspace": "Sito Web", "paused": true, "changed": {} });
+        assert_eq!(notice("mario", control, &unchanged), None);
+        let parallel = json!({ "workspace": "Sito Web", "changed": { "max_parallel": 2 } });
+        assert_eq!(
+            notice("mario", control, &parallel).unwrap(),
+            "@mario ha impostato a 2 i task in parallelo della board di Sito Web."
         );
     }
 }

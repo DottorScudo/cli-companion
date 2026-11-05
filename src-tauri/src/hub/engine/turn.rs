@@ -10,6 +10,7 @@
 //! `TurnHost`, che il runtime implementa sull'app e i test con un finto.
 
 use super::audit::{self, MutationBudget};
+use super::board_ops::{BoardChange, TaskOp};
 use super::board_query::BoardQuery;
 use super::chat::{ChatMessage, ChatModel, ChatRequest, ModelError, ModelReply, ToolCall};
 use super::context;
@@ -60,6 +61,21 @@ pub trait TurnHost: Send + Sync {
         &self,
         selector: QuestionSelector,
         body: String,
+    ) -> impl Future<Output = Result<Value, String>> + Send;
+    /// Ritenta o riordina un task della board del workspace (`None` = quella
+    /// del canale del thread; vedi `board_ops::change_task`).
+    fn task_action(
+        &self,
+        workspace: Option<String>,
+        task_id: String,
+        op: TaskOp,
+    ) -> impl Future<Output = Result<Value, String>> + Send;
+    /// Pausa e parallelismo della board del workspace (`None` = quella del
+    /// canale del thread; vedi `board_ops::control_board`).
+    fn board_control(
+        &self,
+        workspace: Option<String>,
+        change: BoardChange,
     ) -> impl Future<Output = Result<Value, String>> + Send;
     /// Scrive un messaggio di sistema (in italiano) nel thread.
     fn notice(&self, text: String) -> impl Future<Output = ()> + Send;
@@ -160,6 +176,8 @@ async fn invoke<H: TurnHost>(host: &H, invocation: Invocation) -> Result<Value, 
         Invocation::OpenPlanTask { goal } => host.open_plan_task(goal).await,
         Invocation::DecideProposal { accept } => host.decide_proposal(accept).await,
         Invocation::RelayAnswer { body, selector } => host.relay_answer(selector, body).await,
+        Invocation::TaskAction { workspace, task_id, op } => host.task_action(workspace, task_id, op).await,
+        Invocation::BoardControl { workspace, change } => host.board_control(workspace, change).await,
     }
 }
 

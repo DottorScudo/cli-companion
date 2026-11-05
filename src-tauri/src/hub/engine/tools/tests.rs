@@ -57,6 +57,11 @@ fn schema_properties_match_the_argument_structs() {
         ("open_plan_task", json!({"goal": "Add a dark theme"})),
         ("decide_proposal", json!({"accept": true})),
         ("relay_answer", json!({"body": "Use the second option.", "question_id": "q-1-1", "task_id": "t-1"})),
+        (
+            "task_action",
+            json!({"task_id": "t-1", "action": "move_before", "before_task_id": "t-2", "workspace": "ws-1"}),
+        ),
+        ("board_control", json!({"paused": true, "max_parallel": 2, "workspace": "ws-1"})),
     ];
     for (name, sample) in samples {
         let tool = SecretaryTool::ALL.into_iter().find(|t| t.code() == name).unwrap();

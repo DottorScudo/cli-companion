@@ -12,7 +12,12 @@ const preset = (id, name, extra = {}) => ({
   ...extra,
 });
 
-const PRESETS = [preset("coordinator", "mario"), preset("analyst", "giulia"), preset("reporter", "luca")];
+const PRESETS = [
+  preset("coordinator", "mario"),
+  preset("analyst", "giulia"),
+  preset("reporter", "luca"),
+  preset("operator", "ugo", { tools: ["board_status", "task_details", "task_action", "board_control"] }),
+];
 
 const secretary = (name, extra = {}) => ({
   name,
@@ -32,6 +37,16 @@ describe("draftOfPreset", () => {
       tools: ["thread_read", "post_message"],
       channels: null,
     });
+  });
+
+  it("keeps the board tools of the operator preset", () => {
+    assert.deepEqual(draftOfPreset(PRESETS[3]).tools, ["board_status", "task_details", "task_action", "board_control"]);
+  });
+});
+
+describe("presetOf the operator", () => {
+  it("finds the operator preset, so it can be restored", () => {
+    assert.equal(presetOf(secretary("ugo", { preset: "operator" }), PRESETS), PRESETS[3]);
   });
 });
 

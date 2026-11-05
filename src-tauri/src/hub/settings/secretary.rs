@@ -41,11 +41,15 @@ pub enum SecretaryTool {
     DecideProposal,
     /// Inoltra al worker la risposta dell'utente all'unica domanda in attesa del thread.
     RelayAnswer,
+    /// Ritenta un task fallito, lo porta in testa alla coda o prima di un altro task in coda.
+    TaskAction,
+    /// Mette in pausa o riprende la board del workspace, o ne cambia `max_parallel`.
+    BoardControl,
 }
 
 impl SecretaryTool {
     /// Tutti i tool, nell'ordine canonico in cui si salvano.
-    pub const ALL: [SecretaryTool; 8] = [
+    pub const ALL: [SecretaryTool; 10] = [
         Self::BoardStatus,
         Self::BoardOverview,
         Self::TaskDetails,
@@ -54,6 +58,8 @@ impl SecretaryTool {
         Self::OpenPlanTask,
         Self::DecideProposal,
         Self::RelayAnswer,
+        Self::TaskAction,
+        Self::BoardControl,
     ];
 
     /// Nome sul filo e su disco.
@@ -67,6 +73,8 @@ impl SecretaryTool {
             Self::OpenPlanTask => "open_plan_task",
             Self::DecideProposal => "decide_proposal",
             Self::RelayAnswer => "relay_answer",
+            Self::TaskAction => "task_action",
+            Self::BoardControl => "board_control",
         }
     }
 
@@ -75,7 +83,12 @@ impl SecretaryTool {
     pub fn class(self) -> ToolClass {
         match self {
             Self::BoardStatus | Self::BoardOverview | Self::TaskDetails | Self::ThreadRead => ToolClass::Read,
-            Self::PostMessage | Self::OpenPlanTask | Self::DecideProposal | Self::RelayAnswer => ToolClass::Write,
+            Self::PostMessage
+            | Self::OpenPlanTask
+            | Self::DecideProposal
+            | Self::RelayAnswer
+            | Self::TaskAction
+            | Self::BoardControl => ToolClass::Write,
         }
     }
 
@@ -354,8 +367,18 @@ mod tests {
                 (SecretaryTool::OpenPlanTask, ToolClass::Write),
                 (SecretaryTool::DecideProposal, ToolClass::Write),
                 (SecretaryTool::RelayAnswer, ToolClass::Write),
+                (SecretaryTool::TaskAction, ToolClass::Write),
+                (SecretaryTool::BoardControl, ToolClass::Write),
             ]
         );
+    }
+
+    #[test]
+    fn the_board_tools_are_chosen_and_never_added_to_existing_secretaries() {
+        let d = draft("m", "", &["board_control", "task_action", "board_status"], None).unwrap();
+        assert_eq!(d.tools, [SecretaryTool::BoardStatus, SecretaryTool::TaskAction, SecretaryTool::BoardControl]);
+        let s: Secretary = serde_json::from_str(r#"{"name":"mario","tools":["board_status","relay_answer"]}"#).unwrap();
+        assert!(!s.may_use(SecretaryTool::TaskAction) && !s.may_use(SecretaryTool::BoardControl));
     }
 
     #[test]

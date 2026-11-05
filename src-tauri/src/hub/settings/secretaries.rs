@@ -25,13 +25,13 @@ pub fn create_from_preset(list: &mut Vec<Secretary>, draft: SecretaryDraft, pres
 }
 
 /// Alla prima attivazione dell'HUB: se non c'è nessun segretario, crea i
-/// preset con i nomi suggeriti. Con un elenco già avviato non aggiunge nulla.
-/// Un preset che non si può creare (nome già preso, tetto raggiunto) si salta.
+/// preset `seeded` con i nomi suggeriti. Con un elenco già avviato non aggiunge
+/// nulla. Un preset che non si può creare (nome già preso, tetto raggiunto) si salta.
 pub fn seed_presets(list: &mut Vec<Secretary>) {
     if !list.is_empty() {
         return;
     }
-    for preset in &PRESETS {
+    for preset in PRESETS.iter().filter(|p| p.seeded) {
         if let Err(reason) = create_from_preset(list, preset.draft(), preset.id) {
             log::info!("hub: il segretario predefinito {} non è stato creato: {reason}", preset.id);
         }
@@ -196,7 +196,8 @@ mod tests {
         assert_eq!(names(&list), ["mario", "giulia", "luca"]);
         let presets: Vec<_> = list.iter().map(|s| s.preset.as_deref()).collect();
         assert_eq!(presets, [Some("coordinator"), Some("analyst"), Some("reporter")]);
-        assert_eq!(list[0].tools, SecretaryTool::ALL);
+        assert_eq!(list[0].tools, PRESETS[0].tools);
+        assert!(list.iter().all(|s| !s.may_use(SecretaryTool::TaskAction) && !s.may_use(SecretaryTool::BoardControl)));
         assert_eq!(list[1].tools, [SecretaryTool::ThreadRead, SecretaryTool::PostMessage, SecretaryTool::OpenPlanTask]);
         assert!(list.iter().all(|s| s.is_configured() && s.channels == SecretaryChannels::All && s.image.is_none()));
     }
@@ -273,6 +274,22 @@ mod tests {
         assert_eq!(list[1].channels, SecretaryChannels::Only { channels: vec![] });
         assert_eq!(list[1].image, Some(image()));
         assert_eq!(list[1].preset.as_deref(), Some("analyst"));
+    }
+
+    #[test]
+    fn the_operator_is_created_only_on_request_and_restored_with_its_board_tools() {
+        let operator = presets::find("operator").unwrap();
+        let mut list = seeded();
+        assert!(list.iter().all(|s| s.preset.as_deref() != Some("operator")));
+        create_from_preset(&mut list, operator.draft(), "operator").unwrap();
+        let edited = SecretaryDraft { tools: vec![SecretaryTool::ThreadRead], ..operator.draft() };
+        update(&mut list, "ugo", edited).unwrap();
+        restore_preset(&mut list, "ugo").unwrap();
+        let ugo = list.iter().find(|s| s.name == "ugo").unwrap();
+        assert_eq!(ugo.preset.as_deref(), Some("operator"));
+        assert_eq!(ugo.tools, operator.tools);
+        assert!(ugo.may_use(SecretaryTool::TaskAction) && ugo.may_use(SecretaryTool::BoardControl));
+        assert_eq!(ugo.system_prompt, operator.prompt_text());
     }
 
     #[test]

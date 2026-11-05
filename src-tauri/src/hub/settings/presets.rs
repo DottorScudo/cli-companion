@@ -1,4 +1,4 @@
-//! I segretari predefiniti (docs/HUB.MD): tre mansioni distinte, divise per il
+//! I segretari predefiniti (docs/HUB.MD): mansioni distinte, divise per il
 //! modo di lavorare con l'utente e non per competenza tecnica. Aggiungerne uno =
 //! una voce in `PRESETS` + un file in `presets/<id>.md` (il system prompt, in
 //! inglese: lo legge il modello; le regole comuni le aggiunge il motore, vedi
@@ -20,6 +20,9 @@ pub struct SecretaryPreset {
     pub name: &'static str,
     pub system_prompt: &'static str,
     pub tools: &'static [SecretaryTool],
+    /// Si crea da solo alla prima attivazione dell'HUB (`secretaries::seed_presets`).
+    /// Un preset che cambia la board no: lo sceglie l'utente.
+    pub seeded: bool,
 }
 
 impl SecretaryPreset {
@@ -45,7 +48,7 @@ impl SecretaryPreset {
 /// un tool nuovo non deve entrare da solo in un preset. In particolare i tool che
 /// modificano la board (cambiano o eliminano task) non vanno in un preset senza
 /// una scelta esplicita; il test `each_preset_has_the_tools_of_its_job` fissa le liste.
-pub const PRESETS: [SecretaryPreset; 3] = [
+pub const PRESETS: [SecretaryPreset; 4] = [
     SecretaryPreset {
         id: "coordinator",
         label: "Coordinatore",
@@ -62,6 +65,7 @@ pub const PRESETS: [SecretaryPreset; 3] = [
             SecretaryTool::DecideProposal,
             SecretaryTool::RelayAnswer,
         ],
+        seeded: true,
     },
     SecretaryPreset {
         id: "analyst",
@@ -70,6 +74,7 @@ pub const PRESETS: [SecretaryPreset; 3] = [
         name: "giulia",
         system_prompt: include_str!("presets/analyst.md"),
         tools: &[SecretaryTool::ThreadRead, SecretaryTool::PostMessage, SecretaryTool::OpenPlanTask],
+        seeded: true,
     },
     SecretaryPreset {
         id: "reporter",
@@ -84,6 +89,24 @@ pub const PRESETS: [SecretaryPreset; 3] = [
             SecretaryTool::ThreadRead,
             SecretaryTool::PostMessage,
         ],
+        seeded: true,
+    },
+    SecretaryPreset {
+        id: "operator",
+        label: "Operatore",
+        description: "Agisce sulla coda quando glielo chiedi: ritenta i task falliti, cambia l’ordine, mette in pausa o riprende la board e ne regola il parallelismo.",
+        name: "ugo",
+        system_prompt: include_str!("presets/operator.md"),
+        tools: &[
+            SecretaryTool::BoardStatus,
+            SecretaryTool::BoardOverview,
+            SecretaryTool::TaskDetails,
+            SecretaryTool::ThreadRead,
+            SecretaryTool::PostMessage,
+            SecretaryTool::TaskAction,
+            SecretaryTool::BoardControl,
+        ],
+        seeded: false,
     },
 ];
 
@@ -125,9 +148,18 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
-    fn the_three_presets_come_in_order_with_their_suggested_names() {
+    fn the_presets_come_in_order_with_their_suggested_names() {
         let ids: Vec<_> = PRESETS.iter().map(|p| (p.id, p.name)).collect();
-        assert_eq!(ids, [("coordinator", "mario"), ("analyst", "giulia"), ("reporter", "luca")]);
+        assert_eq!(ids, [("coordinator", "mario"), ("analyst", "giulia"), ("reporter", "luca"), ("operator", "ugo")]);
+    }
+
+    #[test]
+    fn only_the_presets_that_do_not_change_the_board_are_seeded() {
+        let seeded: Vec<_> = PRESETS.iter().filter(|p| p.seeded).map(|p| p.id).collect();
+        assert_eq!(seeded, ["coordinator", "analyst", "reporter"]);
+        for p in PRESETS.iter().filter(|p| p.seeded) {
+            assert!(!p.tools.contains(&SecretaryTool::TaskAction) && !p.tools.contains(&SecretaryTool::BoardControl));
+        }
     }
 
     #[test]
@@ -169,6 +201,10 @@ mod tests {
         );
         assert_eq!(find("analyst").unwrap().tools, [ThreadRead, PostMessage, OpenPlanTask]);
         assert_eq!(find("reporter").unwrap().tools, [BoardStatus, BoardOverview, TaskDetails, ThreadRead, PostMessage]);
+        assert_eq!(
+            find("operator").unwrap().tools,
+            [BoardStatus, BoardOverview, TaskDetails, ThreadRead, PostMessage, TaskAction, BoardControl]
+        );
         assert!(find("unknown").is_none());
     }
 

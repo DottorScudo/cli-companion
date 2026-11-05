@@ -60,13 +60,13 @@ si possono salvare anche uno alla volta.
 | `name` | handle della menzione: trim e minuscolo, poi 1..24 caratteri tra `a-z`, `0-9` e `-`, senza `-` iniziale o finale; unico |
 | `image` | facoltativa, `{ png, color }` come le immagini dei bot (`bots::validate_image`: PNG base64, al massimo 64×64 pixel e 32 KB, colore `#rrggbb`) |
 | `system_prompt` | testo libero letto dal modello (di solito in inglese), al massimo 8000 caratteri, a capo e tabulazioni ammessi. Vuoto = segretario **non configurato**: esiste ma il motore non lo fa rispondere (`Secretary::is_configured`) |
-| `tools` | tool del motore che può usare (`HubSecretaryTool`): `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message`, `open_plan_task`, `decide_proposal`, `relay_answer`; senza ripetizioni, nell'ordine canonico. Il limite vero di cosa fa sta qui, non nel prompt. Un tool nuovo non si aggiunge da solo ai segretari esistenti: lo sceglie l'utente |
+| `tools` | tool del motore che può usare (`HubSecretaryTool`): `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message`, `open_plan_task`, `decide_proposal`, `relay_answer`, `task_action`, `board_control`; senza ripetizioni, nell'ordine canonico. Il limite vero di cosa fa sta qui, non nel prompt. Un tool nuovo non si aggiunge da solo ai segretari esistenti: lo sceglie l'utente |
 | `preset` | facoltativo: id del preset da cui il segretario è nato (vedi "Segretari predefiniti"); assente se creato da zero o in un file scritto prima, e un valore illeggibile vale assente. Resta anche se l'utente modifica il segretario |
 | `channels` | `{ "mode": "all" }` (Generale e ogni workspace, anche quelli futuri) oppure `{ "mode": "only", "channels": [...] }` con `general` o id di workspace esistenti (`hub/channel.rs`), da 1 a 200, senza ripetizioni |
 
 ### Segretari predefiniti
 
-Tre preset (`hub/settings/presets.rs`, prompt in `hub/settings/presets/<id>.md`, in inglese). Sono divisi per il modo di
+Quattro preset (`hub/settings/presets.rs`, prompt in `hub/settings/presets/<id>.md`, in inglese). Sono divisi per il modo di
 lavorare con l'utente, non per competenza tecnica: il segretario non conosce il codice. Non ripetono le regole comuni,
 che il motore aggiunge a ogni system prompt (`ENGINE_INSTRUCTIONS`): descrivono solo la mansione.
 
@@ -75,14 +75,17 @@ che il motore aggiunge a ogni system prompt (`ENGINE_INSTRUCTIONS`): descrivono 
 | `coordinator` | Coordinatore | `mario` | `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message`, `open_plan_task`, `decide_proposal`, `relay_answer` | trasforma gli obiettivi dell'utente in lavoro per gli agenti: chiarisce l'obiettivo (al massimo una domanda), apre il task di pianificazione, presenta le proposte e le decide solo se l'utente accetta o rifiuta con chiarezza, riferisce fallimenti e domande dei worker |
 | `analyst` | Analista | `giulia` | `thread_read`, `post_message`, `open_plan_task` | trasforma un'idea vaga in una richiesta completa: chiede obiettivo, criteri di completamento, vincoli ed esclusioni (mai domande tecniche sul codice), poi riassume in Goal / Done when / Constraints / Out of scope e apre la pianificazione solo dopo la conferma. Senza `decide_proposal`, se arriva una proposta la presenta e dice di rispondere sul messaggio della proposta |
 | `reporter` | Cronista | `luca` | `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message` | tiene informato l'utente: cosa è fatto, cosa gira, cosa aspetta lui, cosa è fallito; nel Generale una riga per workspace, prima quelli che aspettano l'utente; spiega i fallimenti dalle note dei task senza ipotesi. Non apre task e non decide: per nuovo lavoro rimanda a un segretario che può aprirli |
+| `operator` | Operatore | `ugo` | `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message`, `task_action`, `board_control` | agisce sulla coda solo su richiesta esplicita dell'utente: ritenta i task falliti, porta un task in testa o prima di un altro, mette in pausa o riprende la board e ne regola `max_parallel`. Prima di cambiare un task lo legge; se la richiesta è ambigua chiede; dopo una modifica la dice in una riga. Non elimina, non ferma, non segna fatto e non apre lavoro nuovo. **Non si crea da solo** (`seeded: false`): lo sceglie l'utente da «Aggiungi da modello» |
 
 Ogni preset ha una lista esplicita di tool, mai `SecretaryTool::ALL`: un tool nuovo, soprattutto se modifica la board,
-entra in un preset solo con una scelta esplicita (un test fissa le liste).
+entra in un preset solo con una scelta esplicita (un test fissa le liste). Il Coordinatore non ha `task_action` né
+`board_control`.
 
 Tutti hanno `channels` = tutti i canali.
 
 - **Creazione automatica.** Quando l'HUB passa da spento ad acceso (`hub_set_enabled`) e l'elenco dei segretari è vuoto,
-  si creano i tre preset con i nomi suggeriti (`secretaries::seed_presets`, pura). Con l'elenco non vuoto non si
+  si creano i preset con `seeded: true` (Coordinatore, Analista, Cronista: nessuno cambia la board) con i nomi
+  suggeriti (`secretaries::seed_presets`, pura). Con l'elenco non vuoto non si
   aggiunge nulla, quindi chi ha già i suoi segretari non ne trova di nuovi e nessuna migrazione tocca quelli esistenti. Un
   preset che non si può creare (nome già preso, tetto di 20) si salta senza errore.
 - **Aggiungi da modello.** Nella sezione Segretari, accanto a «Nuovo segretario», si sceglie un preset: l'editor si
@@ -353,7 +356,7 @@ Validano gli argomenti per primi e fanno l'I/O in `crate::blocking`. Wrapper nel
 | Comando | Argomenti | Ritorna |
 |---|---|---|
 | `hub_get_settings` | — | `HubSettingsView` (`HubSettings` + `api_key_set`) |
-| `hub_set_enabled` | `enabled` | `HubSettingsView` salvate (come `bots`: niente evento); spegnere butta le istantanee delle board; accendere con l'elenco dei segretari vuoto crea i tre preset (vedi "Segretari predefiniti") |
+| `hub_set_enabled` | `enabled` | `HubSettingsView` salvate (come `bots`: niente evento); spegnere butta le istantanee delle board; accendere con l'elenco dei segretari vuoto crea i preset `seeded` (vedi "Segretari predefiniti") |
 | `hub_set_provider` | `base_url`, `model` | `HubSettingsView` |
 | `hub_set_api_key` | `key` | `HubSettingsView` (la chiave va nel portachiavi) |
 | `hub_clear_api_key` | — | `HubSettingsView`; nessun errore se non c'era |
@@ -361,7 +364,7 @@ Validano gli argomenti per primi e fanno l'I/O in `crate::blocking`. Wrapper nel
 | `hub_set_notifications` | `enabled` | `HubSettingsView`; notifiche di sistema dei thread (vedi "Notifiche") |
 | `hub_set_session` | `idle_minutes`, `max_steps` | `HubSettingsView` |
 | `hub_create_secretary` | `name`, `system_prompt`, `tools`, `channels` (`null` = tutti), `preset` (`null` = da zero) | `HubSettingsView`; nuovo segretario in fondo, senza immagine; `preset` sconosciuto rifiutato |
-| `hub_list_secretary_presets` | — | `HubSecretaryPreset[]`: id, etichetta, descrizione, nome suggerito, prompt e tool dei tre preset (vedi "Segretari predefiniti") |
+| `hub_list_secretary_presets` | — | `HubSecretaryPreset[]`: id, etichetta, descrizione, nome suggerito, prompt e tool dei quattro preset (vedi "Segretari predefiniti") |
 | `hub_restore_secretary_preset` | `name` | `HubSettingsView`; riporta prompt e tool al preset del segretario, rifiutato se non nasce da un preset |
 | `hub_update_secretary` | `name`, `new_name`, `system_prompt`, `tools`, `channels` | `HubSettingsView`; sostituisce i campi, l'immagine resta; rinomina rifiutata se `new_name` è di un altro segretario |
 | `hub_delete_secretary` | `name` | `HubSettingsView` |
@@ -851,12 +854,13 @@ una skill di Claude Code o OpenCode e non passa da MCP. Codice in `hub/engine/`.
 | `mentions.rs` | le menzioni `@nome` |
 | `planning.rs` | `open_plan_task` (testo del task `plan`, collegamento, titolare) e `decide_proposal` (a quale proposta si lega e la decisione), generici sulla board |
 | `relay.rs` | `relay_answer` (le domande in attesa, la scelta di quale e la consegna), generico sulla board |
+| `board_ops.rs` | `task_action` e `board_control` (verifica sulla vista corrente, scrittura, esito), generici sulla board (`BoardWriter`) |
 | `sessions.rs` | sessioni, titolare, code dei thread, scadenze (puro, tempo passato dal chiamante) |
 | `turn.rs` | il ciclo di tool calling, la compattazione della conversazione, il riassunto |
 | `texts.rs` | i messaggi di sistema in italiano |
 | `runtime.rs` | lo stato Tauri `SecretaryEngine`, gli esecutori delle code e lo schedulatore delle scadenze |
 | `jobs.rs` | i lavori di una coda (turno, riassunto) sull'app |
-| `host.rs` | gli effetti reali: thread, board (viste e `BoardActions`), portachiavi |
+| `host.rs` | gli effetti reali: thread, board (viste e `BoardActions`), portachiavi; in `host/board_writes.rs` quelli di `task_action` e `board_control` |
 | `status.rs` | `HubSecretaryStatus`, l'evento `hub-secretary-status` e il comando `hub_secretary_status` |
 
 La logica (menzioni, sessioni, ciclo, contesto, tool) è pura o generica sui trait `ChatModel`, `TurnHost` e
@@ -1037,14 +1041,18 @@ Ogni tool ha una classe (`SecretaryTool::class`, `ToolClass`), secondo l'effetto
 | Classe | Significato | Tool |
 |---|---|---|
 | `Read` | sola lettura | `board_status`, `board_overview`, `task_details`, `thread_read` |
-| `Write` | modifica reversibile del thread o della board | `post_message`, `open_plan_task`, `decide_proposal`, `relay_answer` |
+| `Write` | modifica reversibile del thread o della board, senza conferma | `post_message`, `open_plan_task`, `decide_proposal`, `relay_answer`, `task_action`, `board_control` |
 | `Destructive` | modifica irreversibile o che falsa lo stato della board; chiederà conferma all'utente | nessuno, per ora |
 
 - **Audit.** Una chiamata **riuscita** di un tool `Write` o `Destructive` lascia un messaggio di sistema (in
   italiano) nel thread, tranne quando il suo effetto si vede già: `post_message` è il messaggio stesso,
-  `open_plan_task` e `decide_proposal` producono gli eventi del task creato e della proposta decisa. Oggi l'unico
-  avviso è quello di `relay_answer` («@mario ha inviato al worker del task t-7 questa risposta: …», con il task a cui è andata), scritto dal turno e non
-  più dall'host. Il testo si dichiara in `audit::notice`, con un `match` esaustivo sulle chiamate: un tool nuovo
+  `open_plan_task` e `decide_proposal` producono gli eventi del task creato e della proposta decisa. Gli avvisi,
+  scritti dal turno e non dall'host: `relay_answer` («@mario ha inviato al worker del task t-7 questa risposta: …»,
+  con il task a cui è andata), `task_action` («@ugo ha ritentato «Login».», «@ugo ha portato «Login» in testa alla
+  coda.», «@ugo ha spostato «Login» prima di «Logout».») e `board_control` («@ugo ha messo in pausa la board di Sito
+  Web.», «@ugo ha ripreso la board di Sito Web.», «@ugo ha impostato a 2 i task in parallelo della board di Sito
+  Web.», o le due cose insieme), che nomina solo ciò che è cambiato davvero e non lascia avvisi se la board era già
+  così. Il testo si dichiara in `audit::notice`, con un `match` esaustivo sulle chiamate: un tool nuovo
   non compila finché non dice se lascia un avviso e quale. Una chiamata fallita o rifiutata non lascia avvisi di
   audit (solo, se rifiutata, quello del rifiuto).
 - **Limite per turno.** Al massimo `MAX_MUTATIONS_PER_TURN = 3` chiamate riuscite per turno a tool `Write` diversi
@@ -1057,10 +1065,11 @@ La classe non è esposta al frontend.
 
 ### Tool
 
-Schema JSON e descrizione (in inglese: li legge il modello) sono scritti in `tools.rs` (quelli di `board_status`, `board_overview`, `task_details`, `thread_read` e `relay_answer` nei moduli di `tools/`) accanto alla struttura degli
+Schema JSON e descrizione (in inglese: li legge il modello) sono scritti in `tools.rs` (quelli di `board_status`, `board_overview`, `task_details`, `thread_read`, `relay_answer`, `task_action` e `board_control` nei moduli di `tools/`) accanto alla struttura degli
 argomenti in cui si validano (`#[serde(deny_unknown_fields)]`); un test verifica che le proprietà dello schema e i
 campi della struttura coincidano. Gli argomenti vuoti valgono `{}`. Solo `open_plan_task`, `decide_proposal`
-(vedi "Pianificazione dal thread") e `relay_answer` (vedi "Domande dei worker") agiscono sulla board.
+(vedi "Pianificazione dal thread"), `relay_answer` (vedi "Domande dei worker"), `task_action` e `board_control`
+(vedi "Azioni sulla coda") agiscono sulla board.
 
 | Tool | Argomenti | Effetto |
 |---|---|---|
@@ -1072,6 +1081,8 @@ campi della struttura coincidano. Gli argomenti vuoti valgono `{}`. Solo `open_p
 | `open_plan_task` | `goal` (1..4000 caratteri, ripulito dai caratteri di controllo) | crea un task `plan` in coda nel workspace del canale, collegato al thread, e rende il segretario titolare; esito `{ task_id, title, status }`. Nel Generale è un errore per il modello: deve chiedere all'utente il progetto |
 | `decide_proposal` | `accept` (bool), **nessun id** | accetta o scarta la proposta dell'evento a cui risponde il messaggio dell'utente; esito `{ proposal, decision, tasks_queued }` |
 | `relay_answer` | `body` (1..4000 caratteri, il limite delle risposte della board), `question_id?` e `task_id?` (al massimo 64 caratteri; vuoto vale assente) | consegna `body` al worker come risposta a una domanda in attesa del thread, solo in un turno svegliato da un messaggio dell'utente; senza id vale l'unica domanda in attesa, con più domande si passano `question_id` e `task_id` letti da `thread_read` (`event.question.id`, `event.task_id`) o da `task_details` (`question.id`); esito `{ task_id, question_id, delivered }` e nel thread «@mario ha inviato al worker del task t-7 questa risposta: …» |
+| `task_action` | `task_id` (1..64 caratteri), `action` (`retry`, `to_top`, `move_before`), `before_task_id?` (1..64 caratteri, obbligatorio con `move_before` e vietato con le altre; vuoto vale assente), `workspace?` (come `board_status`) | ritenta un task fallito, porta un task in coda in testa alla coda o prima di un altro task in coda, della board del canale del thread; esito `{ workspace, task_id, title, status }` (più `before_task_id`, `before_title` per `move_before`) e un avviso nel thread. Vedi "Azioni sulla coda" |
+| `board_control` | `paused?` (bool), `max_parallel?` (intero da 1 a 16, i limiti di `board_set`), almeno uno dei due; `workspace?` (come `board_status`) | mette in pausa o riprende la board del canale del thread e/o ne imposta `max_parallel`; esito `{ workspace, paused, max_parallel, changed }` con in `changed` solo le parti cambiate davvero (vuoto, con `note`, se la board era già così: nessuna scrittura) |
 
 **Workspace per nome**: gli id restano il riferimento interno (file, eventi, comandi), ma il modello parla dei
 workspace col nome. `WorkspaceNames` (`workspace_names.rs`, puro) è l'istantanea dei workspace letta dal
@@ -1147,6 +1158,31 @@ diretta «… le azioni sulla board non sono disponibili.».
 - il messaggio nel thread («Proposta accettata: N task in coda.» / «Proposta scartata.») lo scrivono gli eventi della
   board, come per i pulsanti; accettata, i task si collegano al thread (la proposta è sua). I pulsanti del pannello
   Task restano.
+
+### Azioni sulla coda
+
+`task_action` e `board_control` (`board_ops.rs`, puro e generico sulla board; effetti in `host/board_writes.rs`)
+sono le prime azioni dei segretari sulla coda: solo reversibili (classe `Write`), quindi senza conferma, con
+l'avviso di audit e il limite per turno di ogni modifica. Nessun segretario esistente le riceve: si scelgono, o si
+crea il preset Operatore.
+
+- **Solo su richiesta dell'utente** (`board_ops::require_user_request`): come `relay_answer`, solo in un turno
+  svegliato da un messaggio dell'utente; un risveglio da evento della board o da elemento esterno è rifiutato, così
+  un testo non fidato non può mai cambiare la coda.
+- **Perimetro** (`tools::change_workspace`, puro): solo la board del workspace del canale del thread. Lì `workspace`
+  si può omettere o deve essere quel workspace: un altro è rifiutato (`OutsideThread`, «You can change only the
+  board of this thread's channel…»). Nel Generale serve `workspace`, che deve essere tra i canali del segretario
+  (come `board_workspace`).
+- **Verifica.** Prima di scrivere si legge la vista corrente della board (`HubFeed::current_views`): il task deve
+  esserci (un id di un'altra board o inesistente dà «No task with id … on the board of workspace …»), e l'azione
+  deve essere in `TaskView::allowed_actions` (`retry`, `to_top`) o, per `move_before`, entrambi i task devono avere
+  `can_reorder` e essere diversi. Il rifiuto dice lo stato del task e la regola. `board_control` scrive solo ciò che
+  cambia rispetto alla vista.
+- **Scrittura.** Con le azioni registrate da `lib.rs` (`BoardActions::act_on_task`, `move_task`, `set_board`, cioè
+  `automation::hub_task_action`, `hub_task_move`, `hub_board_set`): lo stesso codice e la stessa validazione dei
+  comandi `task_action`, `task_move` e `board_set` del pannello Task, che quindi si aggiorna come per un clic. Fuori
+  dal main thread e solo se l'epoca dell'HUB è ancora quella del lavoro. Un errore della board torna al modello
+  («The board did not accept the change: …») e non lascia avvisi.
 
 ### Domande dei worker
 

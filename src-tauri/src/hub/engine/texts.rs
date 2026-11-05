@@ -3,6 +3,7 @@
 //! il corpo di una risposta dell'endpoint).
 
 use super::audit::MAX_MUTATIONS_PER_TURN;
+use super::board_ops::TaskOp;
 use super::chat::ModelError;
 use super::tools::ToolRejection;
 
@@ -57,6 +58,29 @@ pub fn answer_relayed(name: &str, task_id: &str, body: &str) -> String {
         "@{name} ha inviato al worker del task {task_id} questa risposta:
 {body}"
     )
+}
+
+/// Il segretario ha ritentato o riordinato un task (`task_action`).
+pub fn task_changed(name: &str, op: &TaskOp, title: &str, before_title: &str) -> String {
+    match op {
+        TaskOp::Retry => format!("@{name} ha ritentato «{title}»."),
+        TaskOp::ToTop => format!("@{name} ha portato «{title}» in testa alla coda."),
+        TaskOp::MoveBefore { .. } => format!("@{name} ha spostato «{title}» prima di «{before_title}»."),
+    }
+}
+
+/// Il segretario ha cambiato pausa e/o parallelismo della board del
+/// workspace (`board_control`); `None` se non e' cambiato nulla.
+pub fn board_changed(name: &str, workspace: &str, paused: Option<bool>, max_parallel: Option<u64>) -> Option<String> {
+    let pause = |paused: bool| if paused { "messo in pausa" } else { "ripreso" };
+    let parallel = |n: u64| format!("impostato a {n} i task in parallelo");
+    let what = match (paused, max_parallel) {
+        (None, None) => return None,
+        (Some(p), None) => format!("{} la board di {workspace}", pause(p)),
+        (None, Some(n)) => format!("{} della board di {workspace}", parallel(n)),
+        (Some(p), Some(n)) => format!("{} la board di {workspace} e {}", pause(p), parallel(n)),
+    };
+    Some(format!("@{name} ha {what}."))
 }
 
 /// La chiamata al modello e' fallita.
@@ -121,5 +145,22 @@ mod tests {
             "@mario ha inviato al worker del task t-7 questa risposta:
 Usa Postgres."
         );
+    }
+
+    #[test]
+    fn board_changes_say_what_changed_by_title_and_workspace_name() {
+        let before = TaskOp::MoveBefore { before_task_id: "t-2".into() };
+        assert_eq!(task_changed("ugo", &TaskOp::Retry, "Login", ""), "@ugo ha ritentato «Login».");
+        assert_eq!(task_changed("ugo", &TaskOp::ToTop, "Login", ""), "@ugo ha portato «Login» in testa alla coda.");
+        assert_eq!(task_changed("ugo", &before, "Login", "Logout"), "@ugo ha spostato «Login» prima di «Logout».");
+        let board = |paused, max| board_changed("ugo", "Sito Web", paused, max);
+        assert_eq!(board(Some(true), None).unwrap(), "@ugo ha messo in pausa la board di Sito Web.");
+        assert_eq!(board(Some(false), None).unwrap(), "@ugo ha ripreso la board di Sito Web.");
+        assert_eq!(board(None, Some(2)).unwrap(), "@ugo ha impostato a 2 i task in parallelo della board di Sito Web.");
+        assert_eq!(
+            board(Some(true), Some(1)).unwrap(),
+            "@ugo ha messo in pausa la board di Sito Web e impostato a 1 i task in parallelo."
+        );
+        assert_eq!(board(None, None), None);
     }
 }

@@ -10,6 +10,7 @@
 //! lock dura la creazione del task (qualche comando git), mai una chiamata al
 //! modello; l'automazione non prende mai il lock dei thread.
 
+use super::board_ops::{BoardChange, TaskOp};
 use super::board_query::BoardQuery;
 use super::chat::ModelError;
 use super::openai::OpenAiModel;
@@ -17,7 +18,7 @@ use super::output;
 use super::planning::{self, PlanTicket, ProposalBoard, ProposalRef};
 use super::relay::{self, QuestionSelector, RelayCandidates};
 use super::runtime::SecretaryEngine;
-use super::sessions::ThreadKey;
+use super::sessions::{ThreadKey, WakeCause};
 use super::thread_page::ThreadPage;
 use super::tools::{board_workspace, BoardAccessError};
 use super::turn::TurnHost;
@@ -41,6 +42,8 @@ use tauri::{AppHandle, Manager};
 
 /// Il lavoro e' di un'epoca passata: l'HUB e' stato spento.
 const STALE: &str = "sessione chiusa: l'Agents HUB è stato spento";
+/// Il workspace chiesto non c'e' piu' fra le board, per il modello.
+const WORKSPACE_NOT_FOUND: &str = "That workspace was not found.";
 /// Caratteri tenuti dell'id di un task nei messaggi di errore.
 const TASK_ID_KEPT: usize = 64;
 
@@ -211,6 +214,9 @@ pub struct AppTurnHost<'a> {
     pub secretary: &'a Secretary,
     /// Il messaggio che ha svegliato il turno.
     pub trigger: &'a str,
+    /// Perche' il turno e' stato svegliato: solo un messaggio dell'utente puo'
+    /// cambiare la coda (`board_ops::require_user_request`).
+    pub cause: WakeCause,
     /// La proposta che il turno puo' decidere (`planning::proposal_target`).
     pub proposal: Option<ProposalRef>,
     /// La domanda a cui il turno puo' rispondere, o perche' non ce n'e' una
@@ -239,20 +245,33 @@ impl AppTurnHost<'_> {
     /// La board del workspace chiesto (`None` = quello del canale del thread),
     /// se il segretario puo' leggerla; l'errore e' in inglese, per il modello.
     async fn readable_board(&self, workspace: Option<String>) -> Result<BoardView, String> {
-        let requested = workspace.map(|reference| self.names.find_for_model(&reference, self.secretary)).transpose()?;
-        match board_workspace(requested, self.channel(), self.secretary) {
-            Ok(id) => {
-                let views = self.views().await?;
-                views.into_iter().find(|v| v.workspace_id == id).ok_or_else(|| "That workspace was not found.".to_string())
-            }
-            Err(BoardAccessError::NoChannelBoard) => Err(format!(
+        let requested = self.requested_workspace(workspace)?;
+        let id = board_workspace(requested, self.channel(), self.secretary).map_err(|e| self.access_error(e))?;
+        let views = self.views().await?;
+        views.into_iter().find(|v| v.workspace_id == id).ok_or_else(|| WORKSPACE_NOT_FOUND.to_string())
+    }
+
+    /// L'id del workspace a cui il modello si riferisce col nome (`None` = nessuno).
+    fn requested_workspace(&self, workspace: Option<String>) -> Result<Option<String>, String> {
+        workspace.map(|reference| self.names.find_for_model(&reference, self.secretary)).transpose()
+    }
+
+    /// Perche' la board non si puo' leggere o cambiare, per il modello.
+    fn access_error(&self, error: BoardAccessError) -> String {
+        let name = |id: &str| self.names.name_of(id).unwrap_or("unknown").to_string();
+        match error {
+            BoardAccessError::NoChannelBoard => format!(
                 "This thread is in the General channel, which has no board: pass `workspace` with the name of one of: {}.",
                 self.names.readable_names(self.secretary).join(", ")
-            )),
-            Err(BoardAccessError::NotAllowed(id)) => Err(format!(
-                "You cannot read the board of workspace \"{}\": it is not one of your channels.",
-                self.names.name_of(&id).unwrap_or("unknown")
-            )),
+            ),
+            BoardAccessError::NotAllowed(id) => {
+                format!("You cannot use the board of workspace \"{}\": it is not one of your channels.", name(&id))
+            }
+            BoardAccessError::OutsideThread(id) => format!(
+                "You can change only the board of this thread's channel, not the one of workspace \"{}\". Tell the \
+                user to ask in that workspace's channel or in the General channel.",
+                name(&id)
+            ),
         }
     }
 }
@@ -307,7 +326,17 @@ impl TurnHost for AppTurnHost<'_> {
         self.io.relay_answer(relay::choose(&self.question, &selector), body).await
     }
 
+    async fn task_action(&self, workspace: Option<String>, task_id: String, op: TaskOp) -> Result<Value, String> {
+        self.change_task(workspace, task_id, op).await
+    }
+
+    async fn board_control(&self, workspace: Option<String>, change: BoardChange) -> Result<Value, String> {
+        self.control_board(workspace, change).await
+    }
+
     async fn notice(&self, text: String) {
         self.io.notice(text).await;
     }
 }
+
+mod board_writes;

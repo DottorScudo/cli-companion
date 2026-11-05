@@ -1,11 +1,14 @@
 //! Le azioni dell'HUB sulla board: creare un task di pianificazione, decidere
-//! una proposta e rispondere alla domanda di un worker. `hub` non dipende da
+//! una proposta, rispondere alla domanda di un worker, agire su un task
+//! (ritentarlo, riordinarlo) e cambiare pausa e parallelismo della board.
+//! `hub` non dipende da
 //! `automation`: `lib.rs` registra le funzioni reali (`set_board_actions`),
 //! come fa con la sorgente delle viste (`BoardSource`). Le chiamano i tool dei
 //! segretari (`engine`) e la risposta diretta (`direct_answer`), sempre fuori
 //! dal main thread: creare un piano fa git, rispondere scrive nel terminale.
 
 use super::questions::{QuestionBoard, QuestionRef};
+use crate::board::{BoardView, TaskAction};
 use std::sync::OnceLock;
 use tauri::{AppHandle, Manager};
 
@@ -31,12 +34,26 @@ pub type DecideProposal = fn(&AppHandle, &str, &str, bool) -> Result<(), String>
 /// fermo in attesa. Errori in italiano (li legge l'utente).
 pub type AnswerQuestion = fn(&AppHandle, &str, &str, &str, &str) -> Result<(), String>;
 
+/// Esegue l'azione sul task (terzo argomento) del workspace, con la stessa
+/// validazione del comando `task_action` del pannello Task; ritorna la board
+/// aggiornata.
+pub type ActOnTask = fn(&AppHandle, &str, &str, TaskAction) -> Result<BoardView, String>;
+/// Sposta il task `queued` (terzo argomento) prima di un altro task `queued`
+/// (quarto), come il comando `task_move`; ritorna la board aggiornata.
+pub type MoveTask = fn(&AppHandle, &str, &str, &str) -> Result<BoardView, String>;
+/// Imposta `max_parallel` e/o la pausa della board del workspace, con gli
+/// stessi limiti del comando `board_set`; ritorna la board aggiornata.
+pub type SetBoard = fn(&AppHandle, &str, Option<u8>, Option<bool>) -> Result<BoardView, String>;
+
 /// Le azioni registrate da `lib.rs`.
 #[derive(Clone, Copy)]
 pub struct BoardActions {
     pub create_plan: CreatePlan,
     pub decide_proposal: DecideProposal,
     pub answer_question: AnswerQuestion,
+    pub act_on_task: ActOnTask,
+    pub move_task: MoveTask,
+    pub set_board: SetBoard,
 }
 
 /// Le risposte alle domande dei worker sull'app: la risposta diretta del thread

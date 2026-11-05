@@ -48,6 +48,8 @@ export const SECRETARY_TOOLS: readonly { id: HubSecretaryTool; description: stri
   { id: "open_plan_task", description: "Apre un task di pianificazione" },
   { id: "decide_proposal", description: "Accetta o scarta la proposta a cui rispondi" },
   { id: "relay_answer", description: "Risponde a un worker al posto tuo, quando glielo chiedi" },
+  { id: "task_action", description: "Ritenta un task fallito o ne cambia la posizione nella coda" },
+  { id: "board_control", description: "Mette in pausa o riprende la board e ne regola i task in parallelo" },
 ];
 
 function languageLabel(language: HubLanguage): string {

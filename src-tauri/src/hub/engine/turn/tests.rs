@@ -1,5 +1,6 @@
 use super::*;
 use crate::hub::engine::audit::MAX_MUTATIONS_PER_TURN;
+use crate::hub::engine::board_ops::{BoardChange, TaskOp};
 use crate::hub::engine::fake::{call, calls, text, FakeModel};
 use crate::hub::engine::fixtures::{secretary, FakeBoard, WS};
 use crate::hub::engine::planning::{self, ProposalBoard, ProposalRef};
@@ -29,6 +30,8 @@ struct FakeHost {
     /// Le domande a cui il turno puo' rispondere (`relay::relay_candidates`).
     question: Option<RelayCandidates>,
     answers: FakeAnswers,
+    task_actions: Mutex<Vec<(Option<String>, String, TaskOp)>>,
+    board_changes: Mutex<Vec<(Option<String>, BoardChange)>>,
 }
 
 impl FakeHost {
@@ -88,6 +91,19 @@ impl TurnHost for FakeHost {
         relay::relay(&self.answers, target.as_ref().map_err(|e| *e), &body)
     }
 
+    async fn task_action(&self, workspace: Option<String>, task_id: String, op: TaskOp) -> Result<Value, String> {
+        self.task_actions.lock().unwrap().push((workspace, task_id.clone(), op));
+        match task_id.as_str() {
+            "t-404" => Err("No task with id \"t-404\" on the board of workspace \"Muse Companion\".".to_string()),
+            _ => Ok(json!({ "task_id": task_id, "title": "Login", "status": "queued" })),
+        }
+    }
+
+    async fn board_control(&self, workspace: Option<String>, change: BoardChange) -> Result<Value, String> {
+        self.board_changes.lock().unwrap().push((workspace, change));
+        Ok(json!({ "workspace": "Muse Companion", "changed": { "paused": change.paused } }))
+    }
+
     async fn notice(&self, text: String) {
         self.notices.lock().unwrap().push(text);
     }
@@ -132,7 +148,9 @@ fn a_text_reply_ends_the_turn() {
             "post_message",
             "open_plan_task",
             "decide_proposal",
-            "relay_answer"
+            "relay_answer",
+            "task_action",
+            "board_control"
         ]
     );
 }
@@ -405,6 +423,34 @@ fn changes_already_visible_in_the_thread_leave_no_audit_notice() {
     assert_eq!(host.plans.lock().unwrap().len(), 1);
     assert_eq!(host.board.decisions.lock().unwrap().len(), 1);
     assert!(host.notices.lock().unwrap().is_empty(), "{:?}", host.notices.lock().unwrap());
+}
+
+#[test]
+fn board_changes_reach_the_host_and_leave_an_audit_notice() {
+    let model = FakeModel::new(vec![
+        calls(vec![
+            call("c1", "task_action", r#"{"task_id":"t-1","action":"retry"}"#),
+            call("c2", "board_control", r#"{"paused":true,"workspace":"Sito Web"}"#),
+            call("c3", "task_action", r#"{"task_id":"t-404","action":"to_top"}"#),
+        ]),
+        text("Ho ritentato il task e messo in pausa la board."),
+    ]);
+    let host = FakeHost::default();
+    run(&model, &host, &secretary("ugo"), 8);
+    assert_eq!(
+        *host.task_actions.lock().unwrap(),
+        [(None, "t-1".to_string(), TaskOp::Retry), (None, "t-404".to_string(), TaskOp::ToTop)]
+    );
+    assert_eq!(
+        *host.board_changes.lock().unwrap(),
+        [(Some("Sito Web".to_string()), BoardChange { paused: Some(true), max_parallel: None })]
+    );
+    // Il rifiuto della board torna al modello e non lascia avvisi.
+    assert_eq!(
+        *host.notices.lock().unwrap(),
+        ["@ugo ha ritentato «Login».", "@ugo ha messo in pausa la board di Muse Companion."]
+    );
+    assert!(tool_result(&model, 1).contains("No task with id"));
 }
 
 #[test]

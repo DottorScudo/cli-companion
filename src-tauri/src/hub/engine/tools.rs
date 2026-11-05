@@ -6,6 +6,7 @@
 //! L'esecuzione e' in `turn` (attraverso `TurnHost`).
 
 use super::audit::MAX_MUTATIONS_PER_TURN;
+use super::board_ops::{BoardChange, TaskOp};
 use super::board_query::BoardQuery;
 use super::chat::{ToolCall, ToolSpec};
 use super::planning::GOAL_MAX;
@@ -53,6 +54,17 @@ pub enum Invocation {
         /// Quale domanda in attesa; vuoto = l'unica.
         selector: QuestionSelector,
     },
+    TaskAction {
+        /// `None` = la board del canale del thread.
+        workspace: Option<String>,
+        task_id: String,
+        op: TaskOp,
+    },
+    BoardControl {
+        /// `None` = la board del canale del thread.
+        workspace: Option<String>,
+        change: BoardChange,
+    },
 }
 
 impl Invocation {
@@ -67,6 +79,8 @@ impl Invocation {
             Self::OpenPlanTask { .. } => SecretaryTool::OpenPlanTask,
             Self::DecideProposal { .. } => SecretaryTool::DecideProposal,
             Self::RelayAnswer { .. } => SecretaryTool::RelayAnswer,
+            Self::TaskAction { .. } => SecretaryTool::TaskAction,
+            Self::BoardControl { .. } => SecretaryTool::BoardControl,
         }
     }
 }
@@ -173,6 +187,8 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
             }),
         },
         SecretaryTool::RelayAnswer => relay_answer::spec(tool),
+        SecretaryTool::TaskAction => task_action::spec(tool),
+        SecretaryTool::BoardControl => board_control::spec(tool),
     }
 }
 
@@ -245,16 +261,26 @@ pub fn parse(call: &ToolCall, secretary: &Secretary) -> Result<Invocation, ToolR
             let (body, selector) = relay_answer::parse(&call.arguments).map_err(invalid)?;
             Ok(Invocation::RelayAnswer { body, selector })
         }
+        SecretaryTool::TaskAction => {
+            let (workspace, task_id, op) = task_action::parse(&call.arguments).map_err(invalid)?;
+            Ok(Invocation::TaskAction { workspace, task_id, op })
+        }
+        SecretaryTool::BoardControl => {
+            let (workspace, change) = board_control::parse(&call.arguments).map_err(invalid)?;
+            Ok(Invocation::BoardControl { workspace, change })
+        }
     }
 }
 
-/// Perche' il segretario non puo' leggere la board chiesta.
+/// Perche' il segretario non puo' leggere o cambiare la board chiesta.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BoardAccessError {
     /// Thread del Generale e nessun `workspace`: il Generale non ha una board.
     NoChannelBoard,
     /// Un workspace fuori dai canali del segretario.
     NotAllowed(String),
+    /// Una modifica alla board di un workspace che non e' il canale del thread.
+    OutsideThread(String),
 }
 
 /// Il workspace di cui `board_status` legge la board: quello del canale del
@@ -269,6 +295,20 @@ pub fn board_workspace(
         (None, Channel::General) => Err(BoardAccessError::NoChannelBoard),
         (Some(id), _) if secretary.channels.allows(&Channel::Workspace(id.clone())) => Ok(id),
         (Some(id), _) => Err(BoardAccessError::NotAllowed(id)),
+    }
+}
+
+/// Il workspace di cui `task_action` e `board_control` cambiano la board: solo
+/// quello del canale del thread; nel Generale quello chiesto, se il segretario
+/// ha quel canale.
+pub fn change_workspace(
+    requested: Option<String>,
+    channel: &Channel,
+    secretary: &Secretary,
+) -> Result<String, BoardAccessError> {
+    match (requested, channel) {
+        (Some(id), Channel::Workspace(own)) if id != *own => Err(BoardAccessError::OutsideThread(id)),
+        (requested, _) => board_workspace(requested, channel, secretary),
     }
 }
 
@@ -299,11 +339,15 @@ fn arguments<T: DeserializeOwned>(raw: &str) -> Result<T, String> {
     serde_json::from_value(value).map_err(|e| format!("arguments do not match the schema ({e})"))
 }
 
+mod board_control;
 mod board_overview;
 mod board_status;
 pub(super) mod relay_answer;
+mod task_action;
 pub(super) mod task_details;
 mod thread_read;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod write_tests;

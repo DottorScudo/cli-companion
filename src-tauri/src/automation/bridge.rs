@@ -123,3 +123,31 @@ pub fn decide_hub_proposal(app: &AppHandle, ws_id: &str, proposal_id: &str, acce
     boards::proposal_decide(&app.state::<AutomationState>(), &TauriHost(app.clone()), ws_id, proposal_id, accept)
         .map(drop)
 }
+
+/// Un'azione su un task per conto dell'Agents HUB (i segretari): lo stesso
+/// codice (e la stessa validazione) del comando `task_action` del pannello Task.
+pub fn hub_task_action(
+    app: &AppHandle,
+    ws_id: &str,
+    task_id: &str,
+    action: board::TaskAction,
+) -> Result<BoardView, String> {
+    boards::task_action(&app.state::<AutomationState>(), &TauriHost(app.clone()), ws_id, task_id, action)
+}
+
+/// Sposta un task `queued` prima di `before_id` per conto dell'Agents HUB, come
+/// il comando `task_move`.
+pub fn hub_task_move(app: &AppHandle, ws_id: &str, task_id: &str, before_id: &str) -> Result<BoardView, String> {
+    boards::task_move(&app.state::<AutomationState>(), &TauriHost(app.clone()), ws_id, task_id, Some(before_id))
+}
+
+/// Pausa e `max_parallel` della board per conto dell'Agents HUB, con gli stessi
+/// limiti del comando `board_set`.
+pub fn hub_board_set(
+    app: &AppHandle,
+    ws_id: &str,
+    max_parallel: Option<u8>,
+    paused: Option<bool>,
+) -> Result<BoardView, String> {
+    boards::board_set(&app.state::<AutomationState>(), &TauriHost(app.clone()), ws_id, max_parallel, paused)
+}

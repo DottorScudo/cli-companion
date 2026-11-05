@@ -184,6 +184,8 @@ describe("segretari", () => {
         "open_plan_task",
         "decide_proposal",
         "relay_answer",
+        "task_action",
+        "board_control",
       ],
     );
     assert.ok(SECRETARY_TOOLS.every((t) => t.description.length > 0));
@@ -191,6 +193,8 @@ describe("segretari", () => {
     assert.equal(text.open_plan_task, "Apre un task di pianificazione");
     assert.equal(text.decide_proposal, "Accetta o scarta la proposta a cui rispondi");
     assert.equal(text.relay_answer, "Risponde a un worker al posto tuo, quando glielo chiedi");
+    assert.equal(text.task_action, "Ritenta un task fallito o ne cambia la posizione nella coda");
+    assert.equal(text.board_control, "Mette in pausa o riprende la board e ne regola i task in parallelo");
     assert.deepEqual(EMPTY_DRAFT.tools, []);
   });
 

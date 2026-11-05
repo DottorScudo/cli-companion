@@ -87,6 +87,9 @@ pub fn run() {
                     },
                     decide_proposal: automation::decide_hub_proposal,
                     answer_question: automation::answer_question,
+                    act_on_task: automation::hub_task_action,
+                    move_task: automation::hub_task_move,
+                    set_board: automation::hub_board_set,
                 },
             );
             automation::skills::restore_in_background(automation::TauriHost(app.handle().clone()));
