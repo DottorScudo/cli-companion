@@ -8,6 +8,7 @@
 //! Il ciclo non tiene lock: tutto cio' che tocca thread e board passa da
 //! `TurnHost`, che il runtime implementa sull'app e i test con un finto.
 
+use super::board_query::BoardQuery;
 use super::chat::{ChatMessage, ChatModel, ChatRequest, ModelError, ModelReply, ToolCall};
 use super::context;
 use super::texts;
@@ -28,8 +29,12 @@ pub const CONVERSATION_MAX: usize = 40;
 
 /// Gli effetti di un turno. Gli errori sono in inglese: tornano al modello.
 pub trait TurnHost: Send + Sync {
-    /// La board compatta del workspace (`None` = quella del canale del thread).
-    fn board_status(&self, workspace: Option<String>) -> impl Future<Output = Result<Value, String>> + Send;
+    /// Una pagina della board del workspace (`None` = quella del canale del thread).
+    fn board_status(
+        &self,
+        workspace: Option<String>,
+        query: BoardQuery,
+    ) -> impl Future<Output = Result<Value, String>> + Send;
     /// Il thread compatto.
     fn thread_read(&self) -> impl Future<Output = Result<Value, String>> + Send;
     /// Scrive un messaggio del segretario nel thread.
@@ -103,7 +108,7 @@ async fn execute<H: TurnHost>(host: &H, secretary: &Secretary, call: &ToolCall) 
             host.notice(texts::tool_rejected(&secretary.name, &rejection)).await;
             Err(rejection.for_model())
         }
-        Ok(Invocation::BoardStatus { workspace }) => host.board_status(workspace).await,
+        Ok(Invocation::BoardStatus { workspace, query }) => host.board_status(workspace, query).await,
         Ok(Invocation::ThreadRead) => host.thread_read().await,
         Ok(Invocation::PostMessage { body }) => host.post_message(body).await.map(|()| json!({ "posted": true })),
         Ok(Invocation::OpenPlanTask { goal }) => host.open_plan_task(goal).await,

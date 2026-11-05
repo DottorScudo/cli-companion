@@ -3,36 +3,45 @@
 //! solo con il testo italiano del messaggio. Lo usano i tool (`board_status`,
 //! `thread_read`) e il contesto del risveglio (`context`).
 
+use super::board_query::{self, BoardQuery};
 use super::workspace_names::WorkspaceNames;
-use crate::board::BoardView;
+use crate::board::{compact_row, BoardView, TaskView};
 use crate::hub::channel::Channel;
 use crate::hub::model::{Message, Thread};
 use crate::validate::clip_with_ellipsis;
 use serde_json::{json, Map, Value};
 
-/// Task riportati da `board_status`: oltre, si conta solo quanti ne mancano.
-pub const BOARD_TASKS_MAX: usize = 40;
 /// Messaggi riportati da `thread_read`.
 pub const THREAD_READ_MESSAGES: usize = 20;
 /// Caratteri tenuti del testo di un messaggio.
 const BODY_KEPT: usize = 1000;
 
-/// La board in righe compatte (`BoardView::to_list_json`: conteggi, task con
-/// stato, attenzione, attesa e riassunto), al massimo `BOARD_TASKS_MAX` task.
-pub fn board_status(view: &BoardView, names: &WorkspaceNames) -> Value {
-    let mut out = view.to_list_json(None);
+/// Una pagina della board per `board_status`: l'intestazione di `BoardView::summary_json`
+/// (conteggi dell'intera board, proposte pendenti, pausa), quanti task soddisfano la
+/// ricerca (`total`) e, dal piu' recente, le righe compatte della pagina chiesta con
+/// l'ora di creazione e di aggiornamento (UTC). `next_offset` c'e' solo se ne restano.
+pub fn board_status(view: &BoardView, names: &WorkspaceNames, query: &BoardQuery) -> Value {
+    let page = board_query::select(&view.tasks, query);
+    let mut out = view.summary_json();
     out["workspace"] = Value::from(view.workspace_id.as_str());
     if let Some(name) = names.name_of(&view.workspace_id) {
         out["workspace_name"] = Value::from(name);
     }
-    if let Some(tasks) = out["tasks"].as_array_mut() {
-        let omitted = tasks.len().saturating_sub(BOARD_TASKS_MAX);
-        if omitted > 0 {
-            tasks.truncate(BOARD_TASKS_MAX);
-            out["omitted_tasks"] = Value::from(omitted);
-        }
+    out["total"] = Value::from(page.total);
+    out["offset"] = Value::from(query.offset);
+    out["limit"] = Value::from(query.limit);
+    if let Some(next) = page.next_offset {
+        out["next_offset"] = Value::from(next);
     }
+    out["tasks"] = page.tasks.into_iter().map(task_row).collect();
     out
+}
+
+fn task_row(v: &TaskView) -> Value {
+    let mut row = compact_row(v);
+    row["created_at"] = timestamp(v.task.created_at);
+    row["updated_at"] = timestamp(v.task.updated_at);
+    row
 }
 
 /// Il thread per `thread_read`: titolo, stato, task collegati, riassunto e gli
@@ -134,22 +143,61 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_board_is_compact_and_truncated() {
+    /// Board di `n` task `t-0..` in coda, creati un secondo uno dopo l'altro, con una specifica riservata.
+    fn board_of(n: i64) -> BoardView {
         use crate::board::{AgentGate, Board, TaskSpec};
         let mut board = Board::new("ws-1");
-        for i in 0..BOARD_TASKS_MAX + 3 {
-            let spec =
-                TaskSpec { id: format!("t-{i}"), title: format!("Task {i}"), task: "x".into(), ..Default::default() };
-            board.create_task(spec, None, 0).unwrap();
+        for i in 0..n {
+            let spec = TaskSpec {
+                id: format!("t-{i}"),
+                title: format!("Task {i}"),
+                task: "reserved spec text".into(),
+                ..Default::default()
+            };
+            board.create_task(spec, None, 1_700_000_000_000 + i * 1000).unwrap();
         }
-        let v = board_status(&board.view_with(None, false, &AgentGate::default()), &names());
-        assert_eq!(v["workspace"], "ws-1");
-        assert_eq!(v["workspace_name"], "Muse Companion");
-        assert_eq!(v["tasks"].as_array().unwrap().len(), BOARD_TASKS_MAX);
-        assert_eq!(v["omitted_tasks"], 3);
-        assert_eq!(v["tasks"][0], json!({"id": "t-0", "title": "Task 0", "status": "queued"}));
-        assert_eq!(v["counts"]["queued"], BOARD_TASKS_MAX + 3);
+        board.view_with(None, false, &AgentGate::default())
+    }
+
+    #[test]
+    fn the_board_page_starts_from_the_newest_task() {
+        let v = board_status(&board_of(45), &names(), &BoardQuery::default());
+        assert_eq!((v["workspace"].as_str(), v["workspace_name"].as_str()), (Some("ws-1"), Some("Muse Companion")));
+        let tasks = v["tasks"].as_array().unwrap();
+        assert_eq!(tasks.len(), board_query::PAGE_DEFAULT);
+        assert_eq!(
+            tasks[0],
+            json!({
+                "id": "t-44", "title": "Task 44", "status": "queued",
+                "created_at": "2023-11-14T22:14:04Z", "updated_at": "2023-11-14T22:14:04Z"
+            })
+        );
+        assert_eq!(tasks[19]["id"], "t-25");
+        assert_eq!((v["total"].as_u64(), v["offset"].as_u64(), v["limit"].as_u64()), (Some(45), Some(0), Some(20)));
+        assert_eq!(v["next_offset"], 20);
+        assert!(v.get("omitted_tasks").is_none());
+    }
+
+    #[test]
+    fn the_last_page_has_no_next_offset_and_the_counts_ignore_the_filters() {
+        let query = BoardQuery { offset: 40, ..BoardQuery::default() };
+        let v = board_status(&board_of(45), &names(), &query);
+        assert_eq!(v["tasks"].as_array().unwrap().len(), 5);
+        assert_eq!(v["tasks"][4]["id"], "t-0");
+        assert!(v.get("next_offset").is_none());
+        let none = BoardQuery { statuses: vec![crate::board::TaskStatus::Done], ..BoardQuery::default() };
+        let v = board_status(&board_of(45), &names(), &none);
+        assert_eq!((v["total"].as_u64(), v["tasks"].as_array().map(Vec::len)), (Some(0), Some(0)));
+        assert_eq!(v["counts"], json!({"queued": 45, "running": 0, "done": 0, "failed": 0}));
+        assert_eq!(v["proposals_pending"], 0);
+    }
+
+    #[test]
+    fn the_specification_is_searched_but_never_returned() {
+        let query = BoardQuery { text: Some("RESERVED".into()), limit: 3, ..BoardQuery::default() };
+        let v = board_status(&board_of(5), &names(), &query);
+        assert_eq!((v["total"].as_u64(), v["tasks"].as_array().map(Vec::len)), (Some(5), Some(3)));
+        assert!(!v.to_string().contains("reserved spec text"), "{v}");
     }
 
     #[test]

@@ -70,5 +70,5 @@ pub use spec::{
     TaskPatch, TaskSpec,
 };
 pub use state::{FailCause, Finished, Run, RunPhase, TaskState};
-pub use view::{BoardLimits, BoardView, Bounds, TaskView};
+pub use view::{compact_row, BoardLimits, BoardView, Bounds, TaskView};
 pub use worker::{WorkerActivity, WorkerEnd, WorkerSignal, WorkerStatus, WorkerStep};

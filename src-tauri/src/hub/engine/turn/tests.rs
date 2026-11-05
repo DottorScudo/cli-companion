@@ -39,7 +39,7 @@ impl FakeHost {
 }
 
 impl TurnHost for FakeHost {
-    async fn board_status(&self, workspace: Option<String>) -> Result<Value, String> {
+    async fn board_status(&self, workspace: Option<String>, _query: BoardQuery) -> Result<Value, String> {
         self.boards.lock().unwrap().push(workspace.clone());
         match workspace.as_deref() {
             Some("gone") => Err("Workspace `gone` not found.".to_string()),

@@ -1,4 +1,7 @@
 use super::*;
+use crate::board::{TaskKind, TaskStatus};
+use crate::hub::engine::board_query::{PAGE_DEFAULT, PAGE_MAX, QUERY_MAX};
+use crate::hub::engine::workspace_names::REFERENCE_MAX;
 use crate::hub::settings::SecretaryChannels;
 
 fn secretary(tools: &[SecretaryTool]) -> Secretary {
@@ -39,7 +42,10 @@ fn every_schema_is_a_closed_object_with_an_english_description() {
 fn schema_properties_match_the_argument_structs() {
     let all = secretary(&SecretaryTool::ALL);
     let samples = [
-        ("board_status", json!({"workspace": "ws-1"})),
+        (
+            "board_status",
+            json!({"workspace": "ws-1", "status": ["failed"], "attention": true, "kind": "work", "query": "login", "offset": 0, "limit": 5}),
+        ),
         ("thread_read", json!({})),
         ("post_message", json!({"body": "x"})),
         ("open_plan_task", json!({"goal": "Add a dark theme"})),
@@ -50,7 +56,7 @@ fn schema_properties_match_the_argument_structs() {
         let tool = SecretaryTool::ALL.into_iter().find(|t| t.code() == name).unwrap();
         let props = spec(tool).parameters["properties"].as_object().unwrap().keys().cloned().collect::<Vec<_>>();
         let keys = sample.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
-        assert_eq!(props, keys, "{name}");
+        assert_eq!(sorted(props), sorted(keys), "{name}");
         assert!(parse(&call(name, &sample.to_string()), &all).is_ok(), "{name}");
     }
 }
@@ -69,14 +75,17 @@ fn a_tool_outside_the_list_is_not_allowed() {
 fn arguments_are_validated_against_the_schema() {
     let s = secretary(&SecretaryTool::ALL);
     assert_eq!(parse(&call("thread_read", ""), &s), Ok(Invocation::ThreadRead));
-    assert_eq!(parse(&call("board_status", "{}"), &s), Ok(Invocation::BoardStatus { workspace: None }));
+    assert_eq!(
+        parse(&call("board_status", "{}"), &s),
+        Ok(Invocation::BoardStatus { workspace: None, query: BoardQuery::default() })
+    );
     assert_eq!(
         parse(&call("board_status", r#"{"workspace":" ws-2 "}"#), &s),
-        Ok(Invocation::BoardStatus { workspace: Some("ws-2".into()) })
+        Ok(Invocation::BoardStatus { workspace: Some("ws-2".into()), query: BoardQuery::default() })
     );
     assert_eq!(
         parse(&call("board_status", r#"{"workspace":" Sito Web "}"#), &s),
-        Ok(Invocation::BoardStatus { workspace: Some("Sito Web".into()) })
+        Ok(Invocation::BoardStatus { workspace: Some("Sito Web".into()), query: BoardQuery::default() })
     );
     assert_eq!(
         parse(&call("post_message", r#"{"body":"  Controllo.  "}"#), &s),
@@ -165,4 +174,106 @@ fn the_board_is_the_channel_one_or_one_of_the_secretary_channels() {
     s.channels = SecretaryChannels::Only { channels: vec![Channel::General, ws("ws-1")] };
     assert_eq!(board_workspace(Some("ws-1".into()), &Channel::General, &s), Ok("ws-1".into()));
     assert_eq!(board_workspace(Some("ws-2".into()), &ws("ws-1"), &s), Err(BoardAccessError::NotAllowed("ws-2".into())));
+}
+
+fn board_args(args: &str) -> Result<(Option<String>, BoardQuery), ToolRejection> {
+    match parse(&call("board_status", args), &secretary(&SecretaryTool::ALL))? {
+        Invocation::BoardStatus { workspace, query } => Ok((workspace, query)),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn board_status_without_arguments_asks_for_the_first_page_of_everything() {
+    let (workspace, query) = board_args("{}").unwrap();
+    assert_eq!((workspace, query.offset, query.limit), (None, 0, PAGE_DEFAULT));
+    assert_eq!(query, BoardQuery::default());
+    assert_eq!(PAGE_DEFAULT, 20);
+}
+
+#[test]
+fn board_status_accepts_every_filter_and_the_page() {
+    let (workspace, query) = board_args(
+        r#"{"workspace":" Sito Web ","status":["failed","running"],"attention":true,"kind":"review",
+            "query":"  Login  ","offset":40,"limit":5}"#,
+    )
+    .unwrap();
+    assert_eq!(workspace.as_deref(), Some("Sito Web"));
+    assert_eq!(
+        query,
+        BoardQuery {
+            statuses: vec![TaskStatus::Failed, TaskStatus::Running],
+            attention: true,
+            kind: Some(TaskKind::Review),
+            text: Some("Login".into()),
+            offset: 40,
+            limit: 5,
+        }
+    );
+}
+
+#[test]
+fn board_status_reads_an_empty_query_as_no_search() {
+    assert_eq!(board_args(r#"{"query":"   "}"#).unwrap().1.text, None);
+    assert_eq!(board_args(r#"{"query":""}"#).unwrap().1.text, None);
+    assert_eq!(board_args(r#"{"status":[]}"#).unwrap().1.statuses, Vec::<TaskStatus>::new());
+}
+
+#[test]
+fn board_status_limits_are_inclusive() {
+    assert_eq!(board_args(&format!(r#"{{"limit":{PAGE_MAX}}}"#)).unwrap().1.limit, PAGE_MAX);
+    assert_eq!(board_args(r#"{"limit":1}"#).unwrap().1.limit, 1);
+    let longest = json!({ "query": "è".repeat(QUERY_MAX) }).to_string();
+    assert_eq!(board_args(&longest).unwrap().1.text.map(|t| t.chars().count()), Some(QUERY_MAX));
+}
+
+#[test]
+fn board_status_rejects_invalid_arguments_with_a_clear_reason() {
+    let too_long = json!({ "query": "x".repeat(QUERY_MAX + 1) }).to_string();
+    let too_many = format!(r#"{{"limit":{}}}"#, PAGE_MAX + 1);
+    let cases = [
+        (r#"{"status":["queued","archived"]}"#, "archived"),
+        (r#"{"status":["done","done"]}"#, "repeat"),
+        (r#"{"status":"done"}"#, "schema"),
+        (r#"{"kind":"epic"}"#, "epic"),
+        (r#"{"attention":"yes"}"#, "schema"),
+        (r#"{"limit":0}"#, "`limit` must be between 1 and 40"),
+        (too_many.as_str(), "`limit` must be between 1 and 40"),
+        (r#"{"limit":-1}"#, "schema"),
+        (r#"{"limit":2.5}"#, "schema"),
+        (r#"{"offset":-1}"#, "schema"),
+        (r#"{"page":2}"#, "page"),
+        (too_long.as_str(), "`query` must be at most"),
+        (r#"{"query":5}"#, "schema"),
+    ];
+    for (args, reason) in cases {
+        let Err(ToolRejection::InvalidArguments { tool, reason: got }) = board_args(args) else {
+            panic!("{args} should be rejected");
+        };
+        assert_eq!(tool, SecretaryTool::BoardStatus, "{args}");
+        assert!(got.contains(reason), "{args}: {got}");
+    }
+}
+
+#[test]
+fn the_board_status_schema_describes_every_property_and_its_bounds() {
+    let spec = spec(SecretaryTool::BoardStatus);
+    assert!(spec.description.contains("newest first") && spec.description.contains("next_offset"));
+    let props = &spec.parameters["properties"];
+    for name in ["workspace", "status", "attention", "kind", "query", "offset", "limit"] {
+        assert!(props[name]["description"].as_str().is_some_and(|d| !d.is_empty()), "{name}");
+    }
+    assert_eq!(props["status"]["items"]["enum"], json!(["queued", "running", "done", "failed"]));
+    assert_eq!(props["kind"]["enum"], json!(["work", "review", "plan"]));
+    assert_eq!(
+        (&props["offset"]["minimum"], &props["limit"]["minimum"], &props["limit"]["maximum"]),
+        (&json!(0), &json!(1), &json!(PAGE_MAX))
+    );
+    assert_eq!(props["query"]["maxLength"], QUERY_MAX);
+    assert_eq!(spec.parameters["additionalProperties"], false);
+}
+
+fn sorted(mut keys: Vec<String>) -> Vec<String> {
+    keys.sort();
+    keys
 }

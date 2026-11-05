@@ -10,6 +10,7 @@
 //! - `chat`: i tipi della conversazione e il trait `ChatModel`;
 //! - `openai`: il client reale (`async-openai`) e la classificazione degli errori;
 //! - `tools`: schema, descrizione e validazione dei tool, accesso alle board;
+//! - `board_query`: filtri, ricerca, ordine e pagine dei task di `board_status`;
 //! - `output`: board e thread in JSON compatto per il modello;
 //! - `planning`: `open_plan_task` e `decide_proposal` (il task `plan`, la
 //!   proposta a cui risponde l'utente, la decisione);
@@ -24,6 +25,7 @@
 //! - `host`: gli effetti reali su thread, board, portachiavi;
 //! - `status`: l'evento `hub-secretary-status` e il comando `hub_secretary_status`.
 
+mod board_query;
 mod chat;
 mod context;
 #[cfg(test)]

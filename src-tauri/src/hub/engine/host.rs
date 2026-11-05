@@ -10,6 +10,7 @@
 //! lock dura la creazione del task (qualche comando git), mai una chiamata al
 //! modello; l'automazione non prende mai il lock dei thread.
 
+use super::board_query::BoardQuery;
 use super::chat::ModelError;
 use super::openai::OpenAiModel;
 use super::output;
@@ -238,13 +239,13 @@ impl AppTurnHost<'_> {
 }
 
 impl TurnHost for AppTurnHost<'_> {
-    async fn board_status(&self, workspace: Option<String>) -> Result<Value, String> {
+    async fn board_status(&self, workspace: Option<String>, query: BoardQuery) -> Result<Value, String> {
         let requested = workspace.map(|reference| self.names.find_for_model(&reference, self.secretary)).transpose()?;
         match board_workspace(requested, self.channel(), self.secretary) {
             Ok(id) => {
                 let views = self.views().await?;
                 let view = views.iter().find(|v| v.workspace_id == id);
-                view.map(|v| output::board_status(v, self.names)).ok_or_else(|| "That workspace was not found.".to_string())
+                view.map(|v| output::board_status(v, self.names, &query)).ok_or_else(|| "That workspace was not found.".to_string())
             }
             Err(BoardAccessError::NoChannelBoard) => Err(format!(
                 "This thread is in the General channel, which has no board: pass `workspace` with the name of one of: {}.",

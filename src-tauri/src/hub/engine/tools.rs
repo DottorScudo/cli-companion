@@ -5,9 +5,9 @@
 //! rispettano lo schema (campi sconosciuti rifiutati) e i limiti dell'HUB.
 //! L'esecuzione e' in `turn` (attraverso `TurnHost`).
 
+use super::board_query::BoardQuery;
 use super::chat::{ToolCall, ToolSpec};
 use super::planning::GOAL_MAX;
-use super::workspace_names::REFERENCE_MAX;
 use crate::board::ANSWER_MAX;
 use crate::hub::channel::Channel;
 use crate::hub::settings::{Secretary, SecretaryTool};
@@ -22,9 +22,10 @@ const UNKNOWN_NAME_KEPT: usize = 64;
 /// Un tool validato, pronto da eseguire.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Invocation {
-    /// `None` = la board del canale del thread.
     BoardStatus {
+        /// `None` = la board del canale del thread.
         workspace: Option<String>,
+        query: BoardQuery,
     },
     ThreadRead,
     PostMessage {
@@ -71,24 +72,7 @@ pub fn specs(secretary: &Secretary) -> Vec<ToolSpec> {
 
 pub fn spec(tool: SecretaryTool) -> ToolSpec {
     match tool {
-        SecretaryTool::BoardStatus => ToolSpec {
-            name: tool.code(),
-            description: "Read the task board of a workspace (given by its name): for each task its id, title, status, whether it \
-                needs the user's attention, the tasks it waits on and a short summary of its last report. Without \
-                `workspace` it reads the board of this thread's channel.",
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "workspace": {
-                        "type": "string",
-                        "description": "Name of the workspace whose board to read (an id also works). Omit it to use \
-                            this thread's channel.",
-                        "maxLength": REFERENCE_MAX
-                    }
-                },
-                "additionalProperties": false
-            }),
-        },
+        SecretaryTool::BoardStatus => board_status::spec(tool),
         SecretaryTool::ThreadRead => ToolSpec {
             name: tool.code(),
             description: "Read this thread: its title, its summary and its latest messages, including the data \
@@ -182,13 +166,6 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct BoardStatusArgs {
-    #[serde(default)]
-    workspace: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ThreadReadArgs {}
 
 #[derive(Deserialize)]
@@ -225,15 +202,8 @@ pub fn parse(call: &ToolCall, secretary: &Secretary) -> Result<Invocation, ToolR
     let invalid = |reason: String| ToolRejection::InvalidArguments { tool, reason };
     match tool {
         SecretaryTool::BoardStatus => {
-            let args: BoardStatusArgs = arguments(&call.arguments).map_err(invalid)?;
-            let workspace = match args.workspace.as_deref().map(str::trim) {
-                None | Some("") => None,
-                Some(reference) if reference.chars().count() > REFERENCE_MAX => {
-                    return Err(invalid(format!("`workspace` must be at most {REFERENCE_MAX} characters")));
-                }
-                Some(reference) => Some(reference.to_string()),
-            };
-            Ok(Invocation::BoardStatus { workspace })
+            let (workspace, query) = board_status::parse(&call.arguments).map_err(invalid)?;
+            Ok(Invocation::BoardStatus { workspace, query })
         }
         SecretaryTool::ThreadRead => {
             let _: ThreadReadArgs = arguments(&call.arguments).map_err(invalid)?;
@@ -307,6 +277,8 @@ fn arguments<T: DeserializeOwned>(raw: &str) -> Result<T, String> {
     }
     serde_json::from_value(value).map_err(|e| format!("arguments do not match the schema ({e})"))
 }
+
+mod board_status;
 
 #[cfg(test)]
 mod tests;

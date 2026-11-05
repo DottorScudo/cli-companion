@@ -92,9 +92,9 @@ pub struct BoardView {
 }
 
 impl BoardView {
-    /// Righe compatte per `list_tasks`: conteggi per stato e una riga corta
-    /// per task (solo gli stati richiesti, o tutti).
-    pub fn to_list_json(&self, statuses: Option<&[TaskStatus]>) -> Value {
+    /// Conteggi per stato (dell'intera board), proposte pendenti e, se la board
+    /// e' in pausa, `paused`: l'intestazione di `list_tasks` e di `board_status`.
+    pub fn summary_json(&self) -> Value {
         let mut counts = serde_json::Map::new();
         for s in TaskStatus::ALL {
             counts.insert(
@@ -102,21 +102,31 @@ impl BoardView {
                 Value::from(self.tasks.iter().filter(|t| t.task.status() == s).count()),
             );
         }
+        let mut out = json!({ "counts": counts, "proposals_pending": self.proposals.len() });
+        if self.paused {
+            out["paused"] = Value::Bool(true);
+        }
+        out
+    }
+
+    /// Righe compatte per `list_tasks`: conteggi per stato e una riga corta
+    /// per task (solo gli stati richiesti, o tutti).
+    pub fn to_list_json(&self, statuses: Option<&[TaskStatus]>) -> Value {
         let rows: Vec<Value> = self
             .tasks
             .iter()
             .filter(|t| statuses.is_none_or(|l| l.contains(&t.task.status())))
             .map(compact_row)
             .collect();
-        let mut out = json!({ "counts": counts, "tasks": rows, "proposals_pending": self.proposals.len() });
-        if self.paused {
-            out["paused"] = Value::Bool(true);
-        }
+        let mut out = self.summary_json();
+        out["tasks"] = Value::Array(rows);
         out
     }
 }
 
-fn compact_row(v: &TaskView) -> Value {
+/// La riga compatta di un task: id, titolo, stato e solo i campi che lo
+/// distinguono (attenzione, attesa, tipo, agente, E2E, report, domanda, nota).
+pub fn compact_row(v: &TaskView) -> Value {
     let t = &v.task;
     let mut o = json!({ "id": t.id, "title": t.title, "status": t.status().as_str() });
     if v.attention {
