@@ -459,7 +459,7 @@ anche con l'HUB spento (salvo la verifica di un thread esistente, che lo richied
 | `connector_delete_link(id)` | revoca un collegamento |
 
 Evento `connector-status`: `ConnectorStatus[]`. Lato frontend: `api.connector*` in `src/lib/tauri.ts`, lo store
-`src/stores/connectors.ts` (descrittori, istanze, stati) e `app/actions/connectors.ts`; l'interfaccia generica è la fase 3.
+`src/stores/connectors.ts` (descrittori, istanze, stati) e `app/actions/connectors.ts`; l'interfaccia generica è in `components/settings/ConnectorsPage.tsx` e `components/hub/LinkedSourcesDialog.tsx` (fase 3).
 
 **Log**: solo id dell'istanza, classe dell'errore, conteggi («gmail con-…: 3 elementi consegnati»). Mai segreti,
 indirizzi, oggetti, testi o nomi di allegati. Il token del bot Telegram sta nell'URL della Bot API: il client del
@@ -704,7 +704,7 @@ successiva, con lo stesso contratto `ContactConnector`.
 |---|---|---|
 | **1. Fondamenta HUB** (consegnata) | `Author::External`, `origin` e `external_id` dei messaggi (ts-rs, compatibilità in lettura), allegati da byte per `external`; `hub::send::send_user_message` e `send_user_files` (con `hub_send` adattatore), `hub::ingress::deliver_external`; `WakeCause::ExternalItem` e `Sessions::route_external`, contenuto non fidato nel contesto; `NoticeKind::External`, destinatari multipli in `HubNotifier` (`set_notice_sink`, `message_id` in `HubNotice`); resa dei messaggi esterni nella conversazione. **`set_lifecycle_listener` non è in questa fase: passa alla fase 2** | test unitari dei nuovi percorsi, `hub_send` invariato |
 | **2. Runtime e registro** (consegnata) | `hub::set_lifecycle_listener` (HUB spento o acceso, workspace rimosso); `connectors/`: contratti, descrittore e validazione, registro, `connectors.json` e `connector_state/`, supervisori, backoff, salute (`connector-status`), client HTTP con allowlist, segreti, abbinamento, comandi Tauri; un connettore finto nei test, conformance e test architetturali | un connettore finto consegna e riceve end-to-end nei test |
-| **3. Interfaccia generica** | Impostazioni › Connettori (disponibili, istanze, stato, azioni, permessi), editor delle regole, «Fonti collegate» nel thread, collegamenti dei canali di contatto, tutto dal descrittore | nessun componente nomina un connettore |
+| **3. Interfaccia generica** (consegnata, tranne i collegamenti) | Impostazioni › Connettori (`ConnectorsPage`: disponibili, istanze, stato in tempo reale, azioni, segreti in sola scrittura), form dei campi dal descrittore (`lib/connectorForm.ts`), regole delle fonti (`lib/connectorRoutes.ts`, editor nelle impostazioni), «Fonti collegate» nell'intestazione del thread; resta da fare l'elenco dei collegamenti dei canali di contatto e l'elenco dei permessi del descrittore | nessun componente nomina un connettore |
 | **4. Telegram** | connettore `contact` di riferimento | abbinamento, notifiche, risposte, comandi, allegati |
 | **5. Gmail** | connettore `source` di riferimento | OAuth, regole, consegna, risveglio |
 | poi | Discord (gateway WebSocket), adattatore sidecar (B), altre fonti (calendario, RSS, issue tracker…) | |

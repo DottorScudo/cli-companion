@@ -4,11 +4,14 @@ import {
   INITIAL_CONNECTORS,
   createConnectorsStore,
   removeInstance,
+  removeRoute,
   setDescriptors,
   setInstances,
+  setRoutes,
   setStatuses,
   statusOf,
   upsertInstance,
+  upsertRoute,
 } from "../src/stores/connectors.ts";
 
 const status = (instance, state = "disabled", extra = {}) => ({
@@ -106,5 +109,54 @@ describe("stores/connectors: archivio", () => {
     const state = store.getState();
     assert.equal(state.loaded, true);
     assert.equal(state.descriptors[0].id, "posta");
+  });
+});
+
+describe("stores/connectors: regole", () => {
+  const route = (id, instance = "con-1-1") => ({ id, instance, label: id, enabled: true });
+
+  it("setRoutes sostituisce l'elenco; upsertRoute sostituisce per id o aggiunge in coda; removeRoute toglie", () => {
+    let s = setRoutes(INITIAL_CONNECTORS, [route("rte-1"), route("rte-2")]);
+    s = upsertRoute(s, { ...route("rte-1"), label: "nuova" });
+    assert.deepEqual(
+      s.routes.map((r) => [r.id, r.label]),
+      [
+        ["rte-1", "nuova"],
+        ["rte-2", "rte-2"],
+      ],
+    );
+    s = upsertRoute(s, route("rte-3"));
+    assert.deepEqual(
+      s.routes.map((r) => r.id),
+      ["rte-1", "rte-2", "rte-3"],
+    );
+    const next = removeRoute(s, "rte-2");
+    assert.deepEqual(
+      next.routes.map((r) => r.id),
+      ["rte-1", "rte-3"],
+    );
+    assert.equal(removeRoute(next, "rte-9"), next);
+  });
+
+  it("eliminare un'istanza toglie anche le sue regole", () => {
+    let s = setInstances(INITIAL_CONNECTORS, [view("con-1-1"), view("con-1-2")]);
+    s = setRoutes(s, [route("rte-1", "con-1-1"), route("rte-2", "con-1-2")]);
+    const next = removeInstance(s, "con-1-1");
+    assert.deepEqual(
+      next.routes.map((r) => r.id),
+      ["rte-2"],
+    );
+  });
+
+  it("l'archivio notifica le regole solo quando cambiano", () => {
+    const store = createConnectorsStore();
+    let calls = 0;
+    store.subscribe(() => calls++);
+    store.routeUpserted(route("rte-1"));
+    store.routeRemoved("rte-9");
+    store.routeRemoved("rte-1");
+    store.routesSet([route("rte-2")]);
+    assert.equal(calls, 3);
+    assert.equal(store.getState().routes.length, 1);
   });
 });

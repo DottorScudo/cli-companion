@@ -22,6 +22,11 @@ export function openHubSettings(): void {
   uiStore.openSettings("hub");
 }
 
+/** Impostazioni sulla pagina Connettori. */
+export function openConnectorSettings(): void {
+  uiStore.openSettings("connectors");
+}
+
 /** Impostazioni sugli avvii del workspace. */
 export function openLaunchSettings(ws: Workspace): void {
   uiStore.openSettings("launches", ws.id);

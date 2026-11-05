@@ -7,6 +7,7 @@
 import { createStore, shallowEqual } from "../lib/store.ts";
 import type { ConnectorDescriptor } from "../bindings/ConnectorDescriptor.ts";
 import type { ConnectorInstanceView } from "../bindings/ConnectorInstanceView.ts";
+import type { ConnectorRoute } from "../bindings/ConnectorRoute.ts";
 import type { ConnectorStatus } from "../bindings/ConnectorStatus.ts";
 
 export interface ConnectorsState {
@@ -16,11 +17,19 @@ export interface ConnectorsState {
   instances: readonly ConnectorInstanceView[];
   /** Lo stato di salute per id istanza: l'ultimo elenco ricevuto (comando o evento `connector-status`). */
   statuses: Readonly<Record<string, ConnectorStatus>>;
+  /** Le regole di tutte le fonti, nell'ordine del file. */
+  routes: readonly ConnectorRoute[];
   /** Le istanze e i descrittori sono stati letti almeno una volta. */
   loaded: boolean;
 }
 
-export const INITIAL_CONNECTORS: ConnectorsState = { descriptors: [], instances: [], statuses: {}, loaded: false };
+export const INITIAL_CONNECTORS: ConnectorsState = {
+  descriptors: [],
+  instances: [],
+  statuses: {},
+  routes: [],
+  loaded: false,
+};
 
 const byInstance = (list: readonly ConnectorStatus[]): Record<string, ConnectorStatus> =>
   Object.fromEntries(list.map((s) => [s.instance, s]));
@@ -50,11 +59,32 @@ export function upsertInstance(s: ConnectorsState, view: ConnectorInstanceView):
   return { ...s, instances, statuses: { ...s.statuses, [id]: view.status } };
 }
 
-/** Un'istanza eliminata: via lei e il suo stato. */
+/** Un'istanza eliminata: via lei, il suo stato e le sue regole. */
 export function removeInstance(s: ConnectorsState, id: string): ConnectorsState {
   if (!s.instances.some((i) => i.instance.id === id) && !(id in s.statuses)) return s;
   const { [id]: _removed, ...statuses } = s.statuses;
-  return { ...s, instances: s.instances.filter((i) => i.instance.id !== id), statuses };
+  return {
+    ...s,
+    instances: s.instances.filter((i) => i.instance.id !== id),
+    statuses,
+    routes: s.routes.filter((r) => r.instance !== id),
+  };
+}
+
+/** L'elenco intero delle regole: sostituisce quello di prima. */
+export function setRoutes(s: ConnectorsState, routes: readonly ConnectorRoute[]): ConnectorsState {
+  return { ...s, routes };
+}
+
+/** Una regola creata o cambiata: sostituisce quella con lo stesso id, altrimenti si aggiunge in coda. */
+export function upsertRoute(s: ConnectorsState, route: ConnectorRoute): ConnectorsState {
+  const exists = s.routes.some((r) => r.id === route.id);
+  return { ...s, routes: exists ? s.routes.map((r) => (r.id === route.id ? route : r)) : [...s.routes, route] };
+}
+
+/** Una regola eliminata; un id sconosciuto non cambia nulla. */
+export function removeRoute(s: ConnectorsState, id: string): ConnectorsState {
+  return s.routes.some((r) => r.id === id) ? { ...s, routes: s.routes.filter((r) => r.id !== id) } : s;
 }
 
 /** L'elenco completo degli stati di salute (il comando `connector_status` o l'evento): sostituisce quello di prima. */
@@ -77,6 +107,9 @@ export function createConnectorsStore() {
     instancesSet: (instances: readonly ConnectorInstanceView[]) => store.update((s) => setInstances(s, instances)),
     instanceUpserted: (view: ConnectorInstanceView) => store.update((s) => upsertInstance(s, view)),
     instanceRemoved: (id: string) => store.update((s) => removeInstance(s, id)),
+    routesSet: (routes: readonly ConnectorRoute[]) => store.update((s) => setRoutes(s, routes)),
+    routeUpserted: (route: ConnectorRoute) => store.update((s) => upsertRoute(s, route)),
+    routeRemoved: (id: string) => store.update((s) => removeRoute(s, id)),
     statusesSet: (list: readonly ConnectorStatus[]) => store.update((s) => setStatuses(s, list)),
   };
 }

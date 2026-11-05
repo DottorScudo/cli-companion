@@ -13,6 +13,7 @@ import { Button } from "../ui/button";
 import HubComposer from "./HubComposer";
 import HubMessageItem from "./HubMessageItem";
 import ThreadOwner from "./ThreadOwner";
+import LinkedSourcesButton from "./LinkedSourcesButton";
 import ThreadSession from "./ThreadSession";
 import WorkspaceTerminalsButton from "./WorkspaceTerminalsButton";
 import TypingIndicator from "./TypingIndicator";
@@ -86,6 +87,7 @@ export default function HubConversation({ channel, channelName, messenger }: Pro
             <WorkspaceTerminalsButton channel={channel} channelName={channelName} />
           </>
         )}
+        <LinkedSourcesButton channel={channel} threadId={thread.id} />
         <ThreadOwner owner={thread.owner} />
         <ThreadSession channel={channel} threadId={thread.id} now={now} />
         <span className="rounded border px-1.5 py-px text-[10px] text-muted-foreground">

@@ -9,6 +9,7 @@ import type { BotSettings } from "../bindings/BotSettings.ts";
 import type { BuiltinLaunch } from "../bindings/BuiltinLaunch.ts";
 import type { ConnectorActionId } from "../bindings/ConnectorActionId.ts";
 import type { ConnectorActionOutcome } from "../bindings/ConnectorActionOutcome.ts";
+import type { ConnectorConfigField } from "../bindings/ConnectorConfigField.ts";
 import type { ConnectorDeleteOutcome } from "../bindings/ConnectorDeleteOutcome.ts";
 import type { ConnectorDescriptor } from "../bindings/ConnectorDescriptor.ts";
 import type { ConnectorInstanceView } from "../bindings/ConnectorInstanceView.ts";
@@ -68,6 +69,7 @@ export type {
   BuiltinLaunch,
   ConnectorActionId,
   ConnectorActionOutcome,
+  ConnectorConfigField,
   ConnectorDeleteOutcome,
   ConnectorDescriptor,
   ConnectorInstanceView,

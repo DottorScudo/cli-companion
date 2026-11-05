@@ -5,6 +5,7 @@ import UpdateCheck from "./UpdateCheck";
 import ScheduleSettings from "./ScheduleSettings";
 import GeneralLaunchesPage from "./settings/GeneralLaunchesPage";
 import BotsPage from "./settings/BotsPage";
+import ConnectorsPage from "./settings/ConnectorsPage";
 import HubPage from "./settings/HubPage";
 import IntegrationsPage from "./settings/IntegrationsPage";
 import WorkspaceLaunchesPage from "./settings/WorkspaceLaunchesPage";
@@ -23,6 +24,7 @@ export type SettingsTab =
   | "general-launches"
   | "bots"
   | "hub"
+  | "connectors"
   | "schedule"
   | "integrations"
   | "updates"
@@ -37,6 +39,7 @@ const GENERAL_TABS: { id: SettingsTab; label: string }[] = [
   { id: "general-launches", label: "Avvii" },
   { id: "bots", label: "Bot" },
   { id: "hub", label: "Agents HUB" },
+  { id: "connectors", label: "Connettori" },
   { id: "schedule", label: "Fasce orarie" },
   { id: "integrations", label: "Integrazioni" },
   { id: "updates", label: "Aggiornamenti" },
@@ -126,6 +129,8 @@ export default function SettingsDialog() {
         return <BotsPage />;
       case "hub":
         return <HubPage />;
+      case "connectors":
+        return <ConnectorsPage />;
       case "schedule":
         return (
           <SettingsPage
