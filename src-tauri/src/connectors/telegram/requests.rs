@@ -1,4 +1,6 @@
-//! I corpi JSON delle chiamate alla Bot API (puri). Testo semplice: mai `parse_mode`.
+//! I corpi JSON delle chiamate alla Bot API (puri). I messaggi vanno in HTML
+//! (`parse_mode: "HTML"`, il testo gia' convertito da `format`), o in testo semplice
+//! senza `parse_mode` quando Telegram ha rifiutato l'HTML di quella parte.
 
 use super::forum::topic_name;
 use serde_json::{json, Value};
@@ -36,13 +38,27 @@ pub struct Destination {
     pub topic_id: Option<i64>,
 }
 
-pub fn send_message_body(to: Destination, text: &str, reply_to: Option<i64>) -> Value {
+/// Come Telegram legge il testo di un messaggio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextMode {
+    /// Il sottoinsieme HTML della Bot API.
+    Html,
+    /// Testo semplice: nessun `parse_mode`.
+    Plain,
+}
+
+const PARSE_MODE_HTML: &str = "HTML";
+
+pub fn send_message_body(to: Destination, text: &str, mode: TextMode, reply_to: Option<i64>) -> Value {
     let mut body = json!({
         "chat_id": to.chat_id,
         "text": text,
         "link_preview_options": { "is_disabled": true },
     });
     let Some(map) = body.as_object_mut() else { return body };
+    if mode == TextMode::Html {
+        map.insert("parse_mode".to_string(), json!(PARSE_MODE_HTML));
+    }
     if let Some(topic_id) = to.topic_id {
         map.insert("message_thread_id".to_string(), json!(topic_id));
     }

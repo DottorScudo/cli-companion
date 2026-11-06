@@ -893,16 +893,27 @@ Se il bot aveva un webhook, il primo avvio lo toglie (webhook e `getUpdates` si 
   dal lotto e il bot risponde nel topic con le istruzioni (amministratore + «Gestire i topic»): il codice resta
   valido. Un errore non di token nel controllo risponde «riprova» senza consumare il codice. Il benvenuto da un gruppo
   avverte che tutti i membri vedono le notifiche.
-- **Invio**: `sendMessage` in testo semplice (nessun `parse_mode`: niente escape di Markdown/HTML da sbagliare), senza
-  anteprima dei link, parti di al più **4096 unità UTF-16** tagliate a fine riga o parola, al massimo 3
-  (`text.rs`, puro); `reply_parameters` sulla prima parte per legare la risposta; `message_thread_id` se c'è la
-  sotto-chat. Frequenza (`pacer.rs`, puro): **~1 messaggio al secondo** per una chat privata, **~1 ogni 3 s** per un
+- **Invio**: `sendMessage` con `parse_mode: "HTML"`, senza anteprima dei link. Il testo in uscita (il markdown dei
+  modelli o il testo semplice dell'app) si converte nella formattazione di Telegram al momento dell'invio
+  (`format.rs` e `format/`, puri, su `pulldown-cmark`: CommonMark più barrato, tabelle e task list di GFM): grassetto,
+  corsivo, barrato, codice e blocchi `<pre>` (col linguaggio ripulito), link `<a href>` solo per `http`, `https`,
+  `mailto` e `tg` (gli altri restano testo, con l'indirizzo fra parentesi), citazioni `<blockquote>`; titoli in
+  grassetto, elenchi con «• » o col numero originale, task list con «☐ »/«☑ », righe «———», tabelle come blocco
+  `<pre>` con le celle separate da « | », immagini come link col testo alternativo. Si scappano `&`, `<`, `>` (e `"`
+  negli attributi): l'HTML grezzo del markdown resta testo, e un testo senza markdown arriva con le stesse righe.
+  Parti di al più **4096 unità UTF-16 di testo visibile** (i tag non contano) tagliate a fine riga o parola, al
+  massimo 3 (`text.rs`, puro), l'ultima col rimando al testo completo nell'HUB; ogni parte è HTML ben formato: i tag
+  aperti al taglio si chiudono in fondo e si riaprono, con gli stessi attributi, nella parte dopo. Se Telegram
+  rifiuta una parte con un 400 «can't parse entities», la stessa parte si rimanda **una volta** senza `parse_mode`,
+  col suo testo visibile. `reply_parameters` sulla prima parte per legare la risposta; `message_thread_id` se c'è
+  la sotto-chat. Frequenza (`pacer.rs`, puro): **~1 messaggio al secondo** per una chat privata, **~1 ogni 3 s** per un
   gruppo (id negativo: Telegram ne ammette circa 20 al minuto), contando anche le chiamate sui topic; un 429 diventa
   `RateLimited` con il `retry_after` del corpo.
 - **Errori**: 401/404 → `Auth` (token rifiutato: `needs_auth`); 429 → `RateLimited`; 400 «message thread not found»
-  o «TOPIC_ID_INVALID» (topic eliminato) → `SubchatGone`, e il runtime riapre il topic; 409 (webhook o un altro
-  client) e ogni altro errore, compreso 403 di un utente che ha bloccato il bot e gli altri 400 → `Transient`. Un id
-  di sotto-chat che non è un topic (intero positivo) vale `SubchatGone`.
+  o «TOPIC_ID_INVALID» (topic eliminato) → `SubchatGone`, e il runtime riapre il topic; 400 «can't parse entities»
+  su un `sendMessage` in HTML → nessun errore, la parte si rimanda in testo semplice (vedi **Invio**); 409 (webhook
+  o un altro client) e ogni altro errore, compreso 403 di un utente che ha bloccato il bot e gli altri 400 →
+  `Transient`. Un id di sotto-chat che non è un topic (intero positivo) vale `SubchatGone`.
 - **Allegati**: `getFile` + download da `api.telegram.org/file/bot…` (percorso validato, risposta limitata a
   `RESPONSE_MAX_FILES`; la Bot API scarica al più 20 MB, il limite dell'HUB è più stretto).
 - **Messaggi**: id esterno `<chat>:<message_id>` (unico per chat anche in un forum: il topic è un campo a parte);

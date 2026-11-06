@@ -2,16 +2,39 @@
 //! rete di un connettore). POST JSON su `https://api.telegram.org/bot<token>/<metodo>`;
 //! la risposta passa da `classify`. Gli errori hanno testi fissi: mai l'URL (ha il token).
 
-use super::classify::classify;
-use super::requests::{self, Destination};
+use super::classify::{classify, entities_rejected};
+use super::requests::{self, Destination, TextMode};
 use super::token::{bot_token, method_url};
 use crate::connectors::contracts::{ConnectorContext, ConnectorError};
 use crate::connectors::limits::CALL_TIMEOUT;
-use crate::connectors::runtime::http::HttpRequest;
+use crate::connectors::runtime::http::{HttpRequest, HttpResponse};
 use serde_json::Value;
 use std::time::Duration;
 
 const CONTENT_TYPE: (&str, &str) = ("content-type", "application/json");
+
+/// Come e' finito un `sendMessage` in HTML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HtmlSent {
+    /// Consegnato: l'id del messaggio.
+    Delivered(i64),
+    /// Telegram non ha letto l'HTML: niente e' stato consegnato.
+    EntitiesRejected,
+}
+
+/// Manda `params` a `method` e restituisce la risposta grezza (ancora da classificare).
+async fn post(
+    ctx: &ConnectorContext,
+    method: &str,
+    params: &Value,
+    timeout: Duration,
+) -> Result<HttpResponse, ConnectorError> {
+    let url = method_url(&bot_token(ctx)?, method);
+    let body =
+        serde_json::to_vec(params).map_err(|_| ConnectorError::Fatal("richiesta non serializzabile".to_string()))?;
+    let request = HttpRequest::post(&url, body).header(CONTENT_TYPE.0, CONTENT_TYPE.1).timeout(timeout);
+    Ok(ctx.http().send(request).await?)
+}
 
 /// Chiama `method` con `params` e restituisce il `result`.
 pub async fn call(
@@ -20,11 +43,7 @@ pub async fn call(
     params: &Value,
     timeout: Duration,
 ) -> Result<Value, ConnectorError> {
-    let url = method_url(&bot_token(ctx)?, method);
-    let body =
-        serde_json::to_vec(params).map_err(|_| ConnectorError::Fatal("richiesta non serializzabile".to_string()))?;
-    let request = HttpRequest::post(&url, body).header(CONTENT_TYPE.0, CONTENT_TYPE.1).timeout(timeout);
-    let response = ctx.http().send(request).await?;
+    let response = post(ctx, method, params, timeout).await?;
     classify(response.status, &response.body)
 }
 
@@ -62,14 +81,32 @@ fn id_field(result: &Value, key: &str) -> Result<i64, ConnectorError> {
         .ok_or_else(|| ConnectorError::Transient("risposta di Telegram non riconosciuta".to_string()))
 }
 
-/// `sendMessage`: l'id del messaggio inviato.
-pub async fn send_message(
+/// `sendMessage` in HTML. Un rifiuto dell'HTML (`entities_rejected`) non e' un errore:
+/// il chiamante puo' rimandare il testo semplice.
+pub async fn send_html_message(
+    ctx: &ConnectorContext,
+    to: Destination,
+    html: &str,
+    reply_to: Option<i64>,
+) -> Result<HtmlSent, ConnectorError> {
+    let body = requests::send_message_body(to, html, TextMode::Html, reply_to);
+    let response = post(ctx, "sendMessage", &body, CALL_TIMEOUT).await?;
+    if entities_rejected(response.status, &response.body) {
+        return Ok(HtmlSent::EntitiesRejected);
+    }
+    let result = classify(response.status, &response.body)?;
+    id_field(&result, "message_id").map(HtmlSent::Delivered)
+}
+
+/// `sendMessage` in testo semplice: l'id del messaggio inviato.
+pub async fn send_plain_message(
     ctx: &ConnectorContext,
     to: Destination,
     text: &str,
     reply_to: Option<i64>,
 ) -> Result<i64, ConnectorError> {
-    let result = call_short(ctx, "sendMessage", &requests::send_message_body(to, text, reply_to)).await?;
+    let body = requests::send_message_body(to, text, TextMode::Plain, reply_to);
+    let result = call_short(ctx, "sendMessage", &body).await?;
     id_field(&result, "message_id")
 }
 

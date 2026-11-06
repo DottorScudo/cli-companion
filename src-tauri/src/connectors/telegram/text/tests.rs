@@ -4,6 +4,17 @@ fn units(text: &str) -> usize {
     text.encode_utf16().count()
 }
 
+/// Le parti come testi, con il rimando sull'ultima se il testo e' troncato.
+fn split(text: &str) -> Vec<String> {
+    let layout = layout(text);
+    let last = layout.parts.len().saturating_sub(1);
+    let mut parts: Vec<String> = layout.parts.iter().map(|range| text[range.clone()].to_string()).collect();
+    if layout.truncated {
+        parts[last].push_str(TRUNCATED_MARKER);
+    }
+    parts
+}
+
 #[test]
 fn empty_or_blank_text_has_no_parts() {
     for text in ["", " ", "\n\n", " \t\n "] {
@@ -101,4 +112,19 @@ fn a_text_that_exactly_fills_three_parts_has_no_marker() {
 fn a_cut_point_is_never_zero() {
     assert!(cut_point("😀😀", 1) > 0);
     assert_eq!(cut_point("abc", 10), 3);
+}
+
+#[test]
+fn the_parts_are_ranges_of_the_text_without_surrounding_spaces() {
+    let text = format!("  {}\n\n{}  ", "a".repeat(PART_UNITS_MAX), "b".repeat(10));
+    let found = layout(&text);
+    assert_eq!(found.parts, vec![2..2 + PART_UNITS_MAX, PART_UNITS_MAX + 4..PART_UNITS_MAX + 14]);
+    assert!(!found.truncated);
+}
+
+#[test]
+fn only_a_text_longer_than_three_parts_is_truncated() {
+    assert!(layout(&"parola ".repeat(5000)).truncated);
+    assert!(!layout(&"parola ".repeat(100)).truncated);
+    assert_eq!(layout(""), Layout { parts: Vec::new(), truncated: false });
 }

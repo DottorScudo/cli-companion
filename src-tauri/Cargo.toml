@@ -46,6 +46,9 @@ tokio = { version = "1", default-features = false, features = ["time", "sync", "
 sha2 = "0.10"
 # Provider crittografico di rustls: `ring`, come l'updater (niente aws-lc, che compila C).
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+# Markdown dei testi verso Telegram (CommonMark piu' barrato, tabelle e task list di GFM),
+# reso nell'HTML ridotto della Bot API da un renderer proprio: niente renderer HTML della libreria.
+pulldown-cmark = { version = "0.13", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 tauri-winrt-notification = "0.8"

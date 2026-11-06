@@ -17,7 +17,9 @@
 //! - `inbound`: aggiornamenti -> messaggi in entrata (album compresi);
 //! - `cursor`: il cursore `{"offset": n}`;
 //! - `receive`: un giro di long polling;
-//! - `text`: il testo spezzato al limite di Telegram;
+//! - `text`: dove spezzare il testo visibile al limite di Telegram;
+//! - `format`: il markdown in uscita come parti HTML di Telegram ben formate, ognuna col
+//!   suo testo semplice per il ripiego;
 //! - `pacer`: la cadenza dei messaggi per chat;
 //! - `ids`: gli id esterni `<chat>:<messaggio>`;
 //! - `forum`: chat di gruppo, nomi e id dei topic;
@@ -35,6 +37,7 @@ mod cursor;
 mod descriptor;
 mod fetch;
 mod files;
+mod format;
 mod forum;
 mod group_pairing;
 mod ids;

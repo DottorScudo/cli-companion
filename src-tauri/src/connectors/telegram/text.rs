@@ -1,16 +1,28 @@
-//! Il testo spezzato nei messaggi di Telegram (puro). Il limite e' di 4096 unita'
-//! UTF-16 per messaggio; si taglia preferendo l'ultimo a capo, poi l'ultimo spazio,
-//! mai dentro un carattere. Al piu' `PARTS_MAX` parti: se il testo e' piu' lungo,
-//! l'ultima finisce con un rimando al testo completo nell'HUB.
+//! Dove spezzare un testo nei messaggi di Telegram (puro). Il limite e' di 4096 unita'
+//! UTF-16 di testo visibile per messaggio (i tag HTML non contano); si taglia preferendo
+//! l'ultimo a capo, poi l'ultimo spazio, mai dentro un carattere. Al piu' `PARTS_MAX`
+//! parti: se il testo e' piu' lungo, l'ultima lascia il posto al rimando al testo
+//! completo nell'HUB (`TRUNCATED_MARKER`). Le parti sono intervalli del testo visibile:
+//! `format` le riveste con i tag che vi cadono dentro.
+
+use std::ops::Range;
 
 /// Il limite di Telegram per un messaggio, in unita' UTF-16.
 pub const PART_UNITS_MAX: usize = 4096;
 /// Messaggi al massimo per una risposta.
 pub const PARTS_MAX: usize = 3;
 /// Chiude l'ultima parte di un testo troncato.
-const TRUNCATED_MARKER: &str = "\n… (testo completo nell'HUB)";
+pub const TRUNCATED_MARKER: &str = "\n… (testo completo nell'HUB)";
 
-fn utf16_len(text: &str) -> usize {
+/// Le parti di un testo: intervalli di byte, in ordine, senza spazi ai bordi.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Layout {
+    pub parts: Vec<Range<usize>>,
+    /// Il testo non ci sta tutto: l'ultima parte va chiusa con `TRUNCATED_MARKER`.
+    pub truncated: bool,
+}
+
+pub fn utf16_len(text: &str) -> usize {
     text.chars().map(char::len_utf16).sum()
 }
 
@@ -36,35 +48,43 @@ fn cut_point(text: &str, limit: usize) -> usize {
     text.len()
 }
 
-/// `(testa, coda)` al punto di taglio; la coda perde gli spazi e gli a capo iniziali.
-fn split_at_cut(text: &str, cut: usize) -> (&str, &str) {
-    let (head, tail) = text.split_at_checked(cut).unwrap_or((text, ""));
-    (head, tail.trim_start())
+/// Gli spazi iniziali di `text`, in byte.
+fn leading_space(text: &str) -> usize {
+    text.len() - text.trim_start().len()
 }
 
-/// L'ultima parte di un testo troppo lungo: il suo inizio piu' il rimando.
-fn truncated_last(rest: &str) -> String {
-    let room = PART_UNITS_MAX.saturating_sub(utf16_len(TRUNCATED_MARKER));
-    let (head, _) = split_at_cut(rest, cut_point(rest, room));
-    format!("{}{TRUNCATED_MARKER}", head.trim_end())
+/// La testa di `text[start..end]` che sta in `limit` unita', senza spazi finali.
+fn head(text: &str, start: usize, end: usize, limit: usize) -> Range<usize> {
+    let rest = &text[start..end];
+    let cut = cut_point(rest, limit);
+    start..start + rest[..cut].trim_end().len()
 }
 
-/// Il testo in al piu' `PARTS_MAX` messaggi. Vuoto (o solo spazi): nessuna parte.
-pub fn split(text: &str) -> Vec<String> {
+/// Le parti di `text`, al piu' `PARTS_MAX`. Vuoto (o solo spazi): nessuna parte.
+pub fn layout(text: &str) -> Layout {
     let mut parts = Vec::new();
-    let mut rest = text.trim();
-    while !rest.is_empty() {
-        if parts.len() + 1 == PARTS_MAX {
-            parts.push(if utf16_len(rest) <= PART_UNITS_MAX { rest.to_string() } else { truncated_last(rest) });
+    let mut truncated = false;
+    let end = text.trim_end().len();
+    let mut start = leading_space(text);
+    while start < end {
+        let part = if parts.len() + 1 == PARTS_MAX {
+            truncated = utf16_len(&text[start..end]) > PART_UNITS_MAX;
+            if truncated {
+                head(text, start, end, PART_UNITS_MAX.saturating_sub(utf16_len(TRUNCATED_MARKER)))
+            } else {
+                start..end
+            }
+        } else {
+            head(text, start, end, PART_UNITS_MAX)
+        };
+        let next = part.end;
+        parts.push(part);
+        if truncated {
             break;
         }
-        let (head, tail) = split_at_cut(rest, cut_point(rest, PART_UNITS_MAX));
-        if !head.trim().is_empty() {
-            parts.push(head.trim_end().to_string());
-        }
-        rest = tail;
+        start = next + leading_space(&text[next..end]);
     }
-    parts
+    Layout { parts, truncated }
 }
 
 #[cfg(test)]

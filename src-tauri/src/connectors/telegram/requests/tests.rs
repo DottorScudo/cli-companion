@@ -22,15 +22,31 @@ fn deleting_the_webhook_keeps_the_pending_updates() {
 }
 
 #[test]
-fn a_message_is_plain_text_without_link_previews() {
-    let body = send_message_body(Destination { chat_id: -5, topic_id: None }, "ciao", None);
+fn a_message_is_html_without_link_previews() {
+    let body = send_message_body(Destination { chat_id: -5, topic_id: None }, "<b>ciao</b>", TextMode::Html, None);
+    assert_eq!(
+        body,
+        json!({
+            "chat_id": -5, "text": "<b>ciao</b>", "parse_mode": "HTML",
+            "link_preview_options": {"is_disabled": true}
+        })
+    );
+    assert!(body.get("reply_parameters").is_none());
+}
+
+#[test]
+fn the_plain_fallback_has_no_parse_mode() {
+    let body = send_message_body(Destination { chat_id: -5, topic_id: None }, "ciao", TextMode::Plain, None);
     assert_eq!(body, json!({"chat_id": -5, "text": "ciao", "link_preview_options": {"is_disabled": true}}));
-    assert!(body.get("parse_mode").is_none() && body.get("reply_parameters").is_none());
+    let replied = send_message_body(Destination { chat_id: FORUM, topic_id: Some(55) }, "x", TextMode::Plain, Some(9));
+    assert_eq!(replied["message_thread_id"], 55);
+    assert_eq!(replied["reply_parameters"]["message_id"], 9);
+    assert!(replied.get("parse_mode").is_none());
 }
 
 #[test]
 fn a_reply_is_linked_even_if_the_original_is_gone() {
-    let body = send_message_body(Destination { chat_id: 5, topic_id: None }, "ok", Some(9));
+    let body = send_message_body(Destination { chat_id: 5, topic_id: None }, "ok", TextMode::Html, Some(9));
     assert_eq!(body["reply_parameters"], json!({"message_id": 9, "allow_sending_without_reply": true}));
 }
 
@@ -44,12 +60,12 @@ const FORUM: i64 = -1_001_234_567_890;
 
 #[test]
 fn a_message_in_a_topic_names_the_topic() {
-    let body = send_message_body(Destination { chat_id: FORUM, topic_id: Some(55) }, "ciao", Some(9));
+    let body = send_message_body(Destination { chat_id: FORUM, topic_id: Some(55) }, "ciao", TextMode::Html, Some(9));
     assert_eq!(body["chat_id"], FORUM);
     assert_eq!(body["message_thread_id"], 55);
     assert_eq!(body["reply_parameters"]["message_id"], 9);
-    assert!(body.get("parse_mode").is_none());
-    assert!(send_message_body(Destination { chat_id: FORUM, topic_id: None }, "x", None)
+    assert_eq!(body["parse_mode"], "HTML");
+    assert!(send_message_body(Destination { chat_id: FORUM, topic_id: None }, "x", TextMode::Html, None)
         .get("message_thread_id")
         .is_none());
 }

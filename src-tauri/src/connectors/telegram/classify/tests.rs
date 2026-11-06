@@ -131,3 +131,39 @@ fn other_bad_requests_stay_transient() {
     let forbidden = classify(403, &error_body(403, "message thread not found")).unwrap_err();
     assert!(matches!(forbidden, ConnectorError::Transient(_)));
 }
+
+#[test]
+fn unreadable_html_is_recognised_for_the_plain_fallback() {
+    for description in [
+        "Bad Request: can't parse entities: Unsupported start tag \"x\" at byte offset 3",
+        "Bad Request: Can't parse entities: unclosed start tag",
+    ] {
+        assert!(entities_rejected(400, &error_body(400, description)), "{description}");
+        assert!(entities_rejected(200, &error_body(400, description)), "il codice del JSON vale: {description}");
+    }
+}
+
+#[test]
+fn other_errors_are_not_an_html_rejection() {
+    let parse = "Bad Request: can't parse entities";
+    assert!(!entities_rejected(403, &error_body(403, parse)));
+    assert!(!entities_rejected(429, &error_body(429, parse)));
+    assert!(!entities_rejected(400, &error_body(400, "Bad Request: message thread not found")));
+    assert!(!entities_rejected(400, &error_body(400, "Bad Request: chat not found")));
+    assert!(!entities_rejected(400, b"<html>"));
+    assert!(!entities_rejected(200, &body(&json!({"ok": true, "result": {"message_id": 1}}))));
+    // Il topic sparito resta `SubchatGone`, anche con il ripiego dell'HTML.
+    assert_eq!(
+        classify(400, &error_body(400, "Bad Request: message thread not found")).unwrap_err(),
+        ConnectorError::SubchatGone
+    );
+}
+
+#[test]
+fn an_html_rejection_that_is_classified_never_leaks_its_description() {
+    let raw = error_body(400, "Bad Request: can't parse entities: 123456:SECRET-TOKEN-VALUE");
+    let error = classify(400, &raw).unwrap_err();
+    let shown = format!("{error} {error:?}");
+    assert!(matches!(error, ConnectorError::Transient(_)));
+    assert!(!shown.contains("SECRET") && !shown.contains("parse"), "{shown}");
+}

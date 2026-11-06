@@ -1,11 +1,14 @@
-//! L'invio di un messaggio a una chat (o a un topic di un forum): il testo spezzato,
-//! la cadenza per chat e la risposta legata al messaggio d'origine solo sulla prima parte.
+//! L'invio di un messaggio a una chat (o a un topic di un forum): il testo convertito
+//! in HTML e spezzato in parti ben formate (`format`), la cadenza per chat, il ripiego
+//! sul testo semplice di una parte rifiutata e la risposta legata al messaggio d'origine
+//! solo sulla prima parte.
 
+use super::api::{self, HtmlSent};
+use super::format::{self, Part};
 use super::forum::topic_id;
 use super::ids::{external_id, reply_message_id};
 use super::pacer::Pacer;
 use super::requests::Destination;
-use super::{api, text};
 use crate::connectors::contracts::{ConnectorContext, ConnectorError, OutboundMessage};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
@@ -53,12 +56,31 @@ pub async fn send(
     let to = destination(out)?;
     let mut reply_to = reply_message_id(&out.chat, out.reply_to_external.as_deref());
     let mut sent = Vec::new();
-    for part in text::split(&out.text) {
-        wait_turn(pacer, ctx, &out.chat).await;
-        let message_id = api::send_message(ctx, to, &part, reply_to.take()).await?;
+    for part in format::parts(&out.text) {
+        let message_id = send_part(pacer, ctx, &out.chat, to, &part, reply_to.take()).await?;
         sent.push(external_id(to.chat_id, message_id));
     }
     Ok(sent)
+}
+
+/// Una parte in HTML; se Telegram non ne legge la formattazione, una sola volta di nuovo
+/// come testo semplice (lo stesso testo visibile, senza tag). L'id del messaggio consegnato.
+async fn send_part(
+    pacer: &Mutex<Pacer>,
+    ctx: &ConnectorContext,
+    chat: &str,
+    to: Destination,
+    part: &Part,
+    reply_to: Option<i64>,
+) -> Result<i64, ConnectorError> {
+    wait_turn(pacer, ctx, chat).await;
+    match api::send_html_message(ctx, to, &part.html, reply_to).await? {
+        HtmlSent::Delivered(message_id) => Ok(message_id),
+        HtmlSent::EntitiesRejected => {
+            wait_turn(pacer, ctx, chat).await;
+            api::send_plain_message(ctx, to, &part.plain, reply_to).await
+        }
+    }
 }
 
 #[cfg(test)]
