@@ -76,6 +76,9 @@ pub fn run() {
             startup::timed("launch settings loaded", || launch_settings::load_from_disk(app));
             startup::timed("bots loaded", || bots::load_from_disk(app));
             startup::timed("hub settings loaded", || hub::load_from_disk(app));
+            startup::timed("bot names freed from secretaries", || {
+                bots::rename_bots_named_like_secretaries(app.handle())
+            });
             startup::timed("default launches reconciled", || launch_migration::reconcile_at_startup(app));
             hub::purge_attachment_staging(app.handle());
             startup::timed("connectors loaded", || connectors::load_from_disk(app.handle()));

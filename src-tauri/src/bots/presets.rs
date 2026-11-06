@@ -53,7 +53,7 @@ impl BotPreset {
 }
 
 /// I preset, nell'ordine in cui compaiono.
-pub static PRESETS: [BotPreset; 6] = [
+pub static PRESETS: [BotPreset; 8] = [
     BotPreset {
         id: GENERAL_ID,
         name: "General",
@@ -108,6 +108,25 @@ pub static PRESETS: [BotPreset; 6] = [
         skill: None,
         kinds: &[TaskKind::Plan],
     },
+    BotPreset {
+        id: "quick-answer",
+        name: "Quick Answer",
+        task: "Answers a quick question about the code or its git history, read-only, in a few lines. Changes nothing \
+               and proposes nothing.",
+        model: ModelChoice::Tier(ModelTier::Standard),
+        effort: Some(Effort::Low),
+        skill: Some("code-answer"),
+        kinds: &[TaskKind::Plan],
+    },
+    BotPreset {
+        id: "bug-fixer",
+        name: "Bug Fixer",
+        task: "Fixes a reported bug: reproduces it, adds a failing regression test, fixes the root cause and verifies.",
+        model: ModelChoice::Tier(ModelTier::Strong),
+        effort: Some(Effort::High),
+        skill: Some("bug-fix"),
+        kinds: &[TaskKind::Work],
+    },
 ];
 
 /// Il preset con quell'id.
@@ -131,6 +150,7 @@ pub fn ensure_general(bots: &mut Vec<AgentBot>) {
 
 #[cfg(test)]
 mod tests {
+    use super::super::validate::TASK_MAX_CHARS;
     use super::*;
     use crate::agents::presets::PRESETS as PLUGIN_SKILLS;
     use std::collections::HashSet;
@@ -147,6 +167,8 @@ mod tests {
                 ("skill-wizard", "Skill Wizard"),
                 ("reviewer", "Reviewer"),
                 ("planner", "Planner"),
+                ("quick-answer", "Quick Answer"),
+                ("bug-fixer", "Bug Fixer"),
             ]
         );
         assert_eq!(PRESETS[0].id, GENERAL_ID);
@@ -171,6 +193,11 @@ mod tests {
         for id in ["reviewer", "planner"] {
             assert_eq!(fields(id), (ModelChoice::Tier(ModelTier::Strong), Some(Effort::High), None), "{id}");
         }
+        assert_eq!(
+            fields("quick-answer"),
+            (ModelChoice::Tier(ModelTier::Standard), Some(Effort::Low), Some("code-answer"))
+        );
+        assert_eq!(fields("bug-fixer"), (ModelChoice::Tier(ModelTier::Strong), Some(Effort::High), Some("bug-fix")));
         assert!(find("nope").is_none());
     }
 
@@ -180,6 +207,9 @@ mod tests {
         assert_eq!(kinds("general"), [TaskKind::Work]);
         assert_eq!(kinds("reviewer"), [TaskKind::Review]);
         assert_eq!(kinds("planner"), [TaskKind::Plan]);
+        // Le skill di questi due guidano un task automatico, non un terminale.
+        assert_eq!(kinds("quick-answer"), [TaskKind::Plan]);
+        assert_eq!(kinds("bug-fixer"), [TaskKind::Work]);
         // Le skill dei preset sono pensate per un terminale interattivo.
         for id in ["intake", "setup", "skill-wizard"] {
             assert!(kinds(id).is_empty(), "{id}");
@@ -196,6 +226,7 @@ mod tests {
             assert!(!p.id.starts_with(USER_ID_PREFIX), "{}", p.id);
             assert_eq!(super::super::validate::normalize_name(p.name).unwrap(), p.name);
             assert!(p.task.is_ascii() && !p.task.is_empty(), "{}", p.id);
+            assert!(p.task.chars().count() <= TASK_MAX_CHARS, "{}", p.id);
             // Nessun preset fissa un modello concreto: deve valere con ogni agente.
             assert!(!matches!(p.model, ModelChoice::Id(_)), "{}", p.id);
             if let Some(skill) = p.skill {

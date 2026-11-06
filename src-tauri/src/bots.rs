@@ -16,7 +16,8 @@
 //! - `launches`: le voci del menu di avvio e il lancio di un Bot in un tab;
 //! - `skills`: le skill selezionabili per l'interfaccia;
 //! - `derived`: i Bot derivati da un predefinito con un agente fissato;
-//! - `launch_refs`: gli avvii predefiniti da azzerare quando un Bot viene eliminato.
+//! - `launch_refs`: gli avvii predefiniti da azzerare quando un Bot viene eliminato;
+//! - `secretary_names`: all'avvio, un nome libero ai Bot che portano il nome di un segretario.
 
 mod agent;
 mod agent_bots;
@@ -29,6 +30,7 @@ mod launches;
 mod migrations;
 mod presets;
 pub mod resolve;
+mod secretary_names;
 mod skills;
 mod validate;
 
@@ -39,6 +41,7 @@ pub(crate) use image::validate_image;
 pub use launches::{bot_launch_id, BOT_LAUNCH_PREFIX};
 #[cfg(test)]
 pub(crate) use presets::default_bots as default_agent_bots;
+pub use secretary_names::rename_bots_named_like_secretaries;
 
 use crate::store::{adopt_envelope, data_dir, Decoded, JsonFile, JsonStore};
 use serde::{Deserialize, Serialize};
@@ -101,9 +104,10 @@ impl Default for BotSettings {
     }
 }
 
-/// v1: la busta; v2: i Bot-agente predefiniti; v3: i tipi di task dei Bot, Reviewer e Planner.
-const MIGRATIONS: [crate::store::Migration; 3] =
-    [adopt_envelope, migrations::add_agent_bots, migrations::add_task_kinds];
+/// v1: la busta; v2: i Bot-agente predefiniti; v3: i tipi di task dei Bot, Reviewer e Planner;
+/// v4: Quick Answer e Bug Fixer.
+const MIGRATIONS: [crate::store::Migration; 4] =
+    [adopt_envelope, migrations::add_agent_bots, migrations::add_task_kinds, migrations::add_answer_and_fix_bots];
 
 static SETTINGS_FILE: JsonFile<BotSettings> = JsonFile::new("bots.json", &MIGRATIONS).decoded_with(decode_settings);
 

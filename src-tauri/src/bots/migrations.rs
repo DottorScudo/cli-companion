@@ -81,8 +81,7 @@ pub fn add_task_kinds(mut value: Value) -> Result<Value, String> {
             bot.insert(KINDS_KEY.to_string(), json!(kinds));
         }
     }
-    let names: Vec<String> =
-        list.iter().filter_map(|b| b.get("name").and_then(Value::as_str)).map(str::to_lowercase).collect();
+    let names = bot_names(list);
     let bot = |id: &str, name: &str, task: &str, kind: &str| {
         json!({
             "id": id, "name": free_name(&names, name), "task": task, "agent": null,
@@ -97,6 +96,50 @@ pub fn add_task_kinds(mut value: Value) -> Result<Value, String> {
     add_missing(value, added)
 }
 
+/// Passo 3 -> 4: i Bot Quick Answer (domande sul codice, task `plan`) e Bug
+/// Fixer (correzione di un bug, task `work`), con le skill `code-answer` e
+/// `bug-fix`. Il nome gia' preso da un Bot prende il primo libero come nel
+/// passo 2 -> 3; i nomi dei segretari non sono noti qui: li libera, dopo il
+/// caricamento, il modulo `secretary_names`.
+pub fn add_answer_and_fix_bots(mut value: Value) -> Result<Value, String> {
+    let names = bot_names(agents_mut(&mut value)?);
+    let tier = |tier: &str| json!({"kind": "tier", "value": tier});
+    let bot = |id: &str, name: &str, task: &str, model: Value, effort: &str, skill: &str, kind: &str| {
+        json!({
+            "id": id, "name": free_name(&names, name), "task": task, "agent": null, "model": model,
+            "effort": effort, "skill": {"kind": "plugin", "id": skill}, "kinds": [kind],
+            "enabled": true, "image": null, "preset": id,
+        })
+    };
+    let added = vec![
+        bot(
+            "quick-answer",
+            "Quick Answer",
+            "Answers a quick question about the code or its git history, read-only, in a few lines. Changes nothing \
+             and proposes nothing.",
+            tier("standard"),
+            "low",
+            "code-answer",
+            "plan",
+        ),
+        bot(
+            "bug-fixer",
+            "Bug Fixer",
+            "Fixes a reported bug: reproduces it, adds a failing regression test, fixes the root cause and verifies.",
+            tier("strong"),
+            "high",
+            "bug-fix",
+            "work",
+        ),
+    ];
+    add_missing(value, added)
+}
+
+/// I nomi dei Bot dell'elenco, in minuscolo.
+fn bot_names(list: &[Value]) -> Vec<String> {
+    list.iter().filter_map(|b| b.get("name").and_then(Value::as_str)).map(str::to_lowercase).collect()
+}
+
 /// I tipi di task della v3 per un Bot della v2.
 fn v3_kinds(id: Option<&str>) -> &'static [&'static str] {
     match id {
@@ -107,7 +150,7 @@ fn v3_kinds(id: Option<&str>) -> &'static [&'static str] {
 }
 
 /// `base`, o `base N` col primo N libero fra `taken` (in minuscolo). I nomi
-/// dei preset della v3 restano entro i 24 caratteri anche col suffisso.
+/// dei preset della v3 e della v4 restano entro i 24 caratteri anche col suffisso.
 fn free_name(taken: &[String], base: &str) -> String {
     let free = |name: &String| !taken.contains(&name.to_lowercase());
     std::iter::once(base.to_string())
@@ -160,10 +203,11 @@ mod tests {
     /// un passo nuovo in coda.
     #[test]
     fn the_steps_match_the_presets_of_the_current_release() {
-        let v3 = add_task_kinds(add_agent_bots(json!({})).unwrap()).unwrap();
-        let bots: Vec<AgentBot> = serde_json::from_value(v3[AGENTS_KEY].clone()).unwrap();
+        let steps = [add_agent_bots, add_task_kinds, add_answer_and_fix_bots];
+        let current = steps.iter().try_fold(json!({}), |value, step| step(value)).unwrap();
+        let bots: Vec<AgentBot> = serde_json::from_value(current[AGENTS_KEY].clone()).unwrap();
         assert_eq!(bots, default_bots());
-        let settings: BotSettings = serde_json::from_value(v3).unwrap();
+        let settings: BotSettings = serde_json::from_value(current).unwrap();
         assert_eq!(settings.agents, default_bots());
     }
 
@@ -177,7 +221,7 @@ mod tests {
 
     #[test]
     fn malformed_data_is_an_error() {
-        for step in [add_agent_bots, add_task_kinds] {
+        for step in [add_agent_bots, add_task_kinds, add_answer_and_fix_bots] {
             assert!(step(json!([1, 2])).is_err());
             assert!(step(json!({"agents": "nope"})).is_err());
         }
@@ -224,5 +268,27 @@ mod tests {
         assert_eq!(ids(&v3), ["planner", "custom-r", "custom-r2", "reviewer"]);
         assert_eq!(v3[AGENTS_KEY][0], mine, "kinds already set are kept");
         assert_eq!(v3[AGENTS_KEY][3]["name"], "Reviewer 3");
+    }
+
+    #[test]
+    fn the_v4_step_adds_the_two_bots_at_the_end_and_keeps_the_rest() {
+        let mine = json!({"id": "custom-mine", "name": "Mine", "kinds": ["work"]});
+        let v3 = json!({"enabled": false, "names": ["Ada"], "agents": [{"id": "general", "name": "General"}, mine]});
+        let v4 = add_answer_and_fix_bots(v3.clone()).unwrap();
+        assert_eq!(ids(&v4), ["general", "custom-mine", "quick-answer", "bug-fixer"]);
+        assert_eq!(v4[AGENTS_KEY].as_array().unwrap()[..2], v3[AGENTS_KEY].as_array().unwrap()[..]);
+        assert_eq!((&v4["enabled"], &v4["names"]), (&v3["enabled"], &v3["names"]));
+        assert_eq!(kinds_of(&v4, "quick-answer"), &json!(["plan"]));
+        assert_eq!(kinds_of(&v4, "bug-fixer"), &json!(["work"]));
+    }
+
+    #[test]
+    fn the_v4_step_skips_present_ids_and_frees_taken_names() {
+        let mine = json!({"id": "bug-fixer", "name": "Mine"});
+        let v3 = json!({"agents": [mine.clone(), {"id": "custom-q", "name": "quick answer"}]});
+        let v4 = add_answer_and_fix_bots(v3).unwrap();
+        assert_eq!(ids(&v4), ["bug-fixer", "custom-q", "quick-answer"]);
+        assert_eq!(v4[AGENTS_KEY][0], mine);
+        assert_eq!(v4[AGENTS_KEY][2]["name"], "Quick Answer 2");
     }
 }

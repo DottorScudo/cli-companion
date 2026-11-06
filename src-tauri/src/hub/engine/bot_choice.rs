@@ -134,7 +134,9 @@ mod tests {
             text,
             format!(
                 "{INTRO}\n{PLAN_INTRO}\n- general: General - General-purpose coding agent.\n- planner: Planner - \
-                 Explores the repository read-only and proposes queue tasks."
+                 Explores the repository read-only and proposes queue tasks.\n- quick-answer: Quick Answer - Answers \
+                 a quick question about the code or its git history, read-only, in a few lines. Changes nothing and \
+                 proposes nothing."
             )
         );
     }
@@ -173,6 +175,7 @@ mod tests {
     fn without_bots_that_can_do_the_work_the_secretary_is_told_so() {
         let mut list = bots();
         by_id(&mut list, "planner").enabled = false;
+        by_id(&mut list, "quick-answer").enabled = false;
         let both = with_tools(vec![SecretaryTool::OpenPlanTask, SecretaryTool::RequestTaskUpdate]);
         let text = describe(&both, &list).unwrap();
         assert!(text.contains(NO_PLAN_BOTS) && text.contains(UPDATE_INTRO), "{text}");

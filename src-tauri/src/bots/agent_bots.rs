@@ -278,7 +278,10 @@ mod tests {
     fn delete_removes_only_that_bot() {
         let mut list = default_bots();
         delete(&mut list, "setup").unwrap();
-        assert_eq!(ids(&list), ["general", "intake", "skill-wizard", "reviewer", "planner"]);
+        assert_eq!(
+            ids(&list),
+            ["general", "intake", "skill-wizard", "reviewer", "planner", "quick-answer", "bug-fixer"]
+        );
         assert_eq!(delete(&mut list, "setup").unwrap_err(), NOT_FOUND);
     }
 
@@ -326,7 +329,10 @@ mod tests {
         delete(&mut list, "setup").unwrap();
         delete(&mut list, "skill-wizard").unwrap();
         restore_presets(&mut list, &[]);
-        assert_eq!(ids(&list), ["general", "intake", "reviewer", "planner", "setup", "skill-wizard"]);
+        assert_eq!(
+            ids(&list),
+            ["general", "intake", "reviewer", "planner", "quick-answer", "bug-fixer", "setup", "skill-wizard"]
+        );
         assert_eq!(by_id(&list, "intake").name, "Organizer");
         assert_eq!(by_id(&list, "setup"), &presets::find("setup").unwrap().bot());
         let again = list.clone();

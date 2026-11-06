@@ -23,10 +23,11 @@ fn the_system_prompt_lists_the_bots_before_the_language() {
     let bots = crate::bots::default_agent_bots();
     let p = system_prompt(&secretary("mario"), Language::It, &ws(), &names(), &bots);
     assert!(p.contains("\n- general: General - General-purpose coding agent. [work]\n"), "{p}");
+    assert!(p.contains("\n- planner: Planner - Explores the repository read-only and proposes queue tasks. [plan]\n"));
     assert!(
         p.ends_with(
-            "- planner: Planner - Explores the repository read-only and proposes queue tasks. [plan]\n\nAlways reply \
-             to the user in Italian."
+            "- bug-fixer: Bug Fixer - Fixes a reported bug: reproduces it, adds a failing regression test, fixes the \
+             root cause and verifies. [work]\n\nAlways reply to the user in Italian."
         ),
         "{p}"
     );

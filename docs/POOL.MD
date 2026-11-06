@@ -54,7 +54,7 @@ prompt iniziano con "Your job is", sono ASCII e sotto `SYSTEM_PROMPT_MAX / 4` (2
 Chi ha già dei segretari non riceve mai un preset nuovo, e un prompt di preset cambiato non raggiunge i segretari già
 salvati finché l'utente non usa «Ripristina predefinito» (`secretaries::restore_preset`).
 
-### 1.3 Bot predefiniti (6)
+### 1.3 Bot predefiniti (8)
 
 `PRESETS: [BotPreset; 6]` in `src-tauri/src/bots/presets.rs`.
 
@@ -66,6 +66,8 @@ salvati finché l'utente non usa «Ripristina predefinito» (`secretaries::resto
 | `skill-wizard` | Skill Wizard | Creates and manages global skills. | `Tier(Standard)` | medium | `skill-wizard` | `[]` |
 | `reviewer` | Reviewer | Verifies the integrated result of finished tasks and proposes fixes. | `Tier(Strong)` | high | — | `[review]` |
 | `planner` | Planner | Explores the repository read-only and proposes queue tasks. | `Tier(Strong)` | high | — | `[plan]` |
+| `quick-answer` | Quick Answer | Answers a quick question about the code or its git history, read-only, in a few lines. Changes nothing and proposes nothing. | `Tier(Standard)` | low | `code-answer` | `[plan]` |
+| `bug-fixer` | Bug Fixer | Fixes a reported bug: reproduces it, adds a failing regression test, fixes the root cause and verifies. | `Tier(Strong)` | high | `bug-fix` | `[work]` |
 
 Vincoli fissati dai test (`presets_are_well_formed`): nessun preset usa `ModelChoice::Id` (deve valere con ogni
 agente), `task` ASCII non vuoto, skill esistente fra quelle del plugin, `kinds` normalizzati. `general` è obbligatorio,
@@ -73,9 +75,14 @@ non cancellabile né disattivabile (`ensure_general`). `bots/validate.rs`: nome 
 (`NAME_MAX_CHARS`), `task` al massimo 300 (`TASK_MAX_CHARS`). I nomi dei Bot non possono coincidere con quelli dei
 segretari (`ensure_free` in `bots/agent_bots.rs`).
 
-**Migrazioni** (`bots.rs`: `[adopt_envelope, add_agent_bots, add_task_kinds]`, file alla `schema_version` 3): ogni
-passo è congelato e additivo, aggiunge in fondo i Bot il cui id manca e gira una volta sola, quindi un Bot cancellato
-non ricompare. Il passo 2→3 dà un nome libero ("Reviewer 2") se il nome è già preso fra i Bot.
+**Migrazioni** (`bots.rs`: `[adopt_envelope, add_agent_bots, add_task_kinds, add_answer_and_fix_bots]`, file alla
+`schema_version` 4): ogni passo è congelato e additivo, aggiunge in fondo i Bot il cui id manca e gira una volta sola,
+quindi un Bot cancellato non ricompare. I passi 2→3 e 3→4 danno un nome libero ("Reviewer 2", "Quick Answer 2") se
+il nome è già preso fra i Bot. I passi non conoscono i nomi dei segretari: sono funzioni pure del solo `bots.json`,
+che si carica prima di `hub_settings.json`. Per questo, all'avvio, caricati entrambi i file,
+`bots::rename_bots_named_like_secretaries` (`bots/secretary_names.rs`) dà il primo nome libero a ogni Bot che porta
+il nome di un segretario e salva solo se ne ha rinominato uno: vale anche per i Bot delle migrazioni future con un
+nome di una parola ("Researcher").
 
 **Ripristino**: `agent_bots::restore_preset` riporta `task`, modello, effort, skill e `kinds` di un Bot al preset;
 `agent_bots::restore_presets` ricrea i preset che mancano. Un preset aggiunto a `PRESETS` diventa quindi
