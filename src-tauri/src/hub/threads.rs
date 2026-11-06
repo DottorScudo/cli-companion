@@ -82,7 +82,7 @@ impl ChannelThreads {
             title,
             state: ThreadState::Open,
             task_ids: Vec::new(),
-            proposal_id: None,
+            proposal_ids: Vec::new(),
             owner: None,
             created_at: now,
             updated_at: now,

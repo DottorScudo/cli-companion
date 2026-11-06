@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
+mod legacy;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, rename = "HubThreadState")]
@@ -384,8 +386,11 @@ pub struct Thread {
     pub state: ThreadState,
     #[serde(default)]
     pub task_ids: Vec<String>,
-    #[serde(default)]
-    pub proposal_id: Option<String>,
+    /// Le proposte collegate ancora da decidere, dalla piu' vecchia: decisa,
+    /// una proposta si toglie (vedi `events::route`). Una proposta appartiene
+    /// a un solo thread. I file scritti prima hanno `proposal_id`, una sola.
+    #[serde(default, alias = "proposal_id", deserialize_with = "legacy::proposal_ids")]
+    pub proposal_ids: Vec<String>,
     /// Il segretario titolare del thread: quello che vi ha aperto l'ultimo task
     /// di pianificazione (`open_plan_task`). Alcuni eventi della board lo
     /// svegliano (vedi `events::route`). Assente nei thread senza

@@ -2,11 +2,14 @@
 //! workspace, raggruppati per obiettivo:
 //!
 //! - una proposta apre un thread (titolo dal primo task, "+N"), accettata ne
-//!   collega i task, scartata lo chiude. La proposta di un task `plan` o
-//!   `review` gia' in un thread va in quel thread (lo riapre se chiuso), non in
-//!   uno nuovo; ripiega sul thread nuovo se il thread ha un'altra proposta
-//!   pendente o non ha posto per i task. Scartata in un thread con altri task
-//!   oltre ai `plan`, non lo chiude: lo fa la conclusione dei task;
+//!   collega i task, scartata lo chiude; decisa, si toglie dal thread. La
+//!   proposta di un task `plan` o `review` gia' in un thread va sempre in quel
+//!   thread (lo riapre se chiuso), anche se ha altre proposte da decidere, e
+//!   cosi' i task accettati: le review fra quei task vi riportano i loro
+//!   follow-up, a catena. Ripiega sul thread nuovo solo se il task non ha un
+//!   thread o se il thread non ha posto per i task. Scartata in un thread con
+//!   altri task oltre ai `plan` o con un'altra proposta pendente, non lo
+//!   chiude: lo fa la conclusione dei task;
 //! - un task creato a mano apre il suo thread;
 //! - gli eventi di un task vanno nel thread a cui e' collegato; se non ce n'e'
 //!   uno (task gia' esistente all'accensione dell'HUB) lo si crea al primo
@@ -95,7 +98,9 @@ impl Router<'_> {
     fn apply(&mut self, event: &BoardEvent) -> Result<(), String> {
         match event {
             BoardEvent::ProposalCreated(p) => self.proposal_created(p),
-            BoardEvent::ProposalAccepted { proposal_id, task_ids } => self.proposal_accepted(proposal_id, task_ids),
+            BoardEvent::ProposalAccepted { proposal_id, source_task, task_ids } => {
+                self.proposal_accepted(proposal_id, source_task.as_deref(), task_ids)
+            }
             BoardEvent::ProposalRejected { proposal_id } => self.proposal_rejected(proposal_id),
             BoardEvent::Task { change, task } => self.task_event(*change, task),
         }
@@ -104,17 +109,10 @@ impl Router<'_> {
     fn proposal_created(&mut self, p: &ProposalSnap) -> Result<(), String> {
         let thread = match self.thread_of_proposal(&p.id) {
             Some(id) => id,
-            None => match self.origin_thread(p) {
-                Some(id) => {
-                    self.list.link_proposal(&id, &p.id, self.now)?;
-                    // Una proposta pendente tiene aperto anche un obiettivo gia' concluso.
-                    self.reopen(&id)?;
-                    id
-                }
-                None => self.new_thread(thread_title(p.tasks.iter().map(|t| t.title.as_str())), |list, id, now| {
-                    list.link_proposal(id, &p.id, now).map(drop)
-                })?,
-            },
+            None => {
+                let title = thread_title(p.tasks.iter().map(|t| t.title.as_str()));
+                self.adopt_proposal(&p.id, p.source_task.as_deref(), p.tasks.len(), title)?
+            }
         };
         let event =
             HubEvent { task_id: p.source_task.clone(), ..self.proposal_event(HubEventKind::ProposalCreated, &p.id) };
@@ -124,33 +122,52 @@ impl Router<'_> {
         Ok(())
     }
 
-    /// Il thread d'origine della proposta: quello del task (`plan` o `review`)
-    /// che l'ha fatta. `None`, e la proposta apre un thread nuovo, se non c'e'
-    /// un task sorgente (Intake), se il task non ha thread, se il thread ha gia'
-    /// un'altra proposta pendente (lo slot e' unico) o se i task proposti non
-    /// ci stanno piu'.
-    fn origin_thread(&self, p: &ProposalSnap) -> Option<String> {
-        let source = p.source_task.as_deref()?;
-        let thread = self.list.thread_of_task(source)?;
-        let other_pending = thread
-            .proposal_id
-            .as_deref()
-            .is_some_and(|id| id != p.id && self.board.proposals.iter().any(|q| q.id == id));
-        let fits = thread.task_ids.len() + p.tasks.len() <= TASKS_PER_THREAD_MAX;
-        (!other_pending && fits).then(|| thread.id.clone())
+    /// Collega a un thread la proposta che non ne ha ancora uno: quello
+    /// d'origine (vedi `origin_thread`), riaperto se chiuso perche' una
+    /// proposta da decidere tiene aperto anche un obiettivo gia' concluso,
+    /// altrimenti uno nuovo intitolato `title`.
+    fn adopt_proposal(
+        &mut self,
+        proposal_id: &str,
+        source_task: Option<&str>,
+        task_count: usize,
+        title: String,
+    ) -> Result<String, String> {
+        match self.origin_thread(source_task, task_count) {
+            Some(id) => {
+                self.list.link_proposal(&id, proposal_id, self.now)?;
+                self.reopen(&id)?;
+                Ok(id)
+            }
+            None => self.new_thread(title, |list, id, now| list.link_proposal(id, proposal_id, now).map(drop)),
+        }
+    }
+
+    /// Il thread d'origine di una proposta di `task_count` task: quello del
+    /// task (`plan` o `review`) che l'ha fatta, anche se ha gia' altre proposte
+    /// da decidere. `None`, e la proposta apre un thread nuovo, se non c'e' un
+    /// task sorgente (Intake), se il task non ha thread o se i task proposti
+    /// non ci stanno piu'.
+    fn origin_thread(&self, source_task: Option<&str>, task_count: usize) -> Option<String> {
+        let thread = self.list.thread_of_task(source_task?)?;
+        (thread.task_ids.len() + task_count <= TASKS_PER_THREAD_MAX).then(|| thread.id.clone())
     }
 
     /// Una proposta che non ha un thread (pendente gia' prima dell'accensione)
-    /// lo riceve ora, intitolato con i suoi task.
-    fn proposal_accepted(&mut self, proposal_id: &str, task_ids: &[String]) -> Result<(), String> {
+    /// lo riceve ora, come se fosse appena comparsa. Decisa, si toglie dal thread.
+    fn proposal_accepted(
+        &mut self,
+        proposal_id: &str,
+        source_task: Option<&str>,
+        task_ids: &[String],
+    ) -> Result<(), String> {
         let thread = match self.thread_of_proposal(proposal_id) {
             Some(id) => id,
             None => {
                 let titles: Vec<&str> =
                     task_ids.iter().filter_map(|id| self.board.task(id)).map(|t| t.title.as_str()).collect();
-                self.new_thread(thread_title(titles.into_iter()), |list, id, now| {
-                    list.link_proposal(id, proposal_id, now).map(drop)
-                })?
+                let title = thread_title(titles.into_iter());
+                self.adopt_proposal(proposal_id, source_task, task_ids.len(), title)?
             }
         };
         // Un task e' di un solo thread: quelli gia' altrove restano dove sono.
@@ -159,7 +176,9 @@ impl Router<'_> {
         self.list.link_tasks(&thread, &free, self.now)?;
         self.reopen(&thread)?;
         let event = self.proposal_event(HubEventKind::ProposalAccepted, proposal_id);
-        self.post(&thread, texts::proposal_accepted(task_ids.len()), Some(event)).map(drop)
+        self.post(&thread, texts::proposal_accepted(task_ids.len()), Some(event))?;
+        self.list.unlink_proposal(proposal_id);
+        Ok(())
     }
 
     fn proposal_rejected(&mut self, proposal_id: &str) -> Result<(), String> {
@@ -168,12 +187,23 @@ impl Router<'_> {
         };
         let event = self.proposal_event(HubEventKind::ProposalRejected, proposal_id);
         self.post(&thread, PROPOSAL_REJECTED.to_string(), Some(event))?;
-        // Un thread con altri task e' un obiettivo in corso: lo chiude
-        // `close_concluded` solo quando sono tutti conclusi.
-        if !self.has_work_tasks(&thread) {
+        self.list.unlink_proposal(proposal_id);
+        // Un thread con altri task e' un obiettivo in corso, uno con un'altra
+        // proposta da decidere aspetta l'utente: li chiude `close_concluded`.
+        if !self.has_work_tasks(&thread) && !self.has_pending_proposal(&thread) {
             self.list.set_state(&thread, ThreadState::Closed, self.now)?;
         }
         Ok(())
+    }
+
+    /// Una delle proposte collegate al thread e' ancora pendente sulla board.
+    fn has_pending_proposal(&self, thread: &str) -> bool {
+        self.list.thread(thread).is_some_and(|t| self.any_pending(t))
+    }
+
+    /// Come `has_pending_proposal`, sul thread gia' trovato.
+    fn any_pending(&self, thread: &Thread) -> bool {
+        thread.proposal_ids.iter().any(|id| self.board.proposals.iter().any(|p| &p.id == id))
     }
 
     /// Il thread ha task diversi dai `plan` (uno sparito dalla board conta come tale).
@@ -251,15 +281,14 @@ impl Router<'_> {
         }
     }
 
-    /// Thread aperto, senza una proposta pendente, con almeno un task che non
+    /// Thread aperto, senza proposte pendenti, con almeno un task che non
     /// e' un `plan` (un piano da solo non e' un obiettivo concluso: aspetta la
     /// proposta o le risposte) e tutti i suoi task nella board `done`. Un task
     /// sparito dalla board (eliminato o archiviato) conta come concluso.
     fn concluded(&self, thread: &Thread) -> bool {
-        let pending = thread.proposal_id.as_deref().is_some_and(|p| self.board.proposals.iter().any(|q| q.id == p));
         let tasks: Vec<Option<&TaskSnap>> = thread.task_ids.iter().map(|id| self.board.task(id)).collect();
         thread.state == ThreadState::Open
-            && !pending
+            && !self.any_pending(thread)
             && tasks.iter().any(|t| t.is_none_or(|t| t.kind != TaskKind::Plan))
             && tasks.iter().all(|t| t.is_none_or(|t| t.status == TaskStatus::Done))
     }

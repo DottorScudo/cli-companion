@@ -11,9 +11,10 @@ use std::collections::{HashMap, HashSet};
 pub enum BoardEvent {
     ProposalCreated(ProposalSnap),
     /// La proposta e' sparita e i suoi task (`task_ids`, quelli comparsi) sono
-    /// ora nella board.
+    /// ora nella board; `source_task` e' quello della proposta (vedi `ProposalSnap`).
     ProposalAccepted {
         proposal_id: String,
+        source_task: Option<String>,
         task_ids: Vec<String>,
     },
     /// La proposta e' sparita senza portare task nella board.
@@ -65,7 +66,11 @@ pub fn diff(prev: &BoardSnapshot, next: &BoardSnapshot) -> Vec<BoardEvent> {
             events.push(BoardEvent::ProposalRejected { proposal_id: p.id.clone() });
         } else {
             from_proposals.extend(p.tasks.iter().map(|t| t.id.as_str()));
-            events.push(BoardEvent::ProposalAccepted { proposal_id: p.id.clone(), task_ids });
+            events.push(BoardEvent::ProposalAccepted {
+                proposal_id: p.id.clone(),
+                source_task: p.source_task.clone(),
+                task_ids,
+            });
         }
     }
 

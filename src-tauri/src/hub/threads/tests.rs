@@ -1,4 +1,4 @@
-use super::lifecycle::{CLOSED_THREADS_MAX, TASKS_PER_THREAD_MAX};
+use super::lifecycle::{CLOSED_THREADS_MAX, PROPOSALS_PER_THREAD_MAX, TASKS_PER_THREAD_MAX};
 use super::*;
 use crate::hub::attachments::ATTACHMENTS_MAX;
 use crate::hub::model::HubEventKind;
@@ -41,7 +41,7 @@ fn a_new_thread_is_open_and_empty() {
     let t = list.thread("t1").unwrap();
     assert_eq!((t.state, t.title.as_str(), t.created_at, t.updated_at), (ThreadState::Open, "Obiettivo", 10, 10));
     assert_eq!(t.channel, ws());
-    assert!(t.messages.is_empty() && t.task_ids.is_empty() && t.proposal_id.is_none());
+    assert!(t.messages.is_empty() && t.task_ids.is_empty() && t.proposal_ids.is_empty());
 }
 
 #[test]
@@ -256,7 +256,52 @@ fn proposals_are_linked_and_found() {
     assert!(list.link_proposal("t2", "p-1-1", 3).is_err());
     assert!(list.link_proposal("t1", "p 1", 3).is_err());
     list.link_proposal("t1", "p-2-1", 4).unwrap();
-    assert!(list.thread_of_proposal("p-1-1").is_none(), "la proposta precedente e' sostituita");
+    list.link_proposal("t1", "p-2-1", 5).unwrap();
+    let t = list.thread("t1").unwrap();
+    assert_eq!((t.proposal_ids.as_slice(), t.updated_at), (&["p-1-1".to_string(), "p-2-1".to_string()][..], 4));
+}
+
+#[test]
+fn a_decided_proposal_is_unlinked_without_touching_the_thread() {
+    let mut list = with_thread("t1", 0);
+    list.link_proposal("t1", "p-1", 2).unwrap();
+    list.link_proposal("t1", "p-2", 3).unwrap();
+    list.unlink_proposal("p-1");
+    list.unlink_proposal("p-9");
+    let t = list.thread("t1").unwrap();
+    assert_eq!((t.proposal_ids.as_slice(), t.updated_at), (&["p-2".to_string()][..], 3));
+    assert!(list.thread_of_proposal("p-1").is_none());
+}
+
+#[test]
+fn linked_proposals_are_bounded_dropping_the_oldest() {
+    let mut list = with_thread("t1", 0);
+    for i in 0..=PROPOSALS_PER_THREAD_MAX {
+        list.link_proposal("t1", &format!("p-{i}"), 1).unwrap();
+    }
+    let ids = &list.thread("t1").unwrap().proposal_ids;
+    assert_eq!(ids.len(), PROPOSALS_PER_THREAD_MAX);
+    assert_eq!(
+        (ids[0].as_str(), ids.last().map(String::as_str)),
+        ("p-1", Some(&*format!("p-{PROPOSALS_PER_THREAD_MAX}")))
+    );
+}
+
+#[test]
+fn a_file_with_the_old_single_proposal_keeps_its_link() {
+    let thread = |proposal: &str| {
+        format!(
+            r#"{{"threads":[{{"id":"t1","channel":"ws-1","title":"T","state":"open","created_at":1,"updated_at":2{proposal}}}]}}"#
+        )
+    };
+    let linked: ChannelThreads = serde_json::from_str(&thread(r#","proposal_id":"p-1""#)).unwrap();
+    assert_eq!(linked.thread_of_proposal("p-1").unwrap().proposal_ids, ["p-1"]);
+    let unlinked: ChannelThreads = serde_json::from_str(&thread(r#","proposal_id":null"#)).unwrap();
+    assert!(unlinked.thread("t1").unwrap().proposal_ids.is_empty());
+
+    let saved = serde_json::to_string(&linked).unwrap();
+    assert!(saved.contains(r#""proposal_ids":["p-1"]"#) && !saved.contains(r#""proposal_id""#), "{saved}");
+    assert_eq!(serde_json::from_str::<ChannelThreads>(&saved).unwrap(), linked);
 }
 
 #[test]
@@ -304,7 +349,7 @@ fn a_file_without_optional_fields_is_read() {
     let list: ChannelThreads = serde_json::from_str(json).unwrap();
     let t = list.thread("t1").unwrap();
     assert_eq!(t.channel, Channel::General);
-    assert!(t.task_ids.is_empty() && t.proposal_id.is_none());
+    assert!(t.task_ids.is_empty() && t.proposal_ids.is_empty());
     assert!(t.messages[0].reply_to.is_none() && t.messages[0].event.is_none());
     assert_eq!(serde_json::from_str::<ChannelThreads>("{}").unwrap(), ChannelThreads::default());
 }

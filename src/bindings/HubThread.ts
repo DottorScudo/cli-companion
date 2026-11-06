@@ -2,7 +2,13 @@
 import type { HubMessage } from "./HubMessage";
 import type { HubThreadState } from "./HubThreadState";
 
-export type HubThread = { id: string, channel: string, title: string, state: HubThreadState, task_ids: Array<string>, proposal_id: string | null, 
+export type HubThread = { id: string, channel: string, title: string, state: HubThreadState, task_ids: Array<string>, 
+/**
+ * Le proposte collegate ancora da decidere, dalla piu' vecchia: decisa,
+ * una proposta si toglie (vedi `events::route`). Una proposta appartiene
+ * a un solo thread. I file scritti prima hanno `proposal_id`, una sola.
+ */
+proposal_ids: Array<string>, 
 /**
  * Il segretario titolare del thread: quello che vi ha aperto l'ultimo task
  * di pianificazione (`open_plan_task`). Alcuni eventi della board lo

@@ -67,7 +67,7 @@ pub fn thread(messages: Vec<Message>) -> Thread {
         title: "Login".to_string(),
         state: ThreadState::Open,
         task_ids: vec!["t-1".to_string()],
-        proposal_id: None,
+        proposal_ids: Vec::new(),
         owner: None,
         created_at: 0,
         updated_at: 0,

@@ -83,7 +83,7 @@ mod tests {
             title: "t".to_string(),
             state: ThreadState::Open,
             task_ids: Vec::new(),
-            proposal_id: None,
+            proposal_ids: Vec::new(),
             owner: None,
             created_at: 0,
             updated_at: 0,

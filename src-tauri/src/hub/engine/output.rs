@@ -86,8 +86,8 @@ pub fn header(thread: &Thread, names: &WorkspaceNames) -> Value {
     if !thread.task_ids.is_empty() {
         out["task_ids"] = json!(thread.task_ids);
     }
-    if let Some(p) = &thread.proposal_id {
-        out["proposal_id"] = Value::from(p.as_str());
+    if !thread.proposal_ids.is_empty() {
+        out["proposal_ids"] = json!(thread.proposal_ids);
     }
     if let Some(s) = &thread.summary {
         out["summary"] = Value::from(s.as_str());

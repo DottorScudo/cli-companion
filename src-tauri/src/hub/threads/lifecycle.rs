@@ -4,13 +4,16 @@
 //! (`events::route`).
 
 use super::{text, ChannelThreads, THREAD_NOT_FOUND};
-use crate::board::valid_id;
+use crate::board::{valid_id, MAX_PENDING_PROPOSALS};
 use crate::hub::model::{Thread, ThreadState};
 
 /// Thread chiusi tenuti per canale: oltre, si tolgono i chiusi piu' vecchi.
 pub const CLOSED_THREADS_MAX: usize = 200;
 /// Task collegabili a un thread.
 pub const TASKS_PER_THREAD_MAX: usize = 200;
+/// Proposte collegabili a un thread: quante ne puo' avere pendenti una board
+/// (le decise si tolgono, vedi `unlink_proposal`).
+pub const PROPOSALS_PER_THREAD_MAX: usize = MAX_PENDING_PROPOSALS;
 
 impl ChannelThreads {
     /// Il thread a cui e' collegato il task.
@@ -20,7 +23,7 @@ impl ChannelThreads {
 
     /// Il thread a cui e' collegata la proposta.
     pub fn thread_of_proposal(&self, proposal_id: &str) -> Option<&Thread> {
-        self.threads.iter().find(|t| t.proposal_id.as_deref() == Some(proposal_id))
+        self.threads.iter().find(|t| t.proposal_ids.iter().any(|id| id == proposal_id))
     }
 
     /// Chiude o riapre il thread. Alla chiusura il canale tiene al massimo
@@ -73,7 +76,10 @@ impl ChannelThreads {
         Ok(thread)
     }
 
-    /// Collega la proposta al thread. Una proposta appartiene a un solo thread.
+    /// Collega la proposta al thread, accanto alle altre. Una proposta appartiene
+    /// a un solo thread. Oltre `PROPOSALS_PER_THREAD_MAX` si tolgono le piu'
+    /// vecchie: proposte decise mentre l'HUB era spento, di cui il thread non
+    /// ha visto la decisione.
     pub fn link_proposal(&mut self, thread_id: &str, proposal_id: &str, now: i64) -> Result<&Thread, String> {
         if !text::valid_ref_id(proposal_id) {
             return Err("id della proposta non valido".to_string());
@@ -83,11 +89,21 @@ impl ChannelThreads {
             return Err("la proposta è già collegata a un altro thread".to_string());
         }
         let thread = self.thread_mut(thread_id)?;
-        if thread.proposal_id.as_deref() != Some(proposal_id) {
-            thread.proposal_id = Some(proposal_id.to_string());
+        if !thread.proposal_ids.iter().any(|id| id == proposal_id) {
+            thread.proposal_ids.push(proposal_id.to_string());
+            let excess = thread.proposal_ids.len().saturating_sub(PROPOSALS_PER_THREAD_MAX);
+            thread.proposal_ids.drain(..excess);
             thread.updated_at = now;
         }
         Ok(thread)
+    }
+
+    /// Toglie la proposta, ormai decisa, dal thread a cui era collegata. Non
+    /// cambia `updated_at`: il thread lo tocca il messaggio della decisione.
+    pub fn unlink_proposal(&mut self, proposal_id: &str) {
+        for thread in &mut self.threads {
+            thread.proposal_ids.retain(|id| id != proposal_id);
+        }
     }
 
     /// Rende il segretario `owner` titolare del thread (sostituisce il precedente).

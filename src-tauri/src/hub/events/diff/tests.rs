@@ -30,9 +30,21 @@ fn an_accepted_proposal_brings_its_tasks_without_creation_events() {
     let next = board(vec![task("a", TaskStatus::Queued), task("b", TaskStatus::Queued)], vec![]);
     let accepted = BoardEvent::ProposalAccepted {
         proposal_id: "p-1".to_string(),
+        source_task: None,
         task_ids: vec!["a".to_string(), "b".to_string()],
     };
     assert_eq!(diff(&prev, &next), [accepted]);
+}
+
+#[test]
+fn an_accepted_proposal_carries_its_source_task() {
+    let reviewed = ProposalSnap { source_task: Some("r".to_string()), ..proposal("p-1", &["a"]) };
+    let next = board(vec![task("a", TaskStatus::Queued)], vec![]);
+    let events = diff(&board(vec![], vec![reviewed]), &next);
+    assert!(
+        matches!(&events[..], [BoardEvent::ProposalAccepted { source_task: Some(s), .. }] if s == "r"),
+        "{events:?}"
+    );
 }
 
 #[test]
