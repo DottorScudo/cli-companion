@@ -7,7 +7,7 @@ use super::agent::{AgentBot, SkillRef};
 use super::catalog::AgentCatalog;
 use super::resolve::{resolve_bot, ResolvedBot};
 use crate::agents::{
-    first_invalid_env_name, AgentIntegration, AgentUnavailable, InteractiveLauncher, InteractiveRequest, LaunchSkill,
+    first_invalid_env_name, AgentIntegration, AgentUnavailable, InteractiveLauncher, InteractiveRequest,
 };
 use serde::Serialize;
 use ts_rs::TS;
@@ -107,13 +107,6 @@ fn bot_launch(bot: &AgentBot, workspace_agent: &str, catalog: &AgentCatalog) -> 
     }
 }
 
-fn launch_skill(skill: &SkillRef) -> LaunchSkill<'_> {
-    match skill {
-        SkillRef::Plugin(id) => LaunchSkill::Plugin(id),
-        SkillRef::User(name) => LaunchSkill::User(name),
-    }
-}
-
 /// Il lancio del Bot e le variabili d'ambiente da preparare per il tab prima
 /// che parta. `user_skill_exists` dice se una skill utente c'e' ancora: se manca
 /// il lancio fallisce, senza ripiegare su un Bot senza skill.
@@ -140,7 +133,7 @@ pub fn build_bot_launch(
     let request = InteractiveRequest {
         model: resolved.model.as_deref(),
         effort: resolved.effort,
-        skill: resolved.skill.as_ref().map(launch_skill),
+        skill: resolved.skill.as_ref().map(SkillRef::launch_skill),
     };
     let launch = launcher.launch(&request).ok_or_else(|| {
         format!(

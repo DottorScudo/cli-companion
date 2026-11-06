@@ -4,7 +4,7 @@
 use super::commands::update_checked;
 use crate::automation::worktrees::{check_e2e_configured, check_e2e_needs_git, ensure_repos};
 use crate::automation::*;
-use crate::board::{parse_proposal, TaskStatus};
+use crate::board::{parse_proposal, SpecContext, TaskStatus};
 use serde_json::json;
 
 /// Workspace del tab che chiama un tool di sessione.
@@ -60,7 +60,9 @@ pub(in crate::automation) fn propose_tasks<H: Host>(
     check_e2e_needs_git(ws, &specs, &kinds)?;
     check_e2e_configured(ws, &specs)?;
     let now = now_millis();
-    let id = st.run(host, |r| r.propose(&ws.id, tab, source_task, specs, ws.agent.as_deref(), now))?;
+    let bots = host.agent_bots();
+    let ctx = SpecContext { workspace_agent: ws.agent.as_deref(), bots: &bots };
+    let id = st.run(host, |r| r.propose(&ws.id, tab, source_task, specs, ctx, now))?;
     Ok(json!({
         "proposal": id,
         "status": "pending",

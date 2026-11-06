@@ -16,7 +16,7 @@ fn spec(id: &str, deps: &[&str]) -> TaskSpec {
 
 fn board_with(specs: Vec<TaskSpec>) -> Board {
     let mut b = Board::new("ws-1");
-    b.check_specs(&specs, &HashSet::new(), None).unwrap();
+    b.check_specs(&specs, &HashSet::new(), SpecContext::default()).unwrap();
     b.push_specs(specs, 1);
     b
 }
@@ -118,7 +118,7 @@ fn v011_board_is_normalized_on_load() {
 #[test]
 fn a_current_board_roundtrips() {
     let mut b = board_with(vec![spec("a", &[]), spec("b", &["a"])]);
-    b.add_proposal("p-1".into(), "tab-1", None, vec![spec("c", &[])], None, 5).unwrap();
+    b.add_proposal("p-1".into(), "tab-1", None, vec![spec("c", &[])], SpecContext::default(), 5).unwrap();
     let back = Board::from_json(&serde_json::to_string(&b).unwrap(), 9).unwrap();
     assert_eq!(back.tasks, b.tasks);
     assert_eq!(back.proposals, b.proposals);
@@ -197,36 +197,40 @@ fn parse_spec_rules() {
 }
 
 #[test]
-fn proposals_require_a_valid_model() {
-    let err =
-        |model: Value| parse_proposal(&json!({"tasks":[{"id":"a","title":"T","task":"x","model":model}]})).unwrap_err();
-    assert_eq!(
-        parse_proposal(&json!({"tasks":[{"id":"a","title":"T","task":"x"}]})).unwrap_err(),
-        "tasks[0]: task a: model is required"
-    );
-    assert!(err(Value::Null).contains("model is required"));
-    assert!(err(json!("  ")).contains("model is required"));
-    assert!(err(json!("a b")).contains("invalid model"));
-    assert!(err(json!(7)).contains("model must be a string"));
-    let ok = parse_proposal(&json!({"tasks":[{"id":"a","title":"T","task":"x","model":" opus "}]})).unwrap();
-    assert_eq!(ok[0].model.as_deref(), Some("opus"));
+fn proposals_accept_an_optional_valid_model() {
+    let propose = |model: Value| {
+        parse_proposal(&json!({"tasks":[{"id":"a","title":"T","task":"x","bot":"general","model":model}]}))
+    };
+    // Il modello e' un'eccezione al modello del Bot: assente, null o vuoto = quello del Bot.
+    let without = parse_proposal(&json!({"tasks":[{"id":"a","title":"T","task":"x","bot":"general"}]})).unwrap();
+    assert_eq!(without[0].model, None);
+    assert_eq!(propose(Value::Null).unwrap()[0].model, None);
+    assert_eq!(propose(json!("  ")).unwrap()[0].model, None);
+    assert!(propose(json!("a b")).unwrap_err().contains("invalid model"));
+    assert!(propose(json!(7)).unwrap_err().contains("model must be a string"));
+    assert_eq!(propose(json!(" opus ")).unwrap()[0].model.as_deref(), Some("opus"));
 }
 
 #[test]
 fn proposals_are_parsed_and_limited() {
-    let ok = parse_proposal(&json!({"tasks":[{"id":"a","title":"T","task":"x","model":"sonnet"}]})).unwrap();
+    let ok =
+        parse_proposal(&json!({"tasks":[{"id":"a","title":"T","task":"x","model":"sonnet","bot":"general"}]})).unwrap();
     assert_eq!(ok.len(), 1);
     assert!(parse_proposal(&json!({})).unwrap_err().contains("tasks is missing"));
     assert!(parse_proposal(&json!({"tasks":[]})).unwrap_err().contains("empty"));
     assert!(parse_proposal(&json!({"tasks":[{"title":"T","task":"x"}]})).unwrap_err().contains("id is missing"));
-    assert!(parse_proposal(&json!({"tasks":[{"id":"a","title":"T","task":"x","model":"sonnet"}],"max_parallel":2}))
-        .unwrap_err()
-        .contains("unknown field"));
-    let many: Vec<Value> =
-        (0..21).map(|i| json!({"id":format!("t{i}"),"title":"T","task":"x","model":"sonnet"})).collect();
+    assert!(parse_proposal(
+        &json!({"tasks":[{"id":"a","title":"T","task":"x","model":"sonnet","bot":"general"}],"max_parallel":2})
+    )
+    .unwrap_err()
+    .contains("unknown field"));
+    let many: Vec<Value> = (0..21)
+        .map(|i| json!({"id":format!("t{i}"),"title":"T","task":"x","model":"sonnet","bot":"general"}))
+        .collect();
     assert!(parse_proposal(&json!({"tasks":many})).unwrap_err().contains("too many"));
-    let max: Vec<Value> =
-        (0..20).map(|i| json!({"id":format!("t{i}"),"title":"T","task":"x","model":"sonnet"})).collect();
+    let max: Vec<Value> = (0..20)
+        .map(|i| json!({"id":format!("t{i}"),"title":"T","task":"x","model":"sonnet","bot":"general"}))
+        .collect();
     assert_eq!(parse_proposal(&json!({"tasks":max})).unwrap().len(), 20);
 }
 
@@ -235,26 +239,35 @@ fn check_specs_validates_ids_graph_and_limits() {
     let b = board_with(vec![spec("a", &[]), spec("b", &["a"])]);
     let none = HashSet::new();
     // Dipendenze verso la proposta stessa o task esistenti.
-    assert!(b.check_specs(&[spec("c", &["a", "d"]), spec("d", &[])], &none, None).is_ok());
+    assert!(b.check_specs(&[spec("c", &["a", "d"]), spec("d", &[])], &none, SpecContext::default()).is_ok());
     // Cicli, auto-dipendenze, dipendenze sconosciute, id duplicati.
     assert!(b
-        .check_specs(&[spec("c", &["d"]), spec("d", &["c"])], &none, None)
+        .check_specs(&[spec("c", &["d"]), spec("d", &["c"])], &none, SpecContext::default())
         .unwrap_err()
         .contains("dependency cycle"));
-    assert!(b.check_specs(&[spec("c", &["c"])], &none, None).unwrap_err().contains("itself"));
-    assert!(b.check_specs(&[spec("c", &["zz"])], &none, None).unwrap_err().contains("unknown task"));
-    assert!(b.check_specs(&[spec("a", &[])], &none, None).unwrap_err().contains("duplicate"));
-    assert!(b.check_specs(&[spec("c", &[]), spec("c", &[])], &none, None).unwrap_err().contains("duplicate"));
-    assert!(b.check_specs(&[], &none, None).is_err());
+    assert!(b.check_specs(&[spec("c", &["c"])], &none, SpecContext::default()).unwrap_err().contains("itself"));
+    assert!(b.check_specs(&[spec("c", &["zz"])], &none, SpecContext::default()).unwrap_err().contains("unknown task"));
+    assert!(b.check_specs(&[spec("a", &[])], &none, SpecContext::default()).unwrap_err().contains("duplicate"));
+    assert!(b
+        .check_specs(&[spec("c", &[]), spec("c", &[])], &none, SpecContext::default())
+        .unwrap_err()
+        .contains("duplicate"));
+    assert!(b.check_specs(&[], &none, SpecContext::default()).is_err());
     // Id gia' usato da un'altra proposta pendente.
     let reserved: HashSet<&str> = ["x"].into();
-    assert!(b.check_specs(&[spec("x", &[])], &reserved, None).unwrap_err().contains("pending proposal"));
+    assert!(b
+        .check_specs(&[spec("x", &[])], &reserved, SpecContext::default())
+        .unwrap_err()
+        .contains("pending proposal"));
     // Limite della board.
     let mut full = Board::new("w");
     for i in 0..MAX_TASKS_PER_BOARD {
         full.tasks.push(Task::from_spec(spec(&format!("t{i}"), &[]), 0));
     }
-    assert!(full.check_specs(&[spec("extra", &[])], &none, None).unwrap_err().contains("too many unfinished tasks"));
+    assert!(full
+        .check_specs(&[spec("extra", &[])], &none, SpecContext::default())
+        .unwrap_err()
+        .contains("too many unfinished tasks"));
 }
 
 #[test]
@@ -271,44 +284,53 @@ fn board_limit_counts_only_queued_and_running_tasks() {
     };
     // Storico: done e failed non contano, anche se riempiono la board.
     let history = board_of(&|i| if i % 2 == 0 { TaskStatus::Done } else { TaskStatus::Failed });
-    assert!(history.check_specs(&[spec("extra", &[])], &none, None).is_ok());
+    assert!(history.check_specs(&[spec("extra", &[])], &none, SpecContext::default()).is_ok());
     // Running conta come queued.
     let active = board_of(&|i| if i % 2 == 0 { TaskStatus::Running } else { TaskStatus::Queued });
-    assert!(active.check_specs(&[spec("extra", &[])], &none, None).unwrap_err().contains("too many unfinished tasks"));
+    assert!(active
+        .check_specs(&[spec("extra", &[])], &none, SpecContext::default())
+        .unwrap_err()
+        .contains("too many unfinished tasks"));
     // Board mista: 199 attivi + proposta da 2 sfora solo contando gli attivi.
     let mut mixed = board_of(&|i| if i < MAX_TASKS_PER_BOARD - 1 { TaskStatus::Queued } else { TaskStatus::Done });
-    assert!(mixed.check_specs(&[spec("x1", &[])], &none, None).is_ok());
-    assert!(mixed.check_specs(&[spec("x1", &[]), spec("x2", &[])], &none, None).unwrap_err().contains("too many"));
+    assert!(mixed.check_specs(&[spec("x1", &[])], &none, SpecContext::default()).is_ok());
+    assert!(mixed
+        .check_specs(&[spec("x1", &[]), spec("x2", &[])], &none, SpecContext::default())
+        .unwrap_err()
+        .contains("too many"));
     // Il limite vale anche per la creazione a mano e per le proposte.
-    assert!(mixed.add_proposal("p-1".into(), "tab-1", None, vec![spec("x1", &[]), spec("x2", &[])], None, 1).is_err());
-    mixed.create_task(spec("x1", &[]), None, 1).unwrap();
-    assert!(mixed.create_task(spec("x2", &[]), None, 2).unwrap_err().contains("too many"));
+    assert!(mixed
+        .add_proposal("p-1".into(), "tab-1", None, vec![spec("x1", &[]), spec("x2", &[])], SpecContext::default(), 1)
+        .is_err());
+    mixed.create_task(spec("x1", &[]), SpecContext::default(), 1).unwrap();
+    assert!(mixed.create_task(spec("x2", &[]), SpecContext::default(), 2).unwrap_err().contains("too many"));
 }
 
 #[test]
 fn proposals_accept_discard_and_revalidate() {
     let mut b = board_with(vec![spec("a", &[])]);
-    b.add_proposal("p-1".into(), "tab-1", None, vec![spec("b", &["a"]), spec("c", &["b"])], None, 5).unwrap();
+    b.add_proposal("p-1".into(), "tab-1", None, vec![spec("b", &["a"]), spec("c", &["b"])], SpecContext::default(), 5)
+        .unwrap();
     // Un id usato da una proposta pendente non si ripropone (ne' si crea a mano).
-    assert!(b.add_proposal("p-2".into(), "tab-1", None, vec![spec("b", &[])], None, 6).is_err());
-    assert!(b.create_task(spec("c", &[]), None, 6).is_err());
+    assert!(b.add_proposal("p-2".into(), "tab-1", None, vec![spec("b", &[])], SpecContext::default(), 6).is_err());
+    assert!(b.create_task(spec("c", &[]), SpecContext::default(), 6).is_err());
     assert!(b.id_taken("b") && b.id_taken("a") && !b.id_taken("zz"));
-    b.add_proposal("p-2".into(), "tab-2", None, vec![spec("d", &[])], None, 6).unwrap();
+    b.add_proposal("p-2".into(), "tab-2", None, vec![spec("d", &[])], SpecContext::default(), 6).unwrap();
     // Accetta: in fondo alla coda, nell'ordine della proposta.
-    assert_eq!(b.accept_proposal("p-1", None, 7).unwrap(), ["b", "c"]);
+    assert_eq!(b.accept_proposal("p-1", SpecContext::default(), 7).unwrap(), ["b", "c"]);
     assert_eq!(ids(&b), ["a", "b", "c"]);
     assert_eq!(b.proposals.len(), 1);
     assert!(b.tasks.iter().all(|t| t.status() == TaskStatus::Queued && t.agent == "claude-code"));
     // Scarta.
     b.discard_proposal("p-2", 8).unwrap();
     assert!(b.proposals.is_empty());
-    assert!(b.accept_proposal("p-2", None, 9).unwrap_err().contains("proposal not found"));
+    assert!(b.accept_proposal("p-2", SpecContext::default(), 9).unwrap_err().contains("proposal not found"));
     assert!(b.discard_proposal("p-9", 9).is_err());
     // Rivalidazione: un id nel frattempo occupato fa fallire l'accettazione e la proposta resta.
-    b.add_proposal("p-3".into(), "tab-1", None, vec![spec("e", &[])], None, 10).unwrap();
-    b.create_task(spec("e", &[]), None, 11).unwrap_err(); // riservato dalla proposta
+    b.add_proposal("p-3".into(), "tab-1", None, vec![spec("e", &[])], SpecContext::default(), 10).unwrap();
+    b.create_task(spec("e", &[]), SpecContext::default(), 11).unwrap_err(); // riservato dalla proposta
     b.tasks.push(Task::from_spec(spec("e", &[]), 11)); // occupato aggirando i controlli (es. altra via)
-    assert!(b.accept_proposal("p-3", None, 12).unwrap_err().contains("duplicate"));
+    assert!(b.accept_proposal("p-3", SpecContext::default(), 12).unwrap_err().contains("duplicate"));
     assert_eq!(b.proposals.len(), 1);
 }
 
@@ -316,10 +338,11 @@ fn proposals_accept_discard_and_revalidate() {
 fn pending_proposals_are_capped() {
     let mut b = Board::new("w");
     for i in 0..MAX_PENDING_PROPOSALS {
-        b.add_proposal(format!("p-{i}"), "t", None, vec![spec(&format!("t{i}"), &[])], None, 0).unwrap();
+        b.add_proposal(format!("p-{i}"), "t", None, vec![spec(&format!("t{i}"), &[])], SpecContext::default(), 0)
+            .unwrap();
     }
     assert!(b
-        .add_proposal("p-x".into(), "t", None, vec![spec("zz", &[])], None, 0)
+        .add_proposal("p-x".into(), "t", None, vec![spec("zz", &[])], SpecContext::default(), 0)
         .unwrap_err()
         .contains("too many pending"));
 }
@@ -566,7 +589,8 @@ fn cascade_delete_returns_every_removed_worktree() {
 #[test]
 fn update_rules() {
     let mut b = board_with(vec![spec("a", &[]), spec("b", &[])]);
-    b.update_task("b", &json!({"id":"b","title":"New","depends_on":["a"],"model":"opus"}), None, 2).unwrap();
+    b.update_task("b", &json!({"id":"b","title":"New","depends_on":["a"],"model":"opus"}), SpecContext::default(), 2)
+        .unwrap();
     let t = b.task("b").unwrap();
     assert_eq!(
         (t.title.as_str(), t.depends_on.as_slice(), t.model.as_deref()),
@@ -574,19 +598,22 @@ fn update_rules() {
     );
     // Cicli e dipendenze sconosciute lasciano la board com'era.
     let before = b.tasks.clone();
-    assert!(b.update_task("a", &json!({"depends_on":["b"]}), None, 3).unwrap_err().contains("cycle"));
-    assert!(b.update_task("a", &json!({"depends_on":["zz"]}), None, 3).is_err());
-    assert!(b.update_task("a", &json!({"id":"a"}), None, 3).unwrap_err().contains("no fields"));
+    assert!(b.update_task("a", &json!({"depends_on":["b"]}), SpecContext::default(), 3).unwrap_err().contains("cycle"));
+    assert!(b.update_task("a", &json!({"depends_on":["zz"]}), SpecContext::default(), 3).is_err());
+    assert!(b.update_task("a", &json!({"id":"a"}), SpecContext::default(), 3).unwrap_err().contains("no fields"));
     assert_eq!(b.tasks, before);
     // Solo queued o failed; il repo non cambia con un worktree.
     set_status(&mut b, "a", TaskStatus::Running);
-    assert!(b.update_task("a", &json!({"title":"x"}), None, 3).unwrap_err().contains("only queued or failed"));
+    assert!(b
+        .update_task("a", &json!({"title":"x"}), SpecContext::default(), 3)
+        .unwrap_err()
+        .contains("only queued or failed"));
     set_status(&mut b, "a", TaskStatus::Failed);
-    b.update_task("a", &json!({"repo":"api"}), None, 3).unwrap();
+    b.update_task("a", &json!({"repo":"api"}), SpecContext::default(), 3).unwrap();
     b.task_mut("a").unwrap().worktree =
         Some(WorktreeInfo { path: "p".into(), branch: "task/a".into(), base: "main".into(), setup_done: true });
-    assert!(b.update_task("a", &json!({"repo":null}), None, 3).unwrap_err().contains("worktree"));
-    assert!(b.update_task("a", &json!({"title":"ok"}), None, 3).is_ok());
+    assert!(b.update_task("a", &json!({"repo":null}), SpecContext::default(), 3).unwrap_err().contains("worktree"));
+    assert!(b.update_task("a", &json!({"title":"ok"}), SpecContext::default(), 3).is_ok());
 }
 
 // --- scheduler ---
@@ -1266,18 +1293,22 @@ fn e2e_flag_defaults_to_false_is_parsed_and_omitted_when_false() {
 #[test]
 fn the_generic_model_shape_leaves_the_agent_rule_to_the_resolved_agent() {
     // `prov/model` ha una forma ammessa: il parsing lo lascia passare...
-    let ok = parse_proposal(&json!({"tasks":[{"id":"a","title":"T","task":"x","model":" prov/model "}]})).unwrap();
+    let ok =
+        parse_proposal(&json!({"tasks":[{"id":"a","title":"T","task":"x","model":" prov/model ","bot":"general"}]}))
+            .unwrap();
     assert_eq!(ok[0].model.as_deref(), Some("prov/model"));
     assert!(parse_spec(&json!({"id":"a","title":"T","task":"x","model":"a//b"}), None)
         .unwrap_err()
         .contains("invalid model"));
     // ...ma l'agente predefinito non lo accetta: errore specifico dell'agente.
     let b = Board::new("ws-1");
-    let err = b.check_specs(&ok, &HashSet::new(), None).unwrap_err();
+    let bots = crate::bots::default_agent_bots();
+    let ctx = SpecContext { workspace_agent: None, bots: &bots };
+    let err = b.check_specs(&ok, &HashSet::new(), ctx).unwrap_err();
     assert!(err.contains("invalid model for") && err.contains("prov/model"), "{err}");
     // Vale anche per la modifica di un task esistente.
     let mut b = board_with(vec![spec("a", &[])]);
-    let err = b.update_task("a", &json!({"model":"prov/model"}), None, 2).unwrap_err();
+    let err = b.update_task("a", &json!({"model":"prov/model"}), SpecContext::default(), 2).unwrap_err();
     assert!(err.contains("invalid model for"), "{err}");
 }
 

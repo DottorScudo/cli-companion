@@ -338,3 +338,31 @@ fn the_view_json_is_the_task_json_plus_the_new_fields() {
         assert_eq!(old_part, wire, "{name}");
     }
 }
+
+#[test]
+fn a_record_saved_before_the_bots_loads_without_them_and_writes_the_same_fields() {
+    let old =
+        json!({"id": "a", "title": "T", "task": "x", "agent": "claude-code", "model": "opus", "status": "queued"});
+    let t: Task = serde_json::from_value(old).unwrap();
+    assert_eq!((&t.bot, &t.effort, &t.skill), (&None, &None, &None));
+    let wire = serde_json::to_value(&t).unwrap();
+    for field in ["bot", "effort", "skill"] {
+        assert!(wire.get(field).is_none(), "{field}");
+    }
+}
+
+#[test]
+fn the_copy_of_the_bot_is_written_after_the_model_and_read_back() {
+    let record = json!({"id": "a", "title": "T", "task": "x", "bot": "intake", "effort": "high",
+        "skill": {"kind": "plugin", "id": "task-intake"}});
+    let t = read(record);
+    assert_eq!(t.bot.as_deref(), Some("intake"));
+    assert_eq!(t.effort, Some(crate::agents::Effort::High));
+    assert_eq!(t.skill, Some(crate::bots::SkillRef::Plugin("task-intake".into())));
+    let text = serde_json::to_string(&t).unwrap();
+    assert!(text.find("\"model\"").unwrap() < text.find("\"bot\"").unwrap());
+    assert!(text.find("\"skill\"").unwrap() < text.find("\"kind\"").unwrap());
+    let back: Task = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, t);
+    assert_eq!(TaskSpec::from_task(&back).skill, t.skill);
+}

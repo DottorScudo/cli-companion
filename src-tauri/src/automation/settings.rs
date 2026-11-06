@@ -4,10 +4,11 @@
 //! approva (`settings_proposal_decide`). Il tipo della patch e la sua
 //! validazione sono in `crate::workspaces`, lo stoccaggio in `crate::board`.
 
+use self::bots::{bots_json, ProbedAgents};
 use super::boards::{session_workspace, workspace_of};
 use super::rpc::misrouted;
 use super::*;
-use crate::agents::{registry, worker_rule_format, AgentIntegration, PermissionMode, RuleFormat};
+use crate::agents::{registry, worker_rule_format, AgentIntegration, PermissionMode, Readiness, RuleFormat};
 use crate::board::SettingsProposal;
 use crate::workspaces::{
     DeliveryMode, MergeMethod, SettingsPatch, MAX_COMMAND_LEN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_AGENTS,
@@ -16,6 +17,8 @@ use crate::workspaces::{
 use serde_json::json;
 use std::collections::BTreeMap;
 use ts_rs::TS;
+
+mod bots;
 
 /// Lunghezza massima della motivazione di una proposta.
 pub(crate) const REASON_MAX: usize = 2000;
@@ -89,9 +92,12 @@ pub(super) fn get_settings<H: Host>(st: &AutomationState, host: &H, ws: &Workspa
         .into_iter()
         .map(|(id, reason)| json!({ "id": id, "reason": reason }))
         .collect();
+    let bots = host.agent_bots();
+    let probed = probe_enabled_agents(host, ws);
     let mut out = json!({
         "settings": settings_json(ws),
-        "agents": agents_json(host, ws),
+        "agents": agents_json(&probed),
+        "bots": bots_json(&bots, ws.agent.as_deref(), &probed),
         "repos": repos_json(ws, &detected),
         "allowed": allowed_json(ws, host.shared_launch_ids()),
         "limits": limits_json(),
@@ -117,15 +123,21 @@ fn settings_json(ws: &Workspace) -> Value {
     })
 }
 
-/// Gli agenti abilitati, in ordine di registro: ognuno con i modelli e la forma
-/// delle regole di permesso che `worker_agents` accetta per lui, piu' la prontezza
-/// nel target del workspace (puo' lanciare processi: fuori dai lock).
-fn agents_json<H: Host>(host: &H, ws: &Workspace) -> Vec<Value> {
-    let default_id = registry::default_agent().id();
-    registry::enabled().into_iter().map(|agent| agent_json(host, ws, agent, default_id)).collect()
+/// La prontezza di ogni agente abilitato nel target del workspace, in ordine di
+/// registro. Lancia processi: fuori dai lock. Un solo controllo per agente, poi
+/// la usano sia `agents` sia `bots`.
+fn probe_enabled_agents<H: Host>(host: &H, ws: &Workspace) -> Vec<(&'static dyn AgentIntegration, Readiness)> {
+    registry::enabled().into_iter().map(|agent| (agent, host.probe_agent(ws, agent.id()))).collect()
 }
 
-fn agent_json<H: Host>(host: &H, ws: &Workspace, agent: &dyn AgentIntegration, default_id: &str) -> Value {
+/// Gli agenti abilitati, in ordine di registro: ognuno con i modelli e la forma
+/// delle regole di permesso che `worker_agents` accetta per lui, piu' la sua prontezza.
+fn agents_json(probed: &ProbedAgents) -> Vec<Value> {
+    let default_id = registry::default_agent().id();
+    probed.iter().map(|&(agent, readiness)| agent_json(agent, readiness, default_id)).collect()
+}
+
+fn agent_json(agent: &dyn AgentIntegration, readiness: Readiness, default_id: &str) -> Value {
     let capabilities = agent.capabilities();
     json!({
         "id": agent.id(),
@@ -134,7 +146,7 @@ fn agent_json<H: Host>(host: &H, ws: &Workspace, agent: &dyn AgentIntegration, d
         "models": capabilities.models.map_or(&[][..], |catalog| catalog.suggested()),
         "default_model": capabilities.models.and_then(|catalog| catalog.default_model()),
         "rule_format": worker_rule_format(agent.id()).map(rule_format_json),
-        "readiness": host.probe_agent(ws, agent.id()),
+        "readiness": readiness,
     })
 }
 

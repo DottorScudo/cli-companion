@@ -9,6 +9,8 @@ use super::{
     E2eRun, FailCause, Finished, PreviousAttempt, Run, RunPhase, Task, TaskKind, TaskQuestion, TaskReport, TaskState,
     TaskStatus, WorkerActivity, WorkerStatus, WorktreeInfo,
 };
+use crate::agents::Effort;
+use crate::bots::SkillRef;
 use serde::{Deserialize, Serialize, Serializer};
 use ts_rs::{Config, TypeVisitor, TS};
 
@@ -23,6 +25,9 @@ pub(super) struct TaskRecord {
     repo: Option<String>,
     agent: String,
     model: Option<String>,
+    bot: Option<String>,
+    effort: Option<Effort>,
+    skill: Option<SkillRef>,
     kind: TaskKind,
     e2e: bool,
     no_git: bool,
@@ -83,6 +88,9 @@ impl From<TaskRecord> for Task {
             repo: r.repo,
             agent: r.agent,
             model: r.model,
+            bot: r.bot,
+            effort: r.effort,
+            skill: r.skill,
             kind: r.kind,
             e2e: r.e2e,
             no_git: r.no_git,
@@ -110,6 +118,15 @@ struct TaskRecordRef<'a> {
     repo: &'a Option<String>,
     agent: &'a str,
     model: &'a Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(as = "Option<String>", optional)]
+    bot: &'a Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(as = "Option<Effort>", optional)]
+    effort: &'a Option<Effort>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(as = "Option<SkillRef>", optional)]
+    skill: &'a Option<SkillRef>,
     kind: TaskKind,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[ts(as = "Option<bool>", optional)]
@@ -180,6 +197,9 @@ impl Serialize for Task {
             repo: &self.repo,
             agent: &self.agent,
             model: &self.model,
+            bot: &self.bot,
+            effort: &self.effort,
+            skill: &self.skill,
             kind: self.kind,
             e2e: self.e2e,
             no_git: self.no_git,

@@ -1,5 +1,6 @@
 use super::pieces::size;
 use super::*;
+use crate::board::SpecContext;
 use crate::board::{
     build_report, AgentGate, Board, Finished, ReportFields, TaskQuestion, TaskReport, TaskSpec, TaskState, TestRun,
     Verdict,
@@ -14,7 +15,7 @@ fn board(configure: impl FnOnce(&mut Board)) -> TaskView {
         task: "Build the sign-in page".into(),
         ..TaskSpec::default()
     };
-    board.create_task(spec, None, 1_700_000_000_000).unwrap();
+    board.create_task(spec, SpecContext::default(), 1_700_000_000_000).unwrap();
     configure(&mut board);
     board.view_with(None, false, &AgentGate::default()).tasks.remove(0)
 }

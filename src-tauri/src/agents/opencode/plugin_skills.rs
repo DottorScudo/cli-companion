@@ -26,6 +26,11 @@ impl PluginSkills for OpenCode {
     fn skill_path(&self, skill: &Preset) -> String {
         skill_path(skill)
     }
+
+    /// Lo strumento delle skill di OpenCode carica per id.
+    fn skill_name(&self, id: &str) -> String {
+        id.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -46,6 +51,11 @@ mod tests {
         for skill in PRESETS {
             assert!(skill_command(skill.id).contains(&format!("skill {}, then", skill.id)));
         }
+    }
+
+    #[test]
+    fn the_worker_loads_the_plugin_skill_by_its_id() {
+        assert_eq!(OpenCode.skill_name(PRESETS[0].id), "task-intake");
     }
 
     #[test]

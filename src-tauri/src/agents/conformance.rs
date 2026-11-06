@@ -7,6 +7,7 @@ use super::contracts::*;
 use super::presets::PRESETS;
 use super::registry;
 use super::testing::{FakeIntegration, Flaw};
+use super::worker_skill::is_plain_skill_name;
 use crate::platform::{Target, TargetKind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -149,6 +150,10 @@ fn plugin_skills(i: &dyn AgentIntegration, skills: &dyn PluginSkills, data_dir: 
             Some(_) => {}
         }
         seen.push(path);
+        let name = skills.skill_name(skill.id);
+        if !is_plain_skill_name(&name) {
+            v.push(format!("plugin-skills: skill_name non semplice (lettere, cifre e -_.:): {name:?}"));
+        }
     }
     v
 }
@@ -514,6 +519,10 @@ fn user_skills(skills: &dyn UserSkills) -> Vec<String> {
     let drive = sub.as_bytes().get(1) == Some(&b':');
     if sub.is_empty() || sub.starts_with('/') || drive || sub.contains('\\') || sub.split('/').any(|c| c == "..") {
         v.push(format!("user_skills: wsl_home_subpath non valido: {sub:?}"));
+    }
+    let name = skills.skill_name(CONFORMANCE_USER_SKILL);
+    if !is_plain_skill_name(&name) {
+        v.push(format!("user_skills: skill_name non semplice (lettere, cifre e -_.:): {name:?}"));
     }
     v
 }

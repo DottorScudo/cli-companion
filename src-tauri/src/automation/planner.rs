@@ -11,7 +11,7 @@ use super::worktrees::ensure_repos;
 use super::*;
 use crate::agents::AgentUse;
 use crate::board::texts::{self, EnvInfo};
-use crate::board::{parse_spec, TaskSpec};
+use crate::board::{parse_spec, SpecContext, TaskSpec};
 use serde_json::json;
 
 pub(super) mod root;
@@ -59,7 +59,7 @@ pub fn create_plan_task<H: Host>(
     let now = now_millis();
     st.run(host, |r| {
         spec.id = r.free_id(ws_id, &spec.title);
-        let id = r.create_task(ws_id, spec, ws.agent.as_deref(), now)?;
+        let id = r.create_task(ws_id, spec, SpecContext::workspace(ws.agent.as_deref()), now)?;
         r.note_no_git(ws_id, &kinds);
         Ok(id)
     })

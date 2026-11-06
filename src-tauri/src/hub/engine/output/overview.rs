@@ -71,7 +71,7 @@ mod tests {
         let mut board = Board::new(id);
         for i in 0..tasks {
             let spec = TaskSpec { id: format!("{id}-t{i}"), title: format!("Task {i}"), ..TaskSpec::default() };
-            board.create_task(spec, None, 1_700_000_000_000 + i as i64).unwrap();
+            board.create_task(spec, crate::board::SpecContext::default(), 1_700_000_000_000 + i as i64).unwrap();
         }
         board.paused = paused;
         board.view_with(None, false, &AgentGate::default())

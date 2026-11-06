@@ -5,6 +5,7 @@
 use super::process::CancelFlag;
 use super::*;
 use crate::agents::{AutomationLaunch, AutomationRequest, AutomationStart};
+use crate::bots::AgentBot;
 use crate::platform::TargetKind;
 use crate::schedule::{Schedule, ScheduleState};
 use crate::workspaces::{AgentWorkerSettings, DeliveryMode, MergeMethod, RepoConfig, SettingsPatch};
@@ -14,6 +15,9 @@ mod agent_ready;
 mod archive;
 mod auth;
 mod board_flow;
+mod bot_settings;
+mod bot_tasks;
+mod bot_worker;
 mod e2e;
 mod e2e_cancel;
 mod e2e_manual;
@@ -140,6 +144,18 @@ struct FakeHost {
     /// Scritture nei terminali (tab, byte) e interruttore che le fa fallire.
     tab_writes: Arc<Mutex<Vec<TabWrite>>>,
     write_fails: Arc<std::sync::atomic::AtomicBool>,
+    /// I Bot-agente (di default i predefiniti).
+    bots: FakeBots,
+}
+
+/// I Bot dell'host finto: parte dai predefiniti, i test li modificano.
+#[derive(Clone)]
+struct FakeBots(Arc<Mutex<Vec<AgentBot>>>);
+
+impl Default for FakeBots {
+    fn default() -> Self {
+        FakeBots(Arc::new(Mutex::new(crate::bots::default_agent_bots())))
+    }
 }
 
 impl FakeHost {
@@ -251,6 +267,25 @@ impl FakeHost {
     fn tab_writes(&self) -> Vec<TabWrite> {
         self.tab_writes.lock().unwrap().clone()
     }
+    /// Modifica i Bot dell'host (aggiungerne, disabilitarli, cambiarli).
+    fn edit_bots(&self, f: impl FnOnce(&mut Vec<AgentBot>)) {
+        f(&mut self.bots.0.lock().unwrap());
+    }
+    /// Aggiunge un Bot generico con l'agente fissato e ne ritorna l'id: per i
+    /// task di una proposta che devono girare con un agente preciso.
+    fn bot_for_agent(&self, agent: &str) -> String {
+        let id = format!("pinned-{agent}");
+        self.edit_bots(|bots| {
+            let general = bots[0].clone();
+            bots.push(AgentBot {
+                id: id.clone(),
+                name: format!("Pinned {agent}"),
+                agent: Some(agent.into()),
+                ..general
+            });
+        });
+        id
+    }
 }
 
 impl Host for FakeHost {
@@ -278,10 +313,12 @@ impl Host for FakeHost {
     ) -> Result<AutomationStart, String> {
         let start = crate::agents::automation_command(agent, env_kind, req)?;
         let command = format!(
-            "fake {agent} {} {:?} {} model={}",
+            "fake {agent} {} {:?} {} effort={} model={}",
             env_kind.as_str(),
             req.permission_mode,
             req.bootstrap_prompt,
+            // L'effort resta se `automation_command` non lo ha tolto (unico avviso possibile).
+            req.effort.filter(|_| start.warnings.is_empty()).map_or("-", crate::agents::Effort::as_str),
             req.model.unwrap_or("-")
         );
         // Le variabili sono quelle vere dell'integrazione.
@@ -477,6 +514,9 @@ impl Host for FakeHost {
     fn shared_launch_ids(&self) -> Vec<String> {
         crate::workspaces::shared_launch_ids(vec![FAKE_BOT_LAUNCH.to_string()])
     }
+    fn agent_bots(&self) -> Vec<AgentBot> {
+        self.bots.0.lock().unwrap().clone()
+    }
     fn agent_readiness(&self, _ws: &Workspace, agent: &str) -> Option<Readiness> {
         self.readiness.lock().unwrap().get(agent).copied().unwrap_or(Some(unforced_readiness(agent)))
     }
@@ -509,7 +549,7 @@ fn call(st: &AutomationState, h: &FakeHost, session: &str, method: &str, params:
 }
 
 fn spec(id: &str, deps: &[&str]) -> Value {
-    json!({"id": id, "title": format!("Task {id}"), "task": format!("do {id}"), "depends_on": deps, "model": "sonnet"})
+    json!({"id": id, "title": format!("Task {id}"), "task": format!("do {id}"), "depends_on": deps, "model": "sonnet", "bot": "general"})
 }
 
 /// Propone e accetta (come l'utente) i task: finiscono in coda e, se lo

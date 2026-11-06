@@ -275,6 +275,7 @@ impl Registry {
                 "delivery": board::texts::delivery_steps(&info),
             }),
         };
+        task_skill::add_to_task_json(&mut out, t);
         if let Some(p) = t.previous_attempt() {
             out["previous_attempt"] = serde_json::to_value(p).unwrap_or(Value::Null);
         }

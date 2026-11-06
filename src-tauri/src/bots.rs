@@ -30,7 +30,8 @@ pub mod resolve;
 mod skills;
 mod validate;
 
-pub use agent::AgentBot;
+pub use agent::{AgentBot, SkillRef};
+pub use catalog::AgentCatalog;
 pub(crate) use derived::derived_bot;
 pub(crate) use image::validate_image;
 pub use launches::{bot_launch_id, BOT_LAUNCH_PREFIX};

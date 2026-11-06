@@ -5,6 +5,7 @@
 use super::process::CancelFlag;
 use super::*;
 use crate::agents::{self, AutomationRequest, AutomationStart};
+use crate::bots::AgentBot;
 use crate::platform::{Target, TargetKind};
 use crate::schedule::{Schedule, ScheduleState};
 use crate::user_skills::targets;
@@ -120,6 +121,9 @@ pub trait Host: Clone + Send + 'static {
     /// Gli avvii integrati e dei Bot abilitati che `default_launch` puo'
     /// nominare (vedi `workspaces::shared_launch_ids`).
     fn shared_launch_ids(&self) -> Vec<String>;
+    /// I Bot-agente, tutti (anche i disabilitati), nell'ordine dell'elenco: da
+    /// qui si risolvono i Bot dei task (vedi `board::SpecContext`).
+    fn agent_bots(&self) -> Vec<AgentBot>;
     /// Ultima prontezza nota di `agent` nel target di `ws`, SENZA bloccare (sicuro
     /// sotto il lock del registro). `None`: non nota ancora, un controllo e'
     /// partito e a fine lavoro l'automazione rivaluta le board.
@@ -421,6 +425,10 @@ impl Host for TauriHost {
 
     fn shared_launch_ids(&self) -> Vec<String> {
         crate::workspaces::shared_launch_ids(crate::bots::enabled_launch_ids(&self.0))
+    }
+
+    fn agent_bots(&self) -> Vec<AgentBot> {
+        self.0.state::<crate::bots::BotSettingsStore>().read(|s| s.agents.clone())
     }
 
     fn agent_readiness(&self, ws: &Workspace, agent: &str) -> Option<Readiness> {

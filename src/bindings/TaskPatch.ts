@@ -10,4 +10,8 @@ export type TaskPatch = { title?: string, task?: string, depends_on?: Array<stri
 /**
  * `null` = torna all'agente del workspace (o al predefinito globale).
  */
-agent?: string | null, model?: string | null, kind?: TaskKind, e2e?: boolean, };
+agent?: string | null, model?: string | null, 
+/**
+ * `null` = toglie il Bot (e la copia di effort e skill).
+ */
+bot?: string | null, kind?: TaskKind, e2e?: boolean, };

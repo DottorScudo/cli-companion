@@ -11,6 +11,7 @@ use crate::validate::valid_branch;
 use crate::workspaces::DeliveryMode;
 
 mod free;
+mod skill;
 
 const EXCLUDE_LINE: &str = ".worktrees/";
 /// Quanto vale un `git fetch` gia' fatto per (repo, base).
@@ -310,6 +311,7 @@ fn place_in_repo<H: Host>(st: &AutomationState, host: &H, job: &StartJob, dir: &
 fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Result<Prepared, String> {
     let (ws, task) = (&job.ws, &job.task);
     let delivery = ws.delivery;
+    skill::check(host, task)?;
     let dir = repo_dir(ws, task.repo.as_deref());
     // Una cartella senza git (modalita' libera) non ha worktree, branch, setup
     // ne' controlli sul checkout, qualunque sia la consegna del workspace.
@@ -323,7 +325,7 @@ fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Res
         permission_mode: ws.worker.permission,
         model: effective_model(task, ws, catalog_default_model(&task.agent)),
         permissions_file: permissions_file.as_deref(),
-        effort: None,
+        effort: task.effort,
     };
     let AutomationStart { launch: AutomationLaunch { command, env: launch_env }, warnings: launch_warnings } =
         host.launch_command(&task.agent, ws.kind, &req)?;

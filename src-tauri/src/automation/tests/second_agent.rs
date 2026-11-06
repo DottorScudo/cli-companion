@@ -129,6 +129,7 @@ fn the_worker_of_claude_code_stages_no_env() {
     let (st, h) = host(Some(FAKE_ID));
     let mut real = fake_spec("r", &[]);
     real["agent"] = json!(real_id());
+    real["bot"] = json!(h.bot_for_agent(real_id()));
     real["model"] = json!("opus");
     queue(&st, &h, vec![real]);
     assert_eq!(launched(&st, &h, "r").0, real_id());
@@ -142,6 +143,7 @@ fn a_review_task_of_the_fake_agent_starts_its_reviewer_with_that_agent() {
     let mut review = fake_spec("rev", &["a"]);
     review["kind"] = json!("review");
     review["agent"] = json!(FAKE_ID);
+    review["bot"] = json!(h.bot_for_agent(FAKE_ID));
     queue(&st, &h, vec![spec("a", &[]), review]);
     assert_eq!((agent_of(&st, &h, "a"), agent_of(&st, &h, "rev")), (real_id().to_string(), FAKE_ID.to_string()));
     assert_eq!(launched(&st, &h, "a").0, real_id());
@@ -193,6 +195,7 @@ fn tasks_of_a_disabled_fake_agent_wait_with_the_reason_without_holding_back_the_
     boards::board_set(&st, &h, "ws-1", None, Some(true)).unwrap();
     let mut fake_task = fake_spec("a", &[]);
     fake_task["agent"] = json!(FAKE_ID);
+    fake_task["bot"] = json!(h.bot_for_agent(FAKE_ID));
     queue(&st, &h, vec![fake_task.clone(), spec("b", &[])]);
 
     second.disable();
@@ -221,11 +224,13 @@ fn a_task_for_a_real_second_agent_is_validated_with_its_catalog_and_gets_its_con
     // Il modello di un altro agente non vale per questo.
     let mut foreign = spec("x", &[]);
     foreign["agent"] = json!(OTHER_ID);
+    foreign["bot"] = json!(h.bot_for_agent(OTHER_ID));
     let err = call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [foreign]})).unwrap_err();
     assert!(err.contains(&format!("invalid model for {OTHER_NAME}: {FOREIGN_MODEL}")), "{err}");
 
     let mut task = spec("o", &[]);
     task["agent"] = json!(OTHER_ID);
+    task["bot"] = json!(h.bot_for_agent(OTHER_ID));
     task["model"] = json!(OTHER_MODEL);
     queue(&st, &h, vec![task]);
     assert_eq!(agent_of(&st, &h, "o"), OTHER_ID);

@@ -82,6 +82,9 @@ Task:
   "repo": null,             // cartella relativa alla root; null = la root (multi-repo)
   "agent": "claude-code",   // sempre valorizzato: risolto alla creazione (agente del task, poi del workspace, poi il predefinito globale) e non cambia con i predefiniti
   "model": null,            // null = modello dei worker del workspace
+  "bot": "general",         // Bot che esegue il task (omesso nei task vecchi, che si comportano come prima); agent, model, effort e skill qui sotto sono lo snapshot preso all'accettazione
+  "effort": null,           // sforzo del Bot, omesso se assente; all'avvio va in AutomationRequest.effort: un livello non supportato dall'agente è ignorato con una nota sul task
+  "skill": null,            // SkillRef del Bot, omessa se assente; il worker la carica per prima (vedi get_task)
   "status": "queued",       // queued | running | done | failed
   "worker_status": null,    // starting | running | background | needs_input | idle | awaiting_answer | ... (come oggi)
   "session": null,          // tab del worker corrente
@@ -174,6 +177,18 @@ Limiti: 200 task per board, 20 task per proposta, 20 proposte pendenti per board
   senza catalogo vale la sola forma). Un modello che l'agente non accetta è rifiutato: `invalid model for <nome>: <modello>`. Cambiando agente con `update_task` si ricontrolla anche il modello. Chi non lo
   indica (`null`) usa il modello dei worker del workspace per quell'agente (`worker_agents[<agente>].model`), poi il
   predefinito dell'agente (`None` = l'app non passa nessun modello).
+- **Bot.** Ogni task proposto da Intake, planner e reviewer nomina un Bot (`bot`, obbligatorio in `propose_tasks`).
+  All'accettazione (`Board::check_specs`) il Bot si risolve (`bots::resolve`) e agente, modello, effort e skill si
+  copiano nel task: uno snapshot, quindi cambiare o cancellare il Bot non tocca i task in coda. `model` della
+  specifica, se c'è, scavalca quello del Bot; `agent`, se c'è, deve coincidere con quello del Bot (errore
+  altrimenti). Un Bot sconosciuto o disabilitato, o la cui skill l'agente non può caricare, è rifiutato. Le
+  creazioni dall'UI (`task_create`, `task_update`) e il `plan` dell'app non richiedono il Bot; i task senza `bot`
+  (anche quelli già nei file) si comportano esattamente come prima, senza migrazione.
+- **Avvio con effort e skill.** `AutomationRequest.effort` riceve l'effort del task; se l'agente non lo supporta
+  `automation_command` lo scarta e l'avviso finisce nella nota del task. Con una skill l'invocazione viene
+  dal contratto dell'agente (`PluginSkills`/`UserSkills::skill_name`); se l'agente non può fornirla l'avvio fallisce
+  con una nota. Una skill utente che non esiste più blocca l'avvio (`the skill <nome> of bot <bot> no longer
+  exists: choose it again in the bots settings or change the task's bot`): nessun ripiego silenzioso.
 - **Motivo di attesa.** Un task `queued` il cui agente non è pronto nel target del workspace non è mai candidato
   (anche con tutte le dipendenze `done`): non fallisce, non occupa uno slot e parte da solo appena l'agente è `ready`.
   Il motivo è `agent_unavailable: { agent, reason }` nella vista (`TaskView`, e nelle righe di `list_tasks`), con `reason` =
@@ -599,7 +614,10 @@ queue with propose_tasks and read and propose changes to the workspace settings 
 get_workspace_settings and propose_settings; the user approves them in the app; never wait for workers.
 
 Worker:
-- `get_task` → `{ task, title, instructions, environment, delivery, previous_attempt? }`.
+- `get_task` → `{ task, title, instructions, environment, delivery, previous_attempt?, skill? }`. Se il task ha
+  una skill (snapshot del Bot), `skill` è il nome da caricare con lo strumento skill dell'agente e `instructions`
+  inizia con "Before starting, load the skill <skill> with your skill tool; the instructions of this task take
+  precedence over the skill where they conflict." (stesso per i task `review` e `plan`). Senza skill l'output non cambia.
 - `complete_task { status: "completed" | "failed", summary, commit?, pr_url?,
   files_changed?, tests?, follow_ups? }` — `blocked` accettato come sinonimo di `failed`.
   Per i task con worktree l'app calcola il diffstat. Il tab si chiude dopo ~1,5 s.
@@ -697,8 +715,10 @@ explore without changing anything; a single propose_tasks call or the questions 
 always finish with complete_task; nobody reads the terminal.
 
 Sessione (workspace = quello del tab):
-- `propose_tasks { tasks: TaskSpec[] }` — `TaskSpec = { id, title, task, model, agent?,
-  depends_on?, repo?, kind? }` (`model` obbligatorio nelle proposte; `kind` `work` | `review`,
+- `propose_tasks { tasks: TaskSpec[] }` — `TaskSpec = { id, title, task, bot, model?, agent?,
+  depends_on?, repo?, kind? }` (`bot` obbligatorio nelle proposte: id di un Bot di `get_workspace_settings.bots`,
+  `general` per il lavoro senza specializzazione, altrimenti "tasks[<i>]: task <id>: bot is required (see
+  get_workspace_settings.bots)"; `model` è un override facoltativo del modello del Bot; `kind` `work` | `review`,
   default `work`; una `review` richiede almeno una dipendenza, controllata a proposta,
   accettazione, creazione manuale e aggiornamento: "task '<id>': a review task needs at least one
   dependency (depends_on: the tasks it reviews)"). `kind: "plan"` è rifiutato qui come in
@@ -709,25 +729,38 @@ Sessione (workspace = quello del tab):
   proposte, dipendenze verso la proposta stessa o task esistenti, niente cicli, `repo`
   esistente e git se la modalità usa branch). Crea una **proposta** pendente e ritorna
   `{ proposal, status: "pending" }`: "the user will accept or discard it in the app". Non
-  aspetta la decisione. `agent` (id di un agente, da `get_workspace_settings.agents`) è l'agente
-  che esegue il task e `model` è un nome del suo catalogo; assente = quello del workspace (poi il
-  predefinito globale). Lo stesso controllo vale a proposta, accettazione, creazione manuale e
-  aggiornamento: "task '<id>': unknown agent: <id>" (o "<nome> is disabled…", "<nome> does not
-  support automated sessions", "invalid model for <nome>: <modello>"). La proposta tiene
-  `agent` com'è scritto; all'accettazione si risolve con l'agente del workspace di quel momento.
+  aspetta la decisione. Con un Bot il task usa agente, modello, effort e skill del Bot: `model`
+  (nome del catalogo dell'agente del Bot) lo scavalca, `agent` è facoltativo e deve coincidere con quello del
+  Bot, altrimenti "task '<id>': agent <a> does not match the agent of bot <bot> (<agente>): omit agent or choose
+  another bot". Errori del Bot: "task '<id>': unknown bot: <id> (see get_workspace_settings.bots)", "task '<id>':
+  <nome> is disabled: enable it in the bots settings", agente non usabile (come sotto), "bot <bot> needs the
+  skill <skill>, which <agente> cannot load: choose another bot". Senza Bot (task vecchi, creati dall'utente) `agent`
+  (id di un agente, da `get_workspace_settings.agents`) è l'agente che esegue il task e `model` è un nome del suo
+  catalogo; assente = quello del workspace (poi il predefinito globale). Lo stesso controllo vale a proposta,
+  accettazione, creazione manuale e aggiornamento: "task '<id>': unknown agent: <id>" (o "<nome> is disabled…",
+  "<nome> does not support automated sessions", "invalid model for <nome>: <modello>"). La proposta tiene la
+  specifica com'è scritta; **all'accettazione** il Bot si risolve e agente, modello, effort e skill vengono
+  **copiati nel task** (snapshot, con l'id del Bot per la UI): modificare o eliminare il Bot dopo non cambia i
+  task già in coda.
 - `list_tasks { status?: string[] }` → righe compatte `{ id, title, status, kind? (solo
   `review` e `plan`), e2e? (solo `true`), verdict? (se il report ne ha uno), attention?,
   waiting_on?, agent_unavailable? (`{ agent, reason }`, vedi “Agente e modello di un task”), summary? (300),
   note? (200) }` + `counts` + `proposals_pending`.
 - `get_task_details { id }` → task completo (testo, report, worktree, `agent`, `model`) con la sua vista (`agent_unavailable` compreso).
-- `update_task { id, title?, task?, depends_on?, repo?, agent?, model?, kind?, e2e? }` — solo `queued` o
+- `update_task { id, title?, task?, depends_on?, repo?, bot?, agent?, model?, kind?, e2e? }` — solo `queued` o
   `failed`; `repo` solo senza worktree. Ritorna il task senza testo. L'agente si ricontrolla
-  solo se il patch contiene `agent` o `model` (`agent: null` = quello del workspace o il
-  predefinito globale, risolto adesso): il titolo di un task il cui agente è stato disabilitato
+  solo se il patch contiene `agent`, `model` o `bot` (`agent: null` = quello del workspace o il
+  predefinito globale, risolto adesso). Se il task ha un Bot, `agent` e `model` si azzerano salvo che il patch li
+  contenga e il Bot si risolve di nuovo (nuovo snapshot); `bot: null` torna al comportamento senza Bot e azzera
+  effort e skill. Un patch senza queste chiavi lascia lo snapshot com'è. Il titolo di un task il cui agente è stato disabilitato
   si modifica comunque.
 - `delete_task { id }` — solo `queued`/`failed` e senza dipendenti non `done`.
-- `get_workspace_settings {}` → `{ settings, agents, repos, allowed, limits, pending_settings_proposals }`:
-  le impostazioni che `propose_settings` può cambiare (`settings`, con `agent` e `worker_agents`), i
+- `get_workspace_settings {}` → `{ settings, agents, bots, repos, allowed, limits, pending_settings_proposals }`:
+  `bots` elenca **tutti** i Bot (abilitati o no), nell'ordine della lista, ognuno con `{ id, name, task, enabled,
+  agent, agent_error, readiness, model, model_choice, effort, skill }`: `task` è a cosa serve il Bot (inglese),
+  `agent` l'agente risolto nel workspace (`null` se non risolvibile, con `agent_error`), `readiness` quella di
+  quell'agente nel workspace (`ready` = usabile), `model` il modello concreto risolto (`null` = predefinito della CLI).
+  Le impostazioni che `propose_settings` può cambiare (`settings`, con `agent` e `worker_agents`), i
   repository con la loro configurazione (`null` = nessuna), i valori ammessi, i limiti
   (`limits.agents_per_proposal`) e le proposte di impostazioni pendenti. `agents` elenca gli **agenti
   abilitati**, nell'ordine del registro, ognuno con `{ id, name, is_default, models: [{ id, label, tier }],
@@ -1081,13 +1114,15 @@ richiede un agente che dichiara `plugin-skills`. Una skill non nomina mai un age
   specifica: **Goal, Context, Constraints, Done when, Verify** (comandi). Non implementare
   mai il lavoro, non toccare file, non fare merge; può usare `list_tasks`,
   `get_task_details`, `update_task`, `delete_task` per lo stato della coda. Ogni task ha
-  sempre `model`, scelto per fascia fra quelli dell'agente del task (`tier: "standard"` per lavoro ben
-  definito, `"strong"` per design/rischio) leggendoli da `get_workspace_settings.agents`; `agent` si omette
-  salvo richiesta dell'utente e non propone task per agenti non `ready`. La specifica deve
+  sempre `bot`, scelto dal `task` di ogni Bot in `get_workspace_settings.bots` (`general` per il lavoro
+  senza specializzazione) fra i soli Bot abilitati con agente `ready`, altrimenti avvisa l'utente; `model` è solo un override
+  facoltativo quando serve una fascia diversa da quella del Bot (`tier: "standard"` per lavoro ben
+  definito, `"strong"` per design/rischio), letto da `get_workspace_settings.agents` e mai a memoria; `agent` si omette
+  (deve coincidere con quello del Bot). La specifica deve
   bastare a un worker che non vede la conversazione. Quando la richiesta produce 2 o più task
   (o un solo task rischioso o la correzione di un bug difficile) aggiunge in fondo alla proposta
-  una **review** del goal (`kind: "review"`, modello della fascia `strong`, se l'utente vuole un controllo
-  indipendente anche su un altro agente, `depends_on` su tutti i task del goal); l'utente può scartarla.
+  una **review** del goal (`kind: "review"`, Bot adatto o `general` con modello della fascia `strong`, se l'utente vuole un controllo
+  indipendente anche su un altro agente (un Bot che lo usa), `depends_on` su tutti i task del goal); l'utente può scartarla.
 - Il pannello dei terminali mostra il badge **INTAKE** sull'intestazione dei tab avviati dal
   preset.
 - Task Intake sa dei tool di impostazioni: se la richiesta riguarda la configurazione del

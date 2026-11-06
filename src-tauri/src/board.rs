@@ -45,6 +45,7 @@ mod worker;
 #[cfg(test)]
 mod tests;
 
+pub use agent::SpecContext;
 pub use agent_gate::{AgentGate, AgentUnavailableView};
 pub use archive::MAX_FINISHED_KEPT;
 pub use cascade::CascadeDelete;

@@ -10,10 +10,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 const NO_WORKSPACE_TAB: &str = "tab-nowhere";
 
 /// Cartella temporanea unica per test, rimossa a fine test.
-struct Sandbox(PathBuf);
+pub(super) struct Sandbox(PathBuf);
 
 impl Sandbox {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!("mc-rpc-skills-{}-{id}", std::process::id()));
@@ -22,7 +22,7 @@ impl Sandbox {
         Self(dir)
     }
 
-    fn store(&self) -> PathBuf {
+    pub(super) fn store(&self) -> PathBuf {
         self.0.join("store")
     }
 

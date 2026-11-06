@@ -25,13 +25,16 @@ use std::time::Instant;
 /// 9_700 = 9_500 plus `agent` and the nested `worker_agents` object of propose_settings, which replace the
 /// top-level worker_model/worker_allow/worker_deny (measured 9_699 after trimming every description that was not needed).
 /// 9_800 = 9_700 plus the longer generic model pattern (`MODEL_SHAPE_PATTERN`, twice; measured 9_748).
-const SESSION_TOOLS_CEILING: usize = 9_800;
+/// 10_100 = 9_800 plus the `bot` field of the tasks (propose_tasks, update_task), the model/agent overrides and the Bots
+/// in get_workspace_settings (measured 10_038).
+const SESSION_TOOLS_CEILING: usize = 10_100;
 /// 3_050 = 2_600 plus run_e2e and get_e2e_result (measured 3_002).
 const WORKER_TOOLS_CEILING: usize = 3_050;
 /// The reviewer set (measured 4_005, with the `e2e` flag of propose_tasks): its own get_task and complete_task (verdict, findings, tests) plus the shared
 /// get_task_details and propose_tasks definitions.
 /// 5_200 = 4_050 plus run_e2e and get_e2e_result (measured 5_163).
-const REVIEWER_TOOLS_CEILING: usize = 5_200;
+/// 5_300 = 5_200 plus the `bot` field and the model/agent override descriptions of propose_tasks (measured 5_244).
+const REVIEWER_TOOLS_CEILING: usize = 5_300;
 /// The worker set with the Agents HUB on: the hub-off set plus ask_user (measured 3_698).
 const WORKER_HUB_TOOLS_CEILING: usize = 3_750;
 const SESSION_INSTRUCTIONS_CEILING: usize = 700;
@@ -142,13 +145,13 @@ fn model_descriptions_name_the_models_of_the_worker_agent() {
     assert!(optional.ends_with("Omit for the workspace default."));
     let required = proposed_model_description(models);
     assert!(required.contains("std-model for well-defined work") && required.contains("big-model for design, risky"));
+    assert!(required.starts_with("Optional Bot model override"), "{required}");
 }
 
 #[test]
 fn model_descriptions_name_no_model_without_a_catalog() {
-    for text in [model_description(None), proposed_model_description(None)] {
-        assert!(text.starts_with("Model of the task's agent, as that agent names it"), "{text}");
-    }
+    assert!(model_description(None).starts_with("Model of the task's agent, as that agent names it"));
+    assert!(proposed_model_description(None).starts_with("Optional Bot model override, as its agent names it"));
 }
 
 #[test]
@@ -302,11 +305,12 @@ fn schemas_match_the_rust_validation() {
     let item = &propose["inputSchema"]["properties"]["tasks"]["items"];
     assert_eq!(
         keys(&item["properties"]),
-        ["agent", "depends_on", "e2e", "id", "kind", "model", "repo", "task", "title"]
+        ["agent", "bot", "depends_on", "e2e", "id", "kind", "model", "repo", "task", "title"]
     );
     assert_eq!(item["properties"]["kind"]["enum"], json!(["work", "review"]));
-    assert_eq!(item["required"], json!(["id", "title", "task", "model"]));
-    assert_eq!(item["properties"]["model"]["type"], "string");
+    assert_eq!(item["required"], json!(["id", "title", "task", "bot"]));
+    assert_eq!(item["properties"]["bot"]["type"], "string");
+    assert_eq!(item["properties"]["model"]["type"], json!(["string", "null"]));
     assert_eq!(item["additionalProperties"], false);
     assert_eq!(propose["inputSchema"]["required"], json!(["tasks"]));
     assert_eq!(propose["inputSchema"]["properties"]["tasks"]["maxItems"], 20);
@@ -314,8 +318,9 @@ fn schemas_match_the_rust_validation() {
     let upd = by("update_task");
     assert_eq!(
         keys(&upd["inputSchema"]["properties"]),
-        ["agent", "depends_on", "e2e", "id", "kind", "model", "repo", "task", "title"]
+        ["agent", "bot", "depends_on", "e2e", "id", "kind", "model", "repo", "task", "title"]
     );
+    assert_eq!(upd["inputSchema"]["properties"]["bot"]["type"], json!(["string", "null"]));
     assert_eq!(upd["inputSchema"]["required"], json!(["id"]));
     assert_eq!(upd["inputSchema"]["properties"]["model"]["type"], json!(["string", "null"]));
     assert_eq!(keys(&by("list_tasks")["inputSchema"]["properties"]), ["status"]);

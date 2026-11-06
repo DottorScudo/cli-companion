@@ -3,7 +3,7 @@
 //! con il frontend; validazione in `validate`, risoluzione in `resolve`.
 
 use super::BotImage;
-use crate::agents::{Effort, ModelTier};
+use crate::agents::{Effort, LaunchSkill, ModelTier};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -31,6 +31,23 @@ pub enum SkillRef {
     /// Una skill globale dell'utente (nome in `user_skills`): la sua esistenza
     /// si verifica al lancio, perche' le skill si sincronizzano in background.
     User(String),
+}
+
+impl SkillRef {
+    /// La skill come la chiedono i contratti di avvio degli agenti.
+    pub fn launch_skill(&self) -> LaunchSkill<'_> {
+        match self {
+            SkillRef::Plugin(id) => LaunchSkill::Plugin(id),
+            SkillRef::User(name) => LaunchSkill::User(name),
+        }
+    }
+
+    /// L'id della skill del plugin o il nome di quella dell'utente.
+    pub fn id(&self) -> &str {
+        match self {
+            SkillRef::Plugin(id) | SkillRef::User(id) => id,
+        }
+    }
 }
 
 /// Un Bot-agente, globale (non per workspace).

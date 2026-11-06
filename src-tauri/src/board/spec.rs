@@ -1,8 +1,11 @@
 //! Campi di un task e loro validazione: `TaskSpec` (propose_tasks, task_create,
 //! update_task), id, branch, repository, grafo delle dipendenze, id generati
-//! dal titolo. Funzioni pure, nessun I/O.
+//! dal titolo. Funzioni pure, nessun I/O. Gli argomenti dei comandi della UI
+//! (`NewTaskSpec`, `TaskPatch`) sono in `args`.
 
 use super::{check_kind_input, Task, TaskKind, TASK_MAX, TITLE_MAX};
+use crate::agents::Effort;
+use crate::bots::SkillRef;
 use crate::validate::{clip_chars, req_text};
 use crate::validate::{normalize_repo, valid_model_shape};
 use serde::{Deserialize, Serialize};
@@ -11,6 +14,9 @@ use std::collections::{HashMap, HashSet};
 use ts_rs::TS;
 
 pub const ID_MAX: usize = 40;
+/// Lunghezza massima dell'id di un Bot: copre `custom-<slug di 32>` con il
+/// suffisso numerico dei doppioni e i derivati `<bot>-<agente>`.
+const BOT_ID_MAX: usize = 64;
 pub const MAX_TASKS_PER_PROPOSAL: usize = 20;
 pub const MAX_DEPENDS: usize = 50;
 
@@ -32,7 +38,24 @@ pub struct TaskSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub agent: Option<String>,
+    /// Con un Bot e' un'eccezione: vince sul modello del Bot.
     pub model: Option<String>,
+    /// Il Bot che esegue il task (id di `bots.json`). All'accettazione, e alla
+    /// creazione o modifica di un task, agente, modello, effort e skill del Bot
+    /// si copiano nel task (`agent::resolve_spec`). `None` = nessun Bot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub bot: Option<String>,
+    /// Copia dell'effort del Bot: NON e' un campo di input (non sta in
+    /// `SPEC_KEYS`, un modello non lo puo' scrivere), lo riempie solo la
+    /// risoluzione del Bot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub effort: Option<Effort>,
+    /// Copia della skill del Bot: come `effort`, non e' un campo di input.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub skill: Option<SkillRef>,
     pub kind: TaskKind,
     /// Il task deve superare gli E2E del repository.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -41,73 +64,11 @@ pub struct TaskSpec {
     pub e2e: bool,
 }
 
-/// Argomento di `task_create` come lo invia l'interfaccia. Il comando riceve JSON
-/// e lo legge `parse_spec`: questo tipo ne descrive la forma per il frontend.
-/// L'id lo genera il backend dal titolo.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(export)]
-pub struct NewTaskSpec {
-    pub title: String,
-    pub task: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub depends_on: Option<Vec<String>>,
-    /// Repository; `null` o assente = la root.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional = nullable)]
-    pub repo: Option<String>,
-    /// `null` o assente = l'agente dei worker del workspace.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional = nullable)]
-    pub agent: Option<String>,
-    /// `null` o assente = modello dei worker del workspace.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional = nullable)]
-    pub model: Option<String>,
-    /// Assente = `work`. Una `review` richiede almeno una dipendenza; `plan` e' riservato all'app.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub kind: Option<TaskKind>,
-    /// Assente = `false`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub e2e: Option<bool>,
-}
+mod args;
 
-/// Argomento di `task_update` come lo invia l'interfaccia (letto da `parse_spec`
-/// con la specifica attuale come base): i campi assenti non cambiano e `null`
-/// azzera `repo`, `agent` e `model`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, TS)]
-#[ts(export)]
-pub struct TaskPatch {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub title: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub task: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub depends_on: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional = nullable)]
-    pub repo: Option<String>,
-    /// `null` = torna all'agente del workspace (o al predefinito globale).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional = nullable)]
-    pub agent: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional = nullable)]
-    pub model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub kind: Option<TaskKind>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub e2e: Option<bool>,
-}
+pub use args::{NewTaskSpec, TaskPatch};
 
-const SPEC_KEYS: [&str; 9] = ["id", "title", "task", "depends_on", "repo", "agent", "model", "kind", "e2e"];
+const SPEC_KEYS: [&str; 10] = ["id", "title", "task", "depends_on", "repo", "agent", "model", "bot", "kind", "e2e"];
 
 impl TaskSpec {
     pub fn from_task(t: &Task) -> TaskSpec {
@@ -119,6 +80,9 @@ impl TaskSpec {
             repo: t.repo.clone(),
             agent: Some(t.agent.clone()),
             model: t.model.clone(),
+            bot: t.bot.clone(),
+            effort: t.effort,
+            skill: t.skill.clone(),
             kind: t.kind,
             e2e: t.e2e,
         }
@@ -127,9 +91,18 @@ impl TaskSpec {
 
 /// `^[a-z0-9][a-z0-9-]{0,39}$`
 pub fn valid_id(s: &str) -> bool {
+    is_slug(s, ID_MAX)
+}
+
+/// La forma di un id di Bot: come `valid_id` ma fino a `BOT_ID_MAX` caratteri.
+fn valid_bot_id(s: &str) -> bool {
+    is_slug(s, BOT_ID_MAX)
+}
+
+fn is_slug(s: &str, max: usize) -> bool {
     let b = s.as_bytes();
     !b.is_empty()
-        && b.len() <= ID_MAX
+        && b.len() <= max
         && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
         && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
 }
@@ -239,6 +212,15 @@ pub fn parse_spec(v: &Value, base: Option<&TaskSpec>) -> Result<TaskSpec, String
         }
         Some(_) => return Err("model must be a string".to_string()),
     };
+    // Solo la forma di un id: se il Bot esiste e si puo' usare lo decide `agent::resolve_spec`.
+    let bot = match obj.get("bot") {
+        None => base.and_then(|b| b.bot.clone()),
+        Some(Value::Null) => None,
+        Some(Value::String(b)) if b.trim().is_empty() => None,
+        Some(Value::String(b)) if valid_bot_id(b.trim()) => Some(b.trim().to_string()),
+        Some(Value::String(b)) => return Err(format!("invalid bot id: {}", clip_chars(b, 50))),
+        Some(_) => return Err("bot must be a string".to_string()),
+    };
     let kind = match obj.get("kind") {
         None => base.map(|b| b.kind).unwrap_or_default(),
         Some(Value::Null) => TaskKind::Work,
@@ -253,7 +235,9 @@ pub fn parse_spec(v: &Value, base: Option<&TaskSpec>) -> Result<TaskSpec, String
         Some(Value::Bool(b)) => *b,
         Some(_) => return Err("e2e must be a boolean".to_string()),
     };
-    Ok(TaskSpec { id, title, task, depends_on, repo, agent, model, kind, e2e })
+    // Effort e skill non si scrivono: restano quelli della copia del Bot di `base`.
+    let (effort, skill) = base.map(|b| (b.effort, b.skill.clone())).unwrap_or_default();
+    Ok(TaskSpec { id, title, task, depends_on, repo, agent, model, bot, effort, skill, kind, e2e })
 }
 
 /// Parametri di `propose_tasks`: `{ tasks: [TaskSpec] }`, ogni task con id.
@@ -278,8 +262,8 @@ pub fn parse_proposal(p: &Value) -> Result<Vec<TaskSpec>, String> {
         if spec.id.is_empty() {
             return Err(format!("tasks[{i}]: id is missing"));
         }
-        if spec.model.is_none() {
-            return Err(format!("tasks[{i}]: task {}: model is required", spec.id));
+        if spec.bot.is_none() {
+            return Err(format!("tasks[{i}]: task {}: bot is required (see get_workspace_settings.bots)", spec.id));
         }
         specs.push(spec);
     }
@@ -370,40 +354,4 @@ pub fn id_from_title(title: &str, taken: &dyn Fn(&str) -> bool) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    /// I tipi dei comandi `task_create` e `task_update` usano solo chiavi che `parse_spec` legge.
-    #[test]
-    fn command_arguments_are_read_by_parse_spec() {
-        let new = NewTaskSpec {
-            title: "T".into(),
-            task: "do it".into(),
-            depends_on: Some(vec!["a".into()]),
-            repo: Some("api".into()),
-            agent: Some("agent-a".into()),
-            model: Some("opus".into()),
-            kind: Some(TaskKind::Review),
-            e2e: Some(true),
-        };
-        let spec = parse_spec(&serde_json::to_value(&new).unwrap(), None).unwrap();
-        assert_eq!((spec.title.as_str(), spec.kind, spec.e2e), ("T", TaskKind::Review, true));
-        assert_eq!(spec.agent.as_deref(), Some("agent-a"));
-
-        let patch = TaskPatch {
-            title: Some("U".into()),
-            task: Some("again".into()),
-            depends_on: Some(vec![]),
-            repo: Some("web".into()),
-            agent: Some("agent-b".into()),
-            model: Some("sonnet".into()),
-            kind: Some(TaskKind::Work),
-            e2e: Some(false),
-        };
-        let updated = parse_spec(&serde_json::to_value(&patch).unwrap(), Some(&spec)).unwrap();
-        assert_eq!((updated.title.as_str(), updated.repo.as_deref(), updated.kind), ("U", Some("web"), TaskKind::Work));
-        assert_eq!(updated.agent.as_deref(), Some("agent-b"));
-        assert_eq!(serde_json::to_value(TaskPatch::default()).unwrap(), json!({}));
-    }
-}
+mod tests;

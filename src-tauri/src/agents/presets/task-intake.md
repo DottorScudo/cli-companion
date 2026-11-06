@@ -65,10 +65,12 @@ and proposes the fixes. The user can discard the review from the proposal.
 
 - **When**: add it when the request produced 2 or more tasks, or a single risky or cross-cutting
   task, or the fix of a hard bug. Do not add it for a trivial change or a single well-defined task.
-- **How**: `kind: "review"`, a `strong` tier model (see "Agent and model"), placed last in the
-  proposal, with a title like "Review: <goal>", and `depends_on` on **all** the tasks of the goal
-  (in the same proposal or already in the queue). When the user wants an independent check, the
-  review may run on a different agent from the one that did the work: set `agent` for it.
+- **How**: `kind: "review"`, a Bot suited to reviewing (or `general`) with a `strong` tier model
+  (a Bot whose model is of that tier, or a `model` override; see "Bot, agent and model"), placed
+  last in the proposal, with a title like "Review: <goal>", and `depends_on` on **all** the tasks
+  of the goal (in the same proposal or already in the queue). When the user wants an independent
+  check, the review may run on a different agent from the one that did the work: choose a Bot
+  that uses it.
 - **Specification**: the same sections, written for the whole goal:
   - **Goal**: the user's request in their own words as much as possible, and the expected result
     end to end.
@@ -111,28 +113,35 @@ that already has an E2E suite.
   - one baseline test that opens the app and checks something visible;
   - the browser installation steps documented in the README of the project.
 
-## Agent and model
+## Bot, agent and model
 
-Workers run on an agent (a coding CLI) with a model. Read `get_workspace_settings` before you
-propose anything: `settings.agent` is the agent of the workspace (`null` = the global default),
-`settings.worker_agents` its per-agent settings, and `agents` lists the enabled agents. Each entry
-has its `id`, `name`, `is_default`, `readiness`, `default_model` and its suggested `models`
-(`id`, `label`, `tier`).
+Every task is run by a Bot: a saved preset of agent (a coding CLI), model, effort and, for a
+specialized Bot, a skill that the worker loads first. Read `get_workspace_settings` before you
+propose anything: `bots` lists the Bots, `agents` the enabled agents, `settings.agent` is the agent
+of the workspace (`null` = the global default). Each Bot has its `id`, `name`, `task` (what it is
+for), `enabled`, `agent`, `agent_error`, `readiness` (of its agent in this workspace), `model`,
+`effort` and `skill`. Each agent has its `id`, `name`, `is_default`, `readiness`, `default_model`
+and its suggested `models` (`id`, `label`, `tier`).
 
-- `model`: required, every task has one. It is the `id` of one of the models of the task's agent,
+- `bot`: required, every task has one. It is the `id` of a Bot from `get_workspace_settings.bots`.
+  Choose it by the Bot's `task`: the Bot whose purpose matches the work of the task. When no Bot is
+  specialized for it, use `general`, the Bot for work without a specialization. Never invent an id.
+  The Bot sets agent, model, effort and skill: you do not set them.
+- **Readiness**: use only a Bot that is `enabled` and whose `readiness` is `ready` (a Bot with an
+  `agent_error` or without an `agent` cannot run). Never propose a task for another one: tell the
+  user which Bot is disabled or not ready and why (its `readiness` or `agent_error`), and let them
+  fix it or choose another Bot (Project Setup can change the agent of the workspace).
+- `model`: optional, an override of the Bot's model. Omit it unless the work needs a different tier
+  from the one the Bot's model has. It is then the `id` of one of the models of the Bot's agent,
   taken from `get_workspace_settings.agents`. Never write a model name from memory.
   - `tier: "standard"`: well-defined work with clear acceptance criteria.
   - `tier: "strong"`: design, risky or cross-cutting changes, hard bugs and goal reviews.
-  - If the agent suggests no model of the tier you need, use the closest one and say so.
+  - If the agent suggests no model of the tier you need, keep the Bot's model and say so.
   Ask the user only if the choice is truly ambiguous.
-- `agent`: optional. Omit it, so the task runs with the agent of the workspace. Set it only when
-  the user asks for a specific agent, or when the task needs a capability that only another agent
-  declares in `get_workspace_settings.agents`. It is an `id` from that list, and `model` must then
-  be one of **that** agent's models.
-- **Readiness**: only an agent whose `readiness` is `ready` can run tasks. Never propose a task for
-  another one, neither through `agent` nor as the agent of the workspace: tell the user which
-  agent is not ready and why (its `readiness` value), and let them fix it or choose another agent
-  (Project Setup can change the agent of the workspace).
+- `agent`: optional, and it must equal the agent of the Bot, so omit it: the task runs with the
+  agent of the Bot. A task that needs a capability that only another agent declares in
+  `get_workspace_settings.agents`, or that the user wants on a specific agent, needs a Bot that
+  uses that agent: pick one, or tell the user that one has to be created in the bots settings.
 
 ## Optional fields
 
@@ -146,11 +155,11 @@ has its `id`, `name`, `is_default`, `readiness`, `default_model` and its suggest
 
 ## Workflow
 
-1. Understand the request. Call `get_workspace_settings` (agents, models, readiness, `repos`).
+1. Understand the request. Call `get_workspace_settings` (bots, agents, models, readiness, `repos`).
    Explore the repository. Call `list_tasks` to know the queue (avoid duplicates, find the ids
    to depend on) and `get_task_details` for the tasks you need to read.
 2. Ask the questions that matter, if any.
-3. Show the user, in the chat, every task: title, id, dependencies, agent and model, and the full
+3. Show the user, in the chat, every task: title, id, dependencies, bot (and model override, if any), and the full
    specification. Ask for corrections if the request was ambiguous; do not ask for permission
    for each detail.
 4. Call `propose_tasks` once with all the tasks, in the order they should be queued. The call

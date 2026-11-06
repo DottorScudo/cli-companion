@@ -283,6 +283,10 @@ impl PluginSkills for FakeIntegration {
     fn skill_path(&self, preset: &Preset) -> String {
         format!("skills/{}/SKILL.md", preset.id)
     }
+
+    fn skill_name(&self, id: &str) -> String {
+        format!("fake-plugin:{id}")
+    }
 }
 
 impl UserSkills for FakeIntegration {
@@ -292,6 +296,10 @@ impl UserSkills for FakeIntegration {
 
     fn wsl_home_subpath(&self) -> &'static str {
         ".fake/skills"
+    }
+
+    fn skill_name(&self, name: &str) -> String {
+        name.to_string()
     }
 }
 

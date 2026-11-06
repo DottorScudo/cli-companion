@@ -259,3 +259,20 @@ fn an_archive_line_is_one_enveloped_task_record() {
     let back: Task = serde_json::from_value(v["data"].clone()).unwrap();
     assert_eq!(back, task);
 }
+
+// --- i file di prima dei Bot ---
+
+#[test]
+fn the_tasks_of_files_written_before_the_bots_have_no_bot_effort_or_skill_and_write_none() {
+    for (name, file) in [("v0", V0), ("v011", V011)] {
+        let board = Board::from_json(file, NOW).unwrap();
+        assert!(!board.tasks.is_empty(), "{name}");
+        for t in &board.tasks {
+            assert_eq!((&t.bot, &t.effort, &t.skill), (&None, &None, &None), "{name}/{}", t.id);
+            let wire = serde_json::to_value(t).unwrap();
+            for field in ["bot", "effort", "skill"] {
+                assert!(wire.get(field).is_none(), "{name}/{}: {field}", t.id);
+            }
+        }
+    }
+}

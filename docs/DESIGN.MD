@@ -254,7 +254,9 @@ domanda (`hub/direct_answer.rs`, senza passare dal modello) e il tool `relay_ans
    sia consentito; `automation/boards/session.rs` valida le specifiche con `board::parse_proposal` e aggiunge una `Proposal`
    alla board. Ogni modifica della board produce `Effect::Publish`: evento `board-update` e salvataggio coalescente.
 2. **Accettazione.** L'utente sceglie dalla UI (`proposal_decide`): le specifiche vengono rivalidate ed entrano in
-   coda come `queued`.
+   coda come `queued`. Ogni specifica proposta nomina un Bot (`bot`, obbligatorio in `propose_tasks`): all'accettazione
+   `Board::check_specs` lo risolve e copia agente, modello, effort e skill nel task (snapshot; cambiare il Bot dopo non
+   tocca i task in coda). I task senza `bot` si comportano come prima.
 3. **Scheduler.** Dopo ogni modifica (e a ogni giro del timer) `board::schedule` (pura) sceglie i task avviabili:
    coda non in pausa, fascia aperta, dipendenze `done`, agente del task pronto (`AgentGate`), slot libero. Ogni scelto
    passa a `running` e il registro emette `Effect::StartTask`.
@@ -725,7 +727,9 @@ partono solo come Bot (`bot:<id>`, `bots/launches.rs`), che porta agente, modell
 3. La prontezza del gate non blocca mai sotto il lock del registro: `automation/agent_probe.rs` ricorda l'ultimo valore
    noto per target × agente, lo rinnova su un thread bloccante dopo 15 s e, se cambia, fa rivalutare le board
    (`recheck_agents`), come a ogni giro del timer.
-4. All'avvio (`automation/worktrees/start.rs`) il modello è `task.model`, poi `Workspace.worker_agents[<agente>].model`,
+4. All'avvio (`automation/worktrees/start.rs`) `AutomationRequest.effort` è `task.effort` (un livello non supportato
+   è scartato con una nota sul task) e, se il task ha una skill, `get_task` la fa caricare per prima al worker (una skill
+   utente mancante blocca l'avvio con una nota). Il modello è `task.model`, poi `Workspace.worker_agents[<agente>].model`,
    poi il predefinito del catalogo dell'agente (`None` = non si passa il modello); le regole allow/deny sono quelle di
    `worker_agents[<agente>]`, preparate dal contratto `WorkerPermissions` *dello stesso agente*
    (`worker_permissions_file`), e il comando viene da `automation_command(agente del task, …)`. Con l'Agents HUB

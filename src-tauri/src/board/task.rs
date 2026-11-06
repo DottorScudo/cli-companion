@@ -21,6 +21,9 @@ impl Task {
             repo: s.repo,
             agent,
             model: s.model,
+            bot: s.bot,
+            effort: s.effort,
+            skill: s.skill,
             kind: s.kind,
             e2e: s.e2e,
             created_at: now,
@@ -30,6 +33,7 @@ impl Task {
     }
 
     /// Applica i campi modificati; `s.agent` `None` lascia l'agente del task.
+    /// Bot, effort e skill sono la copia gia' risolta di `s`.
     pub(super) fn apply_spec(&mut self, s: TaskSpec, now: i64) {
         self.title = s.title;
         self.task = s.task;
@@ -39,6 +43,9 @@ impl Task {
             self.agent = agent;
         }
         self.model = s.model;
+        self.bot = s.bot;
+        self.effort = s.effort;
+        self.skill = s.skill;
         self.kind = s.kind;
         self.e2e = s.e2e;
         self.updated_at = now;

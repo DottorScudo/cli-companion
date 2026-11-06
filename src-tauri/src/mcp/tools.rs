@@ -46,18 +46,24 @@ pub(super) fn model_description(models: Option<TierModels>) -> String {
     }
 }
 
-/// Descrizione del campo `model` di `propose_tasks` (li' e' obbligatorio).
+/// Descrizione del campo `model` di `propose_tasks`: li' e' un override facoltativo
+/// del modello del Bot.
 pub(super) fn proposed_model_description(models: Option<TierModels>) -> String {
     match models {
         Some(TierModels { standard, strong }) => format!(
-            "Model of the task's agent: {standard} for well-defined work, {strong} for design, risky changes or hard \
-             bugs."
+            "Optional Bot model override (ids: get_workspace_settings.agents[].models): {standard} \
+             for well-defined work, {strong} for design, risky."
         ),
-        None => "Model of the task's agent, as that agent names it: a stronger one for design, risky changes or hard \
-                 bugs."
-            .to_string(),
+        None => {
+            "Optional Bot model override, as its agent names it (get_workspace_settings.agents[].models).".to_string()
+        }
     }
 }
+
+/// Descrizione del campo `bot` di un task (obbligatorio in `propose_tasks`).
+const BOT_DESCRIPTION: &str =
+    "Bot id from get_workspace_settings.bots, by the Bot's `task`; `general` if unspecialized. \
+    Sets agent, model, effort, skill.";
 
 /// Campi di un task proposto (`propose_tasks`) o modificato (`update_task`).
 fn task_properties(with_id: bool) -> Value {
@@ -66,7 +72,7 @@ fn task_properties(with_id: bool) -> Value {
             "type": "string",
             "minLength": 1,
             "maxLength": 80,
-            "description": "Short title shown in the queue."
+            "description": "Short title."
         },
         "task": {
             "type": "string",
@@ -83,11 +89,15 @@ fn task_properties(with_id: bool) -> Value {
         "repo": {
             "type": ["string", "null"],
             "maxLength": 256,
-            "description": "Multi-repository workspaces: repository folder relative to the workspace root. Omit or '.' for the root."
+            "description": "Multi-repo workspaces: repository folder relative to the root; omit or '.' for the root."
         },
         "agent": {
             "type": ["string", "null"],
-            "description": "Agent id from get_workspace_settings.agents (lists its models). Omit for the workspace agent."
+            "description": "Agent id (get_workspace_settings.agents); omit for the workspace agent."
+        },
+        "bot": {
+            "type": ["string", "null"],
+            "description": "Bot id from get_workspace_settings.bots; null = none."
         },
         "model": {
             "type": ["string", "null"],
@@ -97,7 +107,7 @@ fn task_properties(with_id: bool) -> Value {
         "kind": {
             "type": "string",
             "enum": ["work", "review"],
-            "description": "review = a reviewer checks the integrated result of its depends_on (at least one) and proposes fixes; default work."
+            "description": "review = a reviewer checks the integrated result of its depends_on (at least one) and proposes fixes. Default work."
         },
         "e2e": {
             "type": "boolean",
@@ -117,15 +127,17 @@ fn task_properties(with_id: bool) -> Value {
 fn propose_tasks_tool() -> Value {
     let mut proposed = task_properties(true);
     proposed["model"] = json!({
-        "type": "string",
+        "type": ["string", "null"],
         "pattern": crate::validate::MODEL_SHAPE_PATTERN,
         "description": proposed_model_description(tier_models(registry::default_agent()))
     });
+    proposed["bot"] = json!({ "type": "string", "description": BOT_DESCRIPTION });
+    proposed["agent"] = json!({ "type": "string", "description": "Must equal the Bot's agent: omit." });
     tool(
         "propose_tasks",
-        "Propose tasks for this workspace's queue. The user accepts or discards the proposal in the app; nothing \
-         starts before and you get no answer: never wait. All-or-nothing validation: unique ids (also against the queue \
-         and pending proposals), valid dependencies, no cycles, existing repo. Max 20 tasks. Returns {proposal, status: \"pending\"}.",
+        "Propose tasks for this workspace's queue. The user accepts or discards it in the app; nothing starts \
+         before and you get no answer: never wait. All-or-nothing validation: unique ids (also vs queue and pending \
+         proposals), valid dependencies, no cycles, existing repo. Max 20 tasks. Returns {proposal, status: \"pending\"}.",
         json!({
             "tasks": {
                 "type": "array",
@@ -134,7 +146,7 @@ fn propose_tasks_tool() -> Value {
                 "items": {
                     "type": "object",
                     "properties": proposed,
-                    "required": ["id", "title", "task", "model"],
+                    "required": ["id", "title", "task", "bot"],
                     "additionalProperties": false
                 },
                 "description": "In queue order."
@@ -178,7 +190,7 @@ pub fn session_tools() -> Vec<Value> {
         get_task_details_tool(),
         tool(
             "update_task",
-            "Change a queued or failed task: omitted fields stay, null clears repo, agent and model. repo is fixed once \
+            "Change a queued or failed task: omitted fields stay, null clears repo, agent, model and bot (a new bot re-applies its settings). repo is fixed once \
              the task has a worktree. Returns the task without its text.",
             update,
             &["id"],
@@ -207,7 +219,7 @@ pub fn session_tools() -> Vec<Value> {
         tool(
             "get_workspace_settings",
             "Read the workspace settings that propose_settings can change, the enabled agents (models, permission rule \
-             syntax, readiness), the repositories with their configuration (null = none), the allowed values, the limits and the \
+             syntax, readiness), the Bots (task, agent, model, effort, skill), the repositories with their configuration (null = none), the allowed values, the limits and the \
              pending settings proposals.",
             json!({}),
             &[],

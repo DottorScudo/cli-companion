@@ -46,6 +46,7 @@ pub(crate) mod test_registry;
 #[cfg(test)]
 pub(crate) mod testing;
 mod worker_rules;
+mod worker_skill;
 
 pub use commands::*;
 pub use contracts::*;
@@ -57,6 +58,7 @@ pub use readiness::{agent_readiness, Readiness};
 pub use registry::automation_command;
 pub use resolve::{AgentUnavailable, AgentUse};
 pub use worker_rules::{validate_worker_rules, worker_permissions_file, worker_rule_format};
+pub use worker_skill::worker_skill_invocation;
 /// Per i test delle scelte con piu' agenti: nucleo puro e stato che prende.
 #[cfg(test)]
 pub(crate) use {enablement::IntegrationsState, resolve::resolve_in};

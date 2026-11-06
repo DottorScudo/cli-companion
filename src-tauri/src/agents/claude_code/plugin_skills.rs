@@ -10,14 +10,23 @@ pub(super) fn skill_path(skill: &Preset) -> String {
     format!("plugins/{PLUGIN}/skills/{}/SKILL.md", skill.id)
 }
 
+/// Il nome con cui si carica la skill del plugin `id`: `<plugin>:<id>`.
+fn plugin_skill_name(id: &str) -> String {
+    format!("{PLUGIN}:{id}")
+}
+
 /// Il prompt che avvia la skill del plugin `id` (usato dall'avvio dei Bot).
 pub(super) fn plugin_skill_invocation(id: &str) -> String {
-    format!("/{PLUGIN}:{id}")
+    format!("/{}", plugin_skill_name(id))
 }
 
 impl PluginSkills for ClaudeCode {
     fn skill_path(&self, skill: &Preset) -> String {
         skill_path(skill)
+    }
+
+    fn skill_name(&self, id: &str) -> String {
+        plugin_skill_name(id)
     }
 }
 
@@ -29,6 +38,11 @@ mod tests {
     #[test]
     fn the_invocation_runs_the_plugin_skill() {
         assert_eq!(plugin_skill_invocation(PRESETS[0].id), "/cli-companion-notify:task-intake");
+    }
+
+    #[test]
+    fn the_worker_loads_the_plugin_skill_by_its_qualified_name() {
+        assert_eq!(ClaudeCode.skill_name(PRESETS[0].id), "cli-companion-notify:task-intake");
     }
 
     #[test]

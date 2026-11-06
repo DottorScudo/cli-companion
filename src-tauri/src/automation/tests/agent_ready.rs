@@ -29,9 +29,10 @@ fn list_row(st: &AutomationState, h: &FakeHost, id: &str) -> Value {
 }
 
 /// Specifica eseguita dal secondo agente del registro di test.
-fn other_spec(id: &str) -> Value {
+fn other_spec(h: &FakeHost, id: &str) -> Value {
     let mut s = spec(id, &[]);
     s["agent"] = json!(OTHER);
+    s["bot"] = json!(h.bot_for_agent(OTHER));
     s["model"] = json!(FAKE_MODEL_SMALL);
     s
 }
@@ -106,7 +107,7 @@ fn a_blocked_task_does_not_hold_back_a_queued_task_of_a_ready_agent() {
     let (st, h) = host();
     h.set_readiness(default_id(), Some(Readiness::NotFound));
     h.set_readiness(OTHER, Some(Readiness::NotFound));
-    queue(&st, &h, vec![other_spec("a"), spec("b", &[])]);
+    queue(&st, &h, vec![other_spec(&h, "a"), spec("b", &[])]);
     assert_eq!((status(&st, &h, "a"), status(&st, &h, "b")), ("queued".into(), "queued".into()));
     // Stesso repository, consegna in place: se "a" (prima in coda) tenesse il
     // posto, "b" non partirebbe.

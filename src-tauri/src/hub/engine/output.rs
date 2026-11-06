@@ -238,7 +238,7 @@ mod tests {
                 task: "reserved spec text".into(),
                 ..Default::default()
             };
-            board.create_task(spec, None, 1_700_000_000_000 + i * 1000).unwrap();
+            board.create_task(spec, crate::board::SpecContext::default(), 1_700_000_000_000 + i * 1000).unwrap();
         }
         board.view_with(None, false, &AgentGate::default())
     }

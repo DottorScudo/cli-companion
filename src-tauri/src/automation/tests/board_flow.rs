@@ -58,8 +58,10 @@ fn propose_validates_everything_and_changes_nothing_on_error() {
         err(json!({"tasks": [{"id": "c", "title": "T", "task": "x", "touches": ["src"]}]})).contains("unknown field")
     );
     assert!(err(json!({})).contains("tasks is missing"));
-    assert!(err(json!({"tasks": [{"id": "c", "title": "T", "task": "x", "model": "sonnet", "repo": "manca"}]}))
-        .contains("does not exist"));
+    assert!(err(
+        json!({"tasks": [{"id": "c", "title": "T", "task": "x", "model": "sonnet", "bot": "general", "repo": "manca"}]})
+    )
+    .contains("does not exist"));
     // Gli id delle proposte pendenti sono riservati anche alle altre proposte.
     call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [spec("p1", &[])]})).unwrap();
     assert!(err(json!({"tasks": [spec("p1", &[])]})).contains("pending proposal"));
@@ -72,8 +74,7 @@ fn propose_validates_everything_and_changes_nothing_on_error() {
 
 #[test]
 fn propose_checks_repos_by_delivery_mode() {
-    let rooted =
-        |repo: &str| json!({"tasks": [{"id": "c", "title": "T", "task": "x", "model": "sonnet", "repo": repo}]});
+    let rooted = |repo: &str| json!({"tasks": [{"id": "c", "title": "T", "task": "x", "model": "sonnet", "bot": "general", "repo": repo}]});
     // Con i branch una cartella senza git non e' piu' un errore: il task va in modalita' libera.
     let (st, h) = pr_parallel();
     h.dirs.lock().unwrap().push("C:\\p\\api".to_string());
@@ -122,7 +123,7 @@ fn accept_queues_in_order_discard_removes_and_a_failed_accept_keeps_the_proposal
         &h,
         INTAKE,
         "propose_tasks",
-        json!({"tasks": [{"id": "e", "title": "E", "task": "x", "model": "sonnet", "repo": "esiste-r"}]}),
+        json!({"tasks": [{"id": "e", "title": "E", "task": "x", "model": "sonnet", "bot": "general", "repo": "esiste-r"}]}),
     )
     .unwrap();
     h.dirs.lock().unwrap().push("C:\\p\\esiste-r".to_string());
@@ -837,7 +838,7 @@ fn e2e_config() -> RepoConfig {
 }
 
 fn e2e_spec(id: &str) -> Value {
-    json!({"id": id, "title": "T", "task": "x", "model": "sonnet", "e2e": true})
+    json!({"id": id, "title": "T", "task": "x", "model": "sonnet", "bot": "general", "e2e": true})
 }
 
 #[test]
@@ -863,7 +864,7 @@ fn e2e_flag_requires_the_repository_configuration_at_every_entry_point() {
         &h,
         INTAKE,
         "propose_tasks",
-        json!({"tasks": [{"id": "b", "title": "T", "task": "x", "model": "sonnet", "e2e": "yes"}]}),
+        json!({"tasks": [{"id": "b", "title": "T", "task": "x", "model": "sonnet", "bot": "general", "e2e": "yes"}]}),
     )
     .unwrap_err();
     assert!(e.contains("e2e must be a boolean"), "{e}");

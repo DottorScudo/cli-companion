@@ -29,24 +29,41 @@ fn agent_of(st: &AutomationState, h: &FakeHost, id: &str) -> String {
     view(st, h).tasks.iter().find(|t| t.task.id == id).unwrap().task.agent.clone()
 }
 
+/// Una specifica con l'agente scritto, eseguita dal Bot generico.
 fn with_agent(id: &str, agent: &str) -> Value {
     let mut s = spec(id, &[]);
     s["agent"] = json!(agent);
     s
 }
 
+/// Un task creato dall'interfaccia (senza Bot): l'agente e' quello del task, del
+/// workspace o il predefinito.
+fn create(st: &AutomationState, h: &FakeHost, id: &str) {
+    boards::task_create(st, h, "ws-1", &json!({"id": id, "title": "T", "task": "x"})).unwrap();
+}
+
+fn mismatch(task: &str, agent: &str) -> String {
+    format!(
+        "task '{task}': agent {agent} does not match the agent of bot general ({}): omit agent or choose another bot",
+        default_id()
+    )
+}
+
 #[test]
 fn propose_tasks_rejects_an_unknown_agent_with_a_clear_error() {
     let (st, h) = paused(None);
     let err = call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [with_agent("a", "nope")]})).unwrap_err();
-    assert_eq!(err, "task 'a': unknown agent: nope");
+    assert_eq!(err, mismatch("a", "nope"), "a Bot decides the agent: another one is a conflict");
     assert!(view(&st, &h).proposals.is_empty());
     // Anche l'agente del workspace, se non si puo' usare, blocca le proposte senza agente.
     set_workspace_agent(&h, Some(GONE));
     let err = call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [spec("b", &[])]})).unwrap_err();
     assert_eq!(err, "task 'b': unknown agent: gone");
-    // Un agente esplicito non guarda il workspace.
-    call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [with_agent("c", default_id())]})).unwrap();
+    // Un Bot con l'agente fissato non guarda il workspace.
+    let pinned = h.bot_for_agent(default_id());
+    let mut task = with_agent("c", default_id());
+    task["bot"] = json!(pinned);
+    call(&st, &h, INTAKE, "propose_tasks", json!({"tasks": [task]})).unwrap();
 }
 
 #[test]
@@ -90,7 +107,7 @@ fn task_create_saves_the_agent_and_rejects_an_unusable_one() {
 #[test]
 fn update_task_checks_the_agent_only_when_the_patch_touches_it() {
     let (st, h) = paused(None);
-    queue(&st, &h, vec![spec("a", &[])]);
+    create(&st, &h, "a");
     set_workspace_agent(&h, Some(GONE));
 
     // Il titolo si cambia anche se l'agente del workspace non si puo' piu' usare.
@@ -112,7 +129,7 @@ fn update_task_checks_the_agent_only_when_the_patch_touches_it() {
 #[test]
 fn the_ui_update_command_goes_through_the_same_check() {
     let (st, h) = paused(None);
-    queue(&st, &h, vec![spec("a", &[])]);
+    create(&st, &h, "a");
     let err = boards::task_update(&st, &h, "ws-1", "a", &json!({"agent": "nope"})).unwrap_err();
     assert_eq!(err, "task 'a': unknown agent: nope");
     boards::task_update(&st, &h, "ws-1", "a", &json!({"agent": default_id(), "model": "opus"})).unwrap();
@@ -126,5 +143,5 @@ fn a_reviewer_proposal_goes_through_the_same_check() {
     let (tab, ws) = (session_of(&st, &h, "a"), h.ws_for("ws-1").unwrap());
     let params = json!({"tasks": [with_agent("fix", "nope")]});
     let err = boards::propose_tasks(&st, &h, &ws, &tab, Some("a".into()), &params).unwrap_err();
-    assert_eq!(err, "task 'fix': unknown agent: nope");
+    assert_eq!(err, mismatch("fix", "nope"));
 }

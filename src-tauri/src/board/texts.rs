@@ -9,6 +9,9 @@ use in_place::{in_place_description, root_planner_environment};
 
 mod free;
 mod in_place;
+mod skill;
+
+pub use skill::skill_instruction;
 
 /// Standard di ingegneria che ogni worker riceve, prima delle regole del workspace.
 pub const WORKER_GUARDRAILS: &str = include_str!("prompts/worker_guardrails.md");

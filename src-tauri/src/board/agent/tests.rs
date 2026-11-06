@@ -1,7 +1,8 @@
 use super::*;
 use crate::agents::registry;
-use crate::agents::testing::{FakeIntegration, FAKE_MODEL_SMALL};
-use crate::agents::{resolve_in, IntegrationsState};
+use crate::agents::testing::{FakeIntegration, FAKE_MODEL_LARGE, FAKE_MODEL_SMALL};
+use crate::agents::{resolve_in, Capability, Effort, IntegrationsState};
+use crate::bots::SkillRef;
 
 const SECOND: &str = "fake-second";
 /// Valido per l'agente predefinito (forma sicura), non per quello finto.
@@ -94,4 +95,149 @@ fn the_registered_agents_resolve_through_the_current_state() {
     assert_eq!(resolve_spec_agent(&spec(None, None), None), Ok(default_id.to_string()));
     assert_eq!(resolve_spec_agent(&spec(Some(default_id), None), Some("gone")), Ok(default_id.to_string()));
     assert_eq!(resolve_spec_agent(&spec(None, None), Some("gone")), Err("task 't1': unknown agent: gone".to_string()));
+}
+
+// --- Bot ---
+
+fn bots() -> Vec<AgentBot> {
+    crate::bots::default_agent_bots()
+}
+
+fn bot_spec(bot: &str) -> TaskSpec {
+    TaskSpec { id: "t1".into(), bot: Some(bot.into()), ..TaskSpec::default() }
+}
+
+/// Risoluzione di una specifica con Bot: l'agente predefinito piu' `second`,
+/// entrambi abilitati, il predefinito globale e' il primo.
+fn resolve_with(
+    second: &FakeIntegration,
+    spec: &TaskSpec,
+    bots: &[AgentBot],
+    workspace_agent: Option<&str>,
+) -> Result<TaskSpec, String> {
+    let registered = [registry::all()[0], second as &dyn AgentIntegration];
+    let enabled = vec![first_id().to_string(), SECOND.to_string()];
+    let state = IntegrationsState { enabled: enabled.clone(), default_agent: first_id().into() };
+    let catalog = AgentCatalog::new(&registered, enabled);
+    let env = AgentEnv {
+        resolve: &|explicit, workspace, purpose| resolve_in(&registered, &state, explicit, workspace, purpose),
+        catalog: &catalog,
+        default_agent: first_id(),
+    };
+    resolve_with_bot(&env, spec, spec.bot.as_deref().unwrap(), SpecContext { workspace_agent, bots })
+}
+
+fn resolve_bot_spec(spec: &TaskSpec, bots: &[AgentBot], workspace_agent: Option<&str>) -> Result<TaskSpec, String> {
+    resolve_with(&FakeIntegration::full(SECOND), spec, bots, workspace_agent)
+}
+
+fn bot_mut<'a>(bots: &'a mut [AgentBot], id: &str) -> &'a mut AgentBot {
+    bots.iter_mut().find(|b| b.id == id).unwrap()
+}
+
+#[test]
+fn a_bot_is_copied_into_the_spec_with_its_agent_model_effort_and_skill() {
+    let resolved = resolve_bot_spec(&bot_spec("intake"), &bots(), Some(SECOND)).unwrap();
+    assert_eq!(resolved.agent.as_deref(), Some(SECOND));
+    assert_eq!(resolved.model.as_deref(), Some(FAKE_MODEL_LARGE));
+    assert_eq!(resolved.effort, Some(Effort::High));
+    assert_eq!(resolved.skill, Some(SkillRef::Plugin("task-intake".into())));
+    assert_eq!(resolved.bot.as_deref(), Some("intake"));
+}
+
+#[test]
+fn the_general_bot_follows_the_workspace_agent_then_the_global_default() {
+    let on_workspace = resolve_bot_spec(&bot_spec("general"), &bots(), Some(SECOND)).unwrap();
+    assert_eq!((on_workspace.agent.as_deref(), on_workspace.model, on_workspace.effort), (Some(SECOND), None, None));
+    let on_default = resolve_bot_spec(&bot_spec("general"), &bots(), None).unwrap();
+    assert_eq!(on_default.agent.as_deref(), Some(first_id()));
+    assert_eq!(on_default.skill, None);
+}
+
+#[test]
+fn an_unknown_bot_is_an_error() {
+    let err = resolve_bot_spec(&bot_spec("nope"), &bots(), None);
+    assert_eq!(err, Err("task 't1': unknown bot: nope (see get_workspace_settings.bots)".to_string()));
+}
+
+#[test]
+fn a_disabled_bot_is_an_error() {
+    let mut list = bots();
+    bot_mut(&mut list, "intake").enabled = false;
+    let err = resolve_bot_spec(&bot_spec("intake"), &list, None);
+    assert_eq!(err, Err("task 't1': Intake is disabled: enable it in the bots settings".to_string()));
+}
+
+#[test]
+fn the_model_of_the_spec_overrides_the_model_of_the_bot() {
+    let spec = TaskSpec { model: Some(FAKE_MODEL_SMALL.into()), ..bot_spec("intake") };
+    let resolved = resolve_bot_spec(&spec, &bots(), Some(SECOND)).unwrap();
+    assert_eq!(resolved.model.as_deref(), Some(FAKE_MODEL_SMALL));
+    assert_eq!(resolved.effort, Some(Effort::High), "the rest still comes from the bot");
+
+    let wrong = TaskSpec { model: Some(FOREIGN_MODEL.into()), ..bot_spec("intake") };
+    let expected = format!("task 't1': invalid model for Fake: {FOREIGN_MODEL} (see get_workspace_settings.agents)");
+    assert_eq!(resolve_bot_spec(&wrong, &bots(), Some(SECOND)), Err(expected));
+}
+
+#[test]
+fn an_agent_in_the_spec_must_be_the_agent_of_the_bot() {
+    let same = TaskSpec { agent: Some(SECOND.into()), ..bot_spec("general") };
+    assert!(resolve_bot_spec(&same, &bots(), Some(SECOND)).is_ok());
+
+    let other = TaskSpec { agent: Some(first_id().into()), ..bot_spec("general") };
+    let expected = format!(
+        "task 't1': agent {} does not match the agent of bot general ({SECOND}): omit agent or choose another bot",
+        first_id()
+    );
+    assert_eq!(resolve_bot_spec(&other, &bots(), Some(SECOND)), Err(expected));
+
+    let mut list = bots();
+    bot_mut(&mut list, "general").agent = Some(first_id().into());
+    let fixed = TaskSpec { agent: Some(SECOND.into()), ..bot_spec("general") };
+    assert!(
+        resolve_bot_spec(&fixed, &list, Some(SECOND)).is_err(),
+        "the fixed agent of the bot wins over the workspace"
+    );
+}
+
+#[test]
+fn an_unusable_agent_of_the_bot_is_an_error_prefixed_with_the_task() {
+    let gone = resolve_bot_spec(&bot_spec("general"), &bots(), Some("gone"));
+    assert_eq!(gone, Err("task 't1': unknown agent: gone".to_string()));
+
+    let bare = FakeIntegration::bare(SECOND, "fake-cli");
+    let unsupported = resolve_with(&bare, &bot_spec("general"), &bots(), Some(SECOND));
+    assert_eq!(unsupported, Err("task 't1': Fake does not support automated sessions".to_string()));
+}
+
+#[test]
+fn a_skill_the_agent_cannot_load_rejects_the_bot() {
+    let no_plugin = FakeIntegration::full(SECOND).without(Capability::PluginSkills);
+    let err = resolve_with(&no_plugin, &bot_spec("intake"), &bots(), Some(SECOND));
+    let expected = "task 't1': bot intake needs the skill task-intake, which Fake cannot load: choose another bot";
+    assert_eq!(err, Err(expected.to_string()));
+
+    let mut list = bots();
+    bot_mut(&mut list, "general").skill = Some(SkillRef::User("my-skill".into()));
+    let no_user = FakeIntegration::full(SECOND).without(Capability::UserSkills);
+    assert!(resolve_with(&no_user, &bot_spec("general"), &list, Some(SECOND)).is_err());
+    let user = resolve_bot_spec(&bot_spec("general"), &list, Some(SECOND)).unwrap();
+    assert_eq!(user.skill, Some(SkillRef::User("my-skill".into())));
+}
+
+#[test]
+fn the_effort_is_copied_raw_even_when_the_agent_cannot_apply_it() {
+    let mut list = bots();
+    bot_mut(&mut list, "general").effort = Some(Effort::Max);
+    let resolved = resolve_bot_spec(&bot_spec("general"), &list, Some(SECOND)).unwrap();
+    assert_eq!(resolved.effort, Some(Effort::Max), "the start drops it with a warning in the note");
+}
+
+#[test]
+fn a_spec_without_a_bot_resolves_as_before_with_no_effort_or_skill() {
+    let stale = TaskSpec { effort: Some(Effort::High), skill: Some(SkillRef::User("x".into())), ..spec(None, None) };
+    let resolved = resolve_spec(&stale, SpecContext { workspace_agent: None, bots: &bots() }).unwrap();
+    assert_eq!(resolved.agent.as_deref(), Some(registry::default_agent().id()));
+    assert_eq!((resolved.bot, resolved.effort, resolved.skill), (None, None, None));
 }

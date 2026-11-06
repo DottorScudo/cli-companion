@@ -33,6 +33,10 @@ impl UserSkills for OpenCode {
     fn wsl_home_subpath(&self) -> &'static str {
         ".config/opencode/skills"
     }
+
+    fn skill_name(&self, name: &str) -> String {
+        name.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -59,6 +63,11 @@ mod tests {
     fn no_home_and_no_xdg_is_an_error() {
         assert!(skills_dir(None, None).is_err());
         assert!(skills_dir(os(""), os("")).is_err());
+    }
+
+    #[test]
+    fn a_user_skill_is_loaded_by_its_name() {
+        assert_eq!(OpenCode.skill_name("my-skill"), "my-skill");
     }
 
     #[test]

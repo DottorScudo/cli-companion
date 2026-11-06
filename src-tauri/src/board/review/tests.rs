@@ -1,5 +1,5 @@
 use super::*;
-use crate::board::{build_report, parse_spec, validate_graph, Finished, TaskState, TaskStatus, TestRun};
+use crate::board::{build_report, parse_spec, validate_graph, Finished, SpecContext, TaskState, TaskStatus, TestRun};
 use serde_json::json;
 
 fn spec(id: &str, kind: TaskKind, deps: &[&str]) -> TaskSpec {
@@ -217,10 +217,17 @@ fn old_boards_load_as_work_and_new_fields_roundtrip() {
     );
 
     let mut b = Board::new("ws-1");
-    b.create_task(spec("a", TaskKind::Work, &[]), None, 1).unwrap();
-    b.create_task(spec("rev", TaskKind::Review, &["a"]), None, 2).unwrap();
-    b.add_proposal("p-1".into(), "tab-1", Some("rev".into()), vec![spec("fix", TaskKind::Review, &["a"])], None, 3)
-        .unwrap();
+    b.create_task(spec("a", TaskKind::Work, &[]), SpecContext::default(), 1).unwrap();
+    b.create_task(spec("rev", TaskKind::Review, &["a"]), SpecContext::default(), 2).unwrap();
+    b.add_proposal(
+        "p-1".into(),
+        "tab-1",
+        Some("rev".into()),
+        vec![spec("fix", TaskKind::Review, &["a"])],
+        SpecContext::default(),
+        3,
+    )
+    .unwrap();
     let report = build_report("completed", "s", fields(Some(Verdict::Issues), &["bug"]), None);
     b.task_mut("rev").unwrap().set_state(TaskState::Done(Finished {
         started_at: None,
@@ -241,21 +248,21 @@ fn old_boards_load_as_work_and_new_fields_roundtrip() {
 fn review_dependencies_are_validated_on_every_entry_point() {
     let mut b = Board::new("ws-1");
     let orphan = spec("rev", TaskKind::Review, &[]);
-    assert!(b.create_task(orphan.clone(), None, 1).unwrap_err().contains("at least one dependency"));
+    assert!(b.create_task(orphan.clone(), SpecContext::default(), 1).unwrap_err().contains("at least one dependency"));
     assert!(b
-        .add_proposal("p-1".into(), "t", None, vec![orphan], None, 1)
+        .add_proposal("p-1".into(), "t", None, vec![orphan], SpecContext::default(), 1)
         .unwrap_err()
         .contains("at least one dependency"));
-    b.create_task(spec("a", TaskKind::Work, &[]), None, 1).unwrap();
-    b.create_task(spec("rev", TaskKind::Review, &["a"]), None, 1).unwrap();
+    b.create_task(spec("a", TaskKind::Work, &[]), SpecContext::default(), 1).unwrap();
+    b.create_task(spec("rev", TaskKind::Review, &["a"]), SpecContext::default(), 1).unwrap();
     // Update: togliere le dipendenze a una revisione, o fare `review` un task senza dipendenze.
-    let err = b.update_task("rev", &json!({"depends_on": []}), None, 2).unwrap_err();
+    let err = b.update_task("rev", &json!({"depends_on": []}), SpecContext::default(), 2).unwrap_err();
     assert!(err.contains("at least one dependency"), "{err}");
-    let err = b.update_task("a", &json!({"kind": "review"}), None, 2).unwrap_err();
+    let err = b.update_task("a", &json!({"kind": "review"}), SpecContext::default(), 2).unwrap_err();
     assert!(err.contains("at least one dependency"), "{err}");
     assert_eq!(b.task("a").unwrap().kind, TaskKind::Work);
-    b.create_task(spec("b", TaskKind::Work, &["a"]), None, 3).unwrap();
-    b.update_task("b", &json!({"kind": "review"}), None, 4).unwrap();
+    b.create_task(spec("b", TaskKind::Work, &["a"]), SpecContext::default(), 3).unwrap();
+    b.update_task("b", &json!({"kind": "review"}), SpecContext::default(), 4).unwrap();
     assert_eq!(b.task("b").unwrap().kind, TaskKind::Review);
     // Un task `done` che resta senza dipendenze (delete_task) non invalida la board.
     b.task_mut("b").unwrap().set_status(TaskStatus::Failed);

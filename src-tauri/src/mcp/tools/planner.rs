@@ -36,9 +36,8 @@ pub fn planner_tools() -> Vec<Value> {
         ),
         tool(
             "complete_task",
-            "ALWAYS call it at the end: completed after the proposal, or with your numbered questions for the user in \
-             summary if the request is too ambiguous to plan; failed if the planning could not be done. The tab closes by \
-             itself afterwards.",
+            "ALWAYS call it last: completed after the proposal, or with your numbered questions in summary if the \
+             request is too ambiguous; failed if planning failed. The tab closes itself.",
             json!({
                 "status": {
                     "type": "string",
@@ -59,7 +58,7 @@ pub fn planner_tools() -> Vec<Value> {
         get_task_details_tool(),
         tool(
             "get_workspace_settings",
-            "Read the workspace settings: the enabled agents (models, readiness), the repositories with their \
+            "Read the workspace settings: the enabled agents (models, readiness), the Bots, the repositories with their \
              configuration (e2e: null = none) and the pending settings proposals.",
             json!({}),
             &[],

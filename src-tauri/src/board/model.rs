@@ -4,6 +4,8 @@
 
 use super::record::TaskRecord;
 use super::{E2eRun, SettingsProposal, TaskKind, TaskQuestion, TaskSpec, TaskState};
+use crate::agents::Effort;
+use crate::bots::SkillRef;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -102,6 +104,14 @@ pub struct Task {
     pub repo: Option<String>,
     pub agent: String,
     pub model: Option<String>,
+    /// Il Bot che esegue il task, per l'interfaccia. Agente, modello, effort e
+    /// skill sono la copia presa alla creazione: modificare o eliminare il Bot
+    /// dopo non cambia il task. `None` = task senza Bot (o precedente ai Bot).
+    pub bot: Option<String>,
+    /// Effort della copia del Bot (grezzo: se l'agente non lo supporta lo toglie l'avvio).
+    pub effort: Option<Effort>,
+    /// Skill della copia del Bot, da caricare all'avvio del worker.
+    pub skill: Option<SkillRef>,
     /// `work` consegna; `review` verifica il risultato integrato dei task da cui dipende.
     pub kind: TaskKind,
     /// Il task deve superare gli E2E del repository (richiede `RepoConfig::e2e`).

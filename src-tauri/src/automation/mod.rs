@@ -71,6 +71,7 @@ mod rpc;
 pub(crate) mod settings;
 pub mod skills;
 mod state;
+mod task_skill;
 mod worker;
 mod worktrees;
 

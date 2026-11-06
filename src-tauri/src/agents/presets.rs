@@ -120,14 +120,18 @@ mod tests {
             "Suite present but not registered",
             "at most one line",
             "Never set `e2e: true`",
-            "## Agent and model",
+            "## Bot, agent and model",
+            "`get_workspace_settings.bots`",
+            "`bot`: required",
+            "use `general`",
+            "Never invent an id",
             "`tier: \"standard\"`",
             "`tier: \"strong\"`",
             "Never write a model name from memory",
             "`readiness` is `ready`",
-            "the agent of the workspace",
+            "an override of the Bot's model",
+            "it must equal the agent of the Bot",
             "a capability that only another agent",
-            "different agent",
         ] {
             assert!(skill.contains(t), "{t}");
         }

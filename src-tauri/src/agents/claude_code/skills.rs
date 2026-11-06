@@ -22,6 +22,11 @@ impl UserSkills for ClaudeCode {
     fn wsl_home_subpath(&self) -> &'static str {
         WSL_SKILLS_SUBPATH
     }
+
+    /// Le skill personali si caricano per nome.
+    fn skill_name(&self, name: &str) -> String {
+        name.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -33,6 +38,11 @@ mod tests {
         if let Ok(dir) = ClaudeCode.windows_dir() {
             assert!(dir.ends_with(SKILLS_DIR_NAME), "{dir:?}");
         }
+    }
+
+    #[test]
+    fn a_user_skill_is_loaded_by_its_name() {
+        assert_eq!(ClaudeCode.skill_name("my-skill"), "my-skill");
     }
 
     #[test]

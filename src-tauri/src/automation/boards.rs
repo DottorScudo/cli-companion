@@ -7,7 +7,7 @@
 
 use super::worktrees::{CleanupTarget, FolderKinds, StartJob};
 use super::*;
-use crate::board::{self, SchedCtx, Task, TaskSpec, TaskView};
+use crate::board::{self, SchedCtx, SpecContext, Task, TaskSpec, TaskView};
 use serde_json::json;
 
 mod agents;
@@ -71,14 +71,8 @@ impl Registry {
         board::id_from_title(title, &|id| board.is_some_and(|b| b.id_taken(id)))
     }
 
-    pub fn create_task(
-        &mut self,
-        ws: &str,
-        spec: TaskSpec,
-        workspace_agent: Option<&str>,
-        now: i64,
-    ) -> Result<String, String> {
-        self.edit(ws, |b| b.create_task(spec, workspace_agent, now))
+    pub fn create_task(&mut self, ws: &str, spec: TaskSpec, ctx: SpecContext<'_>, now: i64) -> Result<String, String> {
+        self.edit(ws, |b| b.create_task(spec, ctx, now))
     }
 
     /// Segna `no_git` sui task `queued` la cui cartella e' stata appena
@@ -107,13 +101,13 @@ impl Registry {
         source_tab: &str,
         source_task: Option<String>,
         specs: Vec<TaskSpec>,
-        workspace_agent: Option<&str>,
+        ctx: SpecContext<'_>,
         now: i64,
     ) -> Result<String, String> {
         self.check_planner_can_propose(source_tab)?;
         self.next_proposal += 1;
         let id = format!("p-{now}-{}", self.next_proposal);
-        self.edit(ws, |b| b.add_proposal(id.clone(), source_tab, source_task, specs, workspace_agent, now))?;
+        self.edit(ws, |b| b.add_proposal(id.clone(), source_tab, source_task, specs, ctx, now))?;
         self.note_planner_proposal(source_tab);
         Ok(id)
     }
@@ -128,16 +122,19 @@ impl Registry {
         ws: &str,
         id: &str,
         accept: bool,
-        workspace_agent: Option<&str>,
+        ctx: SpecContext<'_>,
         now: i64,
     ) -> Result<(), String> {
-        self.edit(ws, |b| {
-            if accept {
-                b.accept_proposal(id, workspace_agent, now).map(|_| ())
-            } else {
-                b.discard_proposal(id, now)
-            }
-        })
+        self.edit(
+            ws,
+            |b| {
+                if accept {
+                    b.accept_proposal(id, ctx, now).map(|_| ())
+                } else {
+                    b.discard_proposal(id, now)
+                }
+            },
+        )
     }
 
     pub fn update_task(
@@ -145,10 +142,10 @@ impl Registry {
         ws: &str,
         id: &str,
         patch: &Value,
-        workspace_agent: Option<&str>,
+        ctx: SpecContext<'_>,
         now: i64,
     ) -> Result<(), String> {
-        self.edit(ws, |b| b.update_task(id, patch, workspace_agent, now))
+        self.edit(ws, |b| b.update_task(id, patch, ctx, now))
     }
 
     /// Prova `update_task` su una copia della board: l'errore che darebbe, senza cambiare nulla.
@@ -157,11 +154,11 @@ impl Registry {
         ws: &str,
         id: &str,
         patch: &Value,
-        workspace_agent: Option<&str>,
+        ctx: SpecContext<'_>,
         now: i64,
     ) -> Result<(), String> {
         let board = self.boards.get(ws).ok_or_else(|| format!("task not found: {id}"))?;
-        board.clone().update_task(id, patch, workspace_agent, now)
+        board.clone().update_task(id, patch, ctx, now)
     }
 
     /// Toglie un task; se aveva un worktree lo fa ripulire.

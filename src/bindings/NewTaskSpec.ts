@@ -20,6 +20,10 @@ agent?: string | null,
  */
 model?: string | null, 
 /**
+ * `null` o assente = nessun Bot.
+ */
+bot?: string | null, 
+/**
  * Assente = `work`. Una `review` richiede almeno una dipendenza; `plan` e' riservato all'app.
  */
 kind?: TaskKind, 
