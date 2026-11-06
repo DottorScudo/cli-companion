@@ -4,6 +4,7 @@
 
 import type { BoardView } from "../bindings/BoardView.ts";
 import type { HubThread } from "../bindings/HubThread.ts";
+import type { TaskStatus } from "../bindings/TaskStatus.ts";
 import type { TaskView } from "../bindings/TaskView.ts";
 import { GENERAL_CHANNEL } from "./hub.ts";
 
@@ -31,6 +32,14 @@ export function threadPanelTasks(thread: Pick<HubThread, "channel" | "task_ids">
     const found = findTask(boards, id, thread.channel);
     return found ? [found] : [];
   });
+}
+
+/** Stati dei task che la sezione Task del pannello mostra: in corso (anche con attenzione o domanda) e in coda. */
+const ACTIVE_STATUSES: ReadonlySet<TaskStatus> = new Set<TaskStatus>(["queued", "running"]);
+
+/** Solo i task in corso o in coda, nell'ordine ricevuto: quelli conclusi o falliti non si mostrano. */
+export function activeThreadPanelTasks(tasks: readonly ThreadPanelTask[]): ThreadPanelTask[] {
+  return tasks.filter(({ task }) => ACTIVE_STATUSES.has(task.status));
 }
 
 /** Chiavi dei tab dei worker dei task che sono ancora aperti, senza doppioni. */

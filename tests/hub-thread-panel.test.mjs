@@ -1,6 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { sameThreadPanelTasks, threadPanelSessions, threadPanelTasks } from "../src/lib/hubThreadPanel.ts";
+import {
+  activeThreadPanelTasks,
+  sameThreadPanelTasks,
+  threadPanelSessions,
+  threadPanelTasks,
+} from "../src/lib/hubThreadPanel.ts";
 import {
   DEFAULT_THREAD_PANEL_SHOWN,
   THREAD_PANEL_STORAGE_KEY,
@@ -86,6 +91,34 @@ describe("threadPanelSessions", () => {
       threadPanelSessions(shared, () => true),
       ["tab-x"],
     );
+  });
+});
+
+describe("activeThreadPanelTasks", () => {
+  const entry = (id, status, extra = {}) => ({ task: { ...task(id), status, ...extra }, workspace: "ws1" });
+
+  it("tiene i task in corso (anche con attenzione) e in coda, nell'ordine ricevuto", () => {
+    const tasks = [
+      entry("r", "running"),
+      entry("d", "done"),
+      entry("q", "queued"),
+      entry("f", "failed"),
+      entry("att", "running", { attention: true }),
+    ];
+    assert.deepEqual(
+      activeThreadPanelTasks(tasks).map((r) => r.task.id),
+      ["r", "q", "att"],
+    );
+  });
+
+  it("restituisce gli stessi oggetti ricevuti", () => {
+    const tasks = [entry("q", "queued")];
+    assert.equal(activeThreadPanelTasks(tasks)[0], tasks[0]);
+  });
+
+  it("dà una lista vuota se restano solo task conclusi o falliti, o se non ce ne sono", () => {
+    assert.deepEqual(activeThreadPanelTasks([entry("d", "done"), entry("f", "failed")]), []);
+    assert.deepEqual(activeThreadPanelTasks([]), []);
   });
 });
 

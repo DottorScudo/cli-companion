@@ -5,7 +5,7 @@ import type { HubThread } from "../../lib/tauri";
 import BotAvatar from "../BotAvatar";
 import StatusIcon from "../StatusIcon";
 import { PlanBadge } from "../tasks/PlanBadge";
-import { useThreadPanelTasks, useThreadPanelTerminals } from "./useThreadPanel";
+import { useActiveThreadPanelTasks, useThreadPanelTerminals } from "./useThreadPanel";
 
 function Section({
   title,
@@ -33,9 +33,9 @@ const ROW_CLASS =
   "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] transition-colors hover:bg-accent/50";
 
 function TaskRows({ thread }: { thread: HubThread }) {
-  const tasks = useThreadPanelTasks(thread);
+  const tasks = useActiveThreadPanelTasks(thread);
   return (
-    <Section title="Task" count={tasks.length} empty="Nessun task in questo thread">
+    <Section title="Task" count={tasks.length} empty="Nessun task in corso o in coda">
       {tasks.map(({ task, workspace }) => {
         const status = displayStatus(task);
         return (
