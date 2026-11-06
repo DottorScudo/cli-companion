@@ -353,6 +353,9 @@ export const api = {
   hubSetThreadState: (channel: string, threadId: string, closed: boolean) =>
     invoke<HubThreadSummary>("hub_set_thread_state", { channel, threadId, closed }),
 
+  /** Elimina il thread (aperto o chiuso) e i suoi allegati; i task collegati restano sulla board. */
+  hubDeleteThread: (channel: string, threadId: string) => invoke<void>("hub_delete_thread", { channel, threadId }),
+
   /** Carica nello staging il file scelto con il dialog (percorso assoluto); poi l'id va a `hubSend`. */
   hubStageAttachmentFile: (path: string) => invoke<HubAttachment>("hub_stage_attachment_file", { path }),
 
@@ -541,6 +544,7 @@ export interface TauriEvents {
   "hub-update": HubThreadSummary;
   "hub-notify": HubNotice;
   "hub-notification-activated": HubThreadRef;
+  "hub-thread-removed": HubThreadRef;
   "hub-secretary-status": HubSecretaryStatus[];
   "connector-status": ConnectorStatus[];
 }

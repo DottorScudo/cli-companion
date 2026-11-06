@@ -36,6 +36,7 @@ function rustCommands() {
     "hub/commands.rs",
     "hub/action_requests.rs",
     "hub/thread_state.rs",
+    "hub/thread_delete.rs",
     "hub/attachments/commands.rs",
     "hub/engine/status.rs",
     "connectors/commands/instances.rs",

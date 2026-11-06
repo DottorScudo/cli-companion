@@ -293,3 +293,6 @@ mod tests;
 
 #[cfg(test)]
 mod external_tests;
+
+#[cfg(test)]
+mod removal_tests;

@@ -449,6 +449,12 @@ impl Sessions {
         self.lanes.retain(|key, _| &key.channel != channel);
     }
 
+    /// Via sessioni e coda del thread (eliminato dall'utente): nessun riassunto.
+    pub fn forget_thread(&mut self, key: &ThreadKey) {
+        self.sessions.remove(key);
+        self.lanes.remove(key);
+    }
+
     /// Via tutto (HUB spento): nessun riassunto.
     pub fn clear(&mut self) {
         self.sessions.clear();

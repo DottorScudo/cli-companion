@@ -1,6 +1,7 @@
-//! Ciclo di vita e collegamenti dei thread: chiusura e riapertura, task e
-//! proposte collegati e la ricerca del thread di un task o di una proposta.
-//! Li usa l'instradamento degli eventi della board (`events::route`).
+//! Ciclo di vita e collegamenti dei thread: chiusura e riapertura,
+//! eliminazione, task e proposte collegati e la ricerca del thread di un task
+//! o di una proposta. Li usa l'instradamento degli eventi della board
+//! (`events::route`).
 
 use super::{text, ChannelThreads, THREAD_NOT_FOUND};
 use crate::board::valid_id;
@@ -35,6 +36,14 @@ impl ChannelThreads {
             self.prune_closed(thread_id);
         }
         self.thread(thread_id).ok_or_else(|| THREAD_NOT_FOUND.to_string())
+    }
+
+    /// Toglie il thread dal canale, in qualunque stato. I task e la proposta
+    /// collegati restano sulla board: un loro evento successivo, non trovando
+    /// piu' un thread, ne apre uno nuovo. Torna il thread tolto.
+    pub fn remove_thread(&mut self, thread_id: &str) -> Result<Thread, String> {
+        let at = self.threads.iter().position(|t| t.id == thread_id).ok_or_else(|| THREAD_NOT_FOUND.to_string())?;
+        Ok(self.threads.remove(at))
     }
 
     /// Collega i task al thread (senza duplicati). Un task appartiene a un solo

@@ -169,6 +169,20 @@ fn a_task_without_a_thread_gets_one_at_its_first_event() {
 }
 
 #[test]
+fn a_task_whose_thread_was_deleted_gets_a_new_one_at_its_next_event() {
+    let mut list = ChannelThreads::default();
+    let queued = board(vec![task("a", TaskStatus::Queued)], vec![]);
+    step(&mut list, &board(vec![], vec![]), &queued, 10);
+    let deleted = only_thread(&list).id.clone();
+    list.remove_thread(&deleted).unwrap();
+    step(&mut list, &queued, &board(vec![task("a", TaskStatus::Done)], vec![]), 20);
+    let t = only_thread(&list);
+    assert_ne!(t.id, deleted);
+    assert_eq!((t.title.as_str(), t.task_ids.as_slice()), ("Task a", &["a".to_string()][..]));
+    assert_eq!(last_event(t).kind, HubEventKind::TaskDone);
+}
+
+#[test]
 fn deleting_a_task_is_reported_in_its_thread_only() {
     let mut list = ChannelThreads::default();
     let two = board(vec![task("a", TaskStatus::Queued), task("b", TaskStatus::Queued)], vec![]);

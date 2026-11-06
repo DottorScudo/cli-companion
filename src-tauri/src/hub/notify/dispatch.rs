@@ -72,6 +72,12 @@ impl HubNotifier {
         self.lock().clear();
     }
 
+    /// Il thread e' stato eliminato: la sua notifica in attesa non deve uscire
+    /// (alla fine della finestra non resta nulla da consegnare).
+    pub fn discard_thread(&self, channel: &Channel, thread_id: &str) {
+        self.lock().take(&(channel.clone(), thread_id.to_string()));
+    }
+
     /// Chiude la finestra di `key` e consegna quanto resta ai destinatari
     /// ancora attivi. I sink si copiano prima: nessun lock resta preso durante
     /// la consegna.
@@ -187,5 +193,20 @@ mod tests {
         notifier.lock().offer(key.clone(), candidate(&s, "m", &NoticeKind::TaskDone, "x", None));
         notifier.discard();
         assert!(notifier.lock().take(&key).is_none());
+    }
+
+    #[test]
+    fn discarding_a_thread_drops_its_pending_notice_only() {
+        let notifier = HubNotifier::default();
+        let gone = summary(Channel::General);
+        let kept = ThreadSummary { id: "thr-2-2".into(), ..summary(Channel::General) };
+        for s in [&gone, &kept] {
+            notifier
+                .lock()
+                .offer((s.channel.clone(), s.id.clone()), candidate(s, "m", &NoticeKind::TaskDone, "x", None));
+        }
+        notifier.discard_thread(&gone.channel, &gone.id);
+        assert!(notifier.lock().take(&(gone.channel.clone(), gone.id.clone())).is_none());
+        assert!(notifier.lock().take(&(kept.channel.clone(), kept.id.clone())).is_some());
     }
 }

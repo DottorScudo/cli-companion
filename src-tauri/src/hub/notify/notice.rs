@@ -66,8 +66,9 @@ pub struct ContactNotice {
     pub text: String,
 }
 
-/// Il thread da aprire al click su una toast; payload di
-/// `hub-notification-activated`.
+/// Un thread di un canale: quello da aprire al click su una toast (payload di
+/// `hub-notification-activated`) o quello appena eliminato (payload di
+/// `hub-thread-removed`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(export, rename = "HubThreadRef")]
 pub struct HubThreadRef {

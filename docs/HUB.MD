@@ -27,7 +27,7 @@ senza migrazione e un file della tappa 1 (`{ "enabled": true }`) si legge senza 
 Con l'HUB **spento** (default):
 
 - non si crea nessun file (né `hub_settings.json` finché l'utente non cambia l'impostazione, né `threads/`);
-- i comandi di scrittura (`hub_create_thread`, `hub_send`, `hub_set_thread_state`) rispondono «L'Agents HUB è spento: attivalo nelle
+- i comandi di scrittura (`hub_create_thread`, `hub_send`, `hub_set_thread_state`, `hub_delete_thread`) rispondono «L'Agents HUB è spento: attivalo nelle
   impostazioni.»;
 - le letture (`hub_list_threads`, `hub_get_thread`) funzionano e non creano file;
 - gli eventi della board non si registrano: nessuna istantanea in memoria, nessuna scrittura;
@@ -257,7 +257,7 @@ nemmeno da un file dei thread modificato a mano.
   nello staging e l'utente può riprovare con gli stessi id. Senza allegati `hub_send` fa esattamente quello di prima.
 - **Pulizia.** `HubState::update_when`, dopo ogni salvataggio riuscito, confronta i thread di prima e di dopo
   (`attachments::garbage`, puro) e, fuori dal lock, cancella le cartelle degli allegati dei messaggi potati
-  (`MESSAGES_MAX`) e dei thread spariti (thread chiusi potati): vale per qualunque operazione, compresi gli eventi
+  (`MESSAGES_MAX`) e dei thread spariti (thread chiusi potati, thread eliminati con `hub_delete_thread`): vale per qualunque operazione, compresi gli eventi
   della board che spingono fuori un messaggio dell'utente. Un salvataggio fallito non cancella nulla. La rimozione
   del workspace cancella la cartella del canale. Gli errori di cancellazione vanno nel log e non bloccano.
 - **Staging orfano**: all'avvio, in background, si tolgono le voci dello staging precedenti all'avvio (il
@@ -329,6 +329,19 @@ sveglia nessuno e non cambia cosa succede a un messaggio dell'utente in un threa
 chiesto non si riscrive il file, non c'è `hub-update` e non c'è avviso. Chiudere non cancella nulla e non ferma i task:
 un evento di un task lo riapre, come sempre (`events::route`).
 
+**Eliminare a mano.** `hub_delete_thread` (`hub/thread_delete.rs`) toglie definitivamente un thread, aperto o chiuso,
+in qualunque canale (anche il Generale) e anche con task collegati (`ChannelThreads::remove_thread`). Si cancellano:
+il thread nel file del canale, la cartella dei suoi allegati (dopo il salvataggio, come per i thread potati: vedi
+"Allegati"), le sessioni dei segretari su quel thread (senza riassunto), la sua coda e l'esecutore in corso
+(`SecretaryEngine::forget_thread`, poi `hub-secretary-status`) e la notifica raggruppata ancora in attesa
+(`HubNotifier::discard_thread`). Un lavoro del motore già oltre l'ultimo punto di attesa non ricrea il thread: le sue
+scritture falliscono con «thread non trovato» e finiscono nel log. Gli altri thread del canale non cambiano. Restano
+i task della board, intatti con worktree e terminali: un loro evento successivo (per esempio la fine del task) non
+trova più un thread e ne apre uno nuovo, come per un task che non l'ha mai avuto. Le regole dei connettori che
+consegnano nel thread si disattivano da sole («thread non più disponibile», come per un thread potato; vedi
+docs/CONNECTORS.MD). Solo dopo il salvataggio riuscito parte l'evento `hub-thread-removed`; un salvataggio fallito
+non cambia nulla. Errori: HUB spento, canale di un workspace che non esiste, «thread non trovato».
+
 ## API interna
 
 Logica pura in `ChannelThreads` (`hub/threads.rs`, `hub/threads/lifecycle.rs`), senza orologio né generatore di
@@ -340,7 +353,8 @@ id: tempo e id li passa il chiamante. La usano i comandi e gli eventi della boar
 | Aggiungere un messaggio | `add_message(thread_id, NewMessage { id, author, body, reply_to, event, origin }, now)` |
 | Aggiungere un messaggio con allegati | `add_message_with_attachments(thread_id, new, attachments, now)` (solo `user` ed `external`) |
 | Allegato di un thread | `attachment(thread_id, attachment_id)` |
-| Chiudere / riaprire | `set_state(thread_id, ThreadState::Closed \| Open, now)` |
+| Chiudere / riaprire | `set_state(thread_id, ThreadState::Closed 
+| Eliminare un thread | `remove_thread(thread_id)` (qualunque stato; torna il thread tolto) |\| Open, now)` |
 | Collegare task | `link_tasks(thread_id, task_ids, now)` (tutto o niente) |
 | Collegare una proposta | `link_proposal(thread_id, proposal_id, now)` |
 | Rendere titolare un segretario | `set_owner(thread_id, name, now)` |
@@ -406,6 +420,7 @@ Validano gli argomenti per primi e fanno l'I/O in `crate::blocking`. Wrapper nel
 | `hub_create_thread` | `channel`, `title` | `HubThread` (thread libero dell'utente) |
 | `hub_send` | `channel`, `thread_id`, `body`, `reply_to?`, `attachments?` (id dallo staging) | `HubMessage` dell'utente; gli allegati passano dallo staging alla cartella del thread (vedi "Allegati"); dopo il salvataggio, una risposta a una domanda di un worker ancora in attesa va al worker così com'è (vedi "Domande dei worker"), altrimenti il motore sveglia i segretari (in background) |
 | `hub_set_thread_state` | `channel`, `thread_id`, `closed` (`true` chiude, `false` riapre) | `HubThreadSummary` aggiornato, più `hub-update` se lo stato è cambiato; vedi "Chiudere e riaprire a mano" |
+| `hub_delete_thread` | `channel`, `thread_id` | nulla; elimina il thread (qualunque stato) e i suoi allegati, chiude le sessioni dei segretari su di esso, poi `hub-thread-removed`; i task collegati restano sulla board (vedi "Eliminare a mano") |
 | `hub_stage_attachment_file` | `path` (assoluto, dal dialog) | `HubAttachment` nello staging |
 | `hub_stage_attachment_bytes` | corpo raw (`InvokeBody::Raw`), nome nell'header `x-hub-file-name` (`encodeURIComponent`) | `HubAttachment` nello staging (immagine incollata, file trascinato) |
 | `hub_read_attachment` | `channel`, `thread_id`, `attachment_id` | i byte (`ArrayBuffer`), per l'anteprima |
@@ -414,7 +429,7 @@ Validano gli argomenti per primi e fanno l'I/O in `crate::blocking`. Wrapper nel
 | `hub_secretary_status` | — | `HubSecretaryStatus[]`: i segretari svegli adesso (vedi "Motore dei segretari") |
 | `hub_resolve_action_request` | `channel`, `thread_id`, `message_id` (la scheda), `confirm` | `HubActionRequest` aggiornata: `confirm` esegue l'azione, altrimenti annulla (vedi "Azioni che chiedono conferma"); una richiesta già decisa è un errore («Questa richiesta è già stata decisa.»), una scaduta o non più valida no |
 
-Con l'HUB spento `hub_create_thread`, `hub_send` e i due `hub_stage_attachment_*` sono rifiutati (prima di creare
+Con l'HUB spento `hub_create_thread`, `hub_send`, `hub_set_thread_state`, `hub_delete_thread` e i due `hub_stage_attachment_*` sono rifiutati (prima di creare
 cartelle); letture, `hub_read_attachment`, `hub_attachment_path` e i comandi delle impostazioni funzionano sempre.
 Gli errori di validazione sono in italiano (li legge l'utente) e un comando che fallisce non cambia nulla; un
 segretario che non c'è risponde «segretario non trovato». Un canale di un workspace che non esiste
@@ -427,6 +442,9 @@ segretari: risposte, avvisi, riassunto), con payload
 `HubThreadSummary` del thread toccato (riga in `TauriEvents`). Basta per aggiornare l'elenco dei thread e il
 badge del canale senza rileggere nulla; la conversazione aperta rilegge il thread con `hub_get_thread` quando
 `message_count` o `updated_at` cambiano.
+
+`hub-thread-removed`, emesso dopo il salvataggio di un `hub_delete_thread` riuscito, con payload
+`HubThreadRef { channel, thread_id }` del thread eliminato (vedi "Eliminare a mano").
 
 `hub-secretary-status`, emesso dal motore dei segretari a ogni cambiamento delle sessioni, con payload
 `HubSecretaryStatus[]` (l'elenco completo, vedi "Motore dei segretari"); `hub_secretary_status` lo legge all'apertura

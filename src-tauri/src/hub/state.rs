@@ -295,6 +295,23 @@ mod tests {
     }
 
     #[test]
+    fn a_removed_thread_loses_its_attachment_folder_only() {
+        let (_, dirs) = temp_dirs("remove-thread");
+        let state = HubState::default();
+        create(&state, &dirs, &ws(), "gone");
+        create(&state, &dirs, &ws(), "kept");
+        let (attachment, path) = stored(&dirs, "gone", "att-1-1");
+        send_with(&state, &dirs, "gone", "first", attachment);
+        let (other, other_path) = stored(&dirs, "kept", "att-1-2");
+        send_with(&state, &dirs, "kept", "second", other);
+        state.update(&dirs, &ws(), |l| l.remove_thread("gone").map(drop)).unwrap();
+        assert!(!path.exists() && !dirs.attachments.join("channels").join("ws-1").join("gone").exists());
+        assert!(other_path.is_file());
+        let restarted = HubState::default();
+        assert!(restarted.read(&dirs, &ws(), |l| l.thread("gone").is_none() && l.thread("kept").is_some()));
+    }
+
+    #[test]
     fn forgetting_a_channel_deletes_its_file_and_attachments_only() {
         let (_, dirs) = temp_dirs("forget");
         let state = HubState::default();

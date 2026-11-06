@@ -198,6 +198,22 @@ impl SecretaryEngine {
         self.emit_status(app);
     }
 
+    /// Il thread e' stato eliminato: via le sue sessioni (senza riassunto), la
+    /// sua coda e il suo esecutore. Un lavoro gia' oltre l'ultimo punto di
+    /// attesa non ricrea il thread: le sue scritture falliscono con
+    /// `THREAD_NOT_FOUND`.
+    pub fn forget_thread(&self, app: &AppHandle, channel: &Channel, thread_id: &str) {
+        let key = ThreadKey::new(channel, thread_id);
+        {
+            let mut inner = self.lock();
+            inner.sessions.forget_thread(&key);
+            if let Some(executor) = inner.executors.remove(&key) {
+                executor.abort();
+            }
+        }
+        self.emit_status(app);
+    }
+
     pub fn status(&self, app: &AppHandle) -> Vec<SecretaryStatus> {
         let idle = app.state::<HubSettingsStore>().read(|s| idle_ms(&s.session));
         self.lock().sessions.awake(idle).into_iter().map(SecretaryStatus::from).collect()

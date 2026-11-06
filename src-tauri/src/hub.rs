@@ -40,6 +40,8 @@
 //! - `lifecycle`: gli ascoltatori di acceso/spento e della rimozione di un workspace;
 //! - `attachments`: gli allegati dei messaggi dell'utente (staging, file, pulizia, comandi);
 //! - `commands`: i comandi dei thread e l'evento;
+//! - `thread_state`: chiudere e riaprire un thread a mano;
+//! - `thread_delete`: eliminare un thread a mano (evento `hub-thread-removed`);
 //! - `contact`: canali e thread aperti, e la creazione di un thread, per i canali di contatto;
 //! - `events`: gli eventi della board nei thread (diff, instradamento, `HubFeed`);
 //! - `engine`: il motore dei segretari (menzioni, sessioni, tool calling);
@@ -67,6 +69,7 @@ pub mod send;
 pub mod settings;
 mod state;
 mod text;
+pub mod thread_delete;
 pub mod thread_state;
 mod threads;
 mod waiting;

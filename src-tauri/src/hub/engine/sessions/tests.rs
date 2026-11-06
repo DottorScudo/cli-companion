@@ -242,6 +242,23 @@ fn closing_without_summary_forgetting_and_clearing() {
 }
 
 #[test]
+fn forgetting_a_thread_drops_only_its_sessions_and_queue() {
+    let mut s = Sessions::default();
+    let other = ThreadKey::new(&ws(), "t2");
+    s.route(&key(), &user("m1", "@mario stato?"), &NO_FALLBACK, &team(), IDLE, 0);
+    finish_job(&mut s, 0);
+    s.route(&key(), &user("m2", "@mario e ora?"), &NO_FALLBACK, &team(), IDLE, 1);
+    s.route(&other, &user("m3", "@giorgio ciao"), &NO_FALLBACK, &team(), IDLE, 1);
+    s.forget_thread(&key());
+    let awake = s.awake(IDLE);
+    assert_eq!(awake.len(), 1);
+    assert_eq!((&awake[0].key, awake[0].secretary.as_str()), (&other, "giorgio"));
+    assert_eq!(s.next_job(&key()), None, "la coda del thread eliminato e' sparita");
+    assert!(s.expire_due(IDLE, IDLE * 2).iter().all(|k| k != &key()), "nessun riassunto");
+    assert_eq!(s.next_job(&other), Some(reply("giorgio", "m3")));
+}
+
+#[test]
 fn a_board_event_wakes_the_owner_with_a_new_session() {
     let mut s = Sessions::default();
     let r = s.route_event(&key(), "giorgio", "e1", &team(), IDLE, 5);
