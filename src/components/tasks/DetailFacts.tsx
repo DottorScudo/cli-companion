@@ -1,4 +1,7 @@
 import type { ReactNode } from "react";
+import BotBadge from "./BotBadge";
+import { NO_BOT_TEXT } from "../../lib/taskBot";
+import type { AgentBot } from "../../bindings/AgentBot";
 import { cn } from "../../lib/utils";
 import { formatTaskDuration, statusDotClass } from "../../lib/board";
 import type { BoardView, Task } from "../../lib/board";
@@ -16,13 +19,15 @@ interface Props {
   task: Task;
   board: BoardView;
   now: number;
+  /** Bot noti: nome e avatar di quello del task. */
+  bots: readonly AgentBot[];
   /** Mostra il repository anche se è la root (workspace multi-repo). */
   showRepo: boolean;
   onSelectTask: (taskId: string) => void;
 }
 
-/** Dipendenze (cliccabili), modello, repo, durata e tentativi. */
-export default function DetailFacts({ task, board, now, showRepo, onSelectTask }: Props) {
+/** Dipendenze (cliccabili), Bot, modello, effort, skill, repo, durata e tentativi. */
+export default function DetailFacts({ task, board, now, bots, showRepo, onSelectTask }: Props) {
   const deps = task.depends_on;
   const duration = formatTaskDuration(task, now);
   return (
@@ -56,9 +61,18 @@ export default function DetailFacts({ task, board, now, showRepo, onSelectTask }
           </ul>
         )}
       </Fact>
+      <Fact label="Bot">
+        {task.bot ? <BotBadge bots={bots} id={task.bot} className="max-w-full text-xs" /> : NO_BOT_TEXT}
+      </Fact>
       <Fact label="Modello">
         {task.model ? task.model : <span className="text-muted-foreground">predefinito</span>}
       </Fact>
+      {task.effort && <Fact label="Effort">{task.effort}</Fact>}
+      {task.skill && (
+        <Fact label="Skill">
+          <span className="font-mono text-xs">{task.skill.id}</span>
+        </Fact>
+      )}
       {(showRepo || task.repo) && (
         <Fact label="Repository">
           <span className="font-mono text-xs">{task.repo || "."}</span>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import AgentBadge from "./AgentBadge";
+import BotBadge from "./BotBadge";
 import DetailActions from "./DetailActions";
 import DetailAgentUnavailable from "./DetailAgentUnavailable";
 import DetailE2e from "./DetailE2e";
@@ -121,6 +122,7 @@ export default function TaskDetail({
           {isPlan(task) && <PlanBadge className="text-xs" />}
           <VerdictBadge task={task} className="text-xs" />
           <TaskE2eBadge task={task} className="text-xs" />
+          <BotBadge bots={agents.bots} id={task.bot} className="text-xs" />
           <AgentBadge name={agentBadge(agents, task.agent)} className="text-xs" />
           <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground" title={task.id}>
             {task.id}
@@ -205,6 +207,7 @@ export default function TaskDetail({
               task={task}
               board={board}
               now={clock}
+              bots={agents.bots}
               showRepo={isMultiRepo(repoChoices)}
               onSelectTask={onSelectTask}
             />

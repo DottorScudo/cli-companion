@@ -3,6 +3,7 @@ import type { DragEvent } from "react";
 import { TriangleAlert } from "lucide-react";
 import { cn } from "../../lib/utils";
 import AgentBadge from "./AgentBadge";
+import BotBadge from "./BotBadge";
 import { ReviewBadge, VerdictBadge } from "./ReviewBadges";
 import { TaskE2eBadge } from "./E2eBadges";
 import { isReview } from "../../lib/review";
@@ -91,6 +92,7 @@ function KanbanCard({
         {isPlan(task) && <PlanBadge />}
         <VerdictBadge task={task} />
         <TaskE2eBadge task={task} />
+        <BotBadge bots={agents.bots} id={task.bot} />
         <AgentBadge name={agentBadge(agents, task.agent)} />
         {waiting && (
           <span className="max-w-full truncate rounded border border-border-strong px-1.5 py-px">{waiting}</span>

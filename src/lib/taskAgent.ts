@@ -5,6 +5,7 @@
 // integrazioni.
 
 import { defaultOf, enabledOf } from "./integrations.ts";
+import type { AgentBot } from "../bindings/AgentBot.ts";
 import type { AgentWorkerSettings } from "../bindings/AgentWorkerSettings.ts";
 import type { AgentUnavailableView } from "../bindings/AgentUnavailableView.ts";
 import type { IntegrationInfo } from "../bindings/IntegrationInfo.ts";
@@ -49,6 +50,8 @@ export interface TaskAgents {
   workerSettings: Readonly<Record<string, AgentWorkerSettings>>;
   /** Ambiente in cui il workspace esegue i task ("Windows" o la distro WSL). */
   envLabel: string;
+  /** Tutti i Bot (anche i disabilitati): scelta nei form, nome e avatar sui task. */
+  bots: readonly AgentBot[];
 }
 
 type WorkspaceAgentFields = Pick<Workspace, "agent" | "kind" | "distro" | "worker_agents">;
@@ -59,7 +62,11 @@ export function workspaceEnvLabel(workspace: Pick<Workspace, "kind" | "distro">)
 }
 
 /** Costruisce i dati degli agenti dei task di `workspace` dalle integrazioni registrate. */
-export function taskAgents(integrations: readonly IntegrationInfo[], workspace: WorkspaceAgentFields): TaskAgents {
+export function taskAgents(
+  integrations: readonly IntegrationInfo[],
+  workspace: WorkspaceAgentFields,
+  bots: readonly AgentBot[] = [],
+): TaskAgents {
   return {
     choices: enabledOf(integrations).filter((i) => i.capabilities.includes("automation")),
     workspaceAgentId: workspace.agent ?? defaultOf(integrations)?.id,
@@ -68,6 +75,7 @@ export function taskAgents(integrations: readonly IntegrationInfo[], workspace: 
     names: new Map(integrations.map((i) => [i.id, i.name])),
     workerSettings: workspace.worker_agents,
     envLabel: workspaceEnvLabel(workspace),
+    bots,
   };
 }
 

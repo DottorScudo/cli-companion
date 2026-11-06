@@ -6,9 +6,9 @@ import type { TaskAgents } from "../../lib/taskAgent";
 import type { Task } from "../../lib/board";
 
 interface Props {
-  task: Pick<Task, "agent_unavailable" | "can_edit">;
+  task: Pick<Task, "agent_unavailable" | "can_edit" | "bot">;
   agents: TaskAgents;
-  /** Apre la modifica del task, dove si sceglie un altro agente. */
+  /** Apre la modifica del task, dove si sceglie un altro Bot (o un altro agente, se il task non ha un Bot). */
   onChangeAgent: () => void;
 }
 
@@ -32,7 +32,7 @@ export default function DetailAgentUnavailable({ task, agents, onChangeAgent }: 
       <div className="flex flex-wrap gap-1.5">
         {task.can_edit && (
           <Button type="button" variant="outline" onClick={onChangeAgent} className={btn}>
-            Cambia agente
+            {task.bot ? "Cambia Bot" : "Cambia agente"}
           </Button>
         )}
         <Button type="button" variant="outline" onClick={openIntegrationSettings} className={btn}>

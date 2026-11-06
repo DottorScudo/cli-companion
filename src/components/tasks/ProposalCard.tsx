@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { api } from "../../lib/tauri";
 import type { BoardView, Proposal, TaskSpec } from "../../lib/board";
+import BotBadge from "./BotBadge";
 import { ReviewBadge } from "./ReviewBadges";
 import { SpecE2eBadge } from "./E2eBadges";
 import { isReview, proposalHeading } from "../../lib/review";
@@ -32,13 +33,14 @@ interface SpecMetaProps {
   siblings: TaskSpec[];
 }
 
-/** "Dipende da A, B · agente · modello" (le parti assenti si omettono). */
+/** "Bot · Dipende da A, B · agente · modello" (le parti assenti si omettono). */
 function SpecMeta({ spec, board, agents, siblings }: SpecMetaProps) {
   const deps = dependsOnText(dependencyLabels(spec.depends_on, board.tasks, siblings));
   const rest = [proposalAgentLabel(agents, spec.agent), spec.model].filter(Boolean).join(" · ");
-  if (!deps && !rest) return null;
+  if (!deps && !rest && !spec.bot) return null;
   return (
-    <div className="min-w-0 text-[11px] text-muted-foreground">
+    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
+      <BotBadge bots={agents.bots} id={spec.bot} />
       {deps && <span className="break-words text-text-secondary">{deps}</span>}
       {deps && rest && " · "}
       {rest}

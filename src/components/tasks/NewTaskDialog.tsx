@@ -8,6 +8,7 @@ import { repoHasE2e, withRepoE2e } from "../../lib/e2e";
 import { sanitizeModel } from "../../lib/model";
 import { defaultAgentChoice } from "../../lib/taskAgent";
 import type { TaskAgents } from "../../lib/taskAgent";
+import { defaultBotChoice } from "../../lib/taskBot";
 import { api } from "../../lib/tauri";
 import {
   ROOT_REPO,
@@ -91,6 +92,7 @@ function NewTaskForm({ workspace, agents, board, onBoard, onClose, onOpenIntake,
     task: "",
     depends_on: [],
     agent: "",
+    bot: "",
     model: "",
     repo: repoChoices[0] ?? ROOT_REPO,
     kind: "work",
@@ -102,6 +104,8 @@ function NewTaskForm({ workspace, agents, board, onBoard, onClose, onOpenIntake,
   const repo = repoChoices.includes(values.repo) ? values.repo : (repoChoices[0] ?? ROOT_REPO);
   // Le integrazioni possono arrivare dopo l'apertura: finché non si sceglie, vale l'agente del workspace.
   const agent = values.agent || defaultAgentChoice(agents);
+  // Idem per il Bot: finché non si sceglie vale `general`.
+  const bot = values.bot || defaultBotChoice(agents.bots);
 
   const taskRepo = multiRepo ? repoValue(repo) : null;
   const e2eConfigured = repoHasE2e(workspace.repos, taskRepo);
@@ -125,7 +129,8 @@ function NewTaskForm({ workspace, agents, board, onBoard, onClose, onOpenIntake,
         task: values.task.trim(),
         depends_on: values.depends_on,
         repo: taskRepo,
-        agent: agent || null,
+        agent: bot ? null : agent || null,
+        bot: bot || null,
         model: sanitizeModel(values.model),
         kind: values.kind,
         e2e: values.e2e && e2eConfigured,
@@ -164,7 +169,7 @@ function NewTaskForm({ workspace, agents, board, onBoard, onClose, onOpenIntake,
 
         <DetailTaskFields
           idPrefix="new-task"
-          values={{ ...values, repo, agent }}
+          values={{ ...values, repo, agent, bot }}
           onChange={change}
           errors={errors}
           tasks={tasks}

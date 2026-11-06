@@ -58,6 +58,7 @@ export default function GlobalTaskPanel({
   const groups = useMemo(() => activityGroups(workspaces, boards), [workspaces, boards]);
   const totals = useMemo(() => activityTotals(groups), [groups]);
   const integrations = useStore(configStore, (s) => s.integrations);
+  const bots = useStore(configStore, (s) => s.botSettings.agents);
   const now = usePanelNow(!collapsed && totals.running > 0);
 
   if (collapsed) {
@@ -129,7 +130,7 @@ export default function GlobalTaskPanel({
       <div className="flex min-h-0 flex-1 flex-col gap-[18px] overflow-y-auto overflow-x-hidden p-2.5">
         {groups.map((g) => {
           const ws = g.workspace;
-          const agents = taskAgents(integrations, ws);
+          const agents = taskAgents(integrations, ws, bots);
           return (
             <section key={ws.id} aria-label={ws.name} className="flex min-w-0 flex-col gap-1.5">
               <button

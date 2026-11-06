@@ -8,5 +8,6 @@ import { useStore } from "./useStore";
 /** Gli agenti dei task di un workspace: scelte nei form, badge, motivo di un agente non pronto. */
 export function useTaskAgents(workspace: Workspace): TaskAgents {
   const integrations = useStore(configStore, (s) => s.integrations);
-  return useMemo(() => taskAgents(integrations, workspace), [integrations, workspace]);
+  const bots = useStore(configStore, (s) => s.botSettings.agents);
+  return useMemo(() => taskAgents(integrations, workspace, bots), [integrations, workspace, bots]);
 }

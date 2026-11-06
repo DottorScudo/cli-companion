@@ -3,10 +3,12 @@ import DetailDependencyPicker from "./DetailDependencyPicker";
 import { Input } from "../ui/input";
 import { selectClass } from "../settings/shared";
 import { dependencyOptions } from "../../lib/taskForm";
+import { botChange } from "../../lib/taskForm";
 import type { TaskFormErrors, TaskFormValues } from "../../lib/taskForm";
 import type { Task } from "../../lib/board";
 import { MODEL_MAX } from "../../lib/model";
 import { agentOptions, modelAfterAgentChange, modelPlaceholder, modelSuggestions } from "../../lib/taskAgent";
+import { botAgentId, botOptions } from "../../lib/taskBot";
 import type { TaskAgents } from "../../lib/taskAgent";
 import { E2E_OPTION_LABEL, e2eOption } from "../../lib/e2e";
 import { REVIEW_OPTION_HELP, REVIEW_OPTION_LABEL } from "../../lib/review";
@@ -82,8 +84,12 @@ export default function DetailTaskFields({
   const options = dependencyOptions(tasks, selfId, values.depends_on);
   const id = (name: string) => `${idPrefix}-${name}`;
   const e2e = e2eOption(values.e2e, e2eConfigured);
+  const botChoices = botOptions(agents.bots, values.bot);
+  const hasBot = values.bot !== "";
+  // Con un Bot l'agente è il suo: il modello si suggerisce e si propone per quello.
+  const modelAgent = hasBot ? botAgentId(agents.bots, values.bot, agents.workspaceAgentId) : values.agent;
   const agentChoices = agentOptions(agents, values.agent);
-  const suggestions = modelSuggestions(agents, values.agent);
+  const suggestions = modelSuggestions(agents, modelAgent);
   return (
     <>
       <FieldBox id={id("title")} label="Titolo" error={errors.title}>
@@ -167,7 +173,29 @@ export default function DetailTaskFields({
         )}
       </div>
 
-      {agentChoices.length > 0 && (
+      {agents.bots.length > 0 && (
+        <FieldBox
+          id={id("bot")}
+          label="Bot"
+          help="Chi esegue il task: agente, modello, effort e skill vengono dal Bot. Cambiandolo, il modello si svuota."
+        >
+          <select
+            id={id("bot")}
+            value={values.bot}
+            disabled={disabled}
+            onChange={(e) => onChange(botChange(e.target.value))}
+            className={selectClass}
+          >
+            {botChoices.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.label}
+              </option>
+            ))}
+          </select>
+        </FieldBox>
+      )}
+
+      {!hasBot && agentChoices.length > 0 && (
         <FieldBox
           id={id("agent")}
           label="Agente"
@@ -195,14 +223,18 @@ export default function DetailTaskFields({
         id={id("model")}
         label="Modello"
         error={errors.model}
-        help="Vuoto: il modello predefinito dei worker del workspace."
+        help={
+          hasBot
+            ? "Vuoto: il modello del Bot. Scrivilo solo per fare un’eccezione."
+            : "Vuoto: il modello predefinito dei worker del workspace."
+        }
       >
         <Input
           id={id("model")}
           value={values.model}
           disabled={disabled}
           maxLength={MODEL_MAX + 16}
-          placeholder={modelPlaceholder(agents, values.agent)}
+          placeholder={modelPlaceholder(agents, modelAgent)}
           list={suggestions.length > 0 ? id("model-suggestions") : undefined}
           aria-invalid={errors.model ? true : undefined}
           aria-describedby={errors.model ? `${id("model")}-error` : undefined}

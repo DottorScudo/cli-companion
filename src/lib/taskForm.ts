@@ -18,6 +18,8 @@ export interface TaskFormValues {
   depends_on: string[];
   /** Id dell'agente scelto; vuoto = nessuna scelta (integrazioni non ancora caricate): si lascia decidere al backend. */
   agent: string;
+  /** Id del Bot scelto; vuoto = nessun Bot (task vecchi). Con un Bot l'agente è il suo. */
+  bot: string;
   model: string;
   /** Repository scelto; `ROOT_REPO` = la root (si invia come null). */
   repo: string;
@@ -96,6 +98,15 @@ export function repoValue(repo: string): string | null {
   return repo === ROOT_REPO || repo === "" ? null : repo;
 }
 
+/**
+ * Cambio di Bot nel form: il modello del task è la copia di quello del vecchio
+ * Bot (o un override scritto per lui), quindi si svuota e il backend applica
+ * quello del nuovo Bot.
+ */
+export function botChange(bot: string): Partial<TaskFormValues> {
+  return { bot, model: "" };
+}
+
 /** Valori iniziali del form di modifica. */
 export function formFromTask(task: Task): TaskFormValues {
   return {
@@ -103,6 +114,7 @@ export function formFromTask(task: Task): TaskFormValues {
     task: task.task,
     depends_on: [...task.depends_on],
     agent: task.agent,
+    bot: task.bot ?? "",
     model: task.model ?? "",
     repo: task.repo || ROOT_REPO,
     kind: task.kind,
@@ -127,6 +139,7 @@ export function buildPatch(task: Task, v: TaskFormValues, includeRepo: boolean):
   if (!sameSet(v.depends_on, task.depends_on)) patch.depends_on = v.depends_on;
   const model = sanitizeModel(v.model);
   if (v.agent !== "" && v.agent !== task.agent) patch.agent = v.agent;
+  if (v.bot !== (task.bot ?? "")) patch.bot = v.bot === "" ? null : v.bot;
   if (model !== (task.model ?? null)) patch.model = model;
   if (v.kind !== task.kind) patch.kind = v.kind;
   if (v.e2e !== (task.e2e ?? false)) patch.e2e = v.e2e;

@@ -2,6 +2,7 @@ import { memo } from "react";
 import { TriangleAlert } from "lucide-react";
 import { cn } from "../../lib/utils";
 import AgentBadge from "./AgentBadge";
+import BotBadge from "./BotBadge";
 import { ReviewBadge, VerdictBadge } from "./ReviewBadges";
 import { TaskE2eBadge } from "./E2eBadges";
 import { isReview } from "../../lib/review";
@@ -69,6 +70,7 @@ function ListRow({ task, subtitle, agents, now, selected, showRepo, onSelect }: 
           {isPlan(task) && <PlanBadge className="text-[11px]" />}
           <VerdictBadge task={task} className="text-[11px]" />
           <TaskE2eBadge task={task} className="text-[11px]" />
+          <BotBadge bots={agents.bots} id={task.bot} className="text-[11px]" />
           <AgentBadge name={agentBadge(agents, task.agent)} className="text-[11px]" />
         </span>
         {sub && <span className="truncate text-[11px] text-muted-foreground">{sub}</span>}
