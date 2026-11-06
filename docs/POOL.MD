@@ -414,9 +414,13 @@ identico a General e renderebbe ambigua la scelta.
 - Kinds `[work]`, fascia `Strong` (gli errori costano lavoro perso), effort `medium` (le operazioni sono brevi).
 - Perché spento: è l'unico Bot che deve usare comandi git che cambiano stato fuori dal flusso di consegna. Il worker
   gira già in un worktree con istruzioni di consegna (`board/texts.rs`); operazioni come "elimina i branch vecchi"
-  toccano il repository condiviso. **Non verificato**: come si comportino le istruzioni di consegna (che chiedono un
-  commit e un merge) con un task che non produce commit; il report mostra "no committed changes"
-  (`automation/worktrees.rs`) ma non c'è un esito dedicato. Va provato prima di accenderlo di serie (§8, D5).
+  toccano il repository condiviso. Verificato nel codice il caso del task che non produce commit: `complete_task` non
+  richiede `commit` (`board/report.rs`, `parse_report_fields`), il diffstat "no committed changes"
+  (`automation/worktrees.rs`) è solo informativo, l'esito è Done e worktree e branch si puliscono alla chiusura. Nelle
+  consegne local merge, commit e push il flusso si conclude pulito; in modalità **pr** invece `gh pr create` fallisce
+  ("No commits between ...") perché i passi di consegna (`board/texts.rs`, `delivery_steps` e `GIT_DONE`) non
+  prevedono il caso senza commit. **Prerequisito** per accenderlo di serie (§8, D5): aggiungere ai passi di consegna
+  una riga per il task senza commit (lavoro a parte).
 - Le domande su git in sola lettura (R3) **non** vanno qui ma a `quick-answer`.
 
 **`release` — Release** (R12) — seeded **spento**
@@ -446,8 +450,14 @@ Da documentare (es. in [BOARD.MD](BOARD.MD) o nella UI dei Bot come "idee"), non
   `agents/claude_code/plugin_skills.rs` e `agents/opencode/plugin_skills.rs`): avviene da sé per ogni voce di
   `agents::presets::PRESETS` ([BOARD.MD](BOARD.MD), "Skill del plugin e Bot"); verificato nel codice che una skill
   nuova richiede l'aggiornamento del pacchetto su entrambe le integrazioni: la versione del pacchetto dipende dal
-  testo di tutte le skill, quindi la prontezza diventa `outdated` finché l'utente non lo aggiorna (per OpenCode le
-  skill registrate a runtime sono `SKILL_IDS` dell'`index.ts` generato).
+  testo di tutte le skill (`version_of` in `agents/opencode/plugin.rs`, `plugin_version` in
+  `agents/claude_code/plugin.rs`), quindi la prontezza diventa `Outdated` finché l'utente non lo aggiorna (per
+  OpenCode le skill registrate a runtime sono `SKILL_IDS` dell'`index.ts` generato). Nel frattempo l'AgentGate
+  (`board/agent_gate.rs`) tiene i task dell'agente in `queued` con il motivo visibile; l'aggiornamento si fa dal
+  dialogo dei plugin, che riavvia l'app. Dopo l'aggiornamento vanno riavviate solo le sessioni interattive già
+  aperte: i worker partono già con il pacchetto nuovo. All'accettazione (`board/agent.rs`, `resolve_with_bot`) si
+  rifiuta un Bot solo se l'agente non sa caricarne la skill (skill sconosciuta alla build), non se la skill non è
+  ancora installata.
 - Le fasce sono due: se si vuole una fascia economica vera per `quick-answer` serve una terza fascia (`Light`/`Fast`)
   nel contratto (§8, D2).
 
@@ -720,7 +730,9 @@ mai scelto dal Planner, i Bot senza prompt aggiornati sono comunque scelti dal p
 - **Attivazione spontanea delle skill da worker** nelle sessioni interattive (§5.1): descrizioni da rivedere con cura
   e da provare in una sessione normale.
 - **Esito Answer abusato** dal Planner per evitare di proporre (T1): regola stretta e test sulle istruzioni.
-- **Task `work` senza commit** (`git-operator`): comportamento non verificato con le istruzioni di consegna.
+- **Task `work` senza commit in modalità pr** (`git-operator`): l'esito è Done e local merge, commit e push si
+  concludono puliti, ma in modalità pr `gh pr create` fallisce perché i passi di consegna non prevedono il caso
+  (§4.3). Va aggiunta la riga di consegna prima di accenderlo di serie.
 - **Costo**: 12 Bot accesi non costano nulla finché non sono scelti, ma `bug-fixer` e `refactorer` sono `strong/high`
   dove prima il pianificatore poteva scegliere `general` con il modello del workspace: il costo medio di un bug sale.
   È voluto (qualità), ma va detto nella documentazione.
