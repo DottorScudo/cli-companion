@@ -5,7 +5,14 @@ import { createStore } from "../lib/store.ts";
 import { botImageOf } from "../lib/bots.ts";
 import type { BotImage } from "../lib/bots.ts";
 import { defaultOf, enabledEnvStatuses, enabledOf } from "../lib/integrations.ts";
-import type { AgentEnvStatus, AgentProfile, BotSettings, BuiltinLaunch, IntegrationInfo } from "../lib/tauri.ts";
+import type {
+  AgentEnvStatus,
+  AgentProfile,
+  BotLaunch,
+  BotSettings,
+  BuiltinLaunch,
+  IntegrationInfo,
+} from "../lib/tauri.ts";
 
 export interface ConfigState {
   /** Profili di input e ripresa degli agenti (statici): letti una volta all'avvio. */
@@ -16,6 +23,9 @@ export interface ConfigState {
   builtinLaunches: BuiltinLaunch[];
   /** Avvii integrati per i workspace con un agente proprio, per id dell'agente. */
   agentLaunches: Record<string, BuiltinLaunch[]>;
+  /** Avvii dei Bot agente: per l'agente predefinito e per ogni agente proprio dei workspace. */
+  botLaunches: BotLaunch[];
+  agentBotLaunches: Record<string, BotLaunch[]>;
   globalLaunch: string | null;
   /** Interruttore globale dell'utilizzo (limiti e token). */
   showUsage: boolean;
@@ -33,6 +43,8 @@ export const INITIAL_CONFIG: ConfigState = {
   profilesReady: false,
   builtinLaunches: [],
   agentLaunches: {},
+  botLaunches: [],
+  agentBotLaunches: {},
   globalLaunch: null,
   showUsage: true,
   botSettings: DEFAULT_BOT_SETTINGS,
@@ -89,6 +101,14 @@ export function launchesFor(
   ws: { agent?: string | null },
 ): BuiltinLaunch[] {
   return (ws.agent ? s.agentLaunches[ws.agent] : undefined) ?? s.builtinLaunches;
+}
+
+/** Avvii dei Bot agente di un workspace, come `launchesFor`. */
+export function botLaunchesFor(
+  s: Pick<ConfigState, "botLaunches" | "agentBotLaunches">,
+  ws: { agent?: string | null },
+): BotLaunch[] {
+  return (ws.agent ? s.agentBotLaunches[ws.agent] : undefined) ?? s.botLaunches;
 }
 
 type WithIntegrations = Pick<ConfigState, "integrations">;

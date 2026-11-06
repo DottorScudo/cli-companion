@@ -2,14 +2,17 @@
 //! modifica passa da `agent_bots` e si salva in `bots.json` prima di essere
 //! pubblicata. Ogni comando che cambia l'elenco restituisce le impostazioni salvate.
 
-use super::agent::{AgentBot, AgentBotDraft};
+use super::agent::{AgentBot, AgentBotDraft, SkillRef};
 use super::agent_bots;
 use super::catalog::AgentCatalog;
+use super::launches::{self, BotLaunch, BotTabLaunch};
 use super::skills::{selectable_skills, BotSkillOption};
 use super::validate::validate_draft;
 use super::{update, BotSettings, BotSettingsStore};
+use crate::agents::registry;
 use crate::hub::settings::HubSettingsStore;
 use crate::store::data_dir;
+use crate::workspaces::WorkspaceStore;
 use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
@@ -75,4 +78,53 @@ pub async fn list_bot_skills(app: AppHandle) -> Result<Vec<BotSkillOption>, Stri
 /// I nomi dei segretari dell'HUB, in minuscolo: un Bot non li puo' prendere.
 fn secretary_names(app: &AppHandle) -> Vec<String> {
     app.state::<HubSettingsStore>().read(|s| s.secretaries.iter().map(|sec| sec.name.to_lowercase()).collect())
+}
+
+/// L'agente del workspace: quello scelto o il predefinito globale. Se e'
+/// scelto ma disabilitato non c'e' ripiego: il Bot risulta bloccato.
+fn workspace_agent_id(workspace_agent: Option<String>) -> String {
+    workspace_agent.unwrap_or_else(|| registry::default_agent().id().to_string())
+}
+
+/// Le voci del menu di avvio per i Bot abilitati, per un workspace con quell'agente
+/// (`None` = senza un agente proprio). Economico, nessun processo.
+#[tauri::command]
+pub fn bot_launches(state: State<BotSettingsStore>, workspace_agent: Option<String>) -> Vec<BotLaunch> {
+    let agent = workspace_agent_id(workspace_agent);
+    state.read(|s| launches::bot_launches(&s.agents, &agent, &AgentCatalog::current()))
+}
+
+/// Prepara il lancio di un Bot nel tab `tab_id` che il frontend sta per aprire:
+/// le variabili d'ambiente dell'agente vengono messe da parte per `pty_spawn`.
+#[tauri::command]
+pub async fn bot_interactive_launch(
+    app: AppHandle,
+    workspace_id: String,
+    bot_id: String,
+    tab_id: String,
+) -> Result<BotTabLaunch, String> {
+    crate::blocking(move || {
+        if !crate::ipc::is_valid_tab_id(&tab_id) {
+            return Err("Identificativo del tab non valido.".to_string());
+        }
+        let ws = app.state::<WorkspaceStore>().find(&workspace_id).ok_or("Workspace non trovato.")?;
+        let bot = app
+            .state::<BotSettingsStore>()
+            .read(|s| s.agents.iter().find(|b| b.id == bot_id).cloned())
+            .ok_or("Bot non trovato.")?;
+        // Il disco serve solo se il Bot ha una skill dell'utente.
+        let user_skills = match &bot.skill {
+            Some(SkillRef::User(_)) => crate::user_skills::list(&crate::user_skills::store_dir(&data_dir(&app)?))?,
+            _ => Vec::new(),
+        };
+        let (launch, env) =
+            launches::build_bot_launch(&bot, &workspace_agent_id(ws.agent), &AgentCatalog::current(), |name| {
+                user_skills.iter().any(|s| s.name == name)
+            })?;
+        if !env.is_empty() {
+            crate::pty::stage_env(&app, &tab_id, env);
+        }
+        Ok(launch)
+    })
+    .await
 }

@@ -25,6 +25,10 @@ pub enum Flaw {
     AutomationInvalidEnv,
     /// Il comando dell'effort contiene un carattere non sicuro per la shell.
     EffortArgsUnsafe,
+    /// Il comando di ripristino riporta anche la skill.
+    RestoreKeepsSkill,
+    /// L'avvio interattivo accetta un nome di skill con `$`.
+    LaunchAcceptsDollarSkill,
 }
 
 #[derive(Debug, Clone)]
@@ -83,6 +87,7 @@ impl FakeIntegration {
             Capability::InputProfile,
             Capability::Models,
             Capability::Effort,
+            Capability::InteractiveLaunch,
         ];
         Self { declares, ..Self::bare(id, "fake --yes") }
     }
@@ -138,6 +143,7 @@ impl AgentIntegration for FakeIntegration {
             input_profile: on(Capability::InputProfile).then_some(self as &dyn InputProfileSource),
             models: on(Capability::Models).then_some(self as &dyn ModelCatalog),
             effort: on(Capability::Effort).then_some(self as &dyn EffortLevels),
+            interactive_launch: on(Capability::InteractiveLaunch).then_some(self as &dyn InteractiveLauncher),
         }
     }
 }
@@ -387,5 +393,36 @@ impl EffortLevels for FakeIntegration {
     fn command_args(&self, effort: Effort) -> Option<String> {
         let separator = if self.flaw == Some(Flaw::EffortArgsUnsafe) { "$" } else { " " };
         Some(format!("--think{separator}{}", effort.as_str()))
+    }
+}
+
+impl InteractiveLauncher for FakeIntegration {
+    /// `<interattivo> [--model m] [<argomenti effort>] ["/<skill>"]`, con la skill del plugin come `/plugin:<id>`.
+    fn launch(&self, req: &InteractiveRequest) -> Option<InteractiveLaunch> {
+        let mut restore_command = self.interactive.to_string();
+        if let Some(model) = req.model {
+            if !is_safe_launch_token(model) {
+                return None;
+            }
+            restore_command.push_str(&format!(" --model {model}"));
+        }
+        if let Some(effort) = req.effort {
+            restore_command.push_str(&format!(" {}", EffortLevels::command_args(self, effort)?));
+        }
+        let lenient = self.flaw == Some(Flaw::LaunchAcceptsDollarSkill);
+        let skill_ok = |name: &str| is_safe_launch_token(name) || (lenient && name.contains('$'));
+        let prompt = match req.skill {
+            Some(LaunchSkill::Plugin(id)) if skill_ok(id) => Some(format!("/fake-plugin:{id}")),
+            Some(LaunchSkill::User(name)) if skill_ok(name) => Some(format!("/{name}")),
+            Some(_) => return None,
+            None => None,
+        };
+        let command = match &prompt {
+            Some(prompt) => format!("{restore_command} \"{prompt}\""),
+            None => restore_command.clone(),
+        };
+        let restore_command =
+            if self.flaw == Some(Flaw::RestoreKeepsSkill) { command.clone() } else { restore_command };
+        Some(InteractiveLaunch { command, restore_command, env: Vec::new() })
     }
 }

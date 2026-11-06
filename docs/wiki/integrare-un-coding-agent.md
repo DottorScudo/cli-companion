@@ -58,6 +58,7 @@ contratto); un contratto dichiarato ma fatto male è un difetto.
 | Profilo di input | `input_profile` | `InputProfileSource` | `contracts/input_profile.rs` |
 | Modelli | `models` | `ModelCatalog` | `contracts/models.rs` |
 | Effort | `effort` | `EffortLevels` | `contracts/effort.rs` |
+| Avvio interattivo dei Bot | `interactive_launch` | `InteractiveLauncher` | `contracts/interactive_launch.rs` |
 
 Il frontend non conosce i contratti per nome di agente: riceve i dati
 dichiarativi (`agent_profiles`: contratti dichiarati, regole di input, dati di
@@ -102,6 +103,7 @@ vede e usa dipende da quattro passi, tutti nel core: nessuno è codice dell'inte
 | Elenco `agents` di `get_workspace_settings` (modelli, `rule_format`, prontezza) per l'Intake e Project Setup | nessuno: ci sono tutte le abilitate | — |
 | Regole allow/deny dei worker per l'agente | `worker_permissions` | le regole sono rifiutate; `rule_format` è `null` |
 | Suggerimenti di modello (form dei task, impostazioni dei worker, tool MCP), validazione del nome | `models` | nessun suggerimento; il nome vale solo come forma sicura |
+| Voci “Bot” del menu di avvio (`bot:<id>`) e relativo avvio | `interactive_launch` | la voce c'è ma è bloccata: `<nome> non supporta l'avvio dei Bot.` |
 | Limiti di utilizzo, token per sessione, tasti propri | `usage_limits`, `session_usage`, `input_profile` | assenti |
 
 L'ordine delle voci nel registro è l'ordine in cui si mostrano le integrazioni e quello da cui si parte la
@@ -610,12 +612,75 @@ automazione, su Windows e WSL.
 **Claude Code.** Dichiara tutti e cinque i livelli: `--effort <livello>`, in coda al comando
 (dopo `--model`). **OpenCode** non lo dichiara.
 
+### 13. Avvio interattivo dei Bot: `InteractiveLauncher`
+
+**Scopo.** Aprire un terminale interattivo *da un Bot* (`bots/agent.rs`): agente, modello,
+effort e skill li sceglie il Bot e il comando lo costruisce il backend, mai una stringa
+statica come per i preset (che restano com'erano: `PresetLauncher` e questo contratto
+convivono).
+
+**Firma** (`contracts/interactive_launch.rs`).
+
+```rust
+fn launch(&self, req: &InteractiveRequest) -> Option<InteractiveLaunch>;
+// InteractiveRequest { model: Option<&str>, effort: Option<Effort>, skill: Option<LaunchSkill> }
+// LaunchSkill        { Plugin(&str), User(&str) }
+// InteractiveLaunch  { command: String, restore_command: String, env: Vec<(String, String)> }
+fn is_safe_launch_token(value: &str) -> bool;   // funzione libera del contratto
+```
+
+- `command` è digitato nella shell del tab: valido in PowerShell, cmd e bash, e parte da
+  `interactive_command()`. Contiene modello, effort e skill.
+- `restore_command` tiene modello ed effort ma **mai la skill**: il tab si riapre
+  riprendendo la conversazione, non rieseguendo la skill (come il ripristino dei preset).
+- `env` segue le regole di `AutomationLaunch::env` (nomi e valori validi, nessun doppione,
+  percorsi già nel formato del target); il core le prepara per quel tab (`pty/staged_env.rs`).
+- **Carattere sicuro.** Ogni valore digitato nella riga (modello, nome della skill) deve
+  superare `is_safe_launch_token`, lo stesso insieme di `--model` (`valid_model`: ASCII
+  alfanumerico, `.`, `_`, `-`, 1-64 caratteri); altrimenti `None`. Un agente con una regola
+  propria per i modelli (`ModelCatalog::is_valid`) la applica in aggiunta.
+- `None` = richiesta non rappresentabile in modo sicuro: il core lo mostra come “caratteri
+  non ammessi” e **non ripiega** su un avvio senza modello o skill.
+- **Effort.** Il core consegna `effort` solo se `EffortLevels` dell'agente lo ammette; con un
+  agente senza il contratto lo toglie e lo segnala in inglese fra gli avvisi
+  (`bots::resolve::resolve_bot`). Chi non lo dichiara può quindi ignorarlo.
+
+**Core con il contratto.** `bots/launches.rs` (puro) produce le voci del menu di avvio
+`bot:<id del Bot>` (una per Bot abilitato, con agente effettivo e un eventuale motivo di
+blocco in italiano) e, per il Bot scelto, il lancio pronto (`BotTabLaunch`). I comandi Tauri
+sono `bot_launches` (economico, nessun processo) e `bot_interactive_launch`, che il
+frontend chiama con la chiave del tab che sta per aprire: valida il tab, risolve il Bot con
+l'agente del workspace (o il predefinito), verifica che una skill utente esista ancora e,
+se `env` non è vuota, la prepara con `pty::stage_env` perché `pty_spawn` la applichi. La
+prontezza dell'agente nell'ambiente la valuta il frontend.
+
+**Core senza il contratto.** La voce del Bot è bloccata con `<nome> non supporta l'avvio dei
+Bot.` e il lancio fallisce con lo stesso messaggio.
+
+**Conformità** (`interactive_launch`): per ogni combinazione di modello (nessuno e i
+consigliati), effort (nessuno e i livelli dichiarati) e skill (nessuna, ogni preset se
+`presets`, una skill utente se `user_skills`) esiste un avvio; `command` e `restore_command`
+sono sicuri per la shell e partono da `interactive_command()`; senza skill coincidono; il
+ripristino non contiene mai la skill; le `env` sono valide; gli argomenti dell'effort
+dichiarato compaiono in entrambe le righe. Nomi di skill con `$`, `"`, spazi o vuoti e un
+modello come `a b;x` sono rifiutati.
+
+**Claude Code.** `claude --dangerously-skip-permissions [--model <m>] [--effort <livello>]
+["/cli-companion-notify:<id>" | "/<nome>"]`: nessuna `env`.
+**OpenCode.** Il TUI non ha `--model`: il modello (validato da `ModelCatalog::is_valid`)
+passa da `OPENCODE_CONFIG_CONTENT` con il solo `{"model":"…"}` (niente permessi né agente
+di partenza: un tab interattivo conserva la configurazione dell'utente). La skill, di plugin
+o dell'utente, è il primo prompt dei preset (`--prompt "Use the skill tool to load the
+skill <id>, then follow its instructions."`); `restore_command` è `opencode --standalone`.
+L'effort è ignorato: OpenCode non dichiara `EffortLevels`.
+
 ## Procedura passo passo
 
 1. **Leggi l'integrazione di riferimento.** `agents/claude_code/` ha un file per
    contratto (`package.rs`, `hook_events.rs`, `resume.rs`, `automation.rs`,
    `permissions.rs`, `presets.rs`, `skills.rs`, `usage_limits.rs`,
-   `session_usage.rs`, `input_profile.rs`) più il rilevamento in `mod.rs`.
+   `session_usage.rs`, `input_profile.rs`, `models.rs`, `effort.rs`, `interactive_launch.rs`)
+   più il rilevamento in `mod.rs`.
    Copia la *struttura*, non i dettagli.
 2. **Studia l'agente.** Per ogni contratto che vuoi dichiarare, scrivi su carta come
    l'agente lo realizza e *dove lo hai letto* (documentazione ufficiale, non
@@ -730,6 +795,7 @@ Due casi reali, entrambi emersi con OpenCode e risolti così (non con un `if`):
 - [ ] Se dichiari `automation`: ogni `PermissionMode` mappato; il server MCP è
       utilizzabile senza conferme; prompt, modello e path non fidati rifiutati;
       eventuali `env` con nomi e valori validi, path già nel formato del target.
+- [ ] Se dichiari `interactive_launch`: modello e nome della skill passano da `is_safe_launch_token` (o dalla regola dell'agente) e, se non sicuri, `None`; `restore_command` mai con la skill; eventuali `env` con nomi e valori validi.
 - [ ] Se dichiari `models`: `is_valid` rifiuta ciò che non è sicuro come argomento;
       almeno un modello consigliato per fascia (`Standard` e `Strong`), con
       etichetta; `default_model` valido (o `None`); i nomi dei modelli restano nella
@@ -989,6 +1055,13 @@ provider valido (minuscole, cifre, `.`, `_`, `-`) e segmenti non vuoti dopo la p
 `/`: un nome senza provider è rifiutato. È il secondo livello descritto nella
 sezione 11 dei contratti.
 
+### 12-13. Effort e avvio interattivo dei Bot
+
+L'effort non è dichiarato (nessun flag nel TUI). L'avvio interattivo dei Bot (`interactive_launch.rs`)
+riusa le parti già provate: il modello va in `OPENCODE_CONFIG_CONTENT` con il solo campo `model`
+(stessa variabile dei worker, senza permessi né agente di partenza), la skill è il primo prompt dei
+preset (`presets::skill_command`, condiviso) e il ripristino è `opencode --standalone`.
+
 ### Riepilogo: cosa dichiara OpenCode
 
 | Contratto | Esito | Perché |
@@ -1005,6 +1078,7 @@ sezione 11 dei contratti.
 | `input_profile` | No | incolla immagini non verificato |
 | `models` | Sì | `provider/modello`, regola propria dentro la forma generica |
 | `effort` | No | nessun flag di effort nel TUI né nell'avvio (solo `run --model provider/modello#variante`, non verificato in `OPENCODE_CONFIG_CONTENT`) |
+| `interactive_launch` | Sì | modello in `OPENCODE_CONFIG_CONTENT` (il TUI non ha `--model`), skill dal primo prompt come i preset, effort ignorato (non dichiarato) |
 
 Cosa vede l'utente: abilitata da Impostazioni → Generale → Integrazioni e con il
 pacchetto installato (**Installa**) per una 2.x rilevata, una scheda “OpenCode”, l'avvio

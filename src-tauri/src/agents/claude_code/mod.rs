@@ -8,6 +8,7 @@ mod config_dir;
 mod effort;
 mod hook_events;
 mod input_profile;
+mod interactive_launch;
 mod models;
 mod package;
 mod permissions;
@@ -78,6 +79,7 @@ impl AgentIntegration for ClaudeCode {
             input_profile: Some(self),
             models: Some(self),
             effort: Some(self),
+            interactive_launch: Some(self),
         }
     }
 }

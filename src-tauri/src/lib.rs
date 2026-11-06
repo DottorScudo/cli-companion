@@ -140,6 +140,8 @@ pub fn run() {
             bots::commands::restore_agent_bot_preset,
             bots::commands::restore_agent_bot_presets,
             bots::commands::list_bot_skills,
+            bots::commands::bot_launches,
+            bots::commands::bot_interactive_launch,
             hub::settings::commands::hub_get_settings,
             hub::settings::commands::hub_set_enabled,
             hub::settings::commands::hub_set_provider,

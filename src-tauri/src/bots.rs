@@ -13,6 +13,7 @@
 //! - `validate`: la validazione dei campi, `catalog`: gli agenti che si possono usare;
 //! - `agent_bots`: le operazioni pure sull'elenco, `commands`: i comandi Tauri;
 //! - `resolve`: da un Bot ad agente, modello, effort e skill di un lancio;
+//! - `launches`: le voci del menu di avvio e il lancio di un Bot in un tab;
 //! - `skills`: le skill selezionabili per l'interfaccia.
 
 mod agent;
@@ -20,11 +21,9 @@ mod agent_bots;
 mod catalog;
 pub mod commands;
 mod image;
+mod launches;
 mod migrations;
 mod presets;
-/// La risoluzione la usano i lanci dei Bot, che arrivano dopo il modello dati:
-/// fino ad allora la chiamano solo i test.
-#[cfg_attr(not(test), allow(dead_code))]
 pub mod resolve;
 mod skills;
 mod validate;

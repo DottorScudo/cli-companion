@@ -15,7 +15,8 @@ use crate::platform::TargetKind;
 
 /// Flag che fa approvare a OpenCode tutto cio' che non e' negato in modo esplicito.
 const AUTO_FLAG: &str = "--auto";
-const ENV_CONFIG_CONTENT: &str = "OPENCODE_CONFIG_CONTENT";
+/// Anche dell'avvio interattivo dei Bot (`interactive_launch.rs`).
+pub(super) const ENV_CONFIG_CONTENT: &str = "OPENCODE_CONFIG_CONTENT";
 const ENV_CONFIG_FILE: &str = "OPENCODE_CONFIG";
 
 impl WorkerAutomation for OpenCode {

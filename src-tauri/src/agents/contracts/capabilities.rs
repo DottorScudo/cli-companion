@@ -1,8 +1,8 @@
 //! L'elenco dei contratti dichiarati da un'integrazione.
 
 use super::{
-    EffortLevels, HookEvents, InputProfileSource, IntegrationPackage, ModelCatalog, PresetLauncher, SessionResume,
-    SessionUsageReader, UsageLimits, UserSkills, WorkerAutomation, WorkerPermissions,
+    EffortLevels, HookEvents, InputProfileSource, IntegrationPackage, InteractiveLauncher, ModelCatalog,
+    PresetLauncher, SessionResume, SessionUsageReader, UsageLimits, UserSkills, WorkerAutomation, WorkerPermissions,
 };
 use serde::Serialize;
 use ts_rs::TS;
@@ -24,6 +24,7 @@ pub struct Capabilities<'a> {
     pub input_profile: Option<&'a dyn InputProfileSource>,
     pub models: Option<&'a dyn ModelCatalog>,
     pub effort: Option<&'a dyn EffortLevels>,
+    pub interactive_launch: Option<&'a dyn InteractiveLauncher>,
 }
 
 /// Nome di un contratto, come lo vede il frontend (kebab-case).
@@ -43,6 +44,7 @@ pub enum Capability {
     InputProfile,
     Models,
     Effort,
+    InteractiveLaunch,
 }
 
 impl Capabilities<'_> {
@@ -62,6 +64,7 @@ impl Capabilities<'_> {
             input_profile,
             models,
             effort,
+            interactive_launch,
         } = self;
         [
             (package.is_some(), Capability::Package),
@@ -76,6 +79,7 @@ impl Capabilities<'_> {
             (input_profile.is_some(), Capability::InputProfile),
             (models.is_some(), Capability::Models),
             (effort.is_some(), Capability::Effort),
+            (interactive_launch.is_some(), Capability::InteractiveLaunch),
         ]
         .into_iter()
         .filter_map(|(on, capability)| on.then_some(capability))
@@ -102,6 +106,7 @@ mod tests {
         assert_eq!(json(Capability::InputProfile), "input-profile");
         assert_eq!(json(Capability::Models), "models");
         assert_eq!(json(Capability::Effort), "effort");
+        assert_eq!(json(Capability::InteractiveLaunch), "interactive-launch");
     }
 
     #[test]
@@ -119,6 +124,7 @@ mod tests {
             input_profile: None,
             models: None,
             effort: None,
+            interactive_launch: None,
         };
         assert!(none.declared().is_empty());
     }

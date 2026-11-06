@@ -12,6 +12,7 @@ mod effort;
 mod hook_events;
 mod input_profile;
 mod integration;
+mod interactive_launch;
 mod models;
 mod package;
 mod presets;
@@ -30,6 +31,9 @@ pub use effort::{Effort, EffortLevels};
 pub use hook_events::{HookEvent, HookEventKind, HookEvents, WaitKind};
 pub use input_profile::{InputEvent, InputProfile, InputProfileSource, InputRule};
 pub use integration::{AgentIntegration, Detection};
+pub use interactive_launch::{
+    is_safe_launch_token, InteractiveLaunch, InteractiveLauncher, InteractiveRequest, LaunchSkill,
+};
 pub use models::{ModelCatalog, ModelTier, SuggestedModel};
 pub use package::{fnv32, plugins_dir, sanitize_env_key, InstallCtx, IntegrationPackage, PackageFile};
 pub use presets::PresetLauncher;

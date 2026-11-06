@@ -7,8 +7,10 @@ import type { SpawnEvent as AutomationSpawn } from "../bindings/SpawnEvent.ts";
 import type { AutomationTabInfo } from "../bindings/AutomationTabInfo.ts";
 import type { AgentBot } from "../bindings/AgentBot.ts";
 import type { AgentBotDraft } from "../bindings/AgentBotDraft.ts";
+import type { BotLaunch } from "../bindings/BotLaunch.ts";
 import type { BotSettings } from "../bindings/BotSettings.ts";
 import type { BotSkillOption } from "../bindings/BotSkillOption.ts";
+import type { BotTabLaunch } from "../bindings/BotTabLaunch.ts";
 import type { BuiltinLaunch } from "../bindings/BuiltinLaunch.ts";
 import type { ConnectorActionId } from "../bindings/ConnectorActionId.ts";
 import type { ConnectorActionOutcome } from "../bindings/ConnectorActionOutcome.ts";
@@ -70,8 +72,10 @@ export type {
   AutomationClose,
   AutomationSpawn,
   AutomationTabInfo,
+  BotLaunch,
   BotSettings,
   BotSkillOption,
+  BotTabLaunch,
   BuiltinLaunch,
   ConnectorActionId,
   ConnectorActionOutcome,
@@ -181,6 +185,11 @@ export const api = {
 
   /** Avvii integrati; `workspaceAgent` è l'agente proprio del workspace (`null` = nessuno). */
   builtinLaunches: (workspaceAgent: string | null) => invoke<BuiltinLaunch[]>("builtin_launches", { workspaceAgent }),
+  /** Voci di avvio dei Bot agente per un workspace con quell'agente (`null` = il predefinito). */
+  botLaunches: (workspaceAgent: string | null) => invoke<BotLaunch[]>("bot_launches", { workspaceAgent }),
+  /** Costruisce l'avvio di un Bot per il tab `tabId` (il backend ne prepara l'ambiente); rifiuta con il motivo. */
+  botInteractiveLaunch: (workspaceId: string, botId: string, tabId: string) =>
+    invoke<BotTabLaunch>("bot_interactive_launch", { workspaceId, botId, tabId }),
 
   getLaunchSettings: () => invoke<LaunchSettings>("get_launch_settings"),
 

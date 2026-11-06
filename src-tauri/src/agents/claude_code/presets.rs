@@ -10,10 +10,15 @@ pub(super) fn skill_path(preset: &Preset) -> String {
     format!("plugins/{PLUGIN}/skills/{}/SKILL.md", preset.id)
 }
 
+/// Il prompt che avvia la skill del plugin `id` (usato anche dall'avvio dei Bot).
+pub(super) fn plugin_skill_invocation(id: &str) -> String {
+    format!("/{PLUGIN}:{id}")
+}
+
 impl PresetLauncher for ClaudeCode {
     /// Come l'interattivo, con la skill del preset come primo prompt.
     fn command(&self, preset: &Preset) -> String {
-        format!("{INTERACTIVE_COMMAND} \"/{PLUGIN}:{}\"", preset.id)
+        format!("{INTERACTIVE_COMMAND} \"{}\"", plugin_skill_invocation(preset.id))
     }
 
     fn skill_path(&self, preset: &Preset) -> String {

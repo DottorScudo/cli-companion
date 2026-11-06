@@ -3,8 +3,9 @@
 // dagli archivi con `getState()`.
 
 import { api } from "../../lib/tauri";
-import type { BuiltinLaunch, Launch, Workspace } from "../../lib/tauri";
-import { report } from "../../lib/errors";
+import type { BotLaunch, BuiltinLaunch, Launch, Workspace } from "../../lib/tauri";
+import { botTabSpec, botWarningsText } from "../../lib/botLaunch";
+import { errorMessage, report } from "../../lib/errors";
 import { INTAKE_LAUNCH_ID } from "../../lib/automation";
 import { launchAgentId, launchCommands, resolveDefaultLaunch, unavailableDefaultLaunch } from "../../lib/launch";
 import { launchBlockReason } from "../../lib/launchMenu";
@@ -79,6 +80,40 @@ export function spawnFromMenu(ws: Workspace, launch: Launch | BuiltinLaunch): vo
   warn("launch:not-ready", reason);
   // A menu chiuso, così i due layer Radix non si sovrappongono.
   setTimeout(openIntegrationSettings, 0);
+}
+
+/**
+ * Bot agente scelto da un menu: il backend costruisce il comando e prepara
+ * l'ambiente del tab, che si apre solo se l'avvio riesce. Il tab prende il nome
+ * del Bot (con suffisso se già in uso), mai quello di una segretaria.
+ */
+export async function spawnBotFromMenu(ws: Workspace, entry: BotLaunch): Promise<void> {
+  const readiness =
+    entry.agent_id === null
+      ? null
+      : launchBlockReason({ agent_id: entry.agent_id }, configStore.getState().integrations, workspaceEnvKey(ws));
+  const reason = entry.blocked_reason ?? readiness;
+  if (reason !== null) {
+    warn("launch:not-ready", reason);
+    // Solo la prontezza si risolve dalle Integrazioni, a menu chiuso (layer Radix).
+    if (entry.blocked_reason === null) setTimeout(openIntegrationSettings, 0);
+    return;
+  }
+  const key = newTabKey();
+  let launch;
+  try {
+    launch = await api.botInteractiveLaunch(ws.id, entry.bot_id, key);
+  } catch (e) {
+    warn("launch:bot-failed", errorMessage(e));
+    return;
+  }
+  const warnings = botWarningsText(launch);
+  if (warnings !== null) warn("launch:bot-warnings", warnings);
+  showTerminalsOf(ws.id);
+  runtimeStore.seed(key);
+  // La pool è il solo nome del Bot: `open` aggiunge il suffisso sui doppioni.
+  tabsStore.open(botTabSpec(ws.id, key, entry, launch), [launch.name], reservedBotNames(hubStore.getState()));
+  layoutStore.apply((l) => openTab(l, ws.id, key));
 }
 
 /**

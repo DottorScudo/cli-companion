@@ -10,10 +10,10 @@ import {
 import type { Launch, Workspace } from "../../lib/tauri";
 import { resolveDefaultLaunch } from "../../lib/launch";
 import { buildLaunchMenu } from "../../lib/launchMenu";
-import type { LaunchMenuEntry } from "../../lib/launchMenu";
-import { spawnFromMenu } from "../../app/actions/tabs";
+import type { LaunchMenuBotEntry, LaunchMenuEntry } from "../../lib/launchMenu";
+import { spawnBotFromMenu, spawnFromMenu } from "../../app/actions/tabs";
 import { useStore } from "../../hooks/useStore";
-import { configStore, launchesFor } from "../../stores/config";
+import { botLaunchesFor, configStore, launchesFor } from "../../stores/config";
 import { cn } from "../../lib/utils";
 import { MENU_CONTENT, MENU_ITEM } from "./styles";
 
@@ -22,10 +22,11 @@ const GROUP_LABEL = "px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase trac
 /** Voci dei menu di avvio (⋯ e caret del pulsante diviso). */
 export default function LaunchItems({ ws }: { ws: Workspace }) {
   const builtins = useStore(configStore, (s) => launchesFor(s, ws));
+  const botLaunches = useStore(configStore, (s) => botLaunchesFor(s, ws));
   const integrations = useStore(configStore, (s) => s.integrations);
   const globalLaunch = useStore(configStore, (s) => s.globalLaunch);
   const defId = resolveDefaultLaunch(ws, builtins, globalLaunch)?.id;
-  const menu = buildLaunchMenu(builtins, integrations, ws);
+  const menu = buildLaunchMenu(builtins, integrations, ws, botLaunches);
 
   const defaultTag = (id: string) =>
     id === defId && (
@@ -45,6 +46,18 @@ export default function LaunchItems({ ws }: { ws: Workspace }) {
       <span className="min-w-0 flex-1 truncate font-mono text-xs">{label}</span>
       {blockedReason !== null && <span className="text-[10px] text-faint">non pronto</span>}
       {defaultTag(launch.id)}
+    </DropdownMenuItem>
+  );
+
+  const botItem = ({ launch, label, blockedReason }: LaunchMenuBotEntry) => (
+    <DropdownMenuItem
+      key={launch.id}
+      title={blockedReason ?? launch.name}
+      onSelect={() => void spawnBotFromMenu(ws, launch)}
+      className={cn(MENU_ITEM, blockedReason !== null && "opacity-60")}
+    >
+      <span className="min-w-0 flex-1 truncate font-mono text-xs">{label}</span>
+      {blockedReason !== null && <span className="text-[10px] text-faint">non pronto</span>}
     </DropdownMenuItem>
   );
 
@@ -72,9 +85,16 @@ export default function LaunchItems({ ws }: { ws: Workspace }) {
           </DropdownMenuSubContent>
         </DropdownMenuSub>
       )}
+      {menu.bots.length > 0 && (
+        <>
+          <DropdownMenuSeparator className="mx-1.5 bg-border" />
+          <DropdownMenuLabel className={GROUP_LABEL}>Bot</DropdownMenuLabel>
+          {menu.bots.map(botItem)}
+        </>
+      )}
       {menu.entries.length > 0 && ws.launches.length > 0 && <DropdownMenuSeparator className="mx-1.5 bg-border" />}
       {ws.launches.map(customItem)}
-      {menu.entries.length === 0 && ws.launches.length === 0 && (
+      {menu.entries.length === 0 && menu.bots.length === 0 && ws.launches.length === 0 && (
         <DropdownMenuItem disabled className={MENU_ITEM}>
           Nessun avvio
         </DropdownMenuItem>

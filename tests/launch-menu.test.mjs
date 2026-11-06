@@ -105,7 +105,7 @@ describe("buildLaunchMenu", () => {
   });
 
   it("nessun avvio: menu vuoto", () => {
-    assert.deepEqual(buildLaunchMenu([], [], WS), { entries: [], others: [] });
+    assert.deepEqual(buildLaunchMenu([], [], WS), { entries: [], others: [], bots: [] });
   });
 
   it("l'integrazione non pronta nell'ambiente del workspace resta in elenco, con il motivo", () => {

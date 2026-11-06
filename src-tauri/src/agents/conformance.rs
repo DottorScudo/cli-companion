@@ -68,6 +68,7 @@ fn core(i: &dyn AgentIntegration) -> Vec<String> {
         (caps.input_profile.is_some(), Capability::InputProfile),
         (caps.models.is_some(), Capability::Models),
         (caps.effort.is_some(), Capability::Effort),
+        (caps.interactive_launch.is_some(), Capability::InteractiveLaunch),
     ];
     let expected: Vec<_> = present.into_iter().filter_map(|(on, c)| on.then_some(c)).collect();
     if caps.declared() != expected {
@@ -330,6 +331,88 @@ fn effort(i: &dyn AgentIntegration, effort: &dyn EffortLevels) -> Vec<String> {
     v
 }
 
+/// Nome di skill dell'utente usato dalla suite (solo se l'agente dichiara `user_skills`).
+const CONFORMANCE_USER_SKILL: &str = "conformance-skill";
+
+/// Nomi di skill e modello che l'avvio interattivo deve rifiutare.
+const UNSAFE_SKILL_NAMES: [&str; 4] = ["a$b", "a\"b", "a b", ""];
+const UNSAFE_LAUNCH_MODEL: &str = "a b;x";
+
+/// Avvio interattivo: ogni combinazione di modello, effort e skill che l'agente
+/// dichiara produce righe sicure che partono dal comando interattivo; il
+/// ripristino non riporta mai la skill e l'effort dichiarato e' nelle righe.
+fn interactive_launch(i: &dyn AgentIntegration, launcher: &dyn InteractiveLauncher) -> Vec<String> {
+    let mut v = Vec::new();
+    let caps = i.capabilities();
+    let models: Vec<Option<&str>> = std::iter::once(None)
+        .chain(caps.models.iter().flat_map(|c| c.suggested().iter().map(|m| Some(m.id))))
+        .collect();
+    let efforts: Vec<Option<Effort>> =
+        std::iter::once(None).chain(caps.effort.iter().flat_map(|c| c.levels().iter().copied().map(Some))).collect();
+    let mut skills: Vec<Option<LaunchSkill>> = vec![None];
+    if caps.presets.is_some() {
+        skills.extend(PRESETS.iter().map(|p| Some(LaunchSkill::Plugin(p.id))));
+    }
+    if caps.user_skills.is_some() {
+        skills.push(Some(LaunchSkill::User(CONFORMANCE_USER_SKILL)));
+    }
+    let interactive = i.interactive_command();
+    for &model in &models {
+        for &effort in &efforts {
+            for &skill in &skills {
+                let req = InteractiveRequest { model, effort, skill };
+                let Some(launch) = launcher.launch(&req) else {
+                    v.push(format!("interactive_launch: nessun avvio per {req:?}"));
+                    continue;
+                };
+                let InteractiveLaunch { command, restore_command, env } = &launch;
+                for (what, line) in [("command", command), ("restore_command", restore_command)] {
+                    if !shell_safe(line) {
+                        v.push(format!("interactive_launch: {what} non sicuro per la shell ({req:?}): {line:?}"));
+                    }
+                    if !line.starts_with(interactive) {
+                        v.push(format!(
+                            "interactive_launch: {what} non parte dal comando interattivo ({req:?}): {line:?}"
+                        ));
+                    }
+                    let args = effort.and_then(|e| caps.effort?.command_args(e));
+                    if args.is_some_and(|args| !line.contains(&args)) {
+                        v.push(format!(
+                            "interactive_launch: {what} senza gli argomenti dell'effort ({req:?}): {line:?}"
+                        ));
+                    }
+                }
+                if skill.is_none() && command != restore_command {
+                    v.push(format!("interactive_launch: senza skill command e restore_command differiscono ({req:?})"));
+                }
+                if let Some(LaunchSkill::Plugin(name) | LaunchSkill::User(name)) = skill {
+                    if restore_command.contains(name) {
+                        v.push(format!("interactive_launch: restore_command riporta la skill {name:?} ({req:?})"));
+                    }
+                }
+                if let Some(name) = first_invalid_env_name(env) {
+                    v.push(format!(
+                        "interactive_launch: variabile d'ambiente non valida o duplicata ({req:?}): {name:?}"
+                    ));
+                }
+            }
+        }
+    }
+    for name in UNSAFE_SKILL_NAMES {
+        for skill in [LaunchSkill::Plugin(name), LaunchSkill::User(name)] {
+            let req = InteractiveRequest { model: None, effort: None, skill: Some(skill) };
+            if launcher.launch(&req).is_some() {
+                v.push(format!("interactive_launch: skill non sicura accettata: {skill:?}"));
+            }
+        }
+    }
+    let req = InteractiveRequest { model: Some(UNSAFE_LAUNCH_MODEL), effort: None, skill: None };
+    if launcher.launch(&req).is_some() {
+        v.push(format!("interactive_launch: modello non sicuro accettato: {UNSAFE_LAUNCH_MODEL:?}"));
+    }
+    v
+}
+
 /// Nome di programma (o flag) utilizzabile cosi' com'e' in una riga di comando.
 fn plain_token(token: &str) -> bool {
     !token.is_empty() && !token.contains(char::is_whitespace) && shell_safe(token) && !token.contains('"')
@@ -489,6 +572,9 @@ fn violations(i: &dyn AgentIntegration) -> Vec<String> {
     if let Some(c) = caps.effort {
         v.extend(effort(i, c));
     }
+    if let Some(c) = caps.interactive_launch {
+        v.extend(interactive_launch(i, c));
+    }
     v.into_iter().map(|m| format!("{}: {m}", i.id())).collect()
 }
 
@@ -579,4 +665,21 @@ fn registry_ids_are_unique_and_the_default_worker_agent_can_automate() {
     assert_eq!(unique.len(), ids.len(), "id duplicati: {ids:?}");
     let default = registry::find(registry::default_agent().id()).expect("agente dei worker registrato");
     assert!(default.capabilities().automation.is_some(), "l'agente dei worker deve dichiarare automation");
+}
+
+#[test]
+fn a_restore_command_that_keeps_the_skill_is_reported() {
+    let broken = FakeIntegration::full("broken-restore").with_flaw(Flaw::RestoreKeepsSkill);
+    let found = violations(&broken);
+    assert!(
+        found.iter().any(|m| m.contains("interactive_launch:") && m.contains("restore_command riporta")),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn an_unsafe_launch_skill_name_is_reported() {
+    let broken = FakeIntegration::full("broken-launch").with_flaw(Flaw::LaunchAcceptsDollarSkill);
+    let found = violations(&broken);
+    assert!(found.iter().any(|m| m.contains("interactive_launch:") && m.contains("skill non sicura")), "{found:?}");
 }

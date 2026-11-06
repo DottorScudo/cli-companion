@@ -85,6 +85,12 @@ pub(super) fn config_content(mode: PermissionMode, model: Option<&str>) -> Strin
     config.to_string()
 }
 
+/// `OPENCODE_CONFIG_CONTENT` con il solo modello: niente permessi ne' agente di
+/// partenza, cosi' un tab interattivo conserva la configurazione dell'utente.
+pub(super) fn model_only_content(model: &str) -> String {
+    json!({ KEY_MODEL: model }).to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,5 +168,10 @@ mod tests {
         let none: Value = serde_json::from_str(&config_content(PermissionMode::Default, None)).unwrap();
         assert!(none.get("model").is_none());
         assert_eq!(none["default_agent"], "build");
+    }
+
+    #[test]
+    fn model_only_content_carries_nothing_but_the_model() {
+        assert_eq!(model_only_content("opencode/gpt-5.5"), r#"{"model":"opencode/gpt-5.5"}"#);
     }
 }

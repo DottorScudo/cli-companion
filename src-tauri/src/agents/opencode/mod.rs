@@ -24,6 +24,7 @@
 mod automation;
 mod config_dir;
 mod hook_events;
+mod interactive_launch;
 mod mode_rules;
 mod models;
 mod package;
@@ -100,6 +101,7 @@ impl AgentIntegration for OpenCode {
             models: Some(self),
             // La CLI non ha un flag di effort (solo `--model provider/modello#variante` in `run`).
             effort: None,
+            interactive_launch: Some(self),
         }
     }
 }
@@ -125,6 +127,7 @@ mod tests {
                 Capability::Presets,
                 Capability::UserSkills,
                 Capability::Models,
+                Capability::InteractiveLaunch,
             ]
         );
     }

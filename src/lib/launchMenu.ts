@@ -2,6 +2,7 @@
 // se l'integrazione è pronta nel suo ambiente. Logica pura a zero dipendenze:
 // importabile dall'app e dai test `node --test`.
 
+import type { BotLaunch } from "../bindings/BotLaunch.ts";
 import type { BuiltinLaunch } from "../bindings/BuiltinLaunch.ts";
 import type { IntegrationInfo } from "../bindings/IntegrationInfo.ts";
 import type { Launch } from "../bindings/Launch.ts";
@@ -25,11 +26,21 @@ export interface LaunchMenuAgent {
   entries: LaunchMenuEntry[];
 }
 
+/** Voce di un Bot agente. */
+export interface LaunchMenuBotEntry {
+  launch: BotLaunch;
+  label: string;
+  /** Il motivo del backend, altrimenti quello di prontezza dell'agente; `null` = si può avviare. */
+  blockedReason: string | null;
+}
+
 export interface LaunchMenu {
   /** Un avvio per ogni integrazione abilitata, poi i preset con l'agente del workspace. */
   entries: LaunchMenuEntry[];
   /** Gli altri agenti che dichiarano i preset; vuoto = niente sottomenu. */
   others: LaunchMenuAgent[];
+  /** I Bot agente, nell'ordine del backend. */
+  bots: LaunchMenuBotEntry[];
 }
 
 /** Nome di un avvio come lo si legge in un elenco: i preset dicono con quale agente partono. */
@@ -85,6 +96,7 @@ export function buildLaunchMenu(
   launches: readonly BuiltinLaunch[],
   integrations: readonly IntegrationInfo[],
   ws: Pick<Workspace, "kind" | "distro">,
+  botLaunches: readonly BotLaunch[] = [],
 ): LaunchMenu {
   const envKey = workspaceEnvKey(ws);
   const entry = (launch: BuiltinLaunch, label: string): LaunchMenuEntry => ({
@@ -102,5 +114,12 @@ export function buildLaunchMenu(
     }
     agent.entries.push(entry(launch, launch.name));
   }
-  return { entries, others };
+  const bots = botLaunches.map((launch) => ({
+    launch,
+    label: launch.agent_name === null ? launch.name : `${launch.name}${LABEL_SEPARATOR}${launch.agent_name}`,
+    blockedReason:
+      launch.blocked_reason ??
+      (launch.agent_id === null ? null : launchBlockReason({ agent_id: launch.agent_id }, integrations, envKey)),
+  }));
+  return { entries, others, bots };
 }

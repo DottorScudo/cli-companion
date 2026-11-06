@@ -15,11 +15,17 @@ pub(super) fn skill_path(preset: &Preset) -> String {
     format!("skills/{}/SKILL.md", preset.id)
 }
 
+/// Come l'interattivo, con il prompt che carica la skill `id`: la riga dei
+/// preset e dei Bot con una skill. `id` va gia' verificato dal chiamante.
+pub(super) fn skill_command(id: &str) -> String {
+    let prompt = PRESET_PROMPT.replace(PRESET_PROMPT_ID_PLACEHOLDER, id);
+    format!("{INTERACTIVE_COMMAND} --prompt \"{prompt}\"")
+}
+
 impl PresetLauncher for OpenCode {
     /// Come l'interattivo, con il prompt che carica la skill del preset.
     fn command(&self, preset: &Preset) -> String {
-        let prompt = PRESET_PROMPT.replace(PRESET_PROMPT_ID_PLACEHOLDER, preset.id);
-        format!("{INTERACTIVE_COMMAND} --prompt \"{prompt}\"")
+        skill_command(preset.id)
     }
 
     fn skill_path(&self, preset: &Preset) -> String {
