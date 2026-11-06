@@ -4,15 +4,18 @@ import { deleteSecretary, saveLanguage } from "../../../app/actions/hubSettings"
 import { useHubChannels } from "../../../hooks/useHubChannels";
 import { useSecretaryPresets } from "../../../hooks/useSecretaryPresets";
 import { errorMessage } from "../../../lib/errors";
+import { operatorHintPreset } from "../../../lib/hubOperatorHint";
 import { updatedPresetOf } from "../../../lib/hubPresets";
 import { LANGUAGES, SECRETARIES_MAX, secretariesSummary } from "../../../lib/hubSettings";
 import type { HubLanguage, HubSecretaryPreset, HubSettingsView } from "../../../lib/tauri";
 import { Button } from "../../ui/button";
 import { selectClass } from "../shared";
 import HubAccordion from "./HubAccordion";
+import OperatorHint from "./OperatorHint";
 import PresetPicker from "./PresetPicker";
 import SecretaryEditor from "./SecretaryEditor";
 import SecretaryRow from "./SecretaryRow";
+import { useOperatorHintDismissed } from "./useOperatorHintDismissed";
 
 /**
  * Secretario in modifica: il suo nome, `NEW` per uno nuovo, un preset per uno
@@ -31,7 +34,10 @@ export default function SecretariesSection({ settings }: { settings: HubSettings
   const [editing, setEditing] = useState<Editing>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { dismissed: operatorHintDismissed, dismiss: dismissOperatorHint } = useOperatorHintDismissed();
   const { secretaries } = settings;
+  const addingBlocked = busy || isNewSecretary(editing) || secretaries.length >= SECRETARIES_MAX;
+  const operatorPreset = operatorHintPreset(secretaries, presets, operatorHintDismissed);
 
   const run = async (op: () => Promise<void>) => {
     setError(null);
@@ -120,21 +126,19 @@ export default function SecretariesSection({ settings }: { settings: HubSettings
       {editing === NEW && editorFor(null)}
       {typeof editing === "object" && editing !== null && editorFor(null, editing)}
       {(error ?? presetsError) && <p className="text-[11px] text-destructive">{error ?? presetsError}</p>}
+      {operatorPreset !== null && (
+        <OperatorHint
+          preset={operatorPreset}
+          disabled={addingBlocked}
+          onCreate={setEditing}
+          onDismiss={dismissOperatorHint}
+        />
+      )}
       <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={busy || isNewSecretary(editing) || secretaries.length >= SECRETARIES_MAX}
-          onClick={() => setEditing(NEW)}
-        >
+        <Button type="button" size="sm" variant="outline" disabled={addingBlocked} onClick={() => setEditing(NEW)}>
           <Plus className="!size-3.5" aria-hidden="true" /> Nuovo segretario
         </Button>
-        <PresetPicker
-          presets={presets}
-          disabled={busy || isNewSecretary(editing) || secretaries.length >= SECRETARIES_MAX}
-          onPick={setEditing}
-        />
+        <PresetPicker presets={presets} disabled={addingBlocked} onPick={setEditing} />
       </div>
     </HubAccordion>
   );
