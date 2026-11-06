@@ -9,12 +9,16 @@ import { ReviewBadge } from "./ReviewBadges";
 import { isReview } from "../../lib/review";
 import { isPlan } from "../../lib/plan";
 import { PlanBadge } from "./PlanBadge";
+import BotBadge from "./BotBadge";
+import type { AgentBot } from "../../bindings/AgentBot";
 
 interface PanelQueueProps {
   /** Task Da fare nell'ordine della coda. */
   queue: Task[];
   /** Tutti i task della board (per i titoli di "attende X"). */
   allTasks: Task[];
+  /** Bot disponibili: il nome di quello di ogni task. */
+  bots: readonly AgentBot[];
   onOpen: (taskId: string) => void;
   /** Sposta `taskId` prima di `beforeId` (null = in fondo). */
   onMove: (taskId: string, beforeId: string | null) => void;
@@ -23,7 +27,7 @@ interface PanelQueueProps {
 const DRAG_TYPE = "text/plain";
 
 /** Coda numerata, riordinabile con il drag & drop HTML5 (linea di rilascio in primo piano). */
-export default function PanelQueue({ queue, allTasks, onOpen, onMove }: PanelQueueProps) {
+export default function PanelQueue({ queue, allTasks, bots, onOpen, onMove }: PanelQueueProps) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [slot, setSlot] = useState<number | null>(null);
 
@@ -92,7 +96,7 @@ export default function PanelQueue({ queue, allTasks, onOpen, onMove }: PanelQue
           >
             <GripVertical className="h-3 w-3 flex-shrink-0 cursor-grab text-faint" aria-hidden="true" />
             <span className="w-3 flex-shrink-0 font-mono text-[11px] text-muted-foreground">{i + 1}</span>
-            <QueueRowButton task={t} allTasks={allTasks} onOpen={onOpen} />
+            <QueueRowButton task={t} allTasks={allTasks} bots={bots} onOpen={onOpen} />
           </div>
           {indicator === queue.length && i === queue.length - 1 && line("bottom")}
         </li>
@@ -101,7 +105,14 @@ export default function PanelQueue({ queue, allTasks, onOpen, onMove }: PanelQue
   );
 }
 
-function QueueRowButton({ task, allTasks, onOpen }: { task: Task; allTasks: Task[]; onOpen: (id: string) => void }) {
+interface QueueRowButtonProps {
+  task: Task;
+  allTasks: Task[];
+  bots: readonly AgentBot[];
+  onOpen: (id: string) => void;
+}
+
+function QueueRowButton({ task, allTasks, bots, onOpen }: QueueRowButtonProps) {
   const waiting = waitingOnLabel(task, allTasks);
   const sub = queueSubtitle(task, waiting);
   return (
@@ -115,6 +126,7 @@ function QueueRowButton({ task, allTasks, onOpen }: { task: Task; allTasks: Task
         <span className="truncate text-[13px] text-text-secondary">{task.title}</span>
         {isReview(task) && <ReviewBadge className="text-[10px]" />}
         {isPlan(task) && <PlanBadge className="text-[10px]" />}
+        <BotBadge bots={bots} id={task.bot} className="text-[10px]" />
       </span>
       {sub && <span className="truncate text-[11px] text-muted-foreground">{sub}</span>}
     </button>

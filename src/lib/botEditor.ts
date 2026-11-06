@@ -21,7 +21,7 @@ export const GENERAL_BOT_ID = "general";
 export const BOT_TASK_MAX = 300;
 /**
  * Tipi di task di un Bot nuovo: tutti, come i Bot dell'utente prima dei tipi (il
- * backend li normalizza; la scelta nell'editor arriva con la sua interfaccia).
+ * backend li normalizza; l'utente li toglie con le caselle dell'editor).
  */
 export const NEW_BOT_KINDS: readonly TaskKind[] = ["work", "review", "plan"];
 

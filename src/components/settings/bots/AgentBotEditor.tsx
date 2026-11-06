@@ -18,6 +18,7 @@ import { Input } from "../../ui/input";
 import SecretaryImageField from "../hub/SecretaryImageField";
 import { Field } from "../shared";
 import BotAgentFields from "./BotAgentFields";
+import BotKindsField from "./BotKindsField";
 import ConfirmButton from "./ConfirmButton";
 
 const NEW_BOT_FALLBACK_NAME = "Nuovo Bot";
@@ -138,6 +139,8 @@ export default function AgentBotEditor({
         onChange={change}
       />
 
+      <BotKindsField kinds={form.kinds} disabled={busy} onChange={(kinds) => change({ ...form, kinds })} />
+
       <SecretaryImageField
         name={form.name}
         fallbackName={NEW_BOT_FALLBACK_NAME}
@@ -174,7 +177,7 @@ export default function AgentBotEditor({
         {bot !== null && bot.preset !== null && (
           <ConfirmButton
             label="Ripristina predefinito"
-            question="Compito, modello, effort e skill tornano quelli predefiniti; nome, agente e immagine restano."
+            question="Compito, modello, effort, skill e tipi di task tornano quelli predefiniti; nome, agente e immagine restano."
             confirmLabel="Ripristina"
             disabled={busy}
             onConfirm={onRestore}

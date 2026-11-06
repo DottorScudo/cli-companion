@@ -51,7 +51,7 @@ export default function TaskEditForm({
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const found = validateTaskForm(values);
+    const found = validateTaskForm(values, agents.bots);
     setErrors(found);
     if (hasErrors(found)) return;
     const patch = buildPatch(task, values, repoChoices.length > 1 && !repoLocked);

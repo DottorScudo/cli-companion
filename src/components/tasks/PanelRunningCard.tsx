@@ -9,12 +9,16 @@ import { TaskE2eBadge } from "./E2eBadges";
 import { isReview } from "../../lib/review";
 import { isPlan } from "../../lib/plan";
 import { PlanBadge } from "./PlanBadge";
+import BotBadge from "./BotBadge";
+import type { AgentBot } from "../../bindings/AgentBot";
 import BotAvatar from "../BotAvatar";
 import type { BotImage } from "../../lib/bots";
 
 interface PanelRunningCardProps {
   task: Task;
   now: number;
+  /** Bot disponibili: il nome di quello del task. */
+  bots: readonly AgentBot[];
   /** Nome del bot (se la funzione e' attiva) del tab del worker. */
   bot?: string;
   /** Nome dell'agente da mostrare (null = niente badge: una sola integrazione, quella del workspace). */
@@ -29,7 +33,15 @@ interface PanelRunningCardProps {
  * arancione e "Richiede attenzione" (bordo evidenziato), oppure fumetto blu e
  * "In attesa di risposta" se il worker ha fatto una domanda. Un solo pulsante.
  */
-export default function PanelRunningCard({ task, now, agent = null, bot, botImage, onClick }: PanelRunningCardProps) {
+export default function PanelRunningCard({
+  task,
+  now,
+  bots,
+  agent = null,
+  bot,
+  botImage,
+  onClick,
+}: PanelRunningCardProps) {
   const shown = displayStatus(task);
   const attention = shown === "attention";
   const question = shown === "question";
@@ -68,6 +80,7 @@ export default function PanelRunningCard({ task, now, agent = null, bot, botImag
           {task.title}
           {isReview(task) && <ReviewBadge className="ml-1.5 align-middle text-[10px]" />}
           {isPlan(task) && <PlanBadge className="ml-1.5 align-middle text-[10px]" />}
+          <BotBadge bots={bots} id={task.bot} className="ml-1.5 align-middle text-[10px]" />
           <TaskE2eBadge task={task} className="ml-1.5 align-middle text-[10px]" />
           <AgentBadge name={agent} className="ml-1.5 align-middle text-[10px]" />
         </span>

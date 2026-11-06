@@ -104,8 +104,8 @@ function NewTaskForm({ workspace, agents, board, onBoard, onClose, onOpenIntake,
   const repo = repoChoices.includes(values.repo) ? values.repo : (repoChoices[0] ?? ROOT_REPO);
   // Le integrazioni possono arrivare dopo l'apertura: finché non si sceglie, vale l'agente del workspace.
   const agent = values.agent || defaultAgentChoice(agents);
-  // Idem per il Bot: finché non si sceglie vale `general`.
-  const bot = values.bot || defaultBotChoice(agents.bots);
+  // Idem per il Bot: finché non si sceglie vale il default del tipo di task (`general` se lo esegue).
+  const bot = values.bot || defaultBotChoice(agents.bots, values.kind);
 
   const taskRepo = multiRepo ? repoValue(repo) : null;
   const e2eConfigured = repoHasE2e(workspace.repos, taskRepo);
@@ -118,7 +118,7 @@ function NewTaskForm({ workspace, agents, board, onBoard, onClose, onOpenIntake,
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const found = validateTaskForm(values);
+    const found = validateTaskForm(values, agents.bots);
     setErrors(found);
     if (hasErrors(found)) return;
     const previous = new Set(tasks.map((t) => t.id));

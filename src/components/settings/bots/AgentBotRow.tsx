@@ -1,5 +1,6 @@
 import { Pencil } from "lucide-react";
 import { botSummary } from "../../../lib/botEditor";
+import { kindsSummary } from "../../../lib/taskBot";
 import type { AgentBot, BotSkillOption, IntegrationInfo } from "../../../lib/tauri";
 import BotAvatar from "../../BotAvatar";
 import { cn } from "../../../lib/utils";
@@ -18,7 +19,7 @@ interface Props {
 
 /** Riga dell'elenco: avatar, nome, compito e riepilogo di agente, modello, effort e skill. */
 export default function AgentBotRow({ bot, integrations, skills, editing, disabled, onEdit }: Props) {
-  const summary = botSummary(bot, integrations, skills);
+  const summary = [...botSummary(bot, integrations, skills), kindsSummary(bot.kinds)];
   return (
     <div
       className={cn(

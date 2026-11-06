@@ -247,6 +247,7 @@ export default function TaskPanel({
                     key={t.id}
                     task={t}
                     now={now}
+                    bots={agents.bots}
                     agent={agentBadge(agents, t.agent)}
                     bot={t.session ? botOf?.(t.session) : undefined}
                     botImage={t.session ? botImageOf?.(t.session) : undefined}
@@ -258,7 +259,13 @@ export default function TaskPanel({
 
             {queued.length > 0 && (
               <PanelSection title="IN CODA" count={queued.length}>
-                <PanelQueue queue={queued} allTasks={board.tasks} onOpen={onOpenManager} onMove={move} />
+                <PanelQueue
+                  queue={queued}
+                  allTasks={board.tasks}
+                  bots={agents.bots}
+                  onOpen={onOpenManager}
+                  onMove={move}
+                />
               </PanelSection>
             )}
 

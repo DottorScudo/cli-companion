@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ReactNode } from "react";
 import DetailDependencyPicker from "./DetailDependencyPicker";
 import { Input } from "../ui/input";
@@ -5,14 +6,17 @@ import { selectClass } from "../settings/shared";
 import { dependencyOptions } from "../../lib/taskForm";
 import { botChange } from "../../lib/taskForm";
 import type { TaskFormErrors, TaskFormValues } from "../../lib/taskForm";
-import type { Task } from "../../lib/board";
+import type { Task, TaskKind } from "../../lib/board";
 import { MODEL_MAX } from "../../lib/model";
 import { agentOptions, modelAfterAgentChange, modelPlaceholder, modelSuggestions } from "../../lib/taskAgent";
-import { botAgentId, botOptions } from "../../lib/taskBot";
+import { botAfterKindChange, botAgentId, botOptions } from "../../lib/taskBot";
 import type { TaskAgents } from "../../lib/taskAgent";
 import { E2E_OPTION_LABEL, e2eOption } from "../../lib/e2e";
 import { REVIEW_OPTION_HELP, REVIEW_OPTION_LABEL } from "../../lib/review";
 import { cn } from "../../lib/utils";
+
+const BOT_HELP =
+  "Chi esegue il task: agente, modello, effort e skill vengono dal Bot. Cambiandolo, il modello si svuota.";
 
 interface Props {
   /** Prefisso degli id dei campi (più form nella stessa pagina). */
@@ -84,12 +88,19 @@ export default function DetailTaskFields({
   const options = dependencyOptions(tasks, selfId, values.depends_on);
   const id = (name: string) => `${idPrefix}-${name}`;
   const e2e = e2eOption(values.e2e, e2eConfigured);
-  const botChoices = botOptions(agents.bots, values.bot);
+  const botChoices = botOptions(agents.bots, values.bot, values.kind);
+  const [botNotice, setBotNotice] = useState<string | null>(null);
   const hasBot = values.bot !== "";
   // Con un Bot l'agente è il suo: il modello si suggerisce e si propone per quello.
   const modelAgent = hasBot ? botAgentId(agents.bots, values.bot, agents.workspaceAgentId) : values.agent;
   const agentChoices = agentOptions(agents, values.agent);
   const suggestions = modelSuggestions(agents, modelAgent);
+  // Un Bot che non esegue il nuovo tipo lascia il posto al default del tipo, e lo si dice.
+  const changeKind = (kind: TaskKind) => {
+    const { bot, notice } = botAfterKindChange(agents.bots, values.bot, kind);
+    setBotNotice(notice);
+    onChange(bot === values.bot ? { kind } : { kind, ...botChange(bot) });
+  };
   return (
     <>
       <FieldBox id={id("title")} label="Titolo" error={errors.title}>
@@ -131,7 +142,7 @@ export default function DetailTaskFields({
             type="checkbox"
             checked={values.kind === "review"}
             disabled={disabled}
-            onChange={(e) => onChange({ kind: e.target.checked ? "review" : "work" })}
+            onChange={(e) => changeKind(e.target.checked ? "review" : "work")}
           />
           {REVIEW_OPTION_LABEL}
         </label>
@@ -174,16 +185,15 @@ export default function DetailTaskFields({
       </div>
 
       {agents.bots.length > 0 && (
-        <FieldBox
-          id={id("bot")}
-          label="Bot"
-          help="Chi esegue il task: agente, modello, effort e skill vengono dal Bot. Cambiandolo, il modello si svuota."
-        >
+        <FieldBox id={id("bot")} label="Bot" error={errors.bot} help={botNotice ?? BOT_HELP}>
           <select
             id={id("bot")}
             value={values.bot}
             disabled={disabled}
-            onChange={(e) => onChange(botChange(e.target.value))}
+            onChange={(e) => {
+              setBotNotice(null);
+              onChange(botChange(e.target.value));
+            }}
             className={selectClass}
           >
             {botChoices.map((b) => (

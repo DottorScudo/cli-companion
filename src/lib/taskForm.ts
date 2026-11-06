@@ -5,6 +5,8 @@
 
 import { modelError, sanitizeModel } from "./model.ts";
 import { reviewDependencyError } from "./review.ts";
+import { botKindError } from "./taskBot.ts";
+import type { AgentBot } from "../bindings/AgentBot.ts";
 import type { BoardView, Task, TaskKind, TaskPatch } from "./board.ts";
 
 export const TITLE_MAX = 80;
@@ -29,11 +31,12 @@ export interface TaskFormValues {
   e2e: boolean;
 }
 
-export type TaskFormErrors = Partial<Record<"title" | "task" | "model" | "depends_on", string>>;
+export type TaskFormErrors = Partial<Record<"title" | "task" | "model" | "depends_on" | "bot", string>>;
 
 /** Errori di campo del form (vuoto = valido). */
 export function validateTaskForm(
   v: Pick<TaskFormValues, "title" | "task" | "model" | "depends_on" | "kind">,
+  bots: readonly AgentBot[] = [],
 ): TaskFormErrors {
   const errors: TaskFormErrors = {};
   const title = v.title.trim();
@@ -46,6 +49,8 @@ export function validateTaskForm(
   if (model) errors.model = model;
   const deps = reviewDependencyError(v.kind, v.depends_on);
   if (deps) errors.depends_on = deps;
+  const bot = botKindError(bots, v.kind);
+  if (bot) errors.bot = bot;
   return errors;
 }
 

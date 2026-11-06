@@ -149,6 +149,7 @@ export default function GlobalTaskPanel({
                   key={t.id}
                   task={t}
                   now={now}
+                  bots={bots}
                   agent={agentBadge(agents, t.agent)}
                   bot={t.session ? botOf?.(t.session) : undefined}
                   botImage={t.session ? botImageOf?.(t.session) : undefined}
