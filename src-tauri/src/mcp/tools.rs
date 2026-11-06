@@ -61,9 +61,8 @@ pub(super) fn proposed_model_description(models: Option<TierModels>) -> String {
 }
 
 /// Descrizione del campo `bot` di un task (obbligatorio in `propose_tasks`).
-const BOT_DESCRIPTION: &str =
-    "Bot id from get_workspace_settings.bots, by the Bot's `task`; `general` if unspecialized. \
-    Sets agent, model, effort, skill.";
+const BOT_DESCRIPTION: &str = "Bot id (get_workspace_settings.bots) with the task kind in `kinds`, by `task`; \
+    `general` only for work.";
 
 /// Campi di un task proposto (`propose_tasks`) o modificato (`update_task`).
 fn task_properties(with_id: bool) -> Value {

@@ -199,7 +199,10 @@ mod tests {
         for p in PRESETS.iter().filter(|p| {
             p.tools.iter().any(|t| matches!(t, SecretaryTool::OpenPlanTask | SecretaryTool::RequestTaskUpdate))
         }) {
-            assert!(p.prompt_text().contains("the bots you are given"), "{}", p.id);
+            let text = p.prompt_text();
+            assert!(text.contains("the bots you are given"), "{}", p.id);
+            assert!(text.contains("kinds"), "{}", p.id);
+            assert!(!text.contains("`general`"), "{}", p.id);
         }
     }
 

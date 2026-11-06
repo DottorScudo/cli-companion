@@ -43,7 +43,7 @@ Do not repeat generic coding rules: every worker already receives a strict engin
 A review is one extra task that checks the finished work of a goal as a whole: a reviewer worker reads the reports and specifications of the tasks it depends on, verifies the integrated result, closes with a verdict and proposes the fixes.
 
 - **When**: the request produced 2 or more tasks, or a single risky or cross-cutting task, or the fix of a hard bug. Not for a trivial change or a single well-defined task.
-- **How**: `kind: "review"`, a Bot suited to reviewing (or `general`) with a `strong` tier model (the Bot's own or a `model` override), placed last, a title like "Review: <goal>", and `depends_on` on **all** the tasks of the goal (in the proposal or already in the queue).
+- **How**: `kind: "review"`, a Bot whose `kinds` include `review` (the default Reviewer) with a `strong` tier model (the Bot's own or a `model` override), placed last, a title like "Review: <goal>", and `depends_on` on **all** the tasks of the goal (in the proposal or already in the queue).
 - **Specification**: the same sections for the whole goal: the request in its own words and the expected result end to end, how the reviewed tasks fit together, goal-level and integration criteria, the integration commands and checks.
 
 ## E2E scenarios (only when the project has an E2E suite)
@@ -58,7 +58,7 @@ A review is one extra task that checks the finished work of a goal as a whole: a
 
 Every task is run by a Bot (agent, model, effort and, for a specialized Bot, a skill the worker loads first).
 
-- `bot`: required. The `id` of a Bot from `get_workspace_settings.bots`, chosen by the Bot's `task` (what it is for): the one that matches the work, `general` when none is specialized for it. Never invent an id. The Bot sets agent, model, effort and skill.
+- `bot`: required. The `id` of a Bot from `get_workspace_settings.bots`, whose `kinds` include the kind of the task (`work` or `review`); among those, the one whose `task` (what it is for) matches the work. `general` only for `work` tasks (or kinds the user granted it). A Bot with empty `kinds` is interactive only: never propose it. Never invent an id. The Bot sets agent, model, effort and skill.
 - Use only a Bot that is `enabled` and whose `readiness` is `ready` (no `agent_error`). If the Bot you would need is disabled or not ready, do not propose: complete with the question for the user, naming the Bot and its `readiness` or `agent_error`.
 - `model`: optional override of the Bot's model, only when the work needs a different tier. The `id` of one of the models of the Bot's agent, from `get_workspace_settings.agents` (never from memory): `tier: "standard"` for well-defined work, `tier: "strong"` for design, risky or cross-cutting changes, hard bugs and goal reviews. If the agent has no model of the tier you need, keep the Bot's model and say so in your summary.
 - `agent`: omit it. If present it must equal the agent of the Bot; a request for a specific agent, or a capability only another agent declares, needs a Bot that uses that agent.

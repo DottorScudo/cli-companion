@@ -123,7 +123,7 @@ mod tests {
             "## Bot, agent and model",
             "`get_workspace_settings.bots`",
             "`bot`: required",
-            "use `general`",
+            "`kinds` must include",
             "Never invent an id",
             "`tier: \"standard\"`",
             "`tier: \"strong\"`",

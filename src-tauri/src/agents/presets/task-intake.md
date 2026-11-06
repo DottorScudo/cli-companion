@@ -65,7 +65,7 @@ and proposes the fixes. The user can discard the review from the proposal.
 
 - **When**: add it when the request produced 2 or more tasks, or a single risky or cross-cutting
   task, or the fix of a hard bug. Do not add it for a trivial change or a single well-defined task.
-- **How**: `kind: "review"`, a Bot suited to reviewing (or `general`) with a `strong` tier model
+- **How**: `kind: "review"`, a Bot whose `kinds` include `review` (the default Reviewer) with a `strong` tier model
   (a Bot whose model is of that tier, or a `model` override; see "Bot, agent and model"), placed
   last in the proposal, with a title like "Review: <goal>", and `depends_on` on **all** the tasks
   of the goal (in the same proposal or already in the queue). When the user wants an independent
@@ -124,8 +124,10 @@ for), `enabled`, `agent`, `agent_error`, `readiness` (of its agent in this works
 and its suggested `models` (`id`, `label`, `tier`).
 
 - `bot`: required, every task has one. It is the `id` of a Bot from `get_workspace_settings.bots`.
-  Choose it by the Bot's `task`: the Bot whose purpose matches the work of the task. When no Bot is
-  specialized for it, use `general`, the Bot for work without a specialization. Never invent an id.
+  Choose it by the Bot's `task`: the Bot whose purpose matches the work of the task. Its `kinds` must include
+  the kind of the task (`work` or `review`); among those, pick the one whose `task` matches. Use
+  `general` only for `work` tasks (or kinds the user granted it). A Bot with empty `kinds` is
+  interactive only: never propose it. Never invent an id.
   The Bot sets agent, model, effort and skill: you do not set them.
 - **Readiness**: use only a Bot that is `enabled` and whose `readiness` is `ready` (a Bot with an
   `agent_error` or without an `agent` cannot run). Never propose a task for another one: tell the
