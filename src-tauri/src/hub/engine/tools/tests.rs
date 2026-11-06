@@ -9,6 +9,7 @@ use crate::hub::engine::tools::relay_answer::QUESTION_ID_MAX;
 use crate::hub::engine::tools::task_details::TASK_ID_MAX;
 use crate::hub::engine::workspace_names::REFERENCE_MAX;
 use crate::hub::settings::SecretaryChannels;
+use crate::hub::text::BODY_MAX;
 
 fn secretary(tools: &[SecretaryTool]) -> Secretary {
     Secretary {
@@ -119,8 +120,15 @@ fn arguments_are_validated_against_the_schema() {
         assert!(matches!(err, ToolRejection::InvalidArguments { .. }), "{name} {args}");
         assert!(err.for_model().contains(name));
     }
-    let long = json!({ "body": "a".repeat(BODY_MAX + 1) }).to_string();
-    assert!(parse(&call("post_message", &long), &s).is_err());
+    let long = "a".repeat(BODY_MAX + 1);
+    assert_eq!(
+        parse(&call("post_message", &json!({ "body": long }).to_string()), &s),
+        Ok(Invocation::PostMessage { body: long }),
+        "a text longer than one message is accepted: it is posted in parts"
+    );
+    let too_long = json!({ "body": "a".repeat(LONG_BODY_MAX + 1) }).to_string();
+    let err = parse(&call("post_message", &too_long), &s).unwrap_err();
+    assert!(err.for_model().contains(&LONG_BODY_MAX.to_string()), "{}", err.for_model());
 }
 
 #[test]

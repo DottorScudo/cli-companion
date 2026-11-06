@@ -132,15 +132,27 @@ pub struct HubEvent {
     /// Stato del task nella board dopo l'evento (`done`, `failed`...).
     #[serde(default)]
     pub status: Option<String>,
-    /// Riassunto breve (per esempio dal report del worker).
+    /// Riassunto breve (per esempio dal report del worker), accorciato con "…"
+    /// se il testo intero e' piu' lungo (vedi `summary_chars`).
     #[serde(default)]
     pub summary: Option<String>,
+    /// Lunghezza in caratteri del riassunto intero, solo se `summary` e'
+    /// accorciato: il testo intero e' nel report del task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub summary_chars: Option<usize>,
     /// Esito di una revisione completata.
     #[serde(default)]
     pub verdict: Option<Verdict>,
-    /// Nota dell'app sul task (per esempio il motivo di un fallimento).
+    /// Nota dell'app sul task (per esempio il motivo di un fallimento),
+    /// accorciata con "…" se il testo intero e' piu' lungo (vedi `note_chars`).
     #[serde(default)]
     pub note: Option<String>,
+    /// Lunghezza in caratteri della nota intera, solo se `note` e' accorciata:
+    /// il testo intero e' nella nota del task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub note_chars: Option<usize>,
     /// La domanda del worker, negli eventi `task_question`.
     #[serde(default)]
     pub question: Option<HubQuestion>,
@@ -297,8 +309,10 @@ impl HubEvent {
             proposal_id: None,
             status: None,
             summary: None,
+            summary_chars: None,
             verdict: None,
             note: None,
+            note_chars: None,
             question: None,
             request: None,
         }

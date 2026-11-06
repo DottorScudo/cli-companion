@@ -197,10 +197,10 @@ impl Router<'_> {
         }
         let unanswered_plan =
             change == TaskChange::Done && task.kind == TaskKind::Plan && !self.proposed(&thread, task);
-        let body = if unanswered_plan { texts::plan_without_proposal(task) } else { texts::task(change, task) };
+        let parts = if unanswered_plan { texts::plan_without_proposal(task) } else { vec![texts::task(change, task)] };
         let event = self.task_hub_event(change, task);
         let notice = notices::for_task(change, task.kind, unanswered_plan);
-        let message = self.post_noticing(&thread, body, Some(event), notice)?;
+        let message = self.post_parts(&thread, parts, event, notice)?;
         self.invalidate_requests(&thread, change, task);
         if unanswered_plan || matches!(change, TaskChange::Failed | TaskChange::Attention | TaskChange::Question) {
             self.wake_owner(&thread, message);
@@ -331,6 +331,25 @@ impl Router<'_> {
         Ok(id)
     }
 
+    /// Le parti di un testo lungo (`text::parts`) come messaggi consecutivi:
+    /// la prima porta l'evento e l'eventuale notifica, le altre solo il testo.
+    /// Ritorna l'id dell'ultima, da cui il titolare si sveglia vedendole tutte.
+    fn post_parts(
+        &mut self,
+        thread: &str,
+        parts: Vec<String>,
+        event: HubEvent,
+        notice: Option<NoticeKind>,
+    ) -> Result<String, String> {
+        let mut parts = parts.into_iter();
+        let first = parts.next().ok_or_else(|| "il messaggio dell'evento è vuoto".to_string())?;
+        let mut last = self.post_noticing(thread, first, Some(event), notice)?;
+        for part in parts {
+            last = self.post(thread, part, None)?;
+        }
+        Ok(last)
+    }
+
     fn touch(&mut self, thread: &str) {
         if !self.touched.iter().any(|id| id == thread) {
             self.touched.push(thread.to_string());
@@ -352,8 +371,10 @@ impl Router<'_> {
             workspace: Some(self.board.workspace_id.clone()),
             status: Some(task.status.as_str().to_string()),
             summary: task.summary.clone().filter(|_| concluded),
+            summary_chars: task.summary_chars.filter(|_| concluded),
             verdict: task.verdict.filter(|_| concluded),
             note: task.note.clone().filter(|_| concluded),
+            note_chars: task.note_chars.filter(|_| concluded),
             ..HubEvent::of_task(event_kind(change), &task.id)
         }
     }
@@ -381,6 +402,8 @@ fn subject(event: &BoardEvent) -> &str {
     }
 }
 
+#[cfg(test)]
+mod long_text_tests;
 #[cfg(test)]
 mod notice_tests;
 #[cfg(test)]

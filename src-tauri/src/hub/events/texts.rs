@@ -7,6 +7,7 @@
 use super::diff::TaskChange;
 use super::snapshot::{ProposalSnap, TaskSnap};
 use crate::board::{TaskKind, Verdict};
+use crate::hub::text::parts::{self, Remainder};
 use crate::validate::clip_with_ellipsis;
 
 /// Task elencati nel messaggio di una nuova proposta; gli altri si contano.
@@ -80,14 +81,17 @@ fn question_asked(task: &TaskSnap) -> String {
     lines.join("\n")
 }
 
-/// Un task `plan` concluso senza proposta: il riassunto porta le domande del
-/// pianificatore per l'utente, che nel thread non si vedono altrove.
-pub fn plan_without_proposal(task: &TaskSnap) -> String {
+/// Un task `plan` concluso senza proposta: il riassunto intero porta le
+/// domande del pianificatore per l'utente, che nel thread non si vedono
+/// altrove. Un testo piu' lungo di un messaggio si divide in parti
+/// (`text::parts`), nell'ordine.
+pub fn plan_without_proposal(task: &TaskSnap) -> Vec<String> {
     let headline = format!("Pianificazione conclusa senza proposta: {}", task.title);
-    match task.summary.as_deref() {
+    let text = match task.plan_report.as_deref().or(task.summary.as_deref()) {
         Some(questions) => format!("{headline}\n{questions}"),
         None => headline,
-    }
+    };
+    parts::split(&text, Remainder::InTask)
 }
 
 fn done_headline(task: &TaskSnap) -> String {
@@ -188,11 +192,27 @@ mod tests {
     #[test]
     fn a_plan_without_proposal_keeps_the_questions() {
         let mut t = task("a", crate::board::TaskStatus::Done);
-        assert_eq!(plan_without_proposal(&t), "Pianificazione conclusa senza proposta: Task a");
+        assert_eq!(plan_without_proposal(&t), ["Pianificazione conclusa senza proposta: Task a"]);
         t.summary = Some("Questions for the user:\n1. Quale database?".to_string());
         assert_eq!(
             plan_without_proposal(&t),
-            "Pianificazione conclusa senza proposta: Task a\nQuestions for the user:\n1. Quale database?"
+            ["Pianificazione conclusa senza proposta: Task a\nQuestions for the user:\n1. Quale database?"]
         );
+    }
+
+    #[test]
+    fn a_long_plan_report_is_reported_whole_in_parts() {
+        let mut t = task("a", crate::board::TaskStatus::Done);
+        let questions: Vec<String> = (1..=600).map(|i| format!("{i}. Quale database per il modulo {i}?")).collect();
+        let report = format!("Questions for the user:\n\n{}", questions.join("\n\n"));
+        assert!(report.chars().count() >= 20_000);
+        (t.summary, t.plan_report) = (Some(clip_with_ellipsis(&report, 1000)), Some(report.clone()));
+        let parts = plan_without_proposal(&t);
+        assert!(parts.len() > 1);
+        assert!(parts[0].starts_with("(parte 1/") && parts[0].contains("Pianificazione conclusa senza proposta"));
+        for question in &questions {
+            assert!(parts.iter().any(|p| p.contains(question.as_str())), "{question} mancante");
+        }
+        assert!(parts.iter().all(|p| !p.contains("mancano")), "nessun avviso: il testo ci sta tutto");
     }
 }

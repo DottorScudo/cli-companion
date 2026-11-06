@@ -168,7 +168,10 @@ resta uno solo. L'elenco (`hub_list_threads`) restituisce i riassunti, senza i m
   `task_attention`, `task_question`, `task_question_answered`, `task_deleted`, `proposal_created`,
   `proposal_accepted`, `proposal_rejected`, `action_request`, `action_request_resolved`), `workspace`
   (id del workspace della board), `task_id`, `proposal_id`, `status` (stato del task nella board), `summary`
-  (riassunto del report), `verdict` (`passed` | `issues`, esito di una review), `note` (nota dell'app sul task),
+  (riassunto del report, al massimo 1000 caratteri più «…»), `summary_chars` (lunghezza in caratteri del riassunto
+  intero, presente solo se `summary` è accorciato: il testo intero è nel report del task), `verdict` (`passed` |
+  `issues`, esito di una review), `note` (nota dell'app sul task, accorciata come `summary`), `note_chars` (come
+  `summary_chars`, per la nota; i due campi mancano nei file scritti prima e con un testo corto),
   `question` (`HubQuestion`: `id` della domanda sulla board, `text` al massimo 2000 caratteri, `options` al
   massimo 5 da 80 caratteri; negli eventi `task_question` e `task_question_answered`), `request`
   (`HubActionRequest`, negli eventi `action_request` e `action_request_resolved`; vedi "Azioni che chiedono conferma").
@@ -299,6 +302,22 @@ Assunzioni di questa tappa, tutte in costanti di `hub/text.rs`, `hub/threads.rs`
 | Nome di un mittente esterno | 1..120 caratteri dopo la pulizia | i caratteri di controllo diventano spazi, il resto oltre il limite si taglia con «…»; vuoto = rifiutato |
 | `external_id` di un'origine | 1..256 caratteri | rifiutato se vuoto, troppo lungo o con caratteri di controllo |
 | Testo di una consegna esterna | fino a 8000 caratteri | non si rifiuta: si ripulisce e si taglia con «… (troncato)», lasciando posto alla nota sugli allegati non importati |
+| Testo lungo dell'app o di un segretario (risposta finale, `post_message`, domande del pianificatore) | parti da 8000 caratteri, al massimo 8 (`text::parts::MAX_PARTS`) | non si taglia: diventa più messaggi consecutivi, vedi sotto |
+
+**Testi lunghi divisi in parti** (`hub/text/parts.rs`, puro). Un testo dell'app o di un segretario che supera un
+messaggio non si taglia: `parts::split` lo divide in messaggi consecutivi dello stesso autore, scritti insieme sotto
+lo stesso lock (`append::append_parts`: nessun altro messaggio in mezzo, un solo `hub-update`, una sola notifica di
+sistema per la risposta di un segretario, sulla prima parte). Ogni parte si apre con «(parte i/n)» su una riga sua
+e sta in 8000 caratteri; il taglio cade preferibilmente tra due paragrafi, poi tra due righe, poi tra due parole,
+mai a metà di un carattere, e se si può fuori da un blocco di codice Markdown (```` ``` ```` o `~~~`): un blocco
+tagliato si chiude alla fine della parte e si riapre (con lo stesso linguaggio) nella successiva. Lo spazio bianco
+del taglio passa all'inizio della parte successiva, dopo l'etichetta: togliendo le etichette e concatenando le parti
+si ritrova il testo esatto (se nessun blocco di codice è stato tagliato). Una parte tiene al massimo 7718 caratteri
+del testo (il resto è riservato a etichetta, blocco riaperto e avviso) e almeno 6718 se non è l'ultima, quindi un
+testo fino a `LONG_BODY_MAX` = 53744 caratteri ci sta sempre (più del report di 50000 di un `plan`). Oltre le 8
+parti l'ultima finisce con un avviso esplicito: «… (testo interrotto: mancano N caratteri, oltre il limite di 8
+messaggi)» per la risposta di un segretario, «… (mancano N caratteri: il testo intero è nel report del task, nel
+Tasks Manager)» per le domande del pianificatore. Mai un taglio senza avviso.
 
 Un thread chiuso accetta ancora messaggi (per esempio gli eventi dei suoi task) e resta chiuso.
 
@@ -670,8 +689,10 @@ board.
 ### Istantanee e base di partenza
 
 Il thread tiene in memoria l'ultima istantanea di ogni workspace: per task stato, attenzione, titolo, tipo e,
-per raccontare gli eventi, riassunto del report, verdetto e nota (ripuliti dai caratteri di controllo e tagliati
-a 1000 caratteri); per proposta id e task proposti.
+per raccontare gli eventi, riassunto del report, verdetto e nota (ripuliti dai caratteri di controllo e accorciati
+a 1000 caratteri con «…», con accanto la lunghezza del testo intero se accorciati: diventa `summary_chars` /
+`note_chars` dell'evento); per un task `plan` anche il riassunto intero, per riportare tutte le domande del
+pianificatore; per proposta id e task proposti.
 
 - All'**avvio dell'app** la prima vista pubblicata di un workspace fa solo da base, senza eventi (il primo giro
   dell'automazione ripubblica tutte le board): i `running` diventati `failed` per il riavvio non generano messaggi.
@@ -733,7 +754,9 @@ Sui thread del canale del workspace, con tempo e id passati dal chiamante:
   si crea al primo evento. Un task eliminato senza thread non ne crea uno;
 - un evento di un task (non l'eliminazione) **riapre** il suo thread se era chiuso;
 - un task `plan` concluso senza aver fatto una proposta (né sulla board né già riportata nel thread) scrive
-  «Pianificazione conclusa senza proposta: <titolo>» con il riassunto, che contiene le domande del pianificatore;
+  «Pianificazione conclusa senza proposta: <titolo>» con il riassunto intero, che contiene le domande del
+  pianificatore, diviso in parti se supera un messaggio (vedi "Testi lunghi divisi in parti"): la prima parte porta
+  `event` e la notifica, le altre solo il testo, e il titolare si sveglia dall'ultima, vedendole tutte;
 - alla fine del passo, un thread toccato e aperto i cui task collegati sono tutti `done` o spariti dalla board si
   **chiude** con «Tutti i task sono conclusi: thread chiuso.» (messaggio di sistema senza `event`). Serve almeno un
   task che non sia un `plan` (un piano da solo aspetta la proposta o le risposte) e nessuna proposta del thread
@@ -1039,7 +1062,8 @@ Un turno: conversazione → chiamata al modello con i soli tool del segretario �
 ognuno il codice controlla che sia nella lista del segretario, valida gli argomenti contro lo schema, lo esegue e
 restituisce l'esito (JSON, al massimo `TOOL_RESULT_MAX` = 6000 caratteri: oltre si taglia con «…»; `task_details`
 non arriva mai al taglio perché divide da sé il task in pezzi); altrimenti il testo è la risposta del segretario, che si
-scrive nel thread (ripulita, al massimo 7999 caratteri). Al massimo `max_steps` chiamate al modello per turno.
+scrive nel thread ripulita e, se supera un messaggio, divisa in parti consecutive (vedi "Testi lunghi divisi in
+parti"; una sola notifica). Al massimo `max_steps` chiamate al modello per turno.
 
 | Caso | Esito per il modello | Nel thread |
 |---|---|---|
@@ -1097,7 +1121,7 @@ campi della struttura coincidano. Gli argomenti vuoti valgono `{}`. Solo `open_p
 | `board_overview` | — | per ogni workspace che il segretario può consultare (i suoi canali, nell'ordine dello store; al massimo 20, il resto è `omitted_workspaces`): `workspace`, `workspace_name`, i conteggi per stato, `proposals_pending`, `paused`, `attention_total` con i primi 3 task che aspettano l'utente (`id`, `title`, `status`) e `questions_total` con le prime 3 domande dei worker senza risposta (`task_id`, testo tagliato a 120 caratteri). Output in `output/overview.rs`; per i dettagli si passa a `board_status` o `task_details` |
 | `task_details` | `task_id` (1..64 caratteri), `workspace?` (come `board_status`), `field?` (al massimo 64 caratteri), `offset?` (intero ≥ 0, solo con `field`) | un task per intero (`output/task_details.rs`, da `TaskView::to_json(true)`): specifica (`task`), stato, dipendenze e `waiting_on`, nota, agente, `question` (testo e risposte suggerite) se un worker aspetta, `report` completo (riassunto, `commit`, `pr_url`, `files_changed`, `tests`, `follow_ups`, `diffstat`, per le revisioni `verdict` e `findings`), `allowed_actions`, `can_edit`, `cascade`, ora UTC di creazione e aggiornamento e `worktree` solo con branch e base. Mai la sessione, il percorso del worktree né lo storico delle domande. Specifica, nota, domanda e report li scrive un agente: l'esito ha `untrusted: true` e il prompt del motore li dichiara dati e non istruzioni. **Nessun contenuto è irrecuperabile**: ogni esito sta in `TOOL_RESULT_MAX` (6000 caratteri, misurati sul JSON serializzato, virgolette e a capo raddoppiati compresi), quindi il taglio di `turn.rs` non lo spezza mai. Se la scheda intera non ci sta, i testi lunghi (`task`, `note`, `question.text`, `report.summary`, `report.diffstat`) e gli elenchi (`question.options`, `report.findings`, `report.follow_ups`, `report.files_changed`, `report.tests`, `depends_on`, `waiting_on`, `cascade.dependents`, `cascade.running`) portano il loro primo pezzo: lo spazio si divide in parti uguali partendo dai campi più corti (che restano interi) e i fatti corti (stato, `commit`, `pr_url`, `verdict`, `question.id`) ci sono sempre. `more` dice per ogni campo incompleto da dove riprendere, es. `"more": { "task": { "next_offset": 2400, "total_chars": 18000 }, "report.follow_ups": { "next_offset": 5, "total_items": 40 } }`; senza `more` il task è intero. Con `field` l'esito è solo `{ task_id, field, offset, untrusted, content \| items, next_offset?, total_chars \| total_items }`: un pezzo grande quanto il limite permette (testi in caratteri, mai a metà di un carattere; elenchi per voci intere), `next_offset` assente = campo finito. Una voce di un elenco troppo lunga per stare da sola in una pagina esce accorciata con il suo `more` (`report.follow_ups.3`, `report.tests.2.details`, `report.tests.2.command`), e con quel nome si legge a pezzi come gli altri campi. Nomi e parsing in `task_page.rs`, pezzi e ripartizione in `output/task_details/pieces.rs`. Errori per il modello: `offset` senza `field`, `field` sconosciuto (fra gli argomenti non validi), campo che il task non ha (es. `report.summary` senza report) o `offset` oltre la fine. Un id inesistente dà un errore che rimanda a `board_status`; un workspace fuori dai canali del segretario è rifiutato come in `board_status` |
 | `thread_read` | `before?` (id di un messaggio del thread) oppure `offset?` (quanti degli ultimi messaggi saltare, da 0), mai insieme; senza argomenti gli ultimi. Oppure `message_id?` (id di un messaggio, mai con `before`) con `offset?` in caratteri: legge il testo intero di quel messaggio a pezzi | titolo, canale (con `workspace_name` nel canale di un workspace), stato, task e proposta collegati, riassunto e una pagina di al massimo 20 messaggi, meno se lunghi perché la pagina sta sempre in `TOOL_RESULT_MAX` misurata sul JSON (si tengono i più recenti della finestra; `output/message_page.rs`) (autore, ora UTC, testo tagliato a 1000 caratteri con `body_truncated: { total_chars }` se lo è, dati dell'evento senza i campi vuoti; un messaggio che da solo non sta nella pagina ha il testo accorciato, sempre con `body_truncated`, e se non basta dell'evento restano solo gli id (`kind`, `workspace`, `task_id`, `proposal_id`, `status`, `question.id`, `request.id`) con `event_truncated: true`: mai una pagina vuota, e per ogni messaggio con allegati `attachments`: solo nome, tipo e dimensione, mai percorso né contenuto), più, se la pagina non parte dall'inizio, `older_messages` e `next_before` (l'id del primo messaggio escluso, da passare a `before` per leggere il resto senza buchi né ripetizioni) e, se non arriva alla fine, `newer_messages`. Con `message_id` l'esito è invece `{ message_id, offset, content, next_offset?, total_chars, untrusted? }`: un pezzo del testo entro `TOOL_RESULT_MAX`, con `next_offset` finché continua (stesse convenzioni di `task_details`; `output/message_body.rs`). I dati dei task negli eventi restano i riassunti tagliati alla creazione: il dettaglio completo è `task_details`. Un `before` o `message_id` sconosciuto, un `offset` oltre la fine o `before` insieme a `message_id` è un errore per il modello; la finestra è calcolata in `thread_page.rs` |
-| `post_message` | `body` (1..8000 caratteri) | un messaggio intermedio del segretario nel thread; la risposta finale è comunque il testo del modello |
+| `post_message` | `body` (1..53744 caratteri, `LONG_BODY_MAX`) | un messaggio intermedio del segretario nel thread, diviso in parti consecutive se supera 8000 caratteri (vedi "Testi lunghi divisi in parti"); oltre il limite è rifiutato fra gli argomenti non validi («`body` must be 1 to 53744 characters of plain text»); la risposta finale è comunque il testo del modello |
 | `open_plan_task` | `goal` (1..4000 caratteri, ripulito dai caratteri di controllo), `bot` (obbligatorio, 1..64 caratteri: l'id di un Bot-agente abilitato che pianifica, cioè con `plan` fra i `kinds`) | crea un task `plan` in coda nel workspace del canale, eseguito dal Bot scelto, collegato al thread, e rende il segretario titolare; esito `{ task_id, title, status }`. Nel Generale è un errore per il modello: deve chiedere all'utente il progetto. Un Bot sconosciuto, disabilitato o senza `plan` è un errore per il modello, senza ripieghi e senza task creato |
 | `decide_proposal` | `accept` (bool), **nessun id** | accetta o scarta la proposta dell'evento a cui risponde il messaggio dell'utente; esito `{ proposal, decision, tasks_queued }` |
 | `relay_answer` | `body` (1..4000 caratteri, il limite delle risposte della board), `question_id?` e `task_id?` (al massimo 64 caratteri; vuoto vale assente) | consegna `body` al worker come risposta a una domanda in attesa del thread, solo in un turno svegliato da un messaggio dell'utente; senza id vale l'unica domanda in attesa, con più domande si passano `question_id` e `task_id` letti da `thread_read` (`event.question.id`, `event.task_id`) o da `task_details` (`question.id`); esito `{ task_id, question_id, delivered }` e nel thread «@mario ha inviato al worker del task t-7 questa risposta: …» |

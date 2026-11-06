@@ -17,13 +17,10 @@ use super::turn::{compact, run_turn, updated_summary, TurnEnd, TurnSpec};
 use super::workspace_names::WorkspaceNames;
 use crate::hub::model::Author;
 use crate::hub::settings::HubSettingsStore;
-use crate::hub::text::{clean_text, BODY_MAX};
+use crate::hub::text::clean_text;
+use crate::hub::text::parts::{self, Remainder};
 use crate::workspaces::WorkspaceStore;
 use tauri::{AppHandle, Manager};
-
-/// Caratteri tenuti della risposta finale: `clean_text` aggiunge "…" a un
-/// testo tagliato, che deve restare nei limiti di un messaggio.
-const REPLY_KEPT: usize = BODY_MAX - 1;
 
 /// Svuota la coda del thread, un lavoro alla volta, e si ferma quando e'
 /// vuota o l'HUB e' stato spento (epoca cambiata).
@@ -115,16 +112,23 @@ async fn reply(app: &AppHandle, key: &ThreadKey, name: &str, mut trigger: Trigge
     engine.end_turn(key, name, turn, epoch);
 }
 
-/// La risposta finale nel thread, ripulita e nei limiti di un messaggio.
+/// La risposta finale nel thread: una risposta piu' lunga di un messaggio
+/// diventa piu' messaggi consecutivi (`reply_parts`).
 async fn post_reply(io: &ThreadIo, name: &str, text: &str) {
-    let body = clean_text(text, REPLY_KEPT);
-    if body.is_empty() {
+    let parts = reply_parts(text);
+    if parts.is_empty() {
         io.notice(texts::model_error(name, ModelError::Empty)).await;
         return;
     }
-    if let Err(e) = io.append(Author::Bot { name: name.to_string() }, body).await {
+    if let Err(e) = io.append_parts(Author::Bot { name: name.to_string() }, parts).await {
         log::error!("hub: risposta di {name} non scritta: {e}");
     }
+}
+
+/// La risposta ripulita e divisa nei messaggi che la portano: vuota se non
+/// resta testo; oltre `parts::MAX_PARTS` l'ultima parte dice quanto manca.
+fn reply_parts(text: &str) -> Vec<String> {
+    parts::split(&clean_text(text, usize::MAX), Remainder::Lost)
 }
 
 /// Il riassunto del thread dalla conversazione della sessione chiusa; se non
@@ -158,4 +162,34 @@ async fn summarize(app: &AppHandle, key: &ThreadKey, name: &str, conversation: &
 /// dallo store in memoria all'inizio del turno.
 fn current_workspace_names(app: &AppHandle) -> WorkspaceNames {
     WorkspaceNames::new(app.state::<WorkspaceStore>().all().into_iter().map(|w| (w.id, w.name)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hub::text::BODY_MAX;
+
+    #[test]
+    fn a_long_reply_becomes_consecutive_messages_that_rebuild_it() {
+        let paragraph = "Il task è in coda dietro la migrazione del database. ".repeat(10);
+        let text = vec![paragraph.trim_end(); 40].join("\n\n");
+        assert!(text.chars().count() >= 20_000);
+        let parts = reply_parts(&format!("  {text}\u{7}\n"));
+        assert_eq!(parts.len(), 3);
+        let rebuilt: String = parts
+            .iter()
+            .enumerate()
+            .map(|(i, part)| {
+                assert!(part.chars().count() <= BODY_MAX);
+                part.strip_prefix(&format!("(parte {}/3)\n", i + 1)).unwrap()
+            })
+            .collect();
+        assert_eq!(rebuilt, text);
+    }
+
+    #[test]
+    fn a_short_reply_is_one_message_and_an_empty_one_none() {
+        assert_eq!(reply_parts(" Fatto.\u{1b} "), ["Fatto."]);
+        assert!(reply_parts(" \u{7}\n ").is_empty());
+    }
 }

@@ -54,7 +54,8 @@ pub trait TurnHost: Send + Sync {
     ) -> impl Future<Output = Result<Value, String>> + Send;
     /// Il thread compatto, con la pagina di messaggi chiesta.
     fn thread_read(&self, page: ThreadPage) -> impl Future<Output = Result<Value, String>> + Send;
-    /// Scrive un messaggio del segretario nel thread.
+    /// Scrive un messaggio del segretario nel thread: diviso in piu' messaggi
+    /// consecutivi (`text::parts`) se supera i limiti di uno.
     fn post_message(&self, body: String) -> impl Future<Output = Result<(), String>> + Send;
     /// Apre un task di pianificazione collegato al thread (vedi `planning::open_plan`).
     /// `bot` e' l'id scelto dal segretario, ancora da verificare.

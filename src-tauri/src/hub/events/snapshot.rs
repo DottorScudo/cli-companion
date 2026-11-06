@@ -3,13 +3,16 @@
 //! task delle proposte) e a raccontarli (riassunto, verdetto, nota, testo e
 //! opzioni della domanda). Si ricava da `BoardView` e
 //! resta in memoria per workspace finche' l'HUB e' acceso: i testi lunghi sono
-//! gia' ripuliti e tagliati qui.
+//! gia' ripuliti e accorciati qui, con la lunghezza del testo intero accanto
+//! (che resta nella board); solo il riassunto di un task `plan` si tiene anche
+//! intero, per riportare tutte le domande del pianificatore.
 
 use crate::board::{
     BoardView, Proposal, TaskKind, TaskQuestion, TaskStatus, TaskView, Verdict, OPTION_MAX, QUESTION_MAX,
 };
 use crate::hub::model::HubQuestion;
 use crate::hub::text::{clean_line, clean_text};
+use crate::validate::clip_with_ellipsis;
 
 /// Caratteri tenuti di un titolo: un titolo della board ne ha al massimo 80,
 /// il margine lascia posto al "+N" del titolo di un thread.
@@ -25,10 +28,18 @@ pub struct TaskSnap {
     pub kind: TaskKind,
     pub status: TaskStatus,
     pub attention: bool,
-    /// Riassunto del report dell'ultimo tentativo concluso.
+    /// Riassunto del report dell'ultimo tentativo concluso, accorciato.
     pub summary: Option<String>,
+    /// Lunghezza del riassunto intero, solo se `summary` e' accorciato.
+    pub summary_chars: Option<usize>,
+    /// Il riassunto intero di un task `plan`: le domande del pianificatore,
+    /// riportate per intero se il piano finisce senza proposta.
+    pub plan_report: Option<String>,
     pub verdict: Option<Verdict>,
+    /// La nota del task, accorciata.
     pub note: Option<String>,
+    /// Lunghezza della nota intera, solo se `note` e' accorciata.
+    pub note_chars: Option<usize>,
     /// La domanda del worker in attesa di risposta.
     pub question: Option<HubQuestion>,
 }
@@ -76,16 +87,49 @@ impl BoardSnapshot {
 fn task_snap(v: &TaskView) -> TaskSnap {
     let t = &v.task;
     let report = t.report();
+    let summary = report.and_then(|r| Detail::of(&r.summary));
+    let note = t.note().and_then(Detail::of);
+    let plan_report = summary.as_ref().filter(|_| t.kind == TaskKind::Plan).map(|s| s.full.clone());
+    let (summary, summary_chars) = Detail::shortened(summary);
+    let (note, note_chars) = Detail::shortened(note);
     TaskSnap {
         id: t.id.clone(),
         title: clean_line(&t.title, TITLE_KEPT),
         kind: t.kind,
         status: t.status(),
         attention: v.attention,
-        summary: report.map(|r| clean_text(&r.summary, DETAIL_KEPT)).filter(|s| !s.is_empty()),
+        summary,
+        summary_chars,
+        plan_report,
         verdict: report.and_then(|r| r.verdict),
-        note: t.note().map(|n| clean_text(n, DETAIL_KEPT)).filter(|s| !s.is_empty()),
+        note,
+        note_chars,
         question: v.question.as_ref().map(question_snap),
+    }
+}
+
+/// Un testo lungo del task (riassunto, nota) ripulito: intero e con la sua lunghezza.
+struct Detail {
+    full: String,
+    chars: usize,
+}
+
+impl Detail {
+    /// `None` se non resta testo dopo la pulizia.
+    fn of(raw: &str) -> Option<Self> {
+        let full = clean_text(raw, usize::MAX);
+        let chars = full.chars().count();
+        (chars > 0).then_some(Self { full, chars })
+    }
+
+    /// Il testo accorciato a `DETAIL_KEPT` caratteri (con "…") e, solo se
+    /// accorciato, la lunghezza del testo intero.
+    fn shortened(detail: Option<Self>) -> (Option<String>, Option<usize>) {
+        match detail {
+            None => (None, None),
+            Some(d) if d.chars <= DETAIL_KEPT => (Some(d.full), None),
+            Some(d) => (Some(clip_with_ellipsis(&d.full, DETAIL_KEPT)), Some(d.chars)),
+        }
     }
 }
 
@@ -155,8 +199,10 @@ mod tests {
             (TaskKind::Review, TaskStatus::Done, Some(Verdict::Passed))
         );
         assert_eq!(review.summary.as_deref(), Some("tutto ok"));
+        assert_eq!((review.summary_chars, &review.plan_report), (None, &None));
         let failed = snap.task("f").unwrap();
         assert_eq!(failed.note.as_ref().unwrap().chars().count(), DETAIL_KEPT + 1, "tagliata con …");
+        assert_eq!(failed.note_chars, Some(DETAIL_KEPT + 5));
         let queued = snap.task("q").unwrap();
         assert_eq!((queued.status, queued.attention, &queued.summary), (TaskStatus::Queued, false, &None));
         assert_eq!(snap.tasks.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["r", "f", "q"]);
@@ -168,5 +214,28 @@ mod tests {
                 tasks: vec![ProposedTask { id: "a".to_string(), title: "Nuovo".to_string() }]
             }]
         );
+    }
+
+    #[test]
+    fn a_plan_keeps_its_whole_report_and_a_short_text_has_no_length() {
+        let questions = format!("Questions for the user:\n{}", "1. Quale database?\n".repeat(1000));
+        let raw = serde_json::json!({
+            "workspace_id": "ws-1",
+            "tasks": [
+                {"id": "p", "title": "Piano", "task": "t", "kind": "plan", "status": "done",
+                 "report": {"status": "completed", "summary": questions}},
+                {"id": "f", "title": "Fallito", "task": "t", "status": "failed", "note": "è".repeat(DETAIL_KEPT)}
+            ]
+        });
+        let board = Board::from_json(&raw.to_string(), 1).unwrap();
+        let snap = BoardSnapshot::of(&board.view_with(None, false, &AgentGate::default()));
+
+        let plan = snap.task("p").unwrap();
+        let whole = questions.trim_end();
+        assert_eq!(plan.plan_report.as_deref(), Some(whole));
+        assert_eq!(plan.summary_chars, Some(whole.chars().count()));
+        assert!(plan.summary.as_ref().unwrap().ends_with('…'));
+        let failed = snap.task("f").unwrap();
+        assert_eq!((failed.note.as_ref().unwrap().chars().count(), failed.note_chars), (DETAIL_KEPT, None));
     }
 }

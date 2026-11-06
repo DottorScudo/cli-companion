@@ -17,17 +17,29 @@ workspace: string | null, task_id: string | null, proposal_id: string | null,
  */
 status: string | null, 
 /**
- * Riassunto breve (per esempio dal report del worker).
+ * Riassunto breve (per esempio dal report del worker), accorciato con "…"
+ * se il testo intero e' piu' lungo (vedi `summary_chars`).
  */
 summary: string | null, 
+/**
+ * Lunghezza in caratteri del riassunto intero, solo se `summary` e'
+ * accorciato: il testo intero e' nel report del task.
+ */
+summary_chars?: number, 
 /**
  * Esito di una revisione completata.
  */
 verdict: Verdict | null, 
 /**
- * Nota dell'app sul task (per esempio il motivo di un fallimento).
+ * Nota dell'app sul task (per esempio il motivo di un fallimento),
+ * accorciata con "…" se il testo intero e' piu' lungo (vedi `note_chars`).
  */
 note: string | null, 
+/**
+ * Lunghezza in caratteri della nota intera, solo se `note` e' accorciata:
+ * il testo intero e' nella nota del task.
+ */
+note_chars?: number, 
 /**
  * La domanda del worker, negli eventi `task_question`.
  */

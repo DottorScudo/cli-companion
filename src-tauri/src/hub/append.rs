@@ -1,10 +1,11 @@
 //! Aggiunta di un messaggio di testo a un thread, con salvataggio ed evento
 //! `hub-update`: la usano `hub_send` (i messaggi dell'utente, anche con gli
 //! allegati) e il motore dei segretari (risposte e avvisi). La risposta di un
-//! segretario offre anche una notifica di sistema (`notify`). Un messaggio con
-//! un'origine gia' presente nel thread (lo stesso messaggio di un canale di
-//! contatto, ripresentato dopo un riavvio) non si scrive di nuovo. Bloccante: va
-//! chiamata fuori dal main thread.
+//! segretario offre anche una notifica di sistema (`notify`); un testo lungo
+//! diviso in parti (`text::parts`) si scrive tutto insieme con `append_parts`.
+//! Un messaggio con un'origine gia' presente nel thread (lo stesso messaggio di
+//! un canale di contatto, ripresentato dopo un riavvio) non si scrive di nuovo.
+//! Bloccante: va chiamata fuori dal main thread.
 
 use super::attachments::{self, Claimed};
 use super::channel::Channel;
@@ -44,6 +45,62 @@ impl Appended {
 /// ed emette `hub-update`. Il canale di un workspace deve esistere ancora.
 pub fn append_text(app: &AppHandle, channel: &Channel, thread_id: &str, text: TextMessage) -> Result<Message, String> {
     append(app, channel, thread_id, text, Vec::new(), None).map(Appended::into_message)
+}
+
+/// Le parti di un testo lungo (`text::parts::split`) come messaggi consecutivi
+/// di `author`, scritti insieme sotto lo stesso lock: nessun altro messaggio in
+/// mezzo, nulla di scritto se una parte e' rifiutata, un solo `hub-update` e,
+/// per la risposta di un segretario, una sola notifica (sulla prima parte).
+pub fn append_parts(
+    app: &AppHandle,
+    channel: &Channel,
+    thread_id: &str,
+    author: Author,
+    parts: Vec<String>,
+) -> Result<Vec<Message>, String> {
+    if parts.is_empty() {
+        return Ok(Vec::new());
+    }
+    let dirs = hub_dirs_of(app)?;
+    let state = app.state::<HubState>();
+    let now = chrono::Utc::now().timestamp_millis();
+    let bot = replying_bot(&author);
+    let news: Vec<NewMessage> = parts
+        .into_iter()
+        .map(|body| NewMessage {
+            id: state.next_id(MESSAGE_ID_PREFIX, now),
+            author: author.clone(),
+            body,
+            reply_to: None,
+            event: None,
+            origin: None,
+        })
+        .collect();
+    let (messages, touched) = state.update(&dirs, channel, |list| {
+        // Sotto il lock dell'HUB: una rimozione del workspace in corso aspetta.
+        ensure_channel(app, channel)?;
+        let messages = news
+            .into_iter()
+            .map(|new| list.add_message(thread_id, new, now).cloned())
+            .collect::<Result<Vec<_>, _>>()?;
+        let thread = list.thread(thread_id).ok_or_else(|| THREAD_NOT_FOUND.to_string())?;
+        Ok((messages, summary(thread)))
+    })?;
+    emit_update(app, &touched);
+    if let (Some(bot), Some(first)) = (bot, messages.first()) {
+        app.state::<HubNotifier>().notify(app, &touched, &first.id, NoticeKind::Reply { bot }, &first.body);
+    }
+    Ok(messages)
+}
+
+/// Il segretario che risponde, se l'autore e' un segretario: solo la sua
+/// risposta notifica, mai l'utente (anche se scrive da un canale di contatto)
+/// ne' il motore.
+fn replying_bot(author: &Author) -> Option<String> {
+    match author {
+        Author::Bot { name } => Some(name.clone()),
+        Author::User | Author::System | Author::External { .. } => None,
+    }
 }
 
 /// Messaggio dell'utente con gli allegati `attachment_ids` (gia' nello
@@ -90,12 +147,7 @@ fn append(
     let dirs = hub_dirs_of(app)?;
     let state = app.state::<HubState>();
     let now = chrono::Utc::now().timestamp_millis();
-    // Notifica solo la risposta di un segretario: mai l'utente (anche se scrive
-    // da un canale di contatto) ne' il motore.
-    let replying_bot = match &text.author {
-        Author::Bot { name } => Some(name.clone()),
-        Author::User | Author::System | Author::External { .. } => None,
-    };
+    let replying_bot = replying_bot(&text.author);
     let new = NewMessage {
         id: state.next_id(MESSAGE_ID_PREFIX, now),
         author: text.author,

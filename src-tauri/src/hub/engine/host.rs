@@ -27,7 +27,7 @@ use super::workspace_names::WorkspaceNames;
 use crate::board::BoardView;
 use crate::hub::actions::{AppAnswers, BoardActions, HubBoardActions};
 use crate::hub::api_key::ApiKey;
-use crate::hub::append::{append_text, TextMessage};
+use crate::hub::append::{append_parts, append_text, TextMessage};
 use crate::hub::attachments::commands::agent_paths;
 use crate::hub::channel::Channel;
 use crate::hub::commands::{emit_update, ensure_channel, hub_dirs_of};
@@ -37,6 +37,7 @@ use crate::hub::questions::QuestionRef;
 use crate::hub::settings::{Provider, Secretary};
 use crate::hub::state::HubState;
 use crate::hub::text::clean_line;
+use crate::hub::text::parts::{self, Remainder};
 use crate::hub::threads::{summary, THREAD_NOT_FOUND};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
@@ -79,6 +80,19 @@ impl ThreadIo {
                 return Err(STALE.to_string());
             }
             append_text(&app, &key.channel, &key.thread_id, TextMessage { author, body, reply_to: None }).map(|_| ())
+        })
+        .await
+    }
+
+    /// Scrive le parti di un testo lungo (`text::parts::split`) come messaggi
+    /// consecutivi, insieme e con un solo `hub-update` (vedi `append_parts`).
+    pub async fn append_parts(&self, author: Author, parts: Vec<String>) -> Result<(), String> {
+        let (app, key, epoch) = (self.app.clone(), self.key.clone(), self.epoch);
+        crate::blocking(move || {
+            if !app.state::<SecretaryEngine>().is_current(epoch) {
+                return Err(STALE.to_string());
+            }
+            append_parts(&app, &key.channel, &key.thread_id, author, parts).map(|_| ())
         })
         .await
     }
@@ -317,7 +331,8 @@ impl TurnHost for AppTurnHost<'_> {
     }
 
     async fn post_message(&self, body: String) -> Result<(), String> {
-        self.io.append(Author::Bot { name: self.secretary.name.clone() }, body).await.map_err(|e| {
+        let parts = parts::split(&body, Remainder::Lost);
+        self.io.append_parts(Author::Bot { name: self.secretary.name.clone() }, parts).await.map_err(|e| {
             log::warn!("hub: post_message di {} fallito: {e}", self.secretary.name);
             "The message could not be posted.".to_string()
         })

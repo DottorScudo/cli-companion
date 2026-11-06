@@ -3,6 +3,8 @@
 
 use crate::validate::clip_with_ellipsis;
 
+pub mod parts;
+
 /// Lunghezza del titolo di un thread, in caratteri.
 pub const TITLE_MAX: usize = 120;
 /// Lunghezza del testo di un messaggio (e del riassunto di un evento), in caratteri.
@@ -54,18 +56,31 @@ pub fn external_id(raw: &str) -> Result<String, String> {
 /// Testo di un messaggio: trim, non vuoto, al massimo `BODY_MAX` caratteri.
 /// Sono ammessi a capo e tabulazioni, non gli altri caratteri di controllo.
 pub fn body(raw: &str) -> Result<String, String> {
-    let text = optional_body(raw)?;
+    non_empty(optional_body(raw)?)
+}
+
+/// Come `body`, ma fino a `parts::LONG_BODY_MAX` caratteri: un testo da
+/// dividere in piu' messaggi con `parts::split`.
+pub fn long_body(raw: &str) -> Result<String, String> {
+    non_empty(bounded_body(raw, parts::LONG_BODY_MAX)?)
+}
+
+/// Come `body`, ma il testo puo' essere vuoto (un messaggio con allegati).
+pub fn optional_body(raw: &str) -> Result<String, String> {
+    bounded_body(raw, BODY_MAX)
+}
+
+fn non_empty(text: String) -> Result<String, String> {
     if text.is_empty() {
         return Err("il messaggio è vuoto".to_string());
     }
     Ok(text)
 }
 
-/// Come `body`, ma il testo puo' essere vuoto (un messaggio con allegati).
-pub fn optional_body(raw: &str) -> Result<String, String> {
+fn bounded_body(raw: &str, max: usize) -> Result<String, String> {
     let text = raw.trim();
-    if text.chars().count() > BODY_MAX {
-        return Err(format!("il messaggio supera i {BODY_MAX} caratteri"));
+    if text.chars().count() > max {
+        return Err(format!("il messaggio supera i {max} caratteri"));
     }
     if text.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t')) {
         return Err("il messaggio contiene caratteri non validi".to_string());
@@ -159,6 +174,16 @@ mod tests {
         assert_eq!(optional_body(" ciao ").unwrap(), "ciao");
         assert!(optional_body(&"x".repeat(BODY_MAX + 1)).is_err());
         assert!(optional_body("a\u{0}b").is_err());
+    }
+
+    #[test]
+    fn long_bodies_go_up_to_the_parts_limit_with_the_other_rules() {
+        assert_eq!(long_body(" ciao\n ").unwrap(), "ciao");
+        let long = "é".repeat(parts::LONG_BODY_MAX);
+        assert_eq!(long_body(&long).unwrap(), long);
+        assert!(long_body(&format!("{long}x")).unwrap_err().contains(&parts::LONG_BODY_MAX.to_string()));
+        assert_eq!(long_body(" \n ").unwrap_err(), "il messaggio è vuoto");
+        assert!(long_body("a\u{0}b").is_err());
     }
 
     #[test]

@@ -310,6 +310,19 @@ fn a_file_without_optional_fields_is_read() {
 }
 
 #[test]
+fn an_event_written_before_the_whole_lengths_is_read_without_them() {
+    let json = r#"{"threads":[{"id":"t1","channel":"ws-1","title":"T","state":"open","created_at":1,"updated_at":2,
+        "messages":[{"id":"m1","author":{"type":"system"},"kind":"event","body":"Task fallito: X","created_at":1,
+        "event":{"kind":"task_failed","workspace":"ws-1","task_id":"x","proposal_id":null,"status":"failed",
+        "summary":"riassunto…","verdict":null,"note":"nota","question":null,"request":null}}]}]}"#;
+    let list: ChannelThreads = serde_json::from_str(json).unwrap();
+    let event = list.thread("t1").unwrap().messages[0].event.as_ref().unwrap();
+    assert_eq!((event.summary.as_deref(), event.summary_chars, event.note_chars), (Some("riassunto…"), None, None));
+    let saved = serde_json::to_string(&list).unwrap();
+    assert!(!saved.contains("summary_chars") && !saved.contains("note_chars"), "{saved}");
+}
+
+#[test]
 fn the_summary_is_replaced_without_touching_the_thread() {
     let mut list = with_thread("t1", 3);
     assert!(list.thread("t1").unwrap().summary.is_none());

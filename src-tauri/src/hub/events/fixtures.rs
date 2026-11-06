@@ -15,8 +15,11 @@ pub fn task(id: &str, status: TaskStatus) -> TaskSnap {
         status,
         attention: false,
         summary: None,
+        summary_chars: None,
+        plan_report: None,
         verdict: None,
         note: None,
+        note_chars: None,
         question: None,
     }
 }

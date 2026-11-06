@@ -18,7 +18,8 @@ use crate::board::BOT_ID_MAX;
 use crate::hub::channel::Channel;
 use crate::hub::model::{RequestedAction, ThreadState};
 use crate::hub::settings::{Secretary, SecretaryTool};
-use crate::hub::text::{self, clean_text, BODY_MAX};
+use crate::hub::text::parts::LONG_BODY_MAX;
+use crate::hub::text::{self, clean_text};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -160,9 +161,10 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
                 "properties": {
                     "body": {
                         "type": "string",
-                        "description": "Text of the message.",
+                        "description": "Text of the message. A text longer than one message is posted as \
+                            consecutive numbered parts.",
                         "minLength": 1,
-                        "maxLength": BODY_MAX
+                        "maxLength": LONG_BODY_MAX
                     }
                 },
                 "required": ["body"],
@@ -273,8 +275,8 @@ pub fn parse(call: &ToolCall, secretary: &Secretary) -> Result<Invocation, ToolR
         }
         SecretaryTool::PostMessage => {
             let args: PostMessageArgs = arguments(&call.arguments).map_err(invalid)?;
-            let body = text::body(&args.body)
-                .map_err(|_| invalid(format!("`body` must be 1 to {BODY_MAX} characters of plain text")))?;
+            let body = text::long_body(&args.body)
+                .map_err(|_| invalid(format!("`body` must be 1 to {LONG_BODY_MAX} characters of plain text")))?;
             Ok(Invocation::PostMessage { body })
         }
         SecretaryTool::OpenPlanTask => {
