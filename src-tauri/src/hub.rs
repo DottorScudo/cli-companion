@@ -84,7 +84,7 @@ pub use events::{BoardSource, HubFeed};
 pub use lifecycle::{HubLifecycle, HubLifecycleListeners};
 pub use model::Message;
 pub use model::{Author, MessageOrigin};
-pub use notify::{validate_thread_ref, ContactNotice, HubNotifier, NoticeCategory, NoticeSink};
+pub use notify::{validate_thread_ref, AppMessage, ContactNotice, HubNotifier, NoticeCategory, NoticeSink};
 #[cfg(test)]
 pub use notify::{HubNotice, HubNoticeSound};
 pub use settings::{load_from_disk, new_store as new_settings_store};

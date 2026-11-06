@@ -75,3 +75,22 @@ fn every_notice_key_is_a_declared_switch() {
         assert!(matches!(DESCRIPTOR.config_field(key).map(|f| f.kind), Some(FieldKind::Bool { .. })), "{key}");
     }
 }
+
+#[test]
+fn mirroring_app_messages_is_on_by_default_and_follows_the_switch() {
+    assert!(mirror_wanted(&json!({})));
+    assert!(mirror_wanted(&json!(null)));
+    assert!(mirror_wanted(&json!({"mirror_app_messages": true})));
+    assert!(!mirror_wanted(&json!({"mirror_app_messages": false})));
+    assert!(mirror_wanted(&json!({"mirror_app_messages": "no"})), "un valore non booleano usa il predefinito");
+}
+
+#[test]
+fn the_mirror_key_is_a_declared_switch_on_by_default() {
+    assert!(matches!(
+        DESCRIPTOR.config_field("mirror_app_messages").map(|f| f.kind),
+        Some(FieldKind::Bool { default: true })
+    ));
+    assert!(validate_values(DESCRIPTOR.config_fields, &json!({"mirror_app_messages": false})).is_ok());
+    assert!(validate_values(DESCRIPTOR.config_fields, &json!({"mirror_app_messages": "no"})).is_err());
+}

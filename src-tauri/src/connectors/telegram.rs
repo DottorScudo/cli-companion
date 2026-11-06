@@ -103,6 +103,10 @@ impl ContactConnector for Telegram {
         descriptor::notice_wanted(config, category)
     }
 
+    fn mirrors_app_messages(&self, config: &Value) -> bool {
+        descriptor::mirror_wanted(config)
+    }
+
     fn receive<'a>(
         &'a self,
         ctx: &'a ConnectorContext,

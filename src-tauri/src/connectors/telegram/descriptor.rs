@@ -13,6 +13,8 @@ pub const ID: &str = "telegram";
 pub const TOKEN_SLOT: &str = "bot_token";
 /// L'unico host della Bot API.
 pub const API_HOST: &str = "api.telegram.org";
+/// Il campo-interruttore dell'eco dei messaggi scritti nell'app.
+const MIRROR_KEY: &str = "mirror_app_messages";
 
 const TOKEN_HELP: &str = "Apri una chat con @BotFather su Telegram, scrivi /newbot e scegli un nome e uno username \
     che finisca con «bot»: BotFather risponde con il token. Incollalo qui: resta nel portachiavi del sistema e non \
@@ -50,6 +52,13 @@ pub static DESCRIPTOR: ConnectorDescriptor = ConnectorDescriptor {
         ),
         switch("notify_conclusions", "Thread conclusi", "Notifica quando un thread si conclude.", true),
         switch("notify_done", "Task e revisioni finiti", "Notifica quando un task o una revisione finiscono.", false),
+        switch(
+            MIRROR_KEY,
+            "Messaggi scritti nell'app",
+            "Mostra nel topic del thread anche i messaggi che scrivi dall'app, con il prefisso «Tu (app)». Vale solo \
+            per un gruppo con i Topic e solo per i thread che hanno gia' un topic.",
+            true,
+        ),
     ],
     filter_fields: &[],
     actions: &[
@@ -95,6 +104,11 @@ fn switch_value(config: &Value, key: &str) -> bool {
 /// La configurazione chiede di inoltrare le notifiche di questo tipo?
 pub fn notice_wanted(config: &Value, category: NoticeCategory) -> bool {
     notice_key(category).is_some_and(|key| switch_value(config, key))
+}
+
+/// La configurazione chiede l'eco dei messaggi scritti nell'app?
+pub fn mirror_wanted(config: &Value) -> bool {
+    switch_value(config, MIRROR_KEY)
 }
 
 #[cfg(test)]

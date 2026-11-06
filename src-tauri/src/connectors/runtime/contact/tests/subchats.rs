@@ -9,6 +9,7 @@ use crate::connectors::testing::{command, contact_notice};
 use crate::hub::contact::ChannelEntry;
 
 mod lifecycle;
+mod mirror;
 
 const GROUP: &str = "group-1";
 

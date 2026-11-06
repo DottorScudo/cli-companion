@@ -40,3 +40,9 @@ fn notices_follow_the_configuration() {
     assert!(TELEGRAM.wants_notice(&config, NoticeCategory::Reply));
     assert!(!TELEGRAM.wants_notice(&config, NoticeCategory::External));
 }
+
+#[test]
+fn the_connector_mirrors_app_messages_by_default() {
+    assert!(TELEGRAM.mirrors_app_messages(&json!({})));
+    assert!(!TELEGRAM.mirrors_app_messages(&json!({"mirror_app_messages": false})));
+}

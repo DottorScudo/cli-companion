@@ -150,6 +150,9 @@ se ci arrivasse, rispondono `Fatal`).
   ritorna l'id esterno di ogni parte (servono per le risposte).
 - **`fetch_file`**: scarica un allegato; il runtime lo chiede solo per un account collegato ed entro i limiti dell'HUB.
 - **`wants_notice`**: pura, dice se la configurazione dell'istanza vuole le notifiche di un tipo (`NoticeCategory`).
+- **`mirrors_app_messages`** (facoltativa, predefinita: no): pura, dice se la configurazione vuole l'eco dei messaggi
+  scritti nell'app nella sotto-chat del thread (`docs/CONNECTORS.MD` §10); il runtime la chiede solo per le chat con
+  le sotto-chat e invia solo in una sotto-chat che esiste già.
 - **`pairing_reply`**: risponde a chi ha presentato un codice (benvenuto, codice errato, troppi tentativi).
 - **Sotto-chat** (facoltative; `docs/CONNECTORS.MD` §10, «Sotto-chat»): se il servizio ha conversazioni separate
   dentro una chat (i topic di un forum), `subchats(config, chat)` dice per quali chat valgono (pura, può dipendere

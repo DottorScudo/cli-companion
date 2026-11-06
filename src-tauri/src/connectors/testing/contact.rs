@@ -13,7 +13,7 @@ use crate::hub::attachments::IncomingFile;
 use crate::hub::NoticeCategory;
 use serde_json::Value;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 /// L'esito di `fetch_file` per un id: i byte o un errore.
@@ -28,6 +28,8 @@ pub struct FakeContact {
     pub send_error: Mutex<Option<ConnectorError>>,
     /// I tipi di notifica che `wants_notice` rifiuta.
     refused: Mutex<Vec<NoticeCategory>>,
+    /// Se vero, `mirrors_app_messages` rifiuta l'eco dei messaggi scritti nell'app.
+    mirror_refused: AtomicBool,
     /// In quante parti `send` spezza ogni messaggio (almeno una): un id per parte.
     parts: AtomicUsize,
     next_id: AtomicU64,
@@ -71,6 +73,7 @@ impl FakeContact {
             pairing: Mutex::new(Vec::new()),
             send_error: Mutex::new(None),
             refused: Mutex::new(Vec::new()),
+            mirror_refused: AtomicBool::new(false),
             parts: AtomicUsize::new(1),
             next_id: AtomicU64::new(0),
             files: Mutex::new(Vec::new()),
@@ -93,6 +96,11 @@ impl FakeContact {
     /// Da ora `wants_notice` rifiuta questo tipo.
     pub fn refuse(&self, category: NoticeCategory) {
         self.refused.lock().unwrap().push(category);
+    }
+
+    /// Da ora `mirrors_app_messages` rifiuta l'eco dei messaggi scritti nell'app.
+    pub fn refuse_mirroring(&self) {
+        self.mirror_refused.store(true, Ordering::SeqCst);
     }
 
     /// Ogni `send` si spezza in `parts` parti.
@@ -181,6 +189,10 @@ impl Connector for FakeContact {
 impl ContactConnector for FakeContact {
     fn wants_notice(&self, _config: &Value, category: NoticeCategory) -> bool {
         !self.refused.lock().unwrap().contains(&category)
+    }
+
+    fn mirrors_app_messages(&self, _config: &Value) -> bool {
+        !self.mirror_refused.load(Ordering::SeqCst)
     }
 
     fn receive<'a>(

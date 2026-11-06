@@ -1,6 +1,6 @@
 use super::*;
 use crate::connectors::model::{ConnectorInstance, ConnectorNotices, ConnectorsFile};
-use crate::connectors::testing::{FAKE_CONTACT, FAKE_SOURCE, INSTANCE};
+use crate::connectors::testing::{app_message, FAKE_CONTACT, FAKE_SOURCE, INSTANCE};
 use crate::hub::{Channel, HubNotice, NoticeCategory};
 use serde_json::json;
 
@@ -139,4 +139,23 @@ fn removals_skip_disabled_and_unregistered_instances_and_a_full_queue_drops_them
     assert_eq!(received, NOTICE_QUEUE);
     router.unregister(INSTANCE);
     router.thread_removed(removed_thread());
+}
+
+#[test]
+fn an_app_message_reaches_an_enabled_instance_with_the_notices_switch_on() {
+    let router = router_with(instance(true, true));
+    let mut rx = router.register(INSTANCE, &FAKE_CONTACT).unwrap();
+    router.app_message_written(&app_message("msg-3", "ciao", 0));
+    assert!(matches!(rx.try_recv().unwrap(), ContactEvent::AppMessage(m) if m.message_id == "msg-3"));
+    assert!(rx.try_recv().is_err());
+}
+
+#[test]
+fn an_app_message_respects_the_general_switch_and_disabled_instances() {
+    for inst in [instance(false, true), instance(true, false)] {
+        let router = router_with(inst);
+        let mut rx = router.register(INSTANCE, &FAKE_CONTACT).unwrap();
+        router.app_message_written(&app_message("msg-3", "ciao", 0));
+        assert!(rx.try_recv().is_err());
+    }
 }

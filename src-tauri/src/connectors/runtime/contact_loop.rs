@@ -42,7 +42,8 @@ pub async fn run_contact(
     }
 }
 
-/// Tratta gli eventi dell'HUB (notifiche da mandare, thread eliminati) finche' il canale
+/// Tratta gli eventi dell'HUB (notifiche da mandare, thread eliminati, messaggi scritti
+/// nell'app da rispecchiare) finche' il canale
 /// e' aperto (`true` quando si chiude). Un errore che richiede l'utente (credenziali)
 /// ferma il supervisore (`false`), come in ricezione.
 pub async fn run_events(
@@ -69,6 +70,7 @@ async fn handle_event(cc: &ContactCtx<'_>, event: ContactEvent) -> Result<(), Co
         ContactEvent::Notice(notice) => cc.send_notice(&notice).await,
         ContactEvent::ThreadRemoved(thread) => cc.thread_removed(&thread).await,
         ContactEvent::ChannelRemoved(channel) => cc.channel_removed(&channel).await,
+        ContactEvent::AppMessage(message) => cc.mirror_app_message(&message).await,
     }
 }
 

@@ -52,6 +52,13 @@ pub trait ContactConnector: Connector {
     /// Pura: la configurazione (gia' validata) chiede di inoltrare le notifiche di questo tipo?
     fn wants_notice(&self, config: &Value, category: NoticeCategory) -> bool;
 
+    /// Pura: la configurazione (gia' validata) chiede di rispecchiare nel thread i
+    /// messaggi che l'utente scrive nell'app? Il runtime lo chiede solo per le chat con
+    /// le sotto-chat (`subchats`). Predefinita: no.
+    fn mirrors_app_messages(&self, _config: &Value) -> bool {
+        false
+    }
+
     /// Long polling: aspetta (con un timeout, al piu' `limits::RECEIVE_TIMEOUT`)
     /// i messaggi in entrata e restituisce anche il cursore nuovo, che il
     /// supervisore salva dopo la consegna. Non scarica gli allegati (`fetch_file`).

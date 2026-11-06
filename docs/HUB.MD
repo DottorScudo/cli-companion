@@ -833,7 +833,10 @@ corpo, puro), `pending` (il raggruppamento, puro) `sinks` (i destinatari oltre a
 ### Quando notifica
 
 Mai per i messaggi dell'utente (anche quelli con `origin`, scritti da un canale di contatto) né per quelli di
-sistema scritti dal motore (avvisi, «Risposta inviata»).
+sistema scritti dal motore (avvisi, «Risposta inviata»). Un messaggio che l'utente scrive **nell'app** (senza
+`origin`) non è una notifica, ma i `NoticeSink` lo ricevono comunque, subito e senza raggruppamento
+(`NoticeSink::app_message_written`): i canali di contatto lo rispecchiano nel topic del thread (docs/CONNECTORS.MD §10,
+«Eco dei messaggi scritti nell'app»).
 
 | Origine | Tipo | Titolo | Suono |
 |---|---|---|---|

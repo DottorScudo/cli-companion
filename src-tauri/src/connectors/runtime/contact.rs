@@ -13,11 +13,13 @@
 //! - `commands`: l'esecuzione dei comandi;
 //! - `inbound`: un messaggio normale verso il thread giusto, con gli allegati;
 //! - `notices`: le notifiche dell'HUB verso i collegamenti;
+//! - `mirror`: l'eco dei messaggi scritti nell'app nella sotto-chat del thread;
 //! - `subchats`: le sotto-chat di una chat collegata, una per thread (mappa pura e uso).
 
 mod commands;
 mod inbound;
 mod linking;
+mod mirror;
 mod notices;
 pub mod refs;
 mod replies;

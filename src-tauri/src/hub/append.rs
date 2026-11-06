@@ -1,7 +1,9 @@
 //! Aggiunta di un messaggio di testo a un thread, con salvataggio ed evento
 //! `hub-update`: la usano `hub_send` (i messaggi dell'utente, anche con gli
 //! allegati) e il motore dei segretari (risposte e avvisi). La risposta di un
-//! segretario offre anche una notifica di sistema (`notify`); un testo lungo
+//! segretario offre anche una notifica di sistema (`notify`) e un messaggio che
+//! l'utente scrive nell'app lo sanno i canali di contatto (`app_message_written`,
+//! mai uno arrivato da un canale di contatto); un testo lungo
 //! diviso in parti (`text::parts`) si scrive tutto insieme con `append_parts`.
 //! Un messaggio con un'origine gia' presente nel thread (lo stesso messaggio di
 //! un canale di contatto, ripresentato dopo un riavvio) non si scrive di nuovo.
@@ -103,6 +105,13 @@ fn replying_bot(author: &Author) -> Option<String> {
     }
 }
 
+/// Il messaggio e' dell'utente ed e' stato scritto nell'app, non in un canale di
+/// contatto: solo questi si rispecchiano nei canali (mai un messaggio al canale da cui
+/// viene, per non creare un'eco infinita).
+fn is_app_user_message(message: &Message) -> bool {
+    message.author == Author::User && message.origin.is_none()
+}
+
 /// Messaggio dell'utente con gli allegati `attachment_ids` (gia' nello
 /// staging, vedi `attachments`): li sposta nella cartella del thread, salva il
 /// messaggio e, se il salvataggio fallisce o il messaggio e' un doppione, li
@@ -178,5 +187,41 @@ fn append(
     if let Some(bot) = replying_bot {
         app.state::<HubNotifier>().notify(app, &touched, &message.id, NoticeKind::Reply { bot }, &message.body);
     }
+    if is_app_user_message(&message) {
+        app.state::<HubNotifier>().app_message_written(app, &touched, &message);
+    }
     Ok(Appended::Written(message))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hub::model::MessageKind;
+
+    fn message(author: Author, origin: Option<MessageOrigin>) -> Message {
+        Message {
+            id: "msg-1-1".into(),
+            author,
+            kind: MessageKind::Text,
+            body: "ciao".into(),
+            reply_to: None,
+            event: None,
+            attachments: Vec::new(),
+            origin,
+            created_at: 0,
+        }
+    }
+
+    fn origin() -> MessageOrigin {
+        MessageOrigin { connector: "telegram".into(), instance: "inst-1".into(), external_id: "42".into() }
+    }
+
+    #[test]
+    fn only_the_users_own_app_messages_are_mirrored() {
+        assert!(is_app_user_message(&message(Author::User, None)));
+        assert!(!is_app_user_message(&message(Author::User, Some(origin()))), "viene da un canale di contatto");
+        for author in [Author::System, Author::Bot { name: "ada".into() }] {
+            assert!(!is_app_user_message(&message(author, None)));
+        }
+    }
 }

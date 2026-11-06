@@ -8,15 +8,18 @@
 //! L'inoltro passa da un canale LIMITATO con `try_send`: se e' pieno l'evento si scarta
 //! e si registra nel log, senza mai bloccare l'HUB (che chiama da un thread del suo pool).
 //!
+//! Anche un messaggio che l'utente scrive nell'app (`AppMessage`, dal `NoticeSink`)
+//! passa dalla stessa coda, per l'eco nel thread.
+//!
 //! Qui si guarda solo l'interruttore generale `notices.all`: il filtro per tipo
-//! lo applica il connettore (`ContactConnector::wants_notice`) quando la notifica
-//! arriva al supervisore (docs/CONNECTORS.MD §10).
+//! lo applica il connettore (`ContactConnector::wants_notice`, per l'eco
+//! `mirrors_app_messages`) quando l'evento arriva al supervisore (docs/CONNECTORS.MD §10).
 
 use crate::connectors::descriptor::{ConnectorDescriptor, HubCapability};
 use crate::connectors::model::ConnectorInstance;
 use crate::connectors::runtime::contact::subchats::ThreadKey;
 use crate::connectors::runtime::store::ConnectorsStore;
-use crate::hub::{Channel, ContactNotice, NoticeSink};
+use crate::hub::{AppMessage, Channel, ContactNotice, NoticeSink};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::mpsc::{self, error::TrySendError};
@@ -33,6 +36,8 @@ pub enum ContactEvent {
     ThreadRemoved(ThreadKey),
     /// Un workspace e' stato rimosso, con tutti i suoi thread.
     ChannelRemoved(Channel),
+    /// L'utente ha scritto un messaggio nell'app: da rispecchiare nel thread.
+    AppMessage(AppMessage),
 }
 
 pub struct NoticeRouter {
@@ -114,6 +119,10 @@ impl NoticeRouter {
 impl NoticeSink for NoticeRouter {
     fn deliver(&self, notice: &ContactNotice) {
         self.forward(&ContactEvent::Notice(notice.clone()), |instance| instance.notices.all);
+    }
+
+    fn app_message_written(&self, message: &AppMessage) {
+        self.forward(&ContactEvent::AppMessage(message.clone()), |instance| instance.notices.all);
     }
 }
 

@@ -60,25 +60,28 @@ impl ContactCtx<'_> {
         Ok(())
     }
 
+    /// Le chat dei collegamenti non silenziati, una volta ciascuna, nell'ordine dei collegamenti.
+    pub(super) fn listening_chats(&self) -> Vec<String> {
+        let now = self.clock.now_ms();
+        let chats: Vec<String> = self.store.read(|f| {
+            f.links_of(self.instance()).filter(|l| is_listening(l, now)).map(|l| l.external_chat.clone()).collect()
+        });
+        let mut served: HashSet<String> = HashSet::new();
+        chats.into_iter().filter(|chat| served.insert(chat.clone())).collect()
+    }
+
     /// La notifica a ogni chat dei collegamenti non silenziati.
     async fn deliver_notice(&self, notice: &ContactNotice) -> Result<(), ConnectorError> {
-        let now = self.clock.now_ms();
-        let links: Vec<ConnectorLink> =
-            self.store.read(|f| f.links_of(self.instance()).filter(|l| is_listening(l, now)).cloned().collect());
         let target = MessageRef {
             channel: notice.notice.channel.clone(),
             thread_id: notice.notice.thread_id.clone(),
             message_id: notice.notice.message_id.clone(),
         };
-        let mut served: HashSet<String> = HashSet::new();
-        for link in links {
-            if !served.insert(link.external_chat.clone()) {
-                continue;
-            }
-            let external_ids = if self.has_subchats(&link.external_chat) {
-                self.notice_in_subchat(&link.external_chat, notice).await?
+        for chat in self.listening_chats() {
+            let external_ids = if self.has_subchats(&chat) {
+                self.notice_in_subchat(&chat, notice).await?
             } else {
-                self.notice_in_chat(&link.external_chat, notice_text(notice)).await?
+                self.notice_in_chat(&chat, notice_text(notice)).await?
             };
             external_ids.iter().for_each(|id| self.map_message(id, &target));
         }

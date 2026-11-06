@@ -14,7 +14,7 @@ use crate::connectors::runtime::health::{ConnectorStatus, StatusEmitter};
 use crate::connectors::runtime::store::StateStore;
 use crate::connectors::runtime::time::Sleeper;
 use crate::connectors::state::InstanceState;
-use crate::hub::{Channel, ContactNotice, HubNotice, HubNoticeSound, NoticeCategory};
+use crate::hub::{AppMessage, Channel, ContactNotice, HubNotice, HubNoticeSound, NoticeCategory};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -112,6 +112,19 @@ pub fn contact_notice(message_id: &str, text: &str) -> ContactNotice {
         channel_name: "Generale".to_string(),
         thread_title: "Piano".to_string(),
         text: text.to_string(),
+    }
+}
+
+/// Un messaggio scritto dall'utente nell'app, nel thread `thr-1` del Generale.
+pub fn app_message(message_id: &str, text: &str, attachment_count: usize) -> AppMessage {
+    AppMessage {
+        channel: Channel::General,
+        thread_id: "thr-1".to_string(),
+        message_id: message_id.to_string(),
+        channel_name: "Generale".to_string(),
+        thread_title: "Piano".to_string(),
+        text: text.to_string(),
+        attachment_count,
     }
 }
 

@@ -234,6 +234,8 @@ pub trait SourceConnector: Connector {
 pub trait ContactConnector: Connector {
     /// Pura: la configurazione chiede di inoltrare le notifiche di questo tipo?
     fn wants_notice(&self, config: &Value, category: NoticeCategory) -> bool;
+    /// Pura: la configurazione chiede l'eco dei messaggi scritti nell'app (solo per le chat con sotto-chat)? Predefinita: no.
+    fn mirrors_app_messages(&self, config: &Value) -> bool { false }
     /// Long polling (al più `RECEIVE_TIMEOUT`, 70 s): i messaggi in entrata, già tradotti (testo, risposta,
     /// comando, codice di abbinamento, allegati NON scaricati), e il cursore nuovo.
     fn receive<'a>(&'a self, ctx: &'a ConnectorContext, cursor: Option<Value>) -> BoxFuture<'a, Result<ReceiveBatch, ConnectorError>>;
@@ -709,6 +711,32 @@ thread corrente. È una capacità facoltativa del connettore (`ContactConnector:
   non ferma il supervisore, la notifica va nella chat principale col prefisso, con una riga nel log. `SubchatGone`
   toglie la voce e la sotto-chat si ricrea **una volta**; se sparisce di nuovo, chat principale. Più collegamenti
   nella stessa chat ricevono la notifica una volta sola.
+- **Eco dei messaggi scritti nell'app.** Un messaggio che l'utente scrive **nell'app** compare anche nella
+  sotto-chat del suo thread, con il prefisso «Tu (app): » (gli allegati si citano solo per numero, «📎 2 allegati»:
+  i file non escono dall'app), così la sotto-chat è la chat intera del thread. Il percorso:
+  `hub/append.rs` offre il messaggio a `HubNotifier::app_message_written` solo se l'autore è l'utente e `origin` è
+  assente; `hub/notify/dispatch.rs` lo consegna **subito** (senza la finestra di raggruppamento delle notifiche, che
+  vale per le notifiche) ai `NoticeSink` registrati con `NoticeSink::app_message_written` (`AppMessage`: canale e
+  thread con i nomi, id del messaggio, testo completo, numero di allegati); `NoticeRouter` lo mette nella coda
+  limitata di ogni istanza abilitata con `notices.all` (`ContactEvent::AppMessage`, `try_send`) e il task
+  dell'istanza lo invia (`runtime/contact/mirror.rs`): `hub_send` non aspetta il servizio e non fallisce se l'eco
+  fallisce. Con l'HUB spento non esce nulla.
+  - **Interruttore.** `ContactConnector::mirrors_app_messages(config)` (predefinita: no; Telegram: campo
+    `mirror_app_messages`, **acceso** di default); il runtime lo chiede solo per le chat con le sotto-chat. Valgono
+    anche `notices.all` e `muted_until` del collegamento. Non dipende dall'interruttore dei tipi di notifica.
+  - **Solo un topic che esiste.** L'eco va nella sotto-chat che il thread ha **già** nella mappa (riaperta se era
+    chiusa) e non ne apre mai una: un thread mai notificato non riempie il gruppo, e una sotto-chat sparita dal
+    servizio (`SubchatGone`) esce dalla mappa senza essere ricreata. Nelle chat senza sotto-chat (la privata) non
+    c'è eco: lì sarebbe rumore.
+  - **Niente eco infinita.** Si rispecchiano solo i messaggi scritti **nell'app**: un messaggio con `origin` (arrivato
+    da un canale di contatto, anche da un'altra istanza) non torna mai a nessun canale. Scelta voluta: il messaggio
+    è già nel canale da cui viene, e rispecchiarlo in un altro collegamento sarebbe un'eco incrociata con il
+    prefisso sbagliato.
+  - **Risposte all'eco.** L'id esterno di ogni parte inviata entra nella mappa verso il messaggio dell'HUB:
+    rispondere all'eco in Telegram scrive nel thread con `reply_to` su quel messaggio.
+  - **Errori e limiti.** Un errore del servizio si registra e non si riprova (l'eco non è una notifica da non
+    perdere); solo gli errori che fermano il supervisore (credenziali, configurazione) risalgono. Una coda piena
+    scarta l'evento. Le chiamate non tengono lock dell'HUB né dello stato.
 - **Messaggi in entrata.** Da una sotto-chat mappata a un thread esistente il messaggio va lì, con `reply_to` solo se
   risponde a un messaggio mappato dello **stesso** thread; il `current` del collegamento non serve e non cambia. Una
   sotto-chat non mappata, o il cui thread è sparito, riceve una spiegazione lì e non si salva nulla (la voce morta si
@@ -832,10 +860,12 @@ Se il bot aveva un webhook, il primo avvio lo toglie (webhook e `getUpdates` si 
 - **Configurazione**: un campo `secret` `bot_token` (formato `<cifre>:<almeno 30 caratteri A-Za-z0-9_->` controllato
   prima di ogni chiamata) e otto interruttori `bool` per i tipi di notifica: risposta di un segretario, domanda di un
   worker, task fallito, task che richiede attenzione, proposta, pianificazione senza proposta, thread concluso (tutti
-  accesi), task o revisione finiti (spento). Gli elementi delle fonti (`External`) non si inoltrano in v1. Host:
+  accesi), task o revisione finiti (spento). Gli elementi delle fonti (`External`) non si inoltrano in v1. Un nono
+  interruttore, `mirror_app_messages` (acceso), governa l'eco dei messaggi scritti nell'app nei topic (vedi «Eco dei
+  messaggi scritti nell'app»); manca nei file scritti prima e vale il predefinito, quindi nessuna migrazione. Host:
   `api.telegram.org`. Capacità: `receive_notices`, `send_as_user`. Azioni: `test` (`getMe`, mostra il nome del bot),
   `pair` (link `t.me/<bot>?start=<codice>` nel dettaglio; nel messaggio anche i passi per il gruppo e il link
-  `?startgroup=<codice>&admin=manage_topics`). La configurazione non cambia con i gruppi: `version` resta 1.
+  `?startgroup=<codice>&admin=manage_topics`). La configurazione non cambia con i gruppi: `version` resta 1 (anche con l'interruttore dell'eco: un campo assente vale il predefinito).
 - **Token**: nel percorso degli URL della Bot API (`/bot<token>/<metodo>`, `/file/bot<token>/<percorso>`): mai nei
   log, negli errori (testi fissi, al più il codice d'errore), nei DTO, nello stato o nei messaggi.
 - **Ricezione**: long polling `getUpdates` (`timeout` 50 s, richiesta HTTP entro 60 s, sotto il `RECEIVE_TIMEOUT` del
@@ -969,8 +999,10 @@ Alla fine della fase 2 la ricetta «Aggiungere un connettore» è in `CONTRIBUTI
    piano, come il frontend?
 5. **Notifiche delle fonti**: ogni elemento consegnato notifica (proposta, con `NoticeKind::External`), o solo quelli
    che non svegliano un segretario (la risposta notificherà comunque)?
-6. **Eco dei propri messaggi**: un messaggio scritto nell'HUB dall'app deve comparire anche nel canale di contatto
-   (proposta: no in v1)?
+6. **Eco dei propri messaggi** (decisa): sì, ma solo nei topic. Un messaggio scritto nell'app compare nella sotto-chat
+   del suo thread, se esiste già, con il prefisso «Tu (app): »; con un interruttore per istanza (Telegram:
+   `mirror_app_messages`, acceso di default), mai nelle chat private, mai per i messaggi che arrivano da un canale di
+   contatto (vedi «Eco dei messaggi scritti nell'app» in §10). In v1 non c'era.
 7. **Messaggi modificati** nei canali di contatto: ignorarli (proposta v1) o aggiungere una nota «messaggio
    modificato» nel thread?
 8. **Gmail**: basta `gmail.readonly` (proposta) o serve in futuro rispondere alle email (`gmail.send`, cioè un

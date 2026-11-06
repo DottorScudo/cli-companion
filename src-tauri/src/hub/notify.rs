@@ -10,11 +10,14 @@
 //! thread nella stessa finestra
 //! (`GROUP_WINDOW`) diventano una sola notifica, la piu' significativa.
 //! Oltre al frontend le notifiche raggruppate vanno ai `NoticeSink` registrati
-//! (`set_notice_sink`), anche con l'interruttore delle notifiche spento.
+//! (`set_notice_sink`), anche con l'interruttore delle notifiche spento. Ai sink
+//! va anche ogni messaggio che l'utente scrive nell'app (`AppMessage`), subito e
+//! senza raggruppamento: non e' una notifica e il frontend non lo riceve.
 //!
 //! Un file per responsabilita':
 //! - `notice`: i DTO verso il frontend (`HubNotice`, suono, riferimento al thread) e
-//!   quello per i sink (`ContactNotice`, col tipo e il testo completo);
+//!   quello per i sink (`ContactNotice`, col tipo e il testo completo) e il messaggio
+//!   scritto nell'app (`AppMessage`);
 //! - `kind`: i tipi di notifica, con titolo, suono e significativita';
 //! - `text`: il corpo (canale · thread, prima riga del messaggio), puro;
 //! - `pending`: il raggruppamento per thread, puro;
@@ -31,7 +34,7 @@ pub(super) mod text;
 
 pub use dispatch::HubNotifier;
 pub use kind::NoticeKind;
-pub use notice::{validate_thread_ref, ContactNotice, HubThreadRef, NoticeCategory};
+pub use notice::{validate_thread_ref, AppMessage, ContactNotice, HubThreadRef, NoticeCategory};
 #[cfg(test)]
 pub use notice::{HubNotice, HubNoticeSound};
 pub use sinks::NoticeSink;

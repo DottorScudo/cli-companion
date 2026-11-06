@@ -4,7 +4,7 @@
 //! notifiche di sistema e' spento: quell'interruttore riguarda solo il toast
 //! del frontend. La decisione e' pura, cosi' si prova senza Tauri.
 
-use super::notice::{ContactNotice, HubNotice};
+use super::notice::{AppMessage, ContactNotice, HubNotice};
 use std::sync::Arc;
 
 /// Chi riceve le notifiche raggruppate dell'HUB oltre al frontend. `deliver` e'
@@ -13,6 +13,12 @@ use std::sync::Arc;
 /// andare in panico; un errore va nel suo log.
 pub trait NoticeSink: Send + Sync {
     fn deliver(&self, notice: &ContactNotice);
+
+    /// L'utente ha scritto un messaggio nell'app (mai uno arrivato da un canale di
+    /// contatto). A differenza di `deliver` e' chiamato dal percorso dell'invio, senza
+    /// raggruppamento: deve essere veloce (mettere in coda e basta) e non andare in
+    /// panico. Predefinita: lo ignora.
+    fn app_message_written(&self, _message: &AppMessage) {}
 }
 
 /// A chi va una notifica, dato lo stato delle impostazioni e dei sink.
@@ -53,19 +59,44 @@ pub fn dispatch(
     }
 }
 
+/// Consegna `message` ai sink, se `targets` li prevede.
+pub fn dispatch_app_message(message: &AppMessage, targets: Targets, sinks: &[Arc<dyn NoticeSink>]) {
+    if targets.sinks {
+        for sink in sinks {
+            sink.app_message_written(message);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::super::notice::{HubNoticeSound, NoticeCategory};
+    use super::super::notice::{AppMessage, HubNoticeSound, NoticeCategory};
     use super::*;
     use crate::hub::channel::Channel;
     use std::sync::Mutex;
 
     #[derive(Default)]
-    struct Recorder(Mutex<Vec<ContactNotice>>);
+    struct Recorder(Mutex<Vec<ContactNotice>>, Mutex<Vec<AppMessage>>);
 
     impl NoticeSink for Recorder {
         fn deliver(&self, notice: &ContactNotice) {
             self.0.lock().unwrap().push(notice.clone());
+        }
+
+        fn app_message_written(&self, message: &AppMessage) {
+            self.1.lock().unwrap().push(message.clone());
+        }
+    }
+
+    fn app_message() -> AppMessage {
+        AppMessage {
+            channel: Channel::General,
+            thread_id: "thr-1".into(),
+            message_id: "msg-1".into(),
+            channel_name: "Generale".into(),
+            thread_title: "Piano".into(),
+            text: "ciao".into(),
+            attachment_count: 0,
         }
     }
 
@@ -131,5 +162,25 @@ mod tests {
         let sinks: Vec<Arc<dyn NoticeSink>> = vec![a.clone(), b.clone()];
         dispatch(&notice(), Targets::resolve(true, false, true), &sinks, |_| {});
         assert_eq!((a.0.lock().unwrap().len(), b.0.lock().unwrap().len()), (1, 1));
+    }
+
+    #[test]
+    fn an_app_message_reaches_every_sink_with_the_hub_on_whatever_the_notifications_switch() {
+        let (a, b) = (Arc::new(Recorder::default()), Arc::new(Recorder::default()));
+        let sinks: Vec<Arc<dyn NoticeSink>> = vec![a.clone(), b.clone()];
+        for notifications in [false, true] {
+            dispatch_app_message(&app_message(), Targets::resolve(true, notifications, true), &sinks);
+        }
+        assert_eq!((a.1.lock().unwrap().len(), b.1.lock().unwrap().len()), (2, 2));
+        assert!(a.0.lock().unwrap().is_empty(), "non e' una notifica");
+    }
+
+    #[test]
+    fn an_app_message_goes_nowhere_with_the_hub_off_or_without_sinks() {
+        let recorder = Arc::new(Recorder::default());
+        let sinks: Vec<Arc<dyn NoticeSink>> = vec![recorder.clone()];
+        dispatch_app_message(&app_message(), Targets::resolve(false, true, true), &sinks);
+        dispatch_app_message(&app_message(), Targets::resolve(true, true, false), &sinks);
+        assert!(recorder.1.lock().unwrap().is_empty());
     }
 }

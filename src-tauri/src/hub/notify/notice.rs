@@ -66,6 +66,23 @@ pub struct ContactNotice {
     pub text: String,
 }
 
+/// Un messaggio che l'utente ha scritto nell'app, per i `NoticeSink`: un canale di
+/// contatto lo rispecchia nel thread (docs/CONNECTORS.MD §10). Non e' una notifica:
+/// niente tipo, raggruppamento, suono. Porta il testo completo e il solo numero degli
+/// allegati (i file non escono dall'app). Tipo Rust, non un DTO del frontend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppMessage {
+    pub channel: Channel,
+    pub thread_id: String,
+    /// Il messaggio dell'HUB: una risposta all'eco punta a lui.
+    pub message_id: String,
+    /// Il nome del canale per l'utente ("Generale", il nome del workspace): mai un id.
+    pub channel_name: String,
+    pub thread_title: String,
+    pub text: String,
+    pub attachment_count: usize,
+}
+
 /// Un thread di un canale: quello da aprire al click su una toast (payload di
 /// `hub-notification-activated`) o quello appena eliminato (payload di
 /// `hub-thread-removed`).
