@@ -27,7 +27,7 @@ import {
   waitingCount,
   waitingText,
 } from "../src/lib/hub.ts";
-import { eventLook, workerTabOf } from "../src/lib/hubEvents.ts";
+import { cutNotice, eventLook, eventReport, workerTabOf } from "../src/lib/hubEvents.ts";
 
 const summary = (id, extra = {}) => ({
   id,
@@ -340,6 +340,66 @@ describe("hubEvents: workerTabOf", () => {
       workerTabOf(boards, event(), () => false),
       null,
     );
+  });
+});
+
+describe("hubEvents: eventReport", () => {
+  const LONG = `${"riga del report\n".repeat(200)}coda finale`;
+  const event = (extra = {}) => ({
+    kind: "task_done",
+    summary: "riassunto…",
+    summary_chars: LONG.length,
+    note: null,
+    ...extra,
+  });
+  const task = (extra = {}) => ({ report: { summary: LONG }, note: null, ...extra });
+
+  it("task nella board: il riepilogo intero (con la coda) e nessun avviso", () => {
+    const report = eventReport(event(), task());
+    assert.deepEqual(report, { summary: { text: LONG, cutNotice: null }, note: null });
+    assert.ok(report.summary.text.endsWith("coda finale"));
+  });
+
+  it("task nella board: la nota intera dal task, anche per un fallimento", () => {
+    const report = eventReport(
+      event({ kind: "task_failed", note: "nota…", note_chars: 900 }),
+      task({ note: "nota intera" }),
+    );
+    assert.deepEqual(report.note, { text: "nota intera", cutNotice: null });
+  });
+
+  it("task non più nella board: il testo dell'evento con l'avviso della lunghezza intera", () => {
+    const report = eventReport(event({ note: "nota…", note_chars: 1500 }), null);
+    assert.deepEqual(report, {
+      summary: { text: "riassunto…", cutNotice: cutNotice(LONG.length, false) },
+      note: { text: "nota…", cutNotice: cutNotice(1500, false) },
+    });
+    assert.equal(
+      cutNotice(LONG.length, false),
+      `Testo accorciato: ${LONG.length} caratteri in totale, il task non è più nella board`,
+    );
+  });
+
+  it("task non più nella board, testo non accorciato: nessun avviso", () => {
+    const report = eventReport(event({ summary: "breve", summary_chars: undefined, note: "nota" }), null);
+    assert.deepEqual(report, { summary: { text: "breve", cutNotice: null }, note: { text: "nota", cutNotice: null } });
+  });
+
+  it("task nella board senza report (rilanciato): il testo dell'evento, con l'avviso che lo dice", () => {
+    const report = eventReport(event(), task({ report: null }));
+    assert.deepEqual(report.summary, { text: "riassunto…", cutNotice: cutNotice(LONG.length, true) });
+    assert.match(cutNotice(10, true), /il report intero non è più nel task$/);
+  });
+
+  it("evento senza riepilogo (nullo o vuoto): nessun report", () => {
+    assert.equal(eventReport(event({ summary: null, summary_chars: undefined }), null), null);
+    assert.equal(eventReport(event({ summary: "  \n" }), task({ report: { summary: "" } })), null);
+  });
+
+  it("evento di un task non concluso: nessun report", () => {
+    for (const kind of ["task_started", "task_attention", "task_question", "proposal_created", "tipo_futuro"]) {
+      assert.equal(eventReport(event({ kind }), task()), null, kind);
+    }
   });
 });
 

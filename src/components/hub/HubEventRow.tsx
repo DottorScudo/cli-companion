@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -13,12 +14,13 @@ import {
 } from "lucide-react";
 import { openManager } from "../../app/actions/view";
 import { formatRelative } from "../../lib/board";
-import { eventLook } from "../../lib/hubEvents";
+import { eventLook, eventReport } from "../../lib/hubEvents";
 import { taskLinkLabel } from "../../lib/hubProposals";
 import type { HubEventIcon, HubEventTone } from "../../lib/hubEvents";
 import type { HubEvent, HubMessage } from "../../lib/tauri";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import HubEventReport from "./HubEventReport";
 import ReplyReference from "./ReplyReference";
 import { useEventLinks } from "./useEventLinks";
 import WorkerTerminalLink from "./WorkerTerminalLink";
@@ -53,12 +55,13 @@ interface Props {
 /**
  * Evento della board come riga compatta: icona e tipo, testo, link al terminale
  * del worker (se il tab è ancora aperto), link al task nel Tasks Manager (se è
- * ancora nella board) e "Rispondi".
+ * ancora nella board), il report di un task concluso da espandere e "Rispondi".
  */
 export default function HubEventRow({ message, event, target, now, onReply }: Props) {
   const look = eventLook(event.kind);
   const Icon = ICONS[look.icon];
   const { workerTab, task } = useEventLinks(event);
+  const report = useMemo(() => eventReport(event, task), [event, task]);
   const { workspace } = event;
   return (
     <div className="group flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-accent/40">
@@ -78,6 +81,7 @@ export default function HubEventRow({ message, event, target, now, onReply }: Pr
             {taskLinkLabel(task)}
           </button>
         )}
+        {report && <HubEventReport report={report} failed={event.kind === "task_failed"} />}
         {target && <ReplyReference target={target} />}
       </div>
       <span className="flex-shrink-0 pt-0.5 text-[11px] text-muted-foreground">

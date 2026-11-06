@@ -610,7 +610,13 @@ arrivate la pagina scrive «Impostazioni non disponibili.» e gli accordion non 
   deterministica), `@nome`, il badge **SEGRETARIO** (`SecretaryBadge`) e uno sfondo con il colore primario. Quelli
   dell'utente (`HubUserMessage`) stanno a destra, come in una chat: una bolla con sfondo `surface-2`, larga al massimo
   il 75% della conversazione, senza nome né avatar, con il riferimento della risposta e l'ora dentro la bolla.
-  Segretari, sistema ed eventi restano a sinistra. Gli eventi sono righe compatte (`HubEventRow`).
+  Segretari, sistema ed eventi restano a sinistra. Gli eventi sono righe compatte (`HubEventRow`). Quelli di un task
+  concluso (`task_done`, anche di una revisione, e `task_failed`) con un riepilogo hanno sotto «Mostra report» /
+  «Nascondi report» (`HubEventReport`, chiuso di default, stato locale al componente): espanso mostra il riepilogo
+  intero del report (markdown) e la nota presi dal task nella board, in un'area con altezza massima e scroll interno.
+  Se il task non è più nella board ripiega su `summary` e `note` dell'evento e, se `summary_chars` / `note_chars`
+  dicono che erano accorciati, lo scrive («Testo accorciato: N caratteri in totale, il task non è più nella board»).
+  La scelta del testo è `eventReport` in `lib/hubEvents.ts`.
 - **Menzioni evidenziate**: nel testo, `@nome` di un segretario che esiste si evidenzia (`splitMentions` in
   `lib/hubSecretaries.ts`, usato da `Markdown` tramite la prop `mentions`). La grammatica è quella del backend
   (`engine/mentions.rs`): `posta@mario.it` o `@màrio` non sono menzioni; un nome che non è di un segretario resta
