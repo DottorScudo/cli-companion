@@ -23,12 +23,12 @@ use crate::connectors::runtime::contact::{ContactCtx, ContactSession};
 use crate::connectors::runtime::contact_loop::run_contact;
 use crate::connectors::runtime::health::{HealthState, StatusRegistry};
 use crate::connectors::runtime::http::ContextHttp;
+use crate::connectors::runtime::notices::ContactEvent;
 use crate::connectors::runtime::pairing::PairingRegistry;
 use crate::connectors::runtime::round::{run_round, RoundCtx, RoundEnd, RoundResult};
 use crate::connectors::runtime::store::{update_blocking, ConnectorsStore, StateStore};
 use crate::connectors::runtime::time::Sleeper;
 use crate::connectors::secrets::InstanceSecrets;
-use crate::hub::ContactNotice;
 use crate::secrets::SecretStore;
 use serde_json::Value;
 use std::sync::{Arc, OnceLock};
@@ -57,7 +57,7 @@ pub struct Job {
     /// Lo stato condiviso con eventuali azioni dell'interfaccia; il task lo riempie dal disco.
     pub state: StateHandle,
     /// Le notifiche dell'HUB, per i canali di contatto che le dichiarano.
-    pub notices: Option<Receiver<ContactNotice>>,
+    pub notices: Option<Receiver<ContactEvent>>,
     /// L'epoca di questa esecuzione (`StatusRegistry::begin_run`): solo con quella lo stato di salute si scrive.
     pub epoch: u64,
 }

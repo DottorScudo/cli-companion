@@ -9,10 +9,10 @@
 use crate::connectors::contracts::{ConnectorError, ReceiveBatch};
 use crate::connectors::limits::{RECEIVE_TIMEOUT, ROUND_TIMEOUT};
 use crate::connectors::runtime::contact::ContactCtx;
+use crate::connectors::runtime::notices::ContactEvent;
 use crate::connectors::runtime::supervisor::{mark_stopped, save_state, Env, Pace};
 use crate::connectors::runtime::time::with_timeout;
 use crate::connectors::state::MAIN_CURSOR;
-use crate::hub::ContactNotice;
 use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
 
@@ -25,12 +25,12 @@ pub async fn run_contact(
     instance: &str,
     epoch: u64,
     cc: &ContactCtx<'_>,
-    notices: Option<Receiver<ContactNotice>>,
+    notices: Option<Receiver<ContactEvent>>,
     pace: &mut Pace<'_>,
 ) {
     let outgoing = async {
         if let Some(rx) = notices {
-            if !run_notices(env, instance, epoch, cc, rx).await {
+            if !run_events(env, instance, epoch, cc, rx).await {
                 return;
             }
         }
@@ -42,18 +42,18 @@ pub async fn run_contact(
     }
 }
 
-/// Manda le notifiche finche' il canale e' aperto (`true` quando si chiude). Un
-/// errore che richiede l'utente (credenziali) ferma il supervisore (`false`),
-/// come in ricezione.
-pub async fn run_notices(
+/// Tratta gli eventi dell'HUB (notifiche da mandare, thread eliminati) finche' il canale
+/// e' aperto (`true` quando si chiude). Un errore che richiede l'utente (credenziali)
+/// ferma il supervisore (`false`), come in ricezione.
+pub async fn run_events(
     env: &Env,
     instance: &str,
     epoch: u64,
     cc: &ContactCtx<'_>,
-    mut rx: Receiver<ContactNotice>,
+    mut rx: Receiver<ContactEvent>,
 ) -> bool {
-    while let Some(notice) = rx.recv().await {
-        if let Err(error) = cc.send_notice(&notice).await {
+    while let Some(event) = rx.recv().await {
+        if let Err(error) = handle_event(cc, event).await {
             log::warn!("connettori {instance}: {error}");
             mark_stopped(env, instance, epoch, &error);
             return false;
@@ -61,6 +61,15 @@ pub async fn run_notices(
         save_state(env, instance, cc.state).await;
     }
     true
+}
+
+/// Un evento dell'HUB nel contesto del canale di contatto.
+async fn handle_event(cc: &ContactCtx<'_>, event: ContactEvent) -> Result<(), ConnectorError> {
+    match event {
+        ContactEvent::Notice(notice) => cc.send_notice(&notice).await,
+        ContactEvent::ThreadRemoved(thread) => cc.thread_removed(&thread).await,
+        ContactEvent::ChannelRemoved(channel) => cc.channel_removed(&channel).await,
+    }
 }
 
 async fn handle_batch(cc: &ContactCtx<'_>, batch: &ReceiveBatch) -> Result<(), ConnectorError> {

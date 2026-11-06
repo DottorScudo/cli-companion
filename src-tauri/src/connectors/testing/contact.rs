@@ -46,7 +46,22 @@ pub struct FakeContact {
     /// Le sotto-chat eliminate nel servizio: `send` verso di loro risponde `SubchatGone`.
     gone: Mutex<Vec<String>>,
     next_subchat: AtomicU64,
+    /// Le chiamate di ciclo di vita arrivate al connettore, in ordine.
+    pub lifecycle: Mutex<Vec<SubchatCall>>,
+    /// Se impostato, chiudere, riaprire o eliminare una sotto-chat fallisce con questo errore.
+    pub lifecycle_error: Mutex<Option<ConnectorError>>,
 }
+
+/// Una chiamata di ciclo di vita su una sotto-chat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubchatOp {
+    Close,
+    Reopen,
+    Delete,
+}
+
+/// `(operazione, chat, sotto-chat)`.
+pub type SubchatCall = (SubchatOp, String, String);
 
 impl FakeContact {
     pub const fn new() -> Self {
@@ -66,6 +81,8 @@ impl FakeContact {
             next_subchat_id: Mutex::new(None),
             gone: Mutex::new(Vec::new()),
             next_subchat: AtomicU64::new(0),
+            lifecycle: Mutex::new(Vec::new()),
+            lifecycle_error: Mutex::new(None),
         }
     }
 
@@ -106,6 +123,25 @@ impl FakeContact {
     /// L'utente elimina la sotto-chat nel servizio.
     pub fn delete_remotely(&self, subchat: &str) {
         self.gone.lock().unwrap().push(subchat.to_string());
+    }
+
+    /// Le chiamate di ciclo di vita di un'operazione, `(chat, sotto-chat)`, in ordine.
+    pub fn lifecycle_calls(&self, op: SubchatOp) -> Vec<(String, String)> {
+        let calls = self.lifecycle.lock().unwrap();
+        calls.iter().filter(|(o, _, _)| *o == op).map(|(_, chat, subchat)| (chat.clone(), subchat.clone())).collect()
+    }
+
+    /// Registra la chiamata; l'esito e' l'errore scelto, `SubchatGone` per una sotto-chat
+    /// eliminata nel servizio, altrimenti `Ok`.
+    fn lifecycle_call(&self, op: SubchatOp, chat: &str, subchat: &str) -> Result<(), ConnectorError> {
+        self.lifecycle.lock().unwrap().push((op, chat.to_string(), subchat.to_string()));
+        if let Some(error) = self.lifecycle_error.lock().unwrap().clone() {
+            return Err(error);
+        }
+        if self.gone.lock().unwrap().iter().any(|s| s == subchat) {
+            return Err(ConnectorError::SubchatGone);
+        }
+        Ok(())
     }
 
     /// I titoli delle sotto-chat aperte, in ordine.
@@ -224,5 +260,32 @@ impl ContactConnector for FakeContact {
             let scripted = self.next_subchat_id.lock().unwrap().take();
             Ok(scripted.unwrap_or_else(|| format!("sub-{}", self.next_subchat.fetch_add(1, Ordering::SeqCst) + 1)))
         })
+    }
+
+    fn close_subchat<'a>(
+        &'a self,
+        _ctx: &'a ConnectorContext,
+        chat: &'a str,
+        subchat: &'a str,
+    ) -> BoxFuture<'a, Result<(), ConnectorError>> {
+        Box::pin(async move { self.lifecycle_call(SubchatOp::Close, chat, subchat) })
+    }
+
+    fn reopen_subchat<'a>(
+        &'a self,
+        _ctx: &'a ConnectorContext,
+        chat: &'a str,
+        subchat: &'a str,
+    ) -> BoxFuture<'a, Result<(), ConnectorError>> {
+        Box::pin(async move { self.lifecycle_call(SubchatOp::Reopen, chat, subchat) })
+    }
+
+    fn delete_subchat<'a>(
+        &'a self,
+        _ctx: &'a ConnectorContext,
+        chat: &'a str,
+        subchat: &'a str,
+    ) -> BoxFuture<'a, Result<(), ConnectorError>> {
+        Box::pin(async move { self.lifecycle_call(SubchatOp::Delete, chat, subchat) })
     }
 }

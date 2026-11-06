@@ -24,6 +24,14 @@ fn router_with(inst: ConnectorInstance) -> NoticeRouter {
     NoticeRouter::new(store)
 }
 
+/// L'id del messaggio di una notifica.
+fn message_id(event: ContactEvent) -> String {
+    match event {
+        ContactEvent::Notice(notice) => notice.notice.message_id,
+        other => panic!("attesa una notifica, arrivato {other:?}"),
+    }
+}
+
 fn notice(n: usize) -> ContactNotice {
     let notice = HubNotice {
         channel: Channel::General,
@@ -47,7 +55,7 @@ fn a_notice_reaches_a_registered_instance_with_the_switch_on() {
     let router = router_with(instance(true, true));
     let mut rx = router.register(INSTANCE, &FAKE_CONTACT).unwrap();
     router.deliver(&notice(1));
-    assert_eq!(rx.try_recv().unwrap().notice.message_id, "msg-1");
+    assert_eq!(message_id(rx.try_recv().unwrap()), "msg-1");
 }
 
 #[test]
@@ -89,9 +97,46 @@ fn unregistering_or_clearing_stops_the_flow() {
     router.deliver(&notice(1));
     router.clear();
     router.deliver(&notice(2));
-    assert_eq!(rx.try_recv().unwrap().notice.message_id, "msg-1");
+    assert_eq!(message_id(rx.try_recv().unwrap()), "msg-1");
     assert!(rx.try_recv().is_err());
     router.register(INSTANCE, &FAKE_CONTACT).unwrap();
     router.unregister(INSTANCE);
     assert_eq!(router.registered(), 0);
+}
+
+fn removed_thread() -> ThreadKey {
+    ThreadKey { channel: Channel::General, thread_id: "thr-1".to_string() }
+}
+
+#[test]
+fn a_removed_thread_or_workspace_reaches_the_instance_even_with_notices_off() {
+    let router = router_with(instance(false, true));
+    let mut rx = router.register(INSTANCE, &FAKE_CONTACT).unwrap();
+    router.thread_removed(removed_thread());
+    router.channel_removed(Channel::Workspace("ws-1".to_string()));
+    router.deliver(&notice(1));
+    assert!(matches!(rx.try_recv().unwrap(), ContactEvent::ThreadRemoved(t) if t == removed_thread()));
+    assert!(matches!(rx.try_recv().unwrap(), ContactEvent::ChannelRemoved(Channel::Workspace(ws)) if ws == "ws-1"));
+    assert!(rx.try_recv().is_err(), "la notifica resta filtrata dall'interruttore");
+}
+
+#[test]
+fn removals_skip_disabled_and_unregistered_instances_and_a_full_queue_drops_them() {
+    let router = router_with(instance(true, false));
+    let mut rx = router.register(INSTANCE, &FAKE_CONTACT).unwrap();
+    router.thread_removed(removed_thread());
+    assert!(rx.try_recv().is_err(), "istanza disabilitata");
+
+    let router = router_with(instance(true, true));
+    let mut rx = router.register(INSTANCE, &FAKE_CONTACT).unwrap();
+    for _ in 0..NOTICE_QUEUE + 5 {
+        router.thread_removed(removed_thread());
+    }
+    let mut received = 0;
+    while rx.try_recv().is_ok() {
+        received += 1;
+    }
+    assert_eq!(received, NOTICE_QUEUE);
+    router.unregister(INSTANCE);
+    router.thread_removed(removed_thread());
 }

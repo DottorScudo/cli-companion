@@ -126,3 +126,63 @@ fn invalid_entries_in_a_file_are_dropped_and_the_newest_are_kept() {
     assert!(map.thread_of(&place("g1", "2")).is_some());
     assert_eq!(map.subchat_of(&thread("thr-x"), "g1"), None);
 }
+
+#[test]
+fn places_are_found_by_thread_without_touching_the_usage_order() {
+    let mut map = SubchatMap::default();
+    map.insert(thread("thr-1"), place("g1", "7"));
+    map.insert(thread("thr-2"), place("g1", "8"));
+    map.insert(thread("thr-1"), place("g2", "9"));
+    assert_eq!(map.places_where(|t| t.thread_id == "thr-1"), vec![place("g1", "7"), place("g2", "9")]);
+    assert!(map.places_where(|t| t.thread_id == "thr-3").is_empty());
+    // Cercare non rinfresca nessuna voce: la piu' vecchia resta la prima.
+    assert_eq!(map.places_where(|_| true).first(), Some(&place("g1", "7")));
+}
+
+#[test]
+fn a_closed_flag_belongs_to_a_mapped_subchat_and_goes_with_the_entry() {
+    let mut map = SubchatMap::default();
+    map.set_closed(&place("g1", "7"), true);
+    assert!(!map.is_closed(&place("g1", "7")), "una sotto-chat non mappata non si segna");
+    map.insert(thread("thr-1"), place("g1", "7"));
+    map.set_closed(&place("g1", "7"), true);
+    assert!(map.is_closed(&place("g1", "7")));
+    map.set_closed(&place("g1", "7"), false);
+    assert!(!map.is_closed(&place("g1", "7")));
+    map.set_closed(&place("g1", "7"), true);
+    // Una sotto-chat nuova per lo stesso thread nasce aperta; la voce tolta porta via il flag.
+    map.insert(thread("thr-1"), place("g1", "8"));
+    assert!(!map.is_closed(&place("g1", "7")) && !map.is_closed(&place("g1", "8")));
+    map.set_closed(&place("g1", "8"), true);
+    map.remove_subchat(&place("g1", "8"));
+    map.insert(thread("thr-1"), place("g1", "8"));
+    assert!(!map.is_closed(&place("g1", "8")));
+}
+
+#[test]
+fn an_evicted_entry_loses_its_closed_flag() {
+    let mut map = SubchatMap::with_capacity(1);
+    map.insert(thread("thr-1"), place("g1", "7"));
+    map.set_closed(&place("g1", "7"), true);
+    map.insert(thread("thr-2"), place("g1", "8"));
+    assert!(!map.is_closed(&place("g1", "7")));
+}
+
+#[test]
+fn the_closed_flag_is_saved_only_when_set_and_an_old_file_reads_as_open() {
+    let mut map = SubchatMap::default();
+    map.insert(thread("thr-1"), place("g1", "7"));
+    map.insert(thread("thr-2"), place("g1", "8"));
+    map.set_closed(&place("g1", "8"), true);
+    let text = serde_json::to_value(&map).unwrap();
+    assert_eq!(
+        text,
+        json!([
+            {"channel": "general", "thread_id": "thr-1", "chat": "g1", "subchat": "7"},
+            {"channel": "general", "thread_id": "thr-2", "chat": "g1", "subchat": "8", "closed": true}
+        ])
+    );
+    let back: SubchatMap = serde_json::from_value(text).unwrap();
+    assert_eq!(back, map);
+    assert!(back.is_closed(&place("g1", "8")) && !back.is_closed(&place("g1", "7")));
+}

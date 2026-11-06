@@ -168,6 +168,15 @@ impl ContactConnector for Telegram {
         Box::pin(subchats::close(&self.pacer, ctx, chat, subchat))
     }
 
+    fn reopen_subchat<'a>(
+        &'a self,
+        ctx: &'a ConnectorContext,
+        chat: &'a str,
+        subchat: &'a str,
+    ) -> BoxFuture<'a, Result<(), ConnectorError>> {
+        Box::pin(subchats::reopen(&self.pacer, ctx, chat, subchat))
+    }
+
     fn delete_subchat<'a>(
         &'a self,
         ctx: &'a ConnectorContext,

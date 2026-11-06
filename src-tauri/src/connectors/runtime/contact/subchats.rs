@@ -3,8 +3,10 @@
 //! connettore dice quali chat le hanno e le apre; il runtime tiene la mappa thread <->
 //! sotto-chat nello stato dell'istanza, la apre al primo bisogno e la ricrea una volta
 //! se il servizio dice che non c'e' piu'. Un file per responsabilita':
-//! - `map`: la mappa limitata, nei due versi (pura).
+//! - `map`: la mappa limitata, nei due versi (pura);
+//! - `lifecycle`: eliminazione, chiusura e riapertura al ciclo di vita dei thread.
 
+mod lifecycle;
 mod map;
 
 pub use map::{valid_subchat_id, SubchatKey, SubchatMap, ThreadKey};
@@ -46,17 +48,21 @@ impl ContactCtx<'_> {
         self.state.lock().subchats.remove_subchat(place);
     }
 
-    /// La sotto-chat del thread nella `chat`: quella della mappa o una nuova, aperta col
-    /// nome `title`. `None` se il servizio non l'ha aperta per un errore che non ferma il
-    /// supervisore (riga nel log); gli altri errori risalgono.
+    /// La sotto-chat del thread nella `chat`: quella della mappa (riaperta se era chiusa)
+    /// o una nuova, aperta col nome `title`. `None` se il servizio non l'ha aperta per un
+    /// errore che non ferma il supervisore (riga nel log); gli altri errori risalgono.
     pub(super) async fn ensure_subchat(
         &self,
         chat: &str,
         thread: &ThreadKey,
         title: &str,
     ) -> Result<Option<String>, ConnectorError> {
-        if let Some(found) = self.state.lock().subchats.subchat_of(thread, chat) {
-            return Ok(Some(found));
+        let mapped = self.state.lock().subchats.subchat_of(thread, chat);
+        if let Some(found) = mapped {
+            let place = SubchatKey { chat: chat.to_string(), subchat: found.clone() };
+            if self.reopen_if_closed(&place).await? {
+                return Ok(Some(found));
+            }
         }
         let subchat = match with_timeout(CALL_TIMEOUT, self.connector.open_subchat(self.ctx, chat, title)).await {
             Ok(subchat) => subchat,

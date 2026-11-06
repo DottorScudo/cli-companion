@@ -248,9 +248,10 @@ pub trait ContactConnector: Connector {
     fn subchats(&self, config: &Value, chat: &str) -> bool { false }
     /// Apre una sotto-chat col titolo del runtime («canale › thread», tagliato al limite del servizio) e ne ritorna l'id.
     fn open_subchat<'a>(&'a self, ctx: &'a ConnectorContext, chat: &'a str, title: &'a str) -> BoxFuture<'a, Result<String, ConnectorError>>;
-    /// Per il ciclo di vita dei thread: rinomina, chiude, elimina.
+    /// Per il ciclo di vita dei thread: rinomina, chiude, riapre, elimina (una sotto-chat già sparita risponde `SubchatGone`).
     fn rename_subchat<'a>(&'a self, ctx: &'a ConnectorContext, chat: &'a str, subchat: &'a str, title: &'a str) -> BoxFuture<'a, Result<(), ConnectorError>>;
     fn close_subchat<'a>(&'a self, ctx: &'a ConnectorContext, chat: &'a str, subchat: &'a str) -> BoxFuture<'a, Result<(), ConnectorError>>;
+    fn reopen_subchat<'a>(&'a self, ctx: &'a ConnectorContext, chat: &'a str, subchat: &'a str) -> BoxFuture<'a, Result<(), ConnectorError>>;
     fn delete_subchat<'a>(&'a self, ctx: &'a ConnectorContext, chat: &'a str, subchat: &'a str) -> BoxFuture<'a, Result<(), ConnectorError>>;
 }
 
@@ -261,7 +262,7 @@ pub enum ConnectorImpl { Source(&'static dyn SourceConnector), Contact(&'static 
 `ConnectorError` è la classificazione che il supervisore usa per il backoff (§7): `Transient(String)`,
 `RateLimited { retry_after: Option<Duration> }`, `Auth(String)` (→ `needs_auth`), `Config(String)` (configurazione
 non valida: si ferma con `error`), `Fatal(String)`, `SubchatGone` (un `send` in una sotto-chat che il servizio non ha
-più: il runtime la ricrea una volta, il supervisore non si ferma). I messaggi sono già ripuliti (mai segreti né
+più: il runtime la ricrea una volta, il supervisore non si ferma; per `close`, `reopen` e `delete` vale come «già sparita» e la voce esce dalla mappa). I messaggi sono già ripuliti (mai segreti né
 contenuti).
 
 Il contesto (`ConnectorContext`, uno solo per fonti, canali di contatto e azioni) dà al connettore solo:
@@ -674,13 +675,35 @@ thread corrente. È una capacità facoltativa del connettore (`ContactConnector:
 - **Contratto.** `subchats(config, chat)` dice, per chat, se le sotto-chat ci sono. `InboundMessage.subchat` e
   `OutboundMessage.subchat` portano l'id opaco della sotto-chat (`None` = la principale, in Telegram «General»).
   `open_subchat(chat, title)` ne apre una e ne ritorna l'id; il titolo lo costruisce il runtime con `thread_label`, il
-  connettore lo taglia al limite del servizio. `rename_subchat`, `close_subchat` e `delete_subchat` servono al ciclo di
-  vita dei thread. Se il servizio dice che la sotto-chat non c'è più (eliminata a mano), `send` risponde
-  `ConnectorError::SubchatGone`.
+  connettore lo taglia al limite del servizio. `close_subchat`, `reopen_subchat` e `delete_subchat` servono al ciclo di
+  vita dei thread (vedi sotto); `rename_subchat` non è ancora usata dal runtime. Se il servizio dice che la sotto-chat
+  non c'è più (eliminata a mano), `send` e le altre operazioni rispondono `ConnectorError::SubchatGone`.
 - **Mappa** `(canale, thread, chat) ↔ (chat, sotto-chat)` nello stato dell'istanza (`InstanceState.subchats`), nei
   due versi, limitata a 1000 voci (§6); lo stesso thread può avere una sotto-chat in ogni chat collegata. Gli id che
   arrivano dal servizio si validano prima di salvarli (lettere, cifre e `-_.:`, al più 64 caratteri): un id non valido
-  non entra nella mappa e un messaggio con un id non valido si ignora.
+  non entra nella mappa e un messaggio con un id non valido si ignora. Ogni voce ricorda se la sotto-chat è **chiusa**
+  (si salva solo quando lo è; un file vecchio la legge aperta).
+- **Ciclo di vita dei thread.** Le sotto-chat restano allineate ai thread; decide il runtime
+  (`runtime/contact/subchats/lifecycle.rs`), il connettore traduce nel servizio:
+  - un thread **eliminato** (`hub_delete_thread`) → `HubLifecycle::thread_removed`, chiamato dopo il salvataggio e fuori
+    da ogni lock dell'HUB; un workspace **rimosso** → `workspace_removed`. Il runtime dei connettori li gira, come
+    eventi, alla coda di ogni istanza di contatto in esecuzione (`NoticeRouter`, `try_send` su un canale limitato: non
+    blocca mai l'HUB e ignora l'interruttore delle notifiche); il task dell'istanza chiama `delete_subchat` per ogni
+    voce del thread (o di tutti i thread del workspace) e la toglie dalla mappa;
+  - un thread **concluso** (notifica `ThreadConcluded`) → `close_subchat` sulle sue sotto-chat ancora aperte, **dopo**
+    aver mandato la notifica, e la voce resta segnata chiusa. La chiusura non dipende da `wants_notice`: anche chi non
+    vuole la notifica di conclusione ha il topic chiuso (basta l'interruttore generale `notices`);
+  - la sotto-chat chiusa si **riapre** (`reopen_subchat`) al primo messaggio in entrata al suo interno o alla prima
+    notifica (o risposta del bot) successiva, prima di scriverci. Un errore di riapertura si registra, non si riprova
+    e non impedisce di scrivere (la voce torna comunque aperta).
+  - **Errori.** Una sotto-chat già sparita (`SubchatGone`) non è un errore: la voce esce dalla mappa (in riapertura la
+    sotto-chat si ricrea). Un altro errore del servizio si registra, la voce resta com'era e non si riprova da sola
+    (una chiusura fallita si ritenta alla conclusione successiva); solo gli errori che fermano il supervisore
+    (credenziali, configurazione) risalgono. Le chiamate non tengono lock dell'HUB né dello stato.
+  - **Limiti accettati.** Con l'HUB spento o l'istanza ferma l'eliminazione nel servizio si può perdere: la voce nella
+    mappa sparisce comunque al prossimo uso (un messaggio in una sotto-chat il cui thread non esiste più riceve la
+    spiegazione e la voce si toglie). Una coda piena scarta l'evento. Le chat senza sotto-chat non vedono nulla di
+    tutto questo.
 - **Notifiche.** Per una chat con le sotto-chat la notifica va in quella del suo thread, aperta al primo bisogno, con
   il solo testo (senza il prefisso «canale › thread», che è già il nome). Se `open_subchat` fallisce per un errore che
   non ferma il supervisore, la notifica va nella chat principale col prefisso, con una riga nel log. `SubchatGone`
@@ -831,7 +854,7 @@ Se il bot aveva un webhook, il primo avvio lo toglie (webhook e `getUpdates` si 
   uguale a `message_thread_id`: non è una risposta e non diventa `reply_to_external`. `subchats(config, chat)` è vero
   per gli id di supergruppo (`-100…`): il connettore non accetta altri supergruppi, quindi un supergruppo collegato è
   un forum. `open_subchat` = `createForumTopic` (nome su una riga, al più 128 unità UTF-16, mai un carattere
-  spezzato, «Thread» se vuoto), `rename_subchat` = `editForumTopic`, `close_subchat` = `closeForumTopic`,
+  spezzato, «Thread» se vuoto), `rename_subchat` = `editForumTopic`, `close_subchat` = `closeForumTopic`, `reopen_subchat` = `reopenForumTopic`,
   `delete_subchat` = `deleteForumTopic`; `send` aggiunge `message_thread_id`.
 - **Abbinamento e comandi**: `/start <codice>` (o `/start@<bot> <codice>`) in chat privata o nel forum (il payload
   ammette `A-Za-z0-9_-` fino a 64 caratteri); `/nome[@bot] argomenti` → `ContactCommand` (`commands.rs`, puro). Da un

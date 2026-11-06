@@ -14,6 +14,7 @@
 use crate::connectors::contracts::{ConnectorContext, ConnectorImpl, SystemClock};
 use crate::connectors::model::ConnectorsFile;
 use crate::connectors::registry;
+use crate::connectors::runtime::contact::subchats::ThreadKey;
 use crate::connectors::runtime::health::{ConnectorStatus, HealthState, StatusRegistry, TauriStatusEmitter};
 use crate::connectors::runtime::hub_port::TauriHubPort;
 use crate::connectors::runtime::migrate::{migrate_instance, validate_instance};
@@ -292,6 +293,18 @@ impl ConnectorsRuntime {
             running.state.lock().prune_routes(&live);
         }
         Ok(())
+    }
+
+    /// Un thread e' stato eliminato: le istanze di contatto in esecuzione ne eliminano le
+    /// sotto-chat. Rapido, non fa I/O: il lavoro di rete lo fa il task di ogni istanza.
+    pub fn thread_removed(&self, channel: &Channel, thread_id: &str) {
+        self.notices.thread_removed(ThreadKey { channel: channel.clone(), thread_id: thread_id.to_string() });
+    }
+
+    /// Un workspace e' stato rimosso: le istanze di contatto in esecuzione eliminano le
+    /// sotto-chat di tutti i suoi thread. Rapido, non fa I/O.
+    pub fn channel_removed(&self, channel: &Channel) {
+        self.notices.channel_removed(channel.clone());
     }
 
     /// Dimentica un'istanza eliminata: ferma il task, via stato di salute e codici di abbinamento.

@@ -11,7 +11,7 @@ use crate::connectors::contracts::{ConnectorError, OutboundMessage};
 use crate::connectors::limits::CALL_TIMEOUT;
 use crate::connectors::model::ConnectorLink;
 use crate::connectors::runtime::time::with_timeout;
-use crate::hub::ContactNotice;
+use crate::hub::{ContactNotice, NoticeCategory};
 use std::collections::HashSet;
 
 /// Il testo completo del messaggio o, se manca, il titolo della notifica: il testo
@@ -45,11 +45,23 @@ impl ContactCtx<'_> {
     /// Una notifica dell'HUB a ogni chat dei collegamenti non silenziati (una volta per
     /// chat), se il connettore ne vuole il tipo; l'id esterno di ogni parte inviata entra
     /// nella mappa. Un errore del servizio che ferma il supervisore (credenziali,
-    /// configurazione) risale; gli altri si registrano.
+    /// configurazione) risale; gli altri si registrano. Una conclusione chiude poi le
+    /// sotto-chat del thread, qualunque sia la scelta sulle notifiche di quel tipo.
     pub async fn send_notice(&self, notice: &ContactNotice) -> Result<(), ConnectorError> {
-        if !self.connector.wants_notice(self.ctx.config(), notice.category) {
-            return Ok(());
+        if self.connector.wants_notice(self.ctx.config(), notice.category) {
+            self.deliver_notice(notice).await?;
         }
+        if notice.category == NoticeCategory::ThreadConcluded {
+            // Il thread e' concluso anche per chi non ne vuole la notifica: le sue sotto-chat si chiudono.
+            let thread =
+                ThreadKey { channel: notice.notice.channel.clone(), thread_id: notice.notice.thread_id.clone() };
+            self.close_thread_subchats(&thread).await?;
+        }
+        Ok(())
+    }
+
+    /// La notifica a ogni chat dei collegamenti non silenziati.
+    async fn deliver_notice(&self, notice: &ContactNotice) -> Result<(), ConnectorError> {
         let now = self.clock.now_ms();
         let links: Vec<ConnectorLink> =
             self.store.read(|f| f.links_of(self.instance()).filter(|l| is_listening(l, now)).cloned().collect());

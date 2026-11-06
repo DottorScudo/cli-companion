@@ -272,13 +272,27 @@ fn the_fake_contact_simulates_subchats_and_the_lifecycle_defaults_are_unsupporte
         reply_to_external: None,
     };
     assert_eq!(block_on(contact.send(&t.ctx, &out)), Err(ConnectorError::SubchatGone));
-    for unsupported in [
-        block_on(contact.rename_subchat(&t.ctx, "g1", "sub-1", "nuovo")),
-        block_on(contact.close_subchat(&t.ctx, "g1", "sub-1")),
-        block_on(contact.delete_subchat(&t.ctx, "g1", "sub-1")),
-    ] {
-        assert!(matches!(unsupported, Err(ConnectorError::Fatal(_))), "{unsupported:?}");
-    }
+    let unsupported = block_on(contact.rename_subchat(&t.ctx, "g1", "sub-1", "nuovo"));
+    assert!(matches!(unsupported, Err(ConnectorError::Fatal(_))), "{unsupported:?}");
+}
+
+#[test]
+fn the_fake_contact_records_the_lifecycle_calls_and_reports_a_subchat_deleted_remotely() {
+    use crate::connectors::testing::{FakeContact, SubchatOp};
+    let contact = FakeContact::new();
+    let t = test_context(&FAKE_CONTACT, json!({}));
+    assert_eq!(block_on(contact.close_subchat(&t.ctx, "g1", "sub-1")), Ok(()));
+    assert_eq!(block_on(contact.reopen_subchat(&t.ctx, "g1", "sub-1")), Ok(()));
+    contact.delete_remotely("sub-1");
+    assert_eq!(block_on(contact.delete_subchat(&t.ctx, "g1", "sub-1")), Err(ConnectorError::SubchatGone));
+    *contact.lifecycle_error.lock().unwrap() = Some(ConnectorError::Transient("x".to_string()));
+    assert!(matches!(block_on(contact.close_subchat(&t.ctx, "g1", "sub-2")), Err(ConnectorError::Transient(_))));
+    assert_eq!(
+        contact.lifecycle_calls(SubchatOp::Close),
+        vec![("g1".to_string(), "sub-1".to_string()), ("g1".to_string(), "sub-2".to_string())]
+    );
+    assert_eq!(contact.lifecycle_calls(SubchatOp::Reopen).len(), 1);
+    assert_eq!(contact.lifecycle_calls(SubchatOp::Delete).len(), 1);
 }
 
 #[test]

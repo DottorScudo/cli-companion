@@ -459,13 +459,18 @@ fn notice(n: usize) -> ContactNotice {
 }
 
 fn run_notices_for(rig: &Rig, contact: &'static FakeContact, count: usize) -> bool {
-    let state = StateHandle::default();
+    let events = (0..count).map(|n| ContactEvent::Notice(notice(n))).collect();
+    run_events_for(rig, contact, &StateHandle::default(), events)
+}
+
+/// Fa trattare `events` a un supervisore di contatto con lo `state` dato; `true` se la coda si chiude.
+fn run_events_for(rig: &Rig, contact: &'static FakeContact, state: &StateHandle, events: Vec<ContactEvent>) -> bool {
     let t = crate::connectors::testing::test_context(&FAKE_CONTACT, json!({}));
     let cc = ContactCtx {
         connector: contact,
         ctx: &t.ctx,
         hub: &*rig.hub,
-        state: &state,
+        state,
         store: &rig.env.store,
         pairing: &rig.env.pairing,
         ids: &rig.env.ids,
@@ -473,11 +478,11 @@ fn run_notices_for(rig: &Rig, contact: &'static FakeContact, count: usize) -> bo
         session: ContactSession::default(),
     };
     let (tx, rx) = tokio::sync::mpsc::channel(8);
-    for n in 0..count {
-        tx.try_send(notice(n)).unwrap();
+    for event in events {
+        tx.try_send(event).unwrap();
     }
     drop(tx);
-    tauri::async_runtime::block_on(crate::connectors::runtime::contact_loop::run_notices(
+    tauri::async_runtime::block_on(crate::connectors::runtime::contact_loop::run_events(
         &rig.env,
         INSTANCE,
         rig.env.statuses.begin_run(INSTANCE),
@@ -508,4 +513,28 @@ fn an_auth_error_while_sending_a_notice_stops_the_supervisor() {
     let contact = new_contact();
     *contact.send_error.lock().unwrap() = Some(ConnectorError::Transient("x".to_string()));
     assert!(run_notices_for(&rig, contact, 1));
+}
+
+#[test]
+fn removal_events_delete_the_subchats_and_the_state_is_saved() {
+    use crate::connectors::runtime::contact::subchats::{SubchatKey, ThreadKey};
+    let rig = contact_rig(0);
+    let contact = new_contact();
+    contact.with_subchats_in("chat-u1");
+    let state = StateHandle::default();
+    let place = |subchat: &str| SubchatKey { chat: "chat-u1".to_string(), subchat: subchat.to_string() };
+    let ws = Channel::Workspace("ws-1".to_string());
+    {
+        let mut guard = state.lock();
+        guard.subchats.insert(ThreadKey { channel: Channel::General, thread_id: "thr-1".into() }, place("1"));
+        guard.subchats.insert(ThreadKey { channel: ws.clone(), thread_id: "thr-9".into() }, place("2"));
+    }
+    let events = vec![
+        ContactEvent::ThreadRemoved(ThreadKey { channel: Channel::General, thread_id: "thr-1".into() }),
+        ContactEvent::ChannelRemoved(ws),
+    ];
+    assert!(run_events_for(&rig, contact, &state, events));
+    assert_eq!(state.lock().subchats.len(), 0);
+    assert_eq!(rig.states.saves(), 2);
+    assert_eq!(contact.lifecycle_calls(crate::connectors::testing::SubchatOp::Delete).len(), 2);
 }

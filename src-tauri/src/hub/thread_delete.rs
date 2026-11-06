@@ -3,11 +3,13 @@
 //! board (con worktree e terminali) e un loro evento successivo apre un thread
 //! nuovo. Con il thread se ne vanno la cartella dei suoi allegati (cancellata da
 //! `HubState::update` dopo il salvataggio), le sessioni e i lavori dei
-//! segretari e la notifica in attesa; poi l'evento `hub-thread-removed`.
+//! segretari e la notifica in attesa; poi gli ascoltatori del ciclo di vita (le
+//! sotto-chat dei canali di contatto) e l'evento `hub-thread-removed`.
 
 use super::channel::Channel;
 use super::commands::{ensure_channel, ensure_enabled, hub_dirs_of};
 use super::engine::SecretaryEngine;
+use super::lifecycle::HubLifecycleListeners;
 use super::notify::{HubNotifier, HubThreadRef};
 use super::state::HubState;
 use tauri::{AppHandle, Emitter, Manager};
@@ -34,6 +36,8 @@ fn delete(app: &AppHandle, channel: &Channel, thread_id: &str) -> Result<(), Str
     })?;
     app.state::<SecretaryEngine>().forget_thread(app, channel, thread_id);
     app.state::<HubNotifier>().discard_thread(channel, thread_id);
+    // Fuori da ogni lock dell'HUB: gli ascoltatori sono rapidi, la rete la fanno i loro task.
+    app.state::<HubLifecycleListeners>().thread_removed(app, channel, thread_id);
     emit_removed(app, channel, thread_id);
     Ok(())
 }

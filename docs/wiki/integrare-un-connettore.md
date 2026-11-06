@@ -158,7 +158,10 @@ se ci arrivasse, rispondono `Fatal`).
   `receive` metti in `InboundMessage.subchat` la sotto-chat del messaggio (`None` per quella principale); in `send`
   scrivi in `OutboundMessage.subchat`. Se il servizio dice che la sotto-chat non esiste più (eliminata a mano),
   `send` risponde `ConnectorError::SubchatGone`: il runtime la toglie dalla sua mappa e la ricrea una volta. La mappa
-  thread ↔ sotto-chat è del runtime, non del connettore.
+  thread ↔ sotto-chat è del runtime, non del connettore. Per tenerle allineate ai thread implementa anche
+  `close_subchat` (thread concluso), `reopen_subchat` (messaggio o notifica successivi) e `delete_subchat` (thread o
+  workspace eliminato): traducono e basta, decide il runtime; una sotto-chat già sparita risponde `SubchatGone`, che
+  per il runtime è un successo.
 - **`action`**: `Authorize` (di solito apre il browser e salva il refresh token con `ctx.set_secret`), `Pair` (il
   codice emesso dal runtime è in `ctx.pairing_code()`: va mostrato all'utente, il connettore può metterlo in un
   invito e restituirlo in `ActionOutcome.detail`), `Test`.
@@ -227,7 +230,7 @@ niente stato su file proprio.
    clippy (`-D warnings`) segnala come «unfulfilled expectation» quelli in `contracts/connector.rs`, `contracts/error.rs`,
    `contracts/context.rs`, `descriptor/mod.rs`, `limits.rs`, `state.rs` e `runtime/http.rs`, `runtime/backoff.rs` che
    ora sono raggiungibili. Quelli che il tuo connettore non usa ancora (per esempio `with_max_body`, o `SubchatGone` e
-   `rename_subchat`/`close_subchat`/`delete_subchat` senza sotto-chat) restano.
+   `rename_subchat` senza sotto-chat) restano.
 7. **Documenta**: la riga nella tabella delle fasi di `docs/CONNECTORS.MD` e, se serve, la sezione del connettore.
 
 ## Test

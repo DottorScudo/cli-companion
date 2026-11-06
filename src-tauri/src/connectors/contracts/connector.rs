@@ -110,7 +110,7 @@ pub trait ContactConnector: Connector {
     }
 
     /// Rinomina una sotto-chat (il thread ha cambiato titolo).
-    #[cfg_attr(not(test), expect(dead_code, reason = "il runtime non rinomina ne' chiude ancora le sotto-chat"))]
+    #[cfg_attr(not(test), expect(dead_code, reason = "il runtime non rinomina ancora le sotto-chat"))]
     fn rename_subchat<'a>(
         &'a self,
         _ctx: &'a ConnectorContext,
@@ -122,7 +122,6 @@ pub trait ContactConnector: Connector {
     }
 
     /// Chiude una sotto-chat senza cancellarla (il thread e' concluso).
-    #[cfg_attr(not(test), expect(dead_code, reason = "il runtime non rinomina ne' chiude ancora le sotto-chat"))]
     fn close_subchat<'a>(
         &'a self,
         _ctx: &'a ConnectorContext,
@@ -132,8 +131,18 @@ pub trait ContactConnector: Connector {
         subchats_unsupported()
     }
 
-    /// Elimina una sotto-chat (il thread e' stato eliminato).
-    #[cfg_attr(not(test), expect(dead_code, reason = "il runtime non rinomina ne' chiude ancora le sotto-chat"))]
+    /// Riapre una sotto-chat chiusa (il thread concluso ha un messaggio o una notifica nuovi).
+    fn reopen_subchat<'a>(
+        &'a self,
+        _ctx: &'a ConnectorContext,
+        _chat: &'a str,
+        _subchat: &'a str,
+    ) -> BoxFuture<'a, Result<(), ConnectorError>> {
+        subchats_unsupported()
+    }
+
+    /// Elimina una sotto-chat (il thread e' stato eliminato). Se nel servizio non c'e'
+    /// piu', l'errore e' `SubchatGone`: per il runtime l'obiettivo e' raggiunto.
     fn delete_subchat<'a>(
         &'a self,
         _ctx: &'a ConnectorContext,

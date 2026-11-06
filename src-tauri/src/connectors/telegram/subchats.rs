@@ -43,6 +43,17 @@ pub async fn close(
     api::close_forum_topic(ctx, chat_id, topic_id).await
 }
 
+pub async fn reopen(
+    pacer: &Mutex<Pacer>,
+    ctx: &ConnectorContext,
+    chat: &str,
+    subchat: &str,
+) -> Result<(), ConnectorError> {
+    let (chat_id, topic_id) = (parse_chat(chat)?, parse_topic(subchat)?);
+    wait_turn(pacer, ctx, chat).await;
+    api::reopen_forum_topic(ctx, chat_id, topic_id).await
+}
+
 pub async fn delete(
     pacer: &Mutex<Pacer>,
     ctx: &ConnectorContext,

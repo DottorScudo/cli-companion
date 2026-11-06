@@ -1,11 +1,12 @@
-//! Chi vuole sapere quando l'HUB si accende o si spegne e quando un workspace
-//! sparisce (un connettore che deve fermare i suoi supervisori o togliere le
-//! regole di un canale). `hub` non conosce chi ascolta: `lib.rs` registra gli
+//! Chi vuole sapere quando l'HUB si accende o si spegne, quando un workspace
+//! sparisce e quando un thread viene eliminato (un connettore che deve fermare i
+//! suoi supervisori, togliere le regole di un canale o eliminare le sotto-chat). `hub` non conosce chi ascolta: `lib.rs` registra gli
 //! ascoltatori (`set_lifecycle_listener`), come fa con i destinatari delle
 //! notifiche. Gli ascoltatori girano sul thread di chi cambia lo stato (in
 //! genere uno del pool bloccante), mai con un lock dell'HUB preso: devono essere
 //! rapidi e non andare in panico.
 
+use super::channel::Channel;
 use std::sync::{Arc, Mutex};
 use tauri::AppHandle;
 
@@ -16,6 +17,9 @@ pub trait HubLifecycle: Send + Sync {
     fn hub_enabled_changed(&self, app: &AppHandle, enabled: bool);
     /// Il workspace `ws_id` e' stato rimosso (anche con l'HUB spento).
     fn workspace_removed(&self, app: &AppHandle, ws_id: &str);
+    /// Il thread `thread_id` di `channel` e' stato eliminato a mano. Chiamato dopo il
+    /// salvataggio del canale. Predefinito: nessuna reazione.
+    fn thread_removed(&self, _app: &AppHandle, _channel: &Channel, _thread_id: &str) {}
 }
 
 /// Gli ascoltatori registrati. Stato gestito da Tauri.
@@ -43,15 +47,22 @@ impl HubLifecycleListeners {
 
     /// Avvisa gli ascoltatori che il workspace `ws_id` e' stato rimosso.
     pub fn workspace_removed(&self, app: &AppHandle, ws_id: &str) {
-        for listener in self.snapshot() {
-            listener.workspace_removed(app, ws_id);
-        }
+        self.for_each(|listener| listener.workspace_removed(app, ws_id));
+    }
+
+    /// Avvisa gli ascoltatori che il thread `thread_id` di `channel` e' stato eliminato.
+    pub fn thread_removed(&self, app: &AppHandle, channel: &Channel, thread_id: &str) {
+        self.for_each(|listener| listener.thread_removed(app, channel, thread_id));
     }
 
     fn for_each_transition(&self, was_enabled: bool, enabled: bool, mut f: impl FnMut(&dyn HubLifecycle, bool)) {
         let Some(now) = transition(was_enabled, enabled) else { return };
+        self.for_each(|listener| f(listener, now));
+    }
+
+    fn for_each(&self, mut f: impl FnMut(&dyn HubLifecycle)) {
         for listener in self.snapshot() {
-            f(listener.as_ref(), now);
+            f(listener.as_ref());
         }
     }
 
@@ -96,5 +107,16 @@ mod tests {
         // Due ascoltatori, due passaggi veri: il passaggio vuoto non chiama nessuno.
         assert_eq!(seen, vec![true, true, false, false]);
         assert_eq!(listeners.snapshot().len(), 2);
+    }
+
+    #[test]
+    fn every_listener_is_visited_and_thread_removed_is_optional() {
+        // `Noop` non implementa `thread_removed`: il predefinito non fa nulla.
+        let listeners = HubLifecycleListeners::default();
+        listeners.add(Arc::new(Noop));
+        listeners.add(Arc::new(Noop));
+        let mut visited = 0;
+        listeners.for_each(|_| visited += 1);
+        assert_eq!(visited, 2);
     }
 }

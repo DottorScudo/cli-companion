@@ -8,6 +8,8 @@ use crate::connectors::runtime::contact::subchats::{SubchatKey, ThreadKey};
 use crate::connectors::testing::{command, contact_notice};
 use crate::hub::contact::ChannelEntry;
 
+mod lifecycle;
+
 const GROUP: &str = "group-1";
 
 fn ws() -> Channel {

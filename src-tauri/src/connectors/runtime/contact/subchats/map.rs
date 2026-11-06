@@ -10,7 +10,7 @@ use crate::connectors::limits::{SUBCHATS_MAX, SUBCHAT_ID_MAX};
 use crate::connectors::model::valid_external_ref;
 use crate::hub::{valid_ref_id, Channel};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Caratteri ammessi in un id di sotto-chat oltre a lettere e cifre ASCII.
 const SUBCHAT_ID_PUNCTUATION: [char; 4] = ['-', '_', '.', ':'];
@@ -43,6 +43,9 @@ pub struct SubchatEntry {
     pub thread_id: String,
     pub chat: String,
     pub subchat: String,
+    /// Chiusa nel servizio (il thread e' concluso). Assente nel file = aperta.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closed: bool,
 }
 
 /// La chiave del verso thread -> sotto-chat: il thread e la chat.
@@ -56,11 +59,35 @@ pub struct SubchatMap {
     order: VecDeque<SubchatKey>,
     threads: HashMap<SubchatKey, ThreadKey>,
     subchats: HashMap<ThreadInChat, String>,
+    /// Le sotto-chat mappate che il runtime ha chiuso.
+    closed: HashSet<SubchatKey>,
 }
 
 impl SubchatMap {
     pub fn with_capacity(cap: usize) -> Self {
-        Self { cap, order: VecDeque::new(), threads: HashMap::new(), subchats: HashMap::new() }
+        Self { cap, order: VecDeque::new(), threads: HashMap::new(), subchats: HashMap::new(), closed: HashSet::new() }
+    }
+
+    /// Le sotto-chat dei thread per cui `selected` e' vero, senza cambiarne l'ordine d'uso.
+    pub fn places_where(&self, selected: impl Fn(&ThreadKey) -> bool) -> Vec<SubchatKey> {
+        self.order.iter().filter(|place| self.threads.get(*place).is_some_and(&selected)).cloned().collect()
+    }
+
+    /// La sotto-chat e' chiusa?
+    pub fn is_closed(&self, place: &SubchatKey) -> bool {
+        self.closed.contains(place)
+    }
+
+    /// Segna la sotto-chat chiusa o riaperta. Non fa nulla se non e' mappata.
+    pub fn set_closed(&mut self, place: &SubchatKey, closed: bool) {
+        if !self.threads.contains_key(place) {
+            return;
+        }
+        if closed {
+            self.closed.insert(place.clone());
+        } else {
+            self.closed.remove(place);
+        }
     }
 
     /// La sotto-chat del thread nella `chat`, se c'e': la voce diventa la piu' recente.
@@ -92,6 +119,7 @@ impl SubchatMap {
         self.order.push_back(place);
         while self.order.len() > self.cap {
             let Some(oldest) = self.order.pop_front() else { break };
+            self.closed.remove(&oldest);
             if let Some(thread) = self.threads.remove(&oldest) {
                 self.subchats.remove(&(thread, oldest.chat));
             }
@@ -103,6 +131,7 @@ impl SubchatMap {
     pub fn remove_subchat(&mut self, place: &SubchatKey) -> Option<ThreadKey> {
         let thread = self.threads.remove(place)?;
         self.subchats.remove(&(thread.clone(), place.chat.clone()));
+        self.closed.remove(place);
         self.order.retain(|k| k != place);
         Some(thread)
     }
@@ -129,7 +158,10 @@ impl From<Vec<SubchatEntry>> for SubchatMap {
         let mut map = Self::default();
         for entry in list {
             let thread = ThreadKey { channel: entry.channel, thread_id: entry.thread_id };
-            map.insert(thread, SubchatKey { chat: entry.chat, subchat: entry.subchat });
+            let place = SubchatKey { chat: entry.chat, subchat: entry.subchat };
+            if map.insert(thread, place.clone()) {
+                map.set_closed(&place, entry.closed);
+            }
         }
         map
     }
@@ -137,7 +169,7 @@ impl From<Vec<SubchatEntry>> for SubchatMap {
 
 impl From<SubchatMap> for Vec<SubchatEntry> {
     fn from(map: SubchatMap) -> Self {
-        let SubchatMap { order, mut threads, .. } = map;
+        let SubchatMap { order, mut threads, closed, .. } = map;
         order
             .into_iter()
             .filter_map(|place| {
@@ -145,6 +177,7 @@ impl From<SubchatMap> for Vec<SubchatEntry> {
                 Some(SubchatEntry {
                     channel: thread.channel,
                     thread_id: thread.thread_id,
+                    closed: closed.contains(&place),
                     chat: place.chat,
                     subchat: place.subchat,
                 })

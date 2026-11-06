@@ -94,6 +94,8 @@ impl ContactCtx<'_> {
                 return Ok(None);
             }
         }
+        // Un messaggio in una sotto-chat chiusa (un amministratore puo' scriverci) la riapre.
+        self.reopen_if_closed(key).await?;
         let reply_to = message.reply_to_external.as_deref().and_then(|external| self.quoted_in(&thread, external));
         Ok(Some(Target { channel: thread.channel, thread_id: thread.thread_id, reply_to, stale_reply: false }))
     }

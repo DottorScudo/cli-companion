@@ -97,6 +97,10 @@ pub async fn close_forum_topic(ctx: &ConnectorContext, chat_id: i64, topic_id: i
     call_short(ctx, "closeForumTopic", &requests::topic_body(chat_id, topic_id)).await.map(drop)
 }
 
+pub async fn reopen_forum_topic(ctx: &ConnectorContext, chat_id: i64, topic_id: i64) -> Result<(), ConnectorError> {
+    call_short(ctx, "reopenForumTopic", &requests::topic_body(chat_id, topic_id)).await.map(drop)
+}
+
 pub async fn delete_forum_topic(ctx: &ConnectorContext, chat_id: i64, topic_id: i64) -> Result<(), ConnectorError> {
     call_short(ctx, "deleteForumTopic", &requests::topic_body(chat_id, topic_id)).await.map(drop)
 }

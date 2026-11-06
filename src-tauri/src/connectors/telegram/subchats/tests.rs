@@ -14,6 +14,7 @@ fn an_invalid_chat_is_fatal_and_an_invalid_topic_is_gone_before_any_network_call
     assert!(matches!(block_on(close(&pacer, &t.ctx, "", "5")).unwrap_err(), ConnectorError::Fatal(_)));
     assert_eq!(block_on(rename(&pacer, &t.ctx, FORUM, "x", "t")).unwrap_err(), ConnectorError::SubchatGone);
     assert_eq!(block_on(close(&pacer, &t.ctx, FORUM, "0")).unwrap_err(), ConnectorError::SubchatGone);
+    assert_eq!(block_on(reopen(&pacer, &t.ctx, FORUM, "0")).unwrap_err(), ConnectorError::SubchatGone);
     assert_eq!(block_on(delete(&pacer, &t.ctx, FORUM, "-2")).unwrap_err(), ConnectorError::SubchatGone);
 }
 
@@ -26,6 +27,7 @@ fn without_a_token_every_topic_call_fails_with_auth() {
         block_on(open(&pacer(), &t.ctx, FORUM, "Generale › Piano")).map(drop).unwrap_err(),
         block_on(rename(&pacer(), &t.ctx, FORUM, "5", "Nuovo")).unwrap_err(),
         block_on(close(&pacer(), &t.ctx, FORUM, "5")).unwrap_err(),
+        block_on(reopen(&pacer(), &t.ctx, FORUM, "5")).unwrap_err(),
         block_on(delete(&pacer(), &t.ctx, FORUM, "5")).unwrap_err(),
     ];
     for error in errors {

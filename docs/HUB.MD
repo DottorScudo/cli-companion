@@ -341,7 +341,10 @@ in qualunque canale (anche il Generale) e anche con task collegati (`ChannelThre
 il thread nel file del canale, la cartella dei suoi allegati (dopo il salvataggio, come per i thread potati: vedi
 "Allegati"), le sessioni dei segretari su quel thread (senza riassunto), la sua coda e l'esecutore in corso
 (`SecretaryEngine::forget_thread`, poi `hub-secretary-status`) e la notifica raggruppata ancora in attesa
-(`HubNotifier::discard_thread`). Un lavoro del motore già oltre l'ultimo punto di attesa non ricrea il thread: le sue
+(`HubNotifier::discard_thread`). Dopo il salvataggio, fuori da ogni lock dell'HUB, gli ascoltatori del ciclo di vita
+(`HubLifecycle::thread_removed`, registrati con `set_lifecycle_listener`) sanno del thread eliminato: il runtime dei
+connettori ne elimina le sotto-chat nei canali di contatto (docs/CONNECTORS.MD §10, «Sotto-chat»); devono essere rapidi,
+il lavoro di rete gira nei loro task. Un lavoro del motore già oltre l'ultimo punto di attesa non ricrea il thread: le sue
 scritture falliscono con «thread non trovato» e finiscono nel log. Gli altri thread del canale non cambiano. Restano
 i task della board, intatti con worktree e terminali: un loro evento successivo (per esempio la fine del task) non
 trova più un thread e ne apre uno nuovo, come per un task che non l'ha mai avuto. Le regole dei connettori che
@@ -427,7 +430,7 @@ Validano gli argomenti per primi e fanno l'I/O in `crate::blocking`. Wrapper nel
 | `hub_create_thread` | `channel`, `title` | `HubThread` (thread libero dell'utente) |
 | `hub_send` | `channel`, `thread_id`, `body`, `reply_to?`, `attachments?` (id dallo staging) | `HubMessage` dell'utente; gli allegati passano dallo staging alla cartella del thread (vedi "Allegati"); dopo il salvataggio, una risposta a una domanda di un worker ancora in attesa va al worker così com'è (vedi "Domande dei worker"), altrimenti il motore sveglia i segretari (in background) |
 | `hub_set_thread_state` | `channel`, `thread_id`, `closed` (`true` chiude, `false` riapre) | `HubThreadSummary` aggiornato, più `hub-update` se lo stato è cambiato; vedi "Chiudere e riaprire a mano" |
-| `hub_delete_thread` | `channel`, `thread_id` | nulla; elimina il thread (qualunque stato) e i suoi allegati, chiude le sessioni dei segretari su di esso, poi `hub-thread-removed`; i task collegati restano sulla board (vedi "Eliminare a mano") |
+| `hub_delete_thread` | `channel`, `thread_id` | nulla; elimina il thread (qualunque stato) e i suoi allegati, chiude le sessioni dei segretari su di esso, avvisa gli ascoltatori (`thread_removed`: i topic dei canali di contatto), poi `hub-thread-removed`; i task collegati restano sulla board (vedi "Eliminare a mano") |
 | `hub_stage_attachment_file` | `path` (assoluto, dal dialog) | `HubAttachment` nello staging |
 | `hub_stage_attachment_bytes` | corpo raw (`InvokeBody::Raw`), nome nell'header `x-hub-file-name` (`encodeURIComponent`) | `HubAttachment` nello staging (immagine incollata, file trascinato) |
 | `hub_read_attachment` | `channel`, `thread_id`, `attachment_id` | i byte (`ArrayBuffer`), per l'anteprima |

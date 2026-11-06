@@ -78,7 +78,7 @@ pub fn edit_forum_topic_body(chat_id: i64, topic_id: i64, title: &str) -> Value 
     json!({ "chat_id": chat_id, "message_thread_id": topic_id, "name": topic_name(title) })
 }
 
-/// `closeForumTopic` e `deleteForumTopic`.
+/// `closeForumTopic`, `reopenForumTopic` e `deleteForumTopic`.
 pub fn topic_body(chat_id: i64, topic_id: i64) -> Value {
     json!({ "chat_id": chat_id, "message_thread_id": topic_id })
 }
