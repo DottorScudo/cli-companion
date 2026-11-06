@@ -15,7 +15,8 @@
 //! - `resolve`: da un Bot ad agente, modello, effort e skill di un lancio;
 //! - `launches`: le voci del menu di avvio e il lancio di un Bot in un tab;
 //! - `skills`: le skill selezionabili per l'interfaccia;
-//! - `derived`: i Bot derivati da un predefinito con un agente fissato.
+//! - `derived`: i Bot derivati da un predefinito con un agente fissato;
+//! - `launch_refs`: gli avvii predefiniti da azzerare quando un Bot viene eliminato.
 
 mod agent;
 mod agent_bots;
@@ -23,6 +24,7 @@ mod catalog;
 pub mod commands;
 mod derived;
 mod image;
+mod launch_refs;
 mod launches;
 mod migrations;
 mod presets;

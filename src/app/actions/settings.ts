@@ -1,11 +1,13 @@
 // Dialoghi e impostazioni: apertura di Impostazioni e "Aggiungi workspace",
 // e i valori che le Impostazioni riportano all'app.
 
+import { api } from "../../lib/tauri";
 import type { BotSettings, Workspace } from "../../lib/tauri";
 import { report } from "../../lib/errors";
 import { refreshIntegrations } from "./integrations";
 import { configStore } from "../../stores/config";
 import { uiStore } from "../../stores/ui";
+import { workspacesStore } from "../../stores/workspaces";
 
 /** Impostazioni: sulla pagina "Aggiornamenti" se ce n'è uno disponibile (pallino acceso). */
 export function openSettings(): void {
@@ -54,6 +56,20 @@ export function setGlobalLaunch(globalLaunch: string | null): void {
 
 export function setBotSettings(botSettings: BotSettings): void {
   configStore.patch({ botSettings });
+}
+
+/**
+ * Rilegge workspace e avvio predefinito globale: eliminare un Bot azzera i
+ * predefiniti che lo usavano, e i menu non devono mostrarne uno fantasma.
+ */
+export async function reloadLaunchDefaults(): Promise<void> {
+  try {
+    const [list, settings] = await Promise.all([api.listWorkspaces(), api.getLaunchSettings()]);
+    workspacesStore.loaded(list);
+    configStore.patch({ globalLaunch: settings.default_launch });
+  } catch (e) {
+    report("aggiornamento degli avvii predefiniti", e, { notify: true });
+  }
 }
 
 export function closePluginUpdate(): void {

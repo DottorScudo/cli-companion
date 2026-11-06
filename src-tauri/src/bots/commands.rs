@@ -5,6 +5,7 @@
 use super::agent::{AgentBot, AgentBotDraft, SkillRef};
 use super::agent_bots;
 use super::catalog::AgentCatalog;
+use super::launch_refs;
 use super::launches::{self, BotLaunch, BotTabLaunch};
 use super::skills::{selectable_skills, BotSkillOption};
 use super::validate::validate_draft;
@@ -40,10 +41,16 @@ pub async fn update_agent_bot(app: AppHandle, id: String, draft: AgentBotDraft) 
     .await
 }
 
-/// Rifiuta il Bot `general`.
+/// Rifiuta il Bot `general`. Gli avvii predefiniti (workspace e globale) che
+/// puntavano al Bot si azzerano, cosi' non resta una voce appesa.
 #[tauri::command]
 pub async fn delete_agent_bot(app: AppHandle, id: String) -> Result<BotSettings, String> {
-    crate::blocking(move || update(&app, |s| agent_bots::delete(&mut s.agents, &id))).await
+    crate::blocking(move || {
+        let saved = update(&app, |s| agent_bots::delete(&mut s.agents, &id))?;
+        launch_refs::clear_for_deleted_bot(&app, &id)?;
+        Ok(saved)
+    })
+    .await
 }
 
 /// Riporta compito, modello, effort e skill del Bot al suo predefinito.

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
+import { reloadLaunchDefaults } from "../../../app/actions/settings";
 import { useBotSkills } from "../../../hooks/useBotSkills";
 import { useStore } from "../../../hooks/useStore";
 import { secretaryNames } from "../../../lib/hubSecretaries";
@@ -46,7 +47,9 @@ export default function AgentBotsSection() {
   };
 
   const remove = async (id: string) => {
-    if (await run(() => api.deleteAgentBot(id))) setEditing(null);
+    if (!(await run(() => api.deleteAgentBot(id)))) return;
+    setEditing(null);
+    await reloadLaunchDefaults();
   };
 
   const editor = (
