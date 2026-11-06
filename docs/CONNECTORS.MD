@@ -591,10 +591,11 @@ del segretario svegliato dà una notifica sola (la risposta).
 
 **Abbinamento.** In Impostazioni › Connettori › l'istanza, «Abbina un account» (azione `pair`) genera un **codice
 monouso** (12 caratteri casuali da `getrandom`, alfabeto senza ambiguità, valido 10 minuti, tenuto solo in memoria)
-e lo mostra con le istruzioni del connettore (Telegram: un link `https://t.me/<bot>?start=<codice>` e il testo
-`/start <codice>`). Il primo messaggio con il codice valido, da una **chat privata** (o da un gruppo con le
-sotto-chat, se il connettore lo ammette: vedi «Sotto-chat»), crea il `ContactLink` e consuma il codice; il bot risponde con il benvenuto e l'aiuto (`/help`). Il nome mostrato del collegamento è quello
-del mittente (`InboundMessage.sender_name`, ripulito). Un codice sbagliato o scaduto risponde in modo generico e conta
+e lo mostra con le istruzioni del connettore (Telegram: un link `https://t.me/<bot>?start=<codice>`, il testo
+`/start <codice>` e i passi per un gruppo con i Topic). Il primo messaggio con il codice valido, da una **chat
+privata** (o da un gruppo con le sotto-chat, se il connettore lo ammette: vedi «Sotto-chat»), crea il `ContactLink`
+e consuma il codice; il bot risponde con il benvenuto e l'aiuto (`/help`). Il nome mostrato del collegamento è
+quello del mittente (`InboundMessage.sender_name`, ripulito). Un codice sbagliato o scaduto risponde in modo generico e conta
 per il limite di frequenza (§11). Il collegamento si revoca dall'interfaccia o con `/unlink` (alias `/stop`) dalla
 chat.
 
@@ -716,7 +717,10 @@ thread corrente. È una capacità facoltativa del connettore (`ContactConnector:
   connettore lo ammette), codice monouso a scadenza; i messaggi di account **non abbinati** si ignorano (nessuna
   risposta oltre al messaggio generico per un `/start` non valido, nessun salvataggio), anche dentro un gruppo
   collegato; un account collegato che scrive da un'altra chat riceve solo un avviso. Un gruppo senza sotto-chat non
-  si usa: se il bot ci viene aggiunto, esce. Gli id di sotto-chat del servizio si validano prima di salvarli.
+  si usa: se il bot ci viene aggiunto, esce (Telegram: da un gruppo senza Topic o da un canale; in un supergruppo
+  forum resta in attesa dell'abbinamento, e l'abbinamento passa solo se il bot vi è amministratore con «Gestire i
+  topic»). Tutti i membri di un gruppo collegato vedono le notifiche: il bot lo dice nel benvenuto. Gli id di
+  sotto-chat del servizio si validano prima di salvarli.
 - **Limiti di frequenza**: in entrata al più 20 messaggi al minuto per collegamento (gli altri si scartano con un
   avviso); tentativi di abbinamento al più 5 per 10 minuti per istanza, poi i codici in corso si annullano; in
   uscita i limiti del servizio (§13).
@@ -755,14 +759,50 @@ successiva, con lo stesso contratto `ContactConnector`.
 2. Nell'app: Impostazioni › Connettori › Telegram › «Aggiungi», incolla il token nel campo «Token del bot» (va nel
    portachiavi del sistema, mai su disco) e scegli quali notifiche inoltrare. «Prova» chiama `getMe` e mostra il
    nome del bot.
-3. Abilita l'istanza (serve l'HUB acceso) e premi «Abbina un account»: l'app mostra un codice valido 10 minuti e il
-   link `https://t.me/<bot>?start=<codice>`. Apri il link dal telefono (o scrivi al bot `/start <codice>`): il bot
-   risponde con il benvenuto e l'aiuto.
-4. Scegli dove scrivere con `/threads` e `/use <n>` (o `/ws` e `/new <titolo>`), oppure rispondi direttamente alle
-   notifiche. Il collegamento si revoca dalle impostazioni o con `/unlink`.
+3. Abilita l'istanza (serve l'HUB acceso) e premi «Abbina un account»: l'app mostra un codice valido 10 minuti, il
+   link `https://t.me/<bot>?start=<codice>` e le istruzioni per il gruppo. Scegli una delle due modalità qui sotto.
 
-Il bot va usato solo in chat privata: aggiunto a un gruppo esce da solo. Se il bot aveva un webhook, il primo avvio
-lo toglie (webhook e `getUpdates` si escludono).
+**Modalità chat privata.** Apri il link dal telefono (o scrivi al bot `/start <codice>`): il bot risponde con il
+benvenuto e l'aiuto. Scegli dove scrivere con `/threads` e `/use <n>` (o `/ws` e `/new <titolo>`), oppure rispondi
+direttamente alle notifiche. Il collegamento si revoca dalle impostazioni o con `/unlink`.
+
+**Modalità gruppo con i Topic** (un topic per ogni thread dell'HUB, senza thread corrente da scegliere):
+
+1. In Telegram crea un **nuovo gruppo** con dentro solo te, senza aggiungere ancora il bot.
+2. Nelle impostazioni del gruppo attiva **Topic** (Modifica › Topic): il gruppo diventa un supergruppo forum. Attivali
+   **prima** di aggiungere il bot, o il bot esce da solo (un gruppo senza Topic non si usa); se è uscito, aggiungilo di
+   nuovo dopo.
+3. Gruppo › Amministratori › **Aggiungi amministratore** › il bot, con il permesso **«Gestire i topic»** (gli altri
+   non servono). In alternativa apri il link `https://t.me/<bot>?startgroup=<codice>&admin=manage_topics` che l'app
+   mostra: Telegram chiede il gruppo e propone il bot come amministratore con quel permesso.
+4. Scrivi nel gruppo `/start <codice>` (o `/start@<bot> <codice>`). Il bot controlla con `getChatMember` di essere
+   amministratore con «Gestire i topic»: se manca, risponde con le istruzioni e il codice **non** si consuma (riscrivi
+   `/start <codice>` dopo aver dato il permesso); se c'è, risponde con il benvenuto, l'avviso sulla visibilità e
+   l'aiuto. Il benvenuto arriva nel topic «General».
+5. Da quel momento ogni notifica arriva nel topic del suo thread, aperto alla prima notifica col nome
+   «<canale> › <titolo>» (i topic non hanno sottocartelle: il canale sta nel nome), e scrivere in un topic scrive nel
+   suo thread. `/new <titolo>` crea un thread con il suo topic; `/use <n>` apre il topic di un thread esistente.
+   Un account già collegato in privato che si abbina dal gruppo vi sposta il collegamento. Se il gruppo viene
+   trasformato dopo (Topic disattivati e riattivati, gruppo nuovo), rifai l'abbinamento.
+
+**BotFather per il gruppo.** Nessuna impostazione speciale: la *privacy mode* (`/setprivacy`) può restare attiva,
+perché un bot **amministratore** riceve comunque tutti i messaggi del gruppo. `/setjoingroups` deve restare
+abilitato (lo è di serie), altrimenti il bot non si può aggiungere ai gruppi.
+
+**Limiti e avvertenze del gruppo.**
+- **Visibilità**: tutti i membri del gruppo vedono notifiche, risposte dei segretari e messaggi. Usa un gruppo con
+  dentro solo te e il bot; i messaggi degli altri membri non arrivano all'HUB (si accettano solo gli account
+  collegati), ma le notifiche le vedono.
+- **Frequenza**: Telegram ammette circa **20 messaggi al minuto** in un gruppo (contro ~1 al secondo in privato): il
+  bot distanzia le chiamate al gruppo di circa 3 s, aperture dei topic comprese. Una risposta lunga (fino a 3 parti)
+  o tante notifiche insieme arrivano quindi un po' dilazionate.
+- **Nome dei topic**: al più 128 caratteri, su una riga; un titolo più lungo si accorcia senza spezzare caratteri.
+- **Topic eliminati a mano**: alla notifica successiva il topic si riapre (una volta); un messaggio scritto in un
+  topic che non corrisponde a un thread riceve una spiegazione.
+- **«General»**: i messaggi scritti lì seguono le regole della chat privata (risposta a una notifica, poi thread
+  corrente).
+
+Se il bot aveva un webhook, il primo avvio lo toglie (webhook e `getUpdates` si escludono).
 
 **Codice** (`connectors/telegram/`):
 
@@ -771,7 +811,8 @@ lo toglie (webhook e `getUpdates` si escludono).
   worker, task fallito, task che richiede attenzione, proposta, pianificazione senza proposta, thread concluso (tutti
   accesi), task o revisione finiti (spento). Gli elementi delle fonti (`External`) non si inoltrano in v1. Host:
   `api.telegram.org`. Capacità: `receive_notices`, `send_as_user`. Azioni: `test` (`getMe`, mostra il nome del bot),
-  `pair` (link `t.me` con il codice del runtime).
+  `pair` (link `t.me/<bot>?start=<codice>` nel dettaglio; nel messaggio anche i passi per il gruppo e il link
+  `?startgroup=<codice>&admin=manage_topics`). La configurazione non cambia con i gruppi: `version` resta 1.
 - **Token**: nel percorso degli URL della Bot API (`/bot<token>/<metodo>`, `/file/bot<token>/<percorso>`): mai nei
   log, negli errori (testi fissi, al più il codice d'errore), nei DTO, nello stato o nei messaggi.
 - **Ricezione**: long polling `getUpdates` (`timeout` 50 s, richiesta HTTP entro 60 s, sotto il `RECEIVE_TIMEOUT` del
@@ -779,18 +820,40 @@ lo toglie (webhook e `getUpdates` si escludono).
   `allowed_updates: ["message", "my_chat_member"]`. Al primo avvio (nessun cursore) `deleteWebhook` e si parte da
   *adesso* (`offset: -1`). Il servizio conserva gli update non letti per 24 ore. Il parsing (`updates.rs`, puro) non
   va mai in panico: un update inatteso si ignora con una riga nel log (solo il tipo).
-- **Abbinamento e comandi**: `/start <codice>` in chat privata (`chat.type == "private"`; il payload ammette
-  `A-Za-z0-9_-` fino a 64 caratteri); `/nome[@bot] argomenti` → `ContactCommand` (`commands.rs`, puro).
-  `my_chat_member` verso un gruppo → `leaveChat`. Messaggi di gruppi e canali, modificati, sticker: ignorati.
+- **Chat ammesse** (`updates.rs`): le private (`chat.type == "private"`) e i supergruppi forum (`chat.type ==
+  "supergroup"` con `chat.is_forum == true`). Gli altri gruppi e i canali si ignorano (`unsupported_chat`).
+  `my_chat_member` che fa entrare il bot in un forum: resta, in attesa dell'abbinamento; in un gruppo senza Topic o in
+  un canale → `leaveChat`. I messaggi di servizio dei topic (`forum_topic_created`, `_edited`, `_closed`,
+  `_reopened`, `general_forum_topic_hidden`/`_unhidden`), i modificati e gli sticker si ignorano.
+- **Topic** (`forum.rs`, puro; `subchats.rs`): sotto-chat = `message_thread_id` come stringa, letto solo con
+  `is_topic_message == true` (il topic «General» è la chat principale). **Trappola**: in un topic un messaggio che non
+  è una risposta ha comunque `reply_to_message` = il messaggio di servizio `forum_topic_created`, con `message_id`
+  uguale a `message_thread_id`: non è una risposta e non diventa `reply_to_external`. `subchats(config, chat)` è vero
+  per gli id di supergruppo (`-100…`): il connettore non accetta altri supergruppi, quindi un supergruppo collegato è
+  un forum. `open_subchat` = `createForumTopic` (nome su una riga, al più 128 unità UTF-16, mai un carattere
+  spezzato, «Thread» se vuoto), `rename_subchat` = `editForumTopic`, `close_subchat` = `closeForumTopic`,
+  `delete_subchat` = `deleteForumTopic`; `send` aggiunge `message_thread_id`.
+- **Abbinamento e comandi**: `/start <codice>` (o `/start@<bot> <codice>`) in chat privata o nel forum (il payload
+  ammette `A-Za-z0-9_-` fino a 64 caratteri); `/nome[@bot] argomenti` → `ContactCommand` (`commands.rs`, puro). Da un
+  gruppo, prima di passare il codice al runtime (che lo consumerebbe), `group_pairing.rs` chiede `getMe` (l'id del
+  bot) e `getChatMember`: serve `status == "administrator"` con `can_manage_topics == true`. Senza, il messaggio esce
+  dal lotto e il bot risponde nel topic con le istruzioni (amministratore + «Gestire i topic»): il codice resta
+  valido. Un errore non di token nel controllo risponde «riprova» senza consumare il codice. Il benvenuto da un gruppo
+  avverte che tutti i membri vedono le notifiche.
 - **Invio**: `sendMessage` in testo semplice (nessun `parse_mode`: niente escape di Markdown/HTML da sbagliare), senza
   anteprima dei link, parti di al più **4096 unità UTF-16** tagliate a fine riga o parola, al massimo 3
-  (`text.rs`, puro); `reply_parameters` sulla prima parte per legare la risposta. Frequenza: **~1 messaggio al
-  secondo per chat** (`pacer.rs`, puro); un 429 diventa `RateLimited` con il `retry_after` del corpo.
-- **Errori**: 401/404 → `Auth` (token rifiutato: `needs_auth`); 429 → `RateLimited`; 409 (webhook o un altro client)
-  e ogni altro errore, compreso 403 di un utente che ha bloccato il bot → `Transient`.
+  (`text.rs`, puro); `reply_parameters` sulla prima parte per legare la risposta; `message_thread_id` se c'è la
+  sotto-chat. Frequenza (`pacer.rs`, puro): **~1 messaggio al secondo** per una chat privata, **~1 ogni 3 s** per un
+  gruppo (id negativo: Telegram ne ammette circa 20 al minuto), contando anche le chiamate sui topic; un 429 diventa
+  `RateLimited` con il `retry_after` del corpo.
+- **Errori**: 401/404 → `Auth` (token rifiutato: `needs_auth`); 429 → `RateLimited`; 400 «message thread not found»
+  o «TOPIC_ID_INVALID» (topic eliminato) → `SubchatGone`, e il runtime riapre il topic; 409 (webhook o un altro
+  client) e ogni altro errore, compreso 403 di un utente che ha bloccato il bot e gli altri 400 → `Transient`. Un id
+  di sotto-chat che non è un topic (intero positivo) vale `SubchatGone`.
 - **Allegati**: `getFile` + download da `api.telegram.org/file/bot…` (percorso validato, risposta limitata a
   `RESPONSE_MAX_FILES`; la Bot API scarica al più 20 MB, il limite dell'HUB è più stretto).
-- **Messaggi**: id esterno `<chat>:<message_id>`; `message.reply_to_message` → `<chat>:<id>` → mappa → `reply_to`.
+- **Messaggi**: id esterno `<chat>:<message_id>` (unico per chat anche in un forum: il topic è un campo a parte);
+  `message.reply_to_message` → `<chat>:<id>` → mappa → `reply_to`.
 
 ### Gmail (`connectors/gmail/`, `source`)
 

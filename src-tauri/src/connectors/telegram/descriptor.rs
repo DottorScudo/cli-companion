@@ -26,8 +26,8 @@ pub static DESCRIPTOR: ConnectorDescriptor = ConnectorDescriptor {
     id: ID,
     kind: ConnectorKind::Contact,
     label: "Telegram",
-    description: "Ricevi su Telegram le notifiche dell'Agents HUB e scrivi ai segretari da una chat privata con il \
-        tuo bot.",
+    description: "Ricevi su Telegram le notifiche dell'Agents HUB e scrivi ai segretari: in una chat privata con il \
+        tuo bot, oppure in un gruppo con i Topic attivi, dove ogni thread ha il suo topic «canale › titolo».",
     version: 1,
     config_fields: &[
         ConfigField {
@@ -57,8 +57,9 @@ pub static DESCRIPTOR: ConnectorDescriptor = ConnectorDescriptor {
         Action {
             id: ActionId::Pair,
             label: "Abbina un account",
-            help: "Genera un link: aprilo da Telegram (o invia /start con il codice al bot) per collegare il tuo \
-                account.",
+            help: "Genera un codice. Chat privata: apri il link da Telegram (o invia /start con il codice al bot). \
+                Gruppo con i Topic: aggiungi il bot come amministratore con il permesso «Gestire i topic» e scrivi \
+                /start con il codice nel gruppo.",
         },
     ],
     permissions: Permissions { hosts: &[API_HOST], hub: &[HubCapability::ReceiveNotices, HubCapability::SendAsUser] },

@@ -54,3 +54,31 @@ fn the_map_is_bounded_and_forgets_the_oldest_chat() {
     assert!(!pacer.next_free.contains_key("0"));
     assert!(pacer.next_free.contains_key(&(CHATS_MAX as i64 + 19).to_string()));
 }
+
+const FORUM: &str = "-1001234567890";
+
+#[test]
+fn group_chats_are_spaced_about_three_seconds() {
+    let mut pacer = Pacer::new();
+    assert_eq!(pacer.reserve(FORUM, 1_000), 0);
+    assert_eq!(pacer.reserve(FORUM, 1_000), GROUP_SLOT_GAP_MS);
+    assert_eq!(pacer.reserve(FORUM, 1_000), 2 * GROUP_SLOT_GAP_MS);
+    assert_eq!(pacer.reserve("-5", 0), 0);
+    assert_eq!(pacer.reserve("-5", 0), GROUP_SLOT_GAP_MS, "anche un gruppo base");
+}
+
+#[test]
+fn twenty_group_calls_take_about_a_minute() {
+    let mut pacer = Pacer::new();
+    let waits: Vec<i64> = (0..20).map(|_| pacer.reserve(FORUM, 0)).collect();
+    assert!(*waits.last().unwrap() >= 57_000, "{waits:?}");
+}
+
+#[test]
+fn private_chats_keep_their_one_second_pace_next_to_a_group() {
+    let mut pacer = Pacer::new();
+    pacer.reserve(FORUM, 0);
+    pacer.reserve("42", 0);
+    assert_eq!(pacer.reserve("42", 0), SLOT_GAP_MS);
+    assert_eq!(pacer.reserve(FORUM, 0), GROUP_SLOT_GAP_MS);
+}

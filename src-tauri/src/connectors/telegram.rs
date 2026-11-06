@@ -1,5 +1,6 @@
 //! Il connettore Telegram (`contact`): notifiche dell'HUB verso una chat privata con
-//! un bot e messaggi dell'utente ai segretari. E' un traduttore Bot API <-> DTO dei
+//! un bot, o verso un supergruppo forum con un topic per thread, e messaggi
+//! dell'utente ai segretari. E' un traduttore Bot API <-> DTO dei
 //! contratti: collegamenti, dedupe, comandi eseguiti, thread, limiti degli allegati e
 //! testi delle risposte ai comandi sono del runtime. Guida: docs/CONNECTORS.MD §13.
 //!
@@ -19,8 +20,11 @@
 //! - `text`: il testo spezzato al limite di Telegram;
 //! - `pacer`: la cadenza dei messaggi per chat;
 //! - `ids`: gli id esterni `<chat>:<messaggio>`;
+//! - `forum`: chat di gruppo, nomi e id dei topic;
 //! - `send`: l'invio, `fetch`: lo scarico di un allegato;
+//! - `subchats`: i topic come sotto-chat (apertura, nome, chiusura, eliminazione);
 //! - `pairing`: la risposta a un tentativo di abbinamento;
+//! - `group_pairing`: il controllo dei permessi del bot prima di un abbinamento da un gruppo;
 //! - `actions`: le azioni `Prova` e `Abbina`.
 
 mod actions;
@@ -31,6 +35,8 @@ mod cursor;
 mod descriptor;
 mod fetch;
 mod files;
+mod forum;
+mod group_pairing;
 mod ids;
 mod inbound;
 mod names;
@@ -39,6 +45,7 @@ mod pairing;
 mod receive;
 mod requests;
 mod send;
+mod subchats;
 mod text;
 mod token;
 mod updates;
@@ -101,7 +108,7 @@ impl ContactConnector for Telegram {
         ctx: &'a ConnectorContext,
         cursor: Option<Value>,
     ) -> BoxFuture<'a, Result<ReceiveBatch, ConnectorError>> {
-        Box::pin(receive::receive(ctx, cursor))
+        Box::pin(receive::receive(&self.pacer, ctx, cursor))
     }
 
     fn send<'a>(
@@ -126,6 +133,47 @@ impl ContactConnector for Telegram {
         outcome: &'a PairingOutcome,
         chat: &'a str,
     ) -> BoxFuture<'a, Result<(), ConnectorError>> {
-        Box::pin(pairing::reply(ctx, outcome, chat))
+        Box::pin(pairing::reply(&self.pacer, ctx, outcome, chat))
+    }
+
+    fn subchats(&self, _config: &Value, chat: &str) -> bool {
+        forum::is_supergroup(chat)
+    }
+
+    fn open_subchat<'a>(
+        &'a self,
+        ctx: &'a ConnectorContext,
+        chat: &'a str,
+        title: &'a str,
+    ) -> BoxFuture<'a, Result<String, ConnectorError>> {
+        Box::pin(subchats::open(&self.pacer, ctx, chat, title))
+    }
+
+    fn rename_subchat<'a>(
+        &'a self,
+        ctx: &'a ConnectorContext,
+        chat: &'a str,
+        subchat: &'a str,
+        title: &'a str,
+    ) -> BoxFuture<'a, Result<(), ConnectorError>> {
+        Box::pin(subchats::rename(&self.pacer, ctx, chat, subchat, title))
+    }
+
+    fn close_subchat<'a>(
+        &'a self,
+        ctx: &'a ConnectorContext,
+        chat: &'a str,
+        subchat: &'a str,
+    ) -> BoxFuture<'a, Result<(), ConnectorError>> {
+        Box::pin(subchats::close(&self.pacer, ctx, chat, subchat))
+    }
+
+    fn delete_subchat<'a>(
+        &'a self,
+        ctx: &'a ConnectorContext,
+        chat: &'a str,
+        subchat: &'a str,
+    ) -> BoxFuture<'a, Result<(), ConnectorError>> {
+        Box::pin(subchats::delete(&self.pacer, ctx, chat, subchat))
     }
 }

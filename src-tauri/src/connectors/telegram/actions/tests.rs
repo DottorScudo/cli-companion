@@ -72,3 +72,15 @@ fn the_test_action_without_a_token_is_an_auth_error_before_any_network_call() {
     assert!(matches!(error, ConnectorError::Auth(_)), "{error}");
     assert!(t.ctx.state_get(BOT_USERNAME_KEY).is_none());
 }
+
+#[test]
+fn the_pair_outcome_explains_the_forum_group_too() {
+    let outcome = pair_outcome(&bot(), "AbC-123_x").unwrap();
+    let message = &outcome.message;
+    assert!(message.contains("Chat privata") && message.contains("Gruppo con i Topic"), "{message}");
+    assert!(message.contains("attiva i Topic") && message.contains("amministratore"));
+    assert!(message.contains("«Gestire i topic»"));
+    assert!(message.contains("https://t.me/MuseBot?startgroup=AbC-123_x&admin=manage_topics"));
+    assert_eq!(message.matches("«/start AbC-123_x»").count(), 2, "privata e gruppo");
+    assert!(!message.contains("  "), "nessuno spazio doppio dalle righe spezzate");
+}

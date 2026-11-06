@@ -5,15 +5,18 @@
 //!
 //! Solo gli errori del token fermano il supervisore: 400/403 (per esempio un utente
 //! che ha bloccato il bot) e 409 (webhook attivo o un altro client di `getUpdates`)
-//! si riprovano.
+//! si riprovano. Un 400 per un topic eliminato e' `SubchatGone`: il runtime riapre il topic.
 
 use crate::connectors::contracts::ConnectorError;
 use serde_json::Value;
 use std::time::Duration;
 
+const CODE_BAD_REQUEST: u64 = 400;
 const CODE_UNAUTHORIZED: u64 = 401;
 const CODE_NOT_FOUND: u64 = 404;
 const CODE_TOO_MANY: u64 = 429;
+/// Come Telegram descrive un topic che non c'e' piu' (in minuscolo): si confronta, mai si riporta.
+const TOPIC_GONE_MARKERS: [&str; 2] = ["message thread not found", "topic_id_invalid"];
 
 fn json_of(body: &[u8]) -> Option<Value> {
     serde_json::from_slice(body).ok()
@@ -34,11 +37,19 @@ fn retry_after(parsed: Option<&Value>) -> Option<Duration> {
     Some(Duration::from_secs(seconds))
 }
 
+/// Un 400 per un topic eliminato (la sotto-chat e' sparita)?
+fn topic_gone(parsed: Option<&Value>) -> bool {
+    let Some(description) = parsed.and_then(|p| p.get("description")?.as_str()) else { return false };
+    let description = description.to_ascii_lowercase();
+    TOPIC_GONE_MARKERS.iter().any(|marker| description.contains(marker))
+}
+
 /// L'errore per un codice: quello del JSON (`error_code`) se c'e', altrimenti lo stato HTTP.
 fn error_for(code: u64, parsed: Option<&Value>) -> ConnectorError {
     match code {
         CODE_UNAUTHORIZED | CODE_NOT_FOUND => ConnectorError::Auth("token del bot rifiutato da Telegram".to_string()),
         CODE_TOO_MANY => ConnectorError::RateLimited { retry_after: retry_after(parsed) },
+        CODE_BAD_REQUEST if topic_gone(parsed) => ConnectorError::SubchatGone,
         _ => ConnectorError::Transient(format!("Telegram ha risposto con errore {code}")),
     }
 }

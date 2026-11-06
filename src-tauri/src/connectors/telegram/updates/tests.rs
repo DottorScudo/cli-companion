@@ -91,12 +91,106 @@ fn unsupported_content_is_ignored_with_its_kind() {
 }
 
 #[test]
-fn group_messages_never_become_messages() {
-    for kind in ["group", "supergroup", "channel"] {
+fn messages_of_groups_without_topics_and_of_channels_are_ignored() {
+    for chat in [
+        json!({"id": -500, "type": "group"}),
+        json!({"id": -100500, "type": "supergroup"}),
+        json!({"id": -100500, "type": "supergroup", "is_forum": false}),
+        json!({"id": -100500, "type": "supergroup", "is_forum": "true"}),
+        json!({"id": -100500, "type": "channel"}),
+        json!({"id": -100500, "type": "group", "is_forum": true}),
+    ] {
         let mut raw = private_message(json!({"text": "ciao"}));
-        raw["chat"] = json!({"id": -100500, "type": kind});
+        raw["chat"] = chat.clone();
         let update = one(json!({"update_id": 1, "message": raw}));
-        assert_eq!(update.kind, UpdateKind::Ignored("non_private_chat"), "{kind}");
+        assert_eq!(update.kind, UpdateKind::Ignored("unsupported_chat"), "{chat}");
+    }
+}
+
+fn forum_message(extra: Value) -> Value {
+    let mut raw = private_message(extra);
+    raw["chat"] = json!({"id": FORUM, "type": "supergroup", "is_forum": true, "title": "HUB"});
+    raw
+}
+
+/// Un messaggio scritto nel topic `TOPIC`, come lo manda Telegram.
+fn topic_message(extra: Value) -> Value {
+    let mut raw = forum_message(extra);
+    raw["message_thread_id"] = json!(TOPIC);
+    raw["is_topic_message"] = json!(true);
+    if raw.get("reply_to_message").is_none() {
+        raw["reply_to_message"] = json!({
+            "message_id": TOPIC,
+            "forum_topic_created": {"name": "Generale › Piano", "icon_color": 7322096},
+            "chat": {"id": FORUM, "type": "supergroup", "is_forum": true}
+        });
+    }
+    raw
+}
+
+const FORUM: i64 = -1_001_234_567_890;
+const TOPIC: i64 = 55;
+
+#[test]
+fn a_topic_message_carries_its_topic() {
+    let message = message_of(one(json!({"update_id": 1, "message": topic_message(json!({"text": "ciao"}))})));
+    assert_eq!((message.chat_id, message.topic_id, message.message_id), (FORUM, Some(TOPIC), 10));
+    assert_eq!(message.text.as_deref(), Some("ciao"));
+}
+
+#[test]
+fn a_topic_message_that_is_not_a_reply_has_no_reply_to() {
+    // Telegram lega ogni messaggio di un topic al messaggio di servizio che lo ha aperto.
+    let message = message_of(one(json!({"update_id": 1, "message": topic_message(json!({"text": "ciao"}))})));
+    assert_eq!(message.reply_to, None);
+}
+
+#[test]
+fn a_real_reply_inside_a_topic_keeps_its_target() {
+    let raw = topic_message(json!({"text": "si", "reply_to_message": {"message_id": 70, "text": "vuoi?"}}));
+    let message = message_of(one(json!({"update_id": 1, "message": raw})));
+    assert_eq!((message.topic_id, message.reply_to), (Some(TOPIC), Some(70)));
+}
+
+#[test]
+fn a_message_in_the_general_topic_has_no_topic() {
+    let message = message_of(one(json!({"update_id": 1, "message": forum_message(json!({"text": "ciao"}))})));
+    assert_eq!((message.chat_id, message.topic_id), (FORUM, None));
+    // Un id del topic senza `is_topic_message` (es. una risposta in «General») non conta.
+    let mut raw = forum_message(json!({"text": "x", "reply_to_message": {"message_id": 3}}));
+    raw["message_thread_id"] = json!(3);
+    let message = message_of(one(json!({"update_id": 1, "message": raw})));
+    assert_eq!((message.topic_id, message.reply_to), (None, Some(3)));
+}
+
+#[test]
+fn a_private_chat_never_has_a_topic() {
+    let raw = private_message(json!({"text": "x", "message_thread_id": 9, "is_topic_message": true}));
+    assert_eq!(message_of(one(json!({"update_id": 1, "message": raw}))).topic_id, None);
+}
+
+#[test]
+fn malformed_topic_ids_are_dropped() {
+    for id in [json!(0), json!(-4), json!("55"), json!(null), json!(1.5)] {
+        let mut raw = topic_message(json!({"text": "x"}));
+        raw["message_thread_id"] = id.clone();
+        assert_eq!(message_of(one(json!({"update_id": 1, "message": raw}))).topic_id, None, "{id}");
+    }
+}
+
+#[test]
+fn topic_service_messages_are_ignored() {
+    for (key, content) in [
+        ("forum_topic_created", json!({"name": "x", "icon_color": 1})),
+        ("forum_topic_edited", json!({"name": "y"})),
+        ("forum_topic_closed", json!({})),
+        ("forum_topic_reopened", json!({})),
+        ("general_forum_topic_hidden", json!({})),
+        ("general_forum_topic_unhidden", json!({})),
+    ] {
+        let mut raw = topic_message(json!({ key: content }));
+        raw.as_object_mut().unwrap().remove("reply_to_message");
+        assert_eq!(one(json!({"update_id": 1, "message": raw})).kind, UpdateKind::Ignored("topic_service"), "{key}");
     }
 }
 
@@ -119,10 +213,20 @@ fn member_change(chat_type: &str, status: &str) -> Value {
 }
 
 #[test]
-fn being_added_to_a_group_is_a_reason_to_leave() {
+fn being_added_to_a_group_without_topics_is_a_reason_to_leave() {
     for status in ["member", "administrator"] {
         assert_eq!(one(member_change("group", status)).kind, UpdateKind::JoinedChat(-77), "{status}");
         assert_eq!(one(member_change("supergroup", status)).kind, UpdateKind::JoinedChat(-77));
+        assert_eq!(one(member_change("channel", status)).kind, UpdateKind::JoinedChat(-77));
+    }
+}
+
+#[test]
+fn being_added_to_a_forum_waits_for_the_pairing() {
+    for status in ["member", "administrator"] {
+        let mut change = member_change("supergroup", status);
+        change["my_chat_member"]["chat"]["is_forum"] = json!(true);
+        assert_eq!(one(change).kind, UpdateKind::Ignored("joined_forum"), "{status}");
     }
 }
 

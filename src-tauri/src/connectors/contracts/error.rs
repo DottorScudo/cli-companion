@@ -19,10 +19,6 @@ pub enum ConnectorError {
     Fatal(String),
     /// La sotto-chat di un `send` non c'e' piu' (l'utente l'ha eliminata nel servizio):
     /// il runtime toglie la voce dalla sua mappa e la ricrea una volta. Non ferma il supervisore.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "lo costruisce un connettore con le sotto-chat: nessuno registrato le ha ancora")
-    )]
     SubchatGone,
 }
 

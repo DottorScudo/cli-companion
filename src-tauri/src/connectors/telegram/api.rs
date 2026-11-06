@@ -3,7 +3,7 @@
 //! la risposta passa da `classify`. Gli errori hanno testi fissi: mai l'URL (ha il token).
 
 use super::classify::classify;
-use super::requests;
+use super::requests::{self, Destination};
 use super::token::{bot_token, method_url};
 use crate::connectors::contracts::{ConnectorContext, ConnectorError};
 use crate::connectors::limits::CALL_TIMEOUT;
@@ -54,16 +54,49 @@ pub async fn get_file(ctx: &ConnectorContext, file_id: &str) -> Result<Value, Co
     call_short(ctx, "getFile", &requests::get_file_body(file_id)).await
 }
 
+/// Un intero del `result` (un id), o un errore se Telegram ha risposto altro.
+fn id_field(result: &Value, key: &str) -> Result<i64, ConnectorError> {
+    result
+        .get(key)
+        .and_then(Value::as_i64)
+        .ok_or_else(|| ConnectorError::Transient("risposta di Telegram non riconosciuta".to_string()))
+}
+
 /// `sendMessage`: l'id del messaggio inviato.
 pub async fn send_message(
     ctx: &ConnectorContext,
-    chat_id: i64,
+    to: Destination,
     text: &str,
     reply_to: Option<i64>,
 ) -> Result<i64, ConnectorError> {
-    let result = call_short(ctx, "sendMessage", &requests::send_message_body(chat_id, text, reply_to)).await?;
-    result
-        .get("message_id")
-        .and_then(Value::as_i64)
-        .ok_or_else(|| ConnectorError::Transient("risposta di Telegram non riconosciuta".to_string()))
+    let result = call_short(ctx, "sendMessage", &requests::send_message_body(to, text, reply_to)).await?;
+    id_field(&result, "message_id")
+}
+
+/// `getChatMember`: lo stato di un utente (qui il bot) nella chat.
+pub async fn get_chat_member(ctx: &ConnectorContext, chat_id: i64, user_id: i64) -> Result<Value, ConnectorError> {
+    call_short(ctx, "getChatMember", &requests::get_chat_member_body(chat_id, user_id)).await
+}
+
+/// `createForumTopic`: l'id del topic aperto.
+pub async fn create_forum_topic(ctx: &ConnectorContext, chat_id: i64, title: &str) -> Result<i64, ConnectorError> {
+    let result = call_short(ctx, "createForumTopic", &requests::create_forum_topic_body(chat_id, title)).await?;
+    id_field(&result, "message_thread_id")
+}
+
+pub async fn edit_forum_topic(
+    ctx: &ConnectorContext,
+    chat_id: i64,
+    topic_id: i64,
+    title: &str,
+) -> Result<(), ConnectorError> {
+    call_short(ctx, "editForumTopic", &requests::edit_forum_topic_body(chat_id, topic_id, title)).await.map(drop)
+}
+
+pub async fn close_forum_topic(ctx: &ConnectorContext, chat_id: i64, topic_id: i64) -> Result<(), ConnectorError> {
+    call_short(ctx, "closeForumTopic", &requests::topic_body(chat_id, topic_id)).await.map(drop)
+}
+
+pub async fn delete_forum_topic(ctx: &ConnectorContext, chat_id: i64, topic_id: i64) -> Result<(), ConnectorError> {
+    call_short(ctx, "deleteForumTopic", &requests::topic_body(chat_id, topic_id)).await.map(drop)
 }

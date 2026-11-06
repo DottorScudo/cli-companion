@@ -2,12 +2,14 @@
 //! da "adesso": si toglie un webhook eventuale e si salta lo storico. Nei log solo
 //! l'id dell'istanza, i tipi e i conteggi: mai id di chat, nomi o testi.
 
+use super::pacer::Pacer;
 use super::requests::{latest_update_body, poll_body, POLL_WAIT_SECS};
 use super::updates::{next_offset, parse_updates, Update, UpdateKind};
-use super::{api, cursor, inbound};
+use super::{api, cursor, group_pairing, inbound};
 use crate::connectors::contracts::{ConnectorContext, ConnectorError, ReceiveBatch};
 use crate::connectors::limits::{CALL_TIMEOUT, LONG_POLL_MAX, RECEIVE_TIMEOUT};
 use serde_json::Value;
+use std::sync::Mutex;
 use std::time::Duration;
 
 /// Margine fra l'attesa di Telegram e il timeout HTTP del long polling.
@@ -27,15 +29,15 @@ async fn start_from_now(ctx: &ConnectorContext) -> Result<ReceiveBatch, Connecto
     Ok(ReceiveBatch { messages: Vec::new(), cursor: cursor::to_value(offset) })
 }
 
-/// Esce dalle chat non private in cui il bot e' stato aggiunto. Un errore si registra
+/// Esce dai gruppi senza topic (e dai canali) in cui il bot e' stato aggiunto. Un errore si registra
 /// per classe e non interrompe il giro.
 async fn leave_unwanted_chats(ctx: &ConnectorContext, updates: &[Update]) {
     for update in updates {
         if let UpdateKind::JoinedChat(chat_id) = update.kind {
             match api::leave_chat(ctx, chat_id).await {
-                Ok(()) => log::info!("connettori {}: telegram: uscito da una chat non privata", ctx.instance()),
+                Ok(()) => log::info!("connettori {}: telegram: uscito da un gruppo senza topic", ctx.instance()),
                 Err(e) => log::warn!(
-                    "connettori {}: telegram: uscita da una chat non privata non riuscita ({})",
+                    "connettori {}: telegram: uscita da un gruppo senza topic non riuscita ({})",
                     ctx.instance(),
                     e.class()
                 ),
@@ -52,21 +54,26 @@ fn log_ignored(ctx: &ConnectorContext, updates: &[Update]) {
     }
 }
 
-/// Un giro di attesa a partire da `offset`.
-async fn poll(ctx: &ConnectorContext, offset: i64) -> Result<ReceiveBatch, ConnectorError> {
+/// Un giro di attesa a partire da `offset`. Gli inviti da un gruppo in cui il bot non puo'
+/// gestire i topic restano fuori dal lotto (`group_pairing`).
+async fn poll(pacer: &Mutex<Pacer>, ctx: &ConnectorContext, offset: i64) -> Result<ReceiveBatch, ConnectorError> {
     let result = api::get_updates(ctx, &poll_body(offset), POLL_HTTP_TIMEOUT).await?;
     let updates = parse_updates(&result);
     log_ignored(ctx, &updates);
     leave_unwanted_chats(ctx, &updates).await;
-    let messages = inbound::build_messages(&updates);
+    let messages = group_pairing::screen(pacer, ctx, inbound::build_messages(&updates)).await?;
     log::info!("connettori {}: telegram: {} aggiornamenti, {} messaggi", ctx.instance(), updates.len(), messages.len());
     let next = next_offset(&updates).map_or(offset, |next| next.max(offset));
     Ok(ReceiveBatch { messages, cursor: cursor::to_value(next) })
 }
 
-pub async fn receive(ctx: &ConnectorContext, saved: Option<Value>) -> Result<ReceiveBatch, ConnectorError> {
+pub async fn receive(
+    pacer: &Mutex<Pacer>,
+    ctx: &ConnectorContext,
+    saved: Option<Value>,
+) -> Result<ReceiveBatch, ConnectorError> {
     match cursor::parse(saved.as_ref()) {
-        Some(offset) => poll(ctx, offset).await,
+        Some(offset) => poll(pacer, ctx, offset).await,
         None => start_from_now(ctx).await,
     }
 }

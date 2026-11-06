@@ -61,3 +61,21 @@ fn a_poisoned_pacer_still_works() {
     });
     assert_eq!(reserve_slot(&pacer, "1", 0), Duration::ZERO);
 }
+
+#[test]
+fn a_message_in_a_subchat_goes_to_its_topic() {
+    let message = OutboundMessage { subchat: Some("55".to_string()), ..out("-1001234567890", "ciao") };
+    assert_eq!(destination(&message).unwrap(), Destination { chat_id: -1_001_234_567_890, topic_id: Some(55) });
+    assert_eq!(destination(&out("42", "ciao")).unwrap(), Destination { chat_id: 42, topic_id: None });
+}
+
+#[test]
+fn a_subchat_that_is_not_a_topic_counts_as_gone() {
+    let t = test_context(&DESCRIPTOR, json!({}));
+    let pacer = Mutex::new(Pacer::new());
+    for subchat in ["", "0", "-3", "abc", "99999999999999999999"] {
+        let message = OutboundMessage { subchat: Some(subchat.to_string()), ..out("-1001234567890", "ciao") };
+        let error = block_on(send(&pacer, &t.ctx, &message)).unwrap_err();
+        assert_eq!(error, ConnectorError::SubchatGone, "{subchat:?}");
+    }
+}

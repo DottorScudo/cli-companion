@@ -2,12 +2,13 @@
 //! fondono in un solo messaggio e il testo diventa comando o invito di abbinamento.
 
 use super::commands;
+use super::forum::subchat_of;
 use super::ids::external_id;
 use super::updates::{ChatMessage, Update, UpdateKind};
 use crate::connectors::contracts::InboundMessage;
 
 fn same_album(a: &ChatMessage, b: &ChatMessage) -> bool {
-    a.chat_id == b.chat_id && a.media_group.is_some() && a.media_group == b.media_group
+    a.chat_id == b.chat_id && a.topic_id == b.topic_id && a.media_group.is_some() && a.media_group == b.media_group
 }
 
 /// Unisce i messaggi consecutivi dello stesso album: ids del primo, allegati accodati,
@@ -40,7 +41,7 @@ pub fn to_inbound(message: ChatMessage) -> InboundMessage {
         external_id: external_id(message.chat_id, message.message_id),
         account: message.sender_id.to_string(),
         chat: message.chat_id.to_string(),
-        subchat: None,
+        subchat: message.topic_id.map(subchat_of),
         sender_name: message.sender_name,
         text,
         reply_to_external: message.reply_to.map(|id| external_id(message.chat_id, id)),

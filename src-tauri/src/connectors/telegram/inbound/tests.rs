@@ -4,6 +4,7 @@ use crate::connectors::contracts::{ContactCommand, RemoteFile};
 fn message(message_id: i64, text: Option<&str>) -> ChatMessage {
     ChatMessage {
         chat_id: 42,
+        topic_id: None,
         message_id,
         sender_id: 7,
         sender_name: "Mario".to_string(),
@@ -126,4 +127,27 @@ fn an_album_in_a_batch_becomes_one_inbound_message_with_all_files() {
     assert_eq!(built.len(), 1);
     assert_eq!((built[0].external_id.as_str(), built[0].text.as_str()), ("42:1", "tre foto"));
     assert_eq!(built[0].files.len(), 3);
+}
+
+#[test]
+fn a_topic_message_names_its_subchat_and_keeps_the_external_id() {
+    let original = ChatMessage { chat_id: -1_001_234, topic_id: Some(55), ..message(10, Some("ciao")) };
+    let inbound = to_inbound(original);
+    assert_eq!(inbound.subchat.as_deref(), Some("55"));
+    assert_eq!((inbound.chat.as_str(), inbound.external_id.as_str()), ("-1001234", "-1001234:10"));
+    assert_eq!(to_inbound(message(1, Some("x"))).subchat, None);
+}
+
+#[test]
+fn a_start_with_the_bot_name_from_a_group_is_a_pairing_invite() {
+    let original = ChatMessage { chat_id: -1_001_234, ..message(1, Some("/start@MuseBot CODICE-1")) };
+    let inbound = to_inbound(original);
+    assert_eq!((inbound.pairing_code.as_deref(), inbound.command), (Some("CODICE-1"), None));
+}
+
+#[test]
+fn albums_of_different_topics_do_not_merge() {
+    let mut other_topic = photo(2, "g", None);
+    other_topic.topic_id = Some(9);
+    assert_eq!(merge_albums(vec![photo(1, "g", None), other_topic]).len(), 2);
 }

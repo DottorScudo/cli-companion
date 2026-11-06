@@ -1,4 +1,5 @@
-//! Le azioni dell'interfaccia: `Prova` (chi e' il bot) e `Abbina` (il link di invito).
+//! Le azioni dell'interfaccia: `Prova` (chi e' il bot) e `Abbina` (il link di invito e le
+//! istruzioni per la chat privata e per un gruppo con i Topic).
 //! Gli esiti si costruiscono con funzioni pure; l'unica rete e' `getMe`.
 
 use super::api;
@@ -13,6 +14,8 @@ use serde_json::{json, Value};
 pub const BOT_USERNAME_KEY: &str = "bot_username";
 /// Minuti di validita' del codice di abbinamento (li decide il runtime).
 const PAIRING_MINUTES: u32 = 10;
+/// Il permesso che il link `?startgroup=` chiede di dare al bot nel gruppo scelto.
+const GROUP_ADMIN_RIGHTS: &str = "manage_topics";
 
 /// Chi e' il bot, da `getMe`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,12 +45,16 @@ pub fn pair_outcome(bot: &BotInfo, code: &str) -> Result<ActionOutcome, Connecto
     if !valid_payload(code) {
         return Err(ConnectorError::Fatal("codice di abbinamento non valido".to_string()));
     }
+    let bot_name = &bot.username;
     Ok(ActionOutcome {
         message: format!(
-            "Apri il link da Telegram, oppure invia «/start {code}» a @{} entro {PAIRING_MINUTES} minuti.",
-            bot.username
+            "Chat privata: apri il link da Telegram, oppure invia «/start {code}» a @{bot_name}. Gruppo con i Topic \
+             (ogni thread nel suo topic): crea il gruppo, attiva i Topic, aggiungi @{bot_name} come amministratore con \
+             il permesso «Gestire i topic» (puoi farlo dal link \
+             https://t.me/{bot_name}?startgroup={code}&admin={GROUP_ADMIN_RIGHTS}) e scrivi «/start {code}» nel \
+             gruppo. Il codice vale {PAIRING_MINUTES} minuti."
         ),
-        detail: Some(format!("https://t.me/{}?start={code}", bot.username)),
+        detail: Some(format!("https://t.me/{bot_name}?start={code}")),
     })
 }
 

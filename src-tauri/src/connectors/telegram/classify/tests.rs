@@ -96,3 +96,38 @@ fn error_of_never_returns_a_result() {
     assert!(matches!(error_of(200, b"{}"), ConnectorError::Transient(_)));
     assert!(matches!(error_of(404, b"binario\xff"), ConnectorError::Auth(_)));
 }
+
+#[test]
+fn a_deleted_topic_is_a_gone_subchat() {
+    for description in ["Bad Request: message thread not found", "Bad Request: TOPIC_ID_INVALID"] {
+        assert_eq!(
+            classify(400, &error_body(400, description)).unwrap_err(),
+            ConnectorError::SubchatGone,
+            "{description}"
+        );
+    }
+    // Il codice del JSON vale anche con uno stato HTTP diverso.
+    assert_eq!(
+        classify(200, &error_body(400, "Bad Request: message thread not found")).unwrap_err(),
+        ConnectorError::SubchatGone
+    );
+}
+
+#[test]
+fn other_bad_requests_stay_transient() {
+    for description in [
+        "Bad Request: chat not found",
+        "Bad Request: TOPIC_CLOSED",
+        "Bad Request: not enough rights to create a topic",
+        "Bad Request: the chat is not a forum",
+        "",
+    ] {
+        let error = classify(400, &error_body(400, description)).unwrap_err();
+        assert!(matches!(error, ConnectorError::Transient(_)), "{description}: {error}");
+    }
+    let without_description = body(&json!({"ok": false, "error_code": 400}));
+    assert!(matches!(classify(400, &without_description).unwrap_err(), ConnectorError::Transient(_)));
+    // Lo stesso testo con un altro codice non e' un topic sparito.
+    let forbidden = classify(403, &error_body(403, "message thread not found")).unwrap_err();
+    assert!(matches!(forbidden, ConnectorError::Transient(_)));
+}
