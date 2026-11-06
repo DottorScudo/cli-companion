@@ -366,7 +366,7 @@ fn interactive_launch(i: &dyn AgentIntegration, launcher: &dyn InteractiveLaunch
                     v.push(format!("interactive_launch: nessun avvio per {req:?}"));
                     continue;
                 };
-                let InteractiveLaunch { command, restore_command, env } = &launch;
+                let InteractiveLaunch { command, restore_command, env, restore_env } = &launch;
                 for (what, line) in [("command", command), ("restore_command", restore_command)] {
                     if !shell_safe(line) {
                         v.push(format!("interactive_launch: {what} non sicuro per la shell ({req:?}): {line:?}"));
@@ -391,10 +391,17 @@ fn interactive_launch(i: &dyn AgentIntegration, launcher: &dyn InteractiveLaunch
                         v.push(format!("interactive_launch: restore_command riporta la skill {name:?} ({req:?})"));
                     }
                 }
-                if let Some(name) = first_invalid_env_name(env) {
-                    v.push(format!(
-                        "interactive_launch: variabile d'ambiente non valida o duplicata ({req:?}): {name:?}"
-                    ));
+                for (what, vars) in [("env", env), ("restore_env", restore_env)] {
+                    if let Some(name) = first_invalid_env_name(vars) {
+                        v.push(format!(
+                            "interactive_launch: {what} con variabile d'ambiente non valida o duplicata ({req:?}): {name:?}"
+                        ));
+                    }
+                }
+                if let Some(LaunchSkill::Plugin(name) | LaunchSkill::User(name)) = skill {
+                    if restore_env.iter().any(|(_, value)| value.contains(name)) {
+                        v.push(format!("interactive_launch: restore_env riporta la skill {name:?} ({req:?})"));
+                    }
                 }
             }
         }

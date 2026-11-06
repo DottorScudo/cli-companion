@@ -16,8 +16,8 @@ use crate::agents::{
 
 impl InteractiveLauncher for OpenCode {
     /// `opencode --standalone [--prompt "<carica la skill>"]`. `restore_command`
-    /// e' sempre l'interattivo: riprende la conversazione, il modello resta
-    /// nell'ambiente (impostato una volta sola per il tab).
+    /// e' sempre l'interattivo: riprende la conversazione; il modello resta
+    /// nell'ambiente, che `restore_env` rimette al ripristino del tab.
     fn launch(&self, req: &InteractiveRequest) -> Option<InteractiveLaunch> {
         // Modello non valido per OpenCode: nessun avvio (mai un ripiego silenzioso).
         let env = match req.model {
@@ -30,7 +30,12 @@ impl InteractiveLauncher for OpenCode {
             Some(_) => return None,
             None => INTERACTIVE_COMMAND.to_string(),
         };
-        Some(InteractiveLaunch { command, restore_command: INTERACTIVE_COMMAND.to_string(), env })
+        Some(InteractiveLaunch {
+            command,
+            restore_command: INTERACTIVE_COMMAND.to_string(),
+            restore_env: env.clone(),
+            env,
+        })
     }
 }
 
@@ -51,7 +56,8 @@ mod tests {
             InteractiveLaunch {
                 command: "opencode --standalone".into(),
                 restore_command: "opencode --standalone".into(),
-                env: vec![]
+                env: vec![],
+                restore_env: vec![]
             }
         );
     }
@@ -62,7 +68,8 @@ mod tests {
         assert_eq!(l.command, "opencode --standalone");
         assert_eq!(l.restore_command, "opencode --standalone");
         assert_eq!(l.env, [("OPENCODE_CONFIG_CONTENT".to_string(), r#"{"model":"opencode/gpt-5.5"}"#.to_string())]);
-        assert_eq!(first_invalid_env_name(&l.env), None);
+        assert_eq!(l.restore_env, l.env);
+        assert_eq!(first_invalid_env_name(&l.restore_env), None);
     }
 
     #[test]
@@ -74,7 +81,7 @@ mod tests {
                 "opencode --standalone --prompt \"Use the skill tool to load the skill task-intake, then follow its instructions.\""
             );
             assert_eq!(l.restore_command, "opencode --standalone");
-            assert!(l.env.is_empty());
+            assert!(l.env.is_empty() && l.restore_env.is_empty());
         }
     }
 

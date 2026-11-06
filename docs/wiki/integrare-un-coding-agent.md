@@ -627,7 +627,8 @@ statica (come era per i preset, oggi rimossi: la skill del plugin passa da qui).
 fn launch(&self, req: &InteractiveRequest) -> Option<InteractiveLaunch>;
 // InteractiveRequest { model: Option<&str>, effort: Option<Effort>, skill: Option<LaunchSkill> }
 // LaunchSkill        { Plugin(&str), User(&str) }
-// InteractiveLaunch  { command: String, restore_command: String, env: Vec<(String, String)> }
+// InteractiveLaunch  { command: String, restore_command: String, env: Vec<(String, String)>,
+//                      restore_env: Vec<(String, String)> }
 fn is_safe_launch_token(value: &str) -> bool;   // funzione libera del contratto
 ```
 
@@ -635,6 +636,9 @@ fn is_safe_launch_token(value: &str) -> bool;   // funzione libera del contratto
   `interactive_command()`. Contiene modello, effort e skill.
 - `restore_command` tiene modello ed effort ma **mai la skill**: il tab si riapre
   riprendendo la conversazione, non rieseguendo la skill (come il ripristino dei preset).
+- `restore_env` sono le variabili che il tab ripristinato dopo un riavvio rimette sul processo
+  quando `restore_command` non basta a conservare le scelte del Bot (OpenCode: il modello).
+  Mai la skill; stesse regole di `env`; vuota se il comando di ripristino basta (Claude Code).
 - `env` segue le regole di `AutomationLaunch::env` (nomi e valori validi, nessun doppione,
   percorsi già nel formato del target); il core le prepara per quel tab (`pty/staged_env.rs`).
 - **Carattere sicuro.** Ogni valore digitato nella riga (modello, nome della skill) deve
@@ -656,6 +660,12 @@ l'agente del workspace (o il predefinito), verifica che una skill utente esista 
 se `env` non è vuota, la prepara con `pty::stage_env` perché `pty_spawn` la applichi. La
 prontezza dell'agente nell'ambiente la valuta il frontend.
 
+**Ripristino.** Al riavvio il frontend chiama `bot_restore_env` per ogni tab con `launchId`
+`bot:<id>` (`app/botRestore.ts`) prima di aprirlo: il backend rimette in `pty::stage_env` la
+`restore_env` del Bot (`bots::launches::build_bot_restore`), senza ricaricare la skill. Se il Bot
+non esiste più o il suo agente è cambiato, il tab riparte comunque con il comando salvato e
+l'utente riceve un avviso (mai un ripiego silenzioso).
+
 **Core senza il contratto.** La voce del Bot è bloccata con `<nome> non supporta l'avvio dei
 Bot.` e il lancio fallisce con lo stesso messaggio.
 
@@ -663,7 +673,7 @@ Bot.` e il lancio fallisce con lo stesso messaggio.
 consigliati), effort (nessuno e i livelli dichiarati) e skill (nessuna, ogni skill del plugin se
 `plugin_skills`, una skill utente se `user_skills`) esiste un avvio; `command` e `restore_command`
 sono sicuri per la shell e partono da `interactive_command()`; senza skill coincidono; il
-ripristino non contiene mai la skill; le `env` sono valide; gli argomenti dell'effort
+ripristino non contiene mai la skill (nemmeno in `restore_env`); `env` e `restore_env` sono valide; gli argomenti dell'effort
 dichiarato compaiono in entrambe le righe. Nomi di skill con `$`, `"`, spazi o vuoti e un
 modello come `a b;x` sono rifiutati.
 
@@ -673,7 +683,7 @@ modello come `a b;x` sono rifiutati.
 passa da `OPENCODE_CONFIG_CONTENT` con il solo `{"model":"…"}` (niente permessi né agente
 di partenza: un tab interattivo conserva la configurazione dell'utente). La skill, di plugin
 o dell'utente, è il primo prompt dei preset (`--prompt "Use the skill tool to load the
-skill <id>, then follow its instructions."`); `restore_command` è `opencode --standalone`.
+skill <id>, then follow its instructions."`); `restore_command` è `opencode --standalone` e `restore_env` ripete `OPENCODE_CONFIG_CONTENT`.
 L'effort è ignorato: OpenCode non dichiara `EffortLevels`.
 
 ## Procedura passo passo

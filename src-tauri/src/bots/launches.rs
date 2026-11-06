@@ -3,7 +3,7 @@
 //! dal chiamante. Il comando lo costruisce il contratto `InteractiveLauncher`
 //! dell'agente effettivo; qui non c'e' nulla di proprio di un agente.
 
-use super::agent::{AgentBot, SkillRef};
+use super::agent::{AgentBot, ModelChoice, SkillRef};
 use super::catalog::AgentCatalog;
 use super::resolve::{resolve_bot, ResolvedBot};
 use crate::agents::{
@@ -158,10 +158,60 @@ pub fn build_bot_launch(
     Ok((tab, launch.env))
 }
 
+/// Esito del ripristino di un tab Bot dopo un riavvio.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
+pub struct BotTabRestore {
+    /// Perche' il tab riparte con il solo comando salvato (in italiano); `None` = ripristinato per intero.
+    pub warning: Option<String>,
+}
+
+/// Ambiente da rimettere sul tab e avviso per l'utente.
+type RestoredEnv = (Vec<(String, String)>, Option<String>);
+
+/// Il tab riparte con il comando salvato, senza ambiente del Bot, ma si avvisa.
+fn restore_without_bot(reason: &str) -> RestoredEnv {
+    (Vec::new(), Some(format!("{reason} Il terminale riparte con il comando salvato, senza le scelte del Bot.")))
+}
+
+/// L'ambiente (`restore_env`) di un tab Bot ripristinato dopo un riavvio, con
+/// l'eventuale avviso. La skill non si ricarica e non serve che esista ancora.
+/// Se il Bot non c'e' piu', non si risolve, il suo agente non e' quello del tab
+/// (`saved_agent`) o l'ambiente non e' valido, il tab riparte comunque, senza
+/// ambiente e con un avviso: mai un ripiego silenzioso.
+pub fn build_bot_restore(
+    bot: Option<&AgentBot>,
+    saved_agent: &str,
+    workspace_agent: &str,
+    catalog: &AgentCatalog,
+) -> RestoredEnv {
+    let Some(bot) = bot else { return restore_without_bot("Il Bot di questo terminale non esiste più.") };
+    let Ok((agent, resolved)) = resolve(bot, workspace_agent, catalog) else {
+        return restore_without_bot(&format!("L'agente del Bot «{}» non è più disponibile.", bot.name));
+    };
+    if resolved.agent_id != saved_agent {
+        return restore_without_bot(&format!("Il Bot «{}» ora usa un altro agente.", bot.name));
+    }
+    if resolved.model.is_none() && bot.model != ModelChoice::Default {
+        return restore_without_bot(&format!("Il modello del Bot «{}» non è più disponibile.", bot.name));
+    }
+    let request = InteractiveRequest { model: resolved.model.as_deref(), effort: resolved.effort, skill: None };
+    let restore_env = agent
+        .capabilities()
+        .interactive_launch
+        .and_then(|launcher| launcher.launch(&request))
+        .map(|launch| launch.restore_env)
+        .filter(|env| first_invalid_env_name(env).is_none());
+    match restore_env {
+        Some(env) => (env, None),
+        None => restore_without_bot(&format!("Le impostazioni del Bot «{}» non sono più applicabili.", bot.name)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::testing::{FakeIntegration, FAKE_MODEL_LARGE};
+    use crate::agents::testing::{FakeIntegration, FAKE_MODEL_ENV, FAKE_MODEL_LARGE};
     use crate::bots::agent::ModelChoice;
     use crate::bots::presets::{self, GENERAL_ID};
 
@@ -288,5 +338,59 @@ mod tests {
         assert_eq!(build(&preset(GENERAL_ID), BARE).err().as_deref(), Some("Fake non supporta l'avvio dei Bot."));
         let disabled = AgentBot { agent: Some(OFF.into()), ..preset(GENERAL_ID) };
         assert_eq!(build(&disabled, FULL).err().as_deref(), Some("Fake è disabilitato: abilitalo nelle Integrazioni."));
+    }
+
+    fn restore(bot: Option<&AgentBot>, saved_agent: &str, workspace: &str) -> RestoredEnv {
+        with_catalog(|c| build_bot_restore(bot, saved_agent, workspace, c))
+    }
+
+    #[test]
+    fn a_restored_tab_gets_the_environment_of_the_bot_model() {
+        let (env, warning) = restore(Some(&preset("intake")), FULL, FULL);
+        assert_eq!(env, [(FAKE_MODEL_ENV.to_string(), FAKE_MODEL_LARGE.to_string())]);
+        assert_eq!(warning, None);
+    }
+
+    #[test]
+    fn a_restored_tab_without_a_model_has_no_environment() {
+        let bot = AgentBot { model: ModelChoice::Default, ..preset(GENERAL_ID) };
+        assert_eq!(restore(Some(&bot), FULL, FULL), (Vec::new(), None));
+    }
+
+    #[test]
+    fn the_restore_never_needs_the_skill_to_exist() {
+        let bot = AgentBot { skill: Some(SkillRef::User("gone".into())), ..preset("intake") };
+        let (env, warning) = restore(Some(&bot), FULL, FULL);
+        assert_eq!((env.len(), warning), (1, None));
+    }
+
+    #[test]
+    fn a_restored_tab_whose_bot_changed_still_opens_with_a_warning() {
+        let other_agent = AgentBot { agent: Some(BARE.into()), ..preset("intake") };
+        let unknown = AgentBot { agent: Some("gone".into()), ..preset("intake") };
+        let cases = [
+            (None, FULL, "Il Bot di questo terminale non esiste più."),
+            (Some(&other_agent), FULL, "Il Bot «Intake» ora usa un altro agente."),
+            (Some(&unknown), FULL, "L'agente del Bot «Intake» non è più disponibile."),
+            (Some(&preset("intake")), BARE, "Il Bot «Intake» ora usa un altro agente."),
+        ];
+        for (bot, saved_agent, reason) in cases {
+            let (env, warning) = restore(bot, saved_agent, FULL);
+            assert!(env.is_empty(), "{reason}");
+            assert_eq!(
+                warning.as_deref(),
+                Some(
+                    format!("{reason} Il terminale riparte con il comando salvato, senza le scelte del Bot.").as_str()
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn a_model_that_is_no_longer_valid_restores_without_environment_and_warns() {
+        let bot = AgentBot { model: ModelChoice::Id("a b;x".into()), ..preset(GENERAL_ID) };
+        let (env, warning) = restore(Some(&bot), FULL, FULL);
+        assert!(env.is_empty());
+        assert!(warning.unwrap().starts_with("Il modello del Bot «General» non è più disponibile."));
     }
 }

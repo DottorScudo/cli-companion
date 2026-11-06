@@ -11,6 +11,7 @@ import type { BotLaunch } from "../bindings/BotLaunch.ts";
 import type { BotSettings } from "../bindings/BotSettings.ts";
 import type { BotSkillOption } from "../bindings/BotSkillOption.ts";
 import type { BotTabLaunch } from "../bindings/BotTabLaunch.ts";
+import type { BotTabRestore } from "../bindings/BotTabRestore.ts";
 import type { BuiltinLaunch } from "../bindings/BuiltinLaunch.ts";
 import type { ConnectorActionId } from "../bindings/ConnectorActionId.ts";
 import type { ConnectorActionOutcome } from "../bindings/ConnectorActionOutcome.ts";
@@ -190,6 +191,9 @@ export const api = {
   /** Costruisce l'avvio di un Bot per il tab `tabId` (il backend ne prepara l'ambiente); rifiuta con il motivo. */
   botInteractiveLaunch: (workspaceId: string, botId: string, tabId: string) =>
     invoke<BotTabLaunch>("bot_interactive_launch", { workspaceId, botId, tabId }),
+  /** Rimette l'ambiente di un tab Bot ripristinato (senza ricaricare la skill); l'esito porta l'avviso se riparte senza le scelte del Bot. */
+  botRestoreEnv: (workspaceId: string, botId: string, agentId: string, tabId: string) =>
+    invoke<BotTabRestore>("bot_restore_env", { workspaceId, botId, agentId, tabId }),
 
   getLaunchSettings: () => invoke<LaunchSettings>("get_launch_settings"),
 

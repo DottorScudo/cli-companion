@@ -40,7 +40,7 @@ impl InteractiveLauncher for ClaudeCode {
             Some(skill) => format!("{restore_command} \"{}\"", skill_invocation(skill)?),
             None => restore_command.clone(),
         };
-        Some(InteractiveLaunch { command, restore_command, env: Vec::new() })
+        Some(InteractiveLaunch { command, restore_command, env: Vec::new(), restore_env: Vec::new() })
     }
 }
 
@@ -58,7 +58,10 @@ mod tests {
     #[test]
     fn an_empty_request_is_the_interactive_command() {
         let l = launch(None, None, None).unwrap();
-        assert_eq!(l, InteractiveLaunch { command: BASE.into(), restore_command: BASE.into(), env: vec![] });
+        assert_eq!(
+            l,
+            InteractiveLaunch { command: BASE.into(), restore_command: BASE.into(), env: vec![], restore_env: vec![] }
+        );
         assert_eq!(l.command, ClaudeCode.interactive_command());
     }
 

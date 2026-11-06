@@ -34,6 +34,10 @@ pub struct InteractiveLaunch {
     /// Variabili impostate dal core sul processo del tab prima che la shell
     /// parta, con le stesse regole di `AutomationLaunch::env`.
     pub env: Vec<(String, String)>,
+    /// Variabili che un tab ripristinato dopo un riavvio rimette sul processo,
+    /// quando `restore_command` non basta a conservare le scelte del Bot (es. un
+    /// modello che passa da una variabile). Mai la skill; stesse regole di `env`.
+    pub restore_env: Vec<(String, String)>,
 }
 
 /// Avvio interattivo guidato dalla richiesta di un Bot.

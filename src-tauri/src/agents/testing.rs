@@ -336,6 +336,8 @@ pub const FAKE_ENV_NAME: &str = "FAKE_AGENT_MODE";
 /// Modelli dell'agente finto, con nomi che non appartengono a nessun agente reale.
 pub const FAKE_MODEL_SMALL: &str = "fake-small";
 pub const FAKE_MODEL_LARGE: &str = "fake-large";
+/// Variabile con cui il finto agente porta il modello al ripristino (`restore_env`).
+pub const FAKE_MODEL_ENV: &str = "FAKE_MODEL";
 const FAKE_MODEL_PREFIX: &str = "fake-";
 
 const FAKE_SUGGESTED: &[SuggestedModel] = &[
@@ -416,6 +418,7 @@ impl InteractiveLauncher for FakeIntegration {
         };
         let restore_command =
             if self.flaw == Some(Flaw::RestoreKeepsSkill) { command.clone() } else { restore_command };
-        Some(InteractiveLaunch { command, restore_command, env: Vec::new() })
+        let restore_env = req.model.map(|m| (FAKE_MODEL_ENV.to_string(), m.to_string())).into_iter().collect();
+        Some(InteractiveLaunch { command, restore_command, env: Vec::new(), restore_env })
     }
 }

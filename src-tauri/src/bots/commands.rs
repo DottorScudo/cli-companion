@@ -6,7 +6,7 @@ use super::agent::{AgentBot, AgentBotDraft, SkillRef};
 use super::agent_bots;
 use super::catalog::AgentCatalog;
 use super::launch_refs;
-use super::launches::{self, BotLaunch, BotTabLaunch};
+use super::launches::{self, BotLaunch, BotTabLaunch, BotTabRestore};
 use super::skills::{selectable_skills, BotSkillOption};
 use super::validate::validate_draft;
 use super::{update, BotSettings, BotSettingsStore};
@@ -132,6 +132,37 @@ pub async fn bot_interactive_launch(
             crate::pty::stage_env(&app, &tab_id, env);
         }
         Ok(launch)
+    })
+    .await
+}
+
+/// Prepara l'ambiente del tab Bot `tab_id` ripristinato dopo un riavvio (per
+/// `pty_spawn`, come all'avvio) senza ricaricare la skill. Se il Bot e' sparito
+/// o cambiato il tab riparte comunque e l'esito porta l'avviso per l'utente.
+#[tauri::command]
+pub async fn bot_restore_env(
+    app: AppHandle,
+    workspace_id: String,
+    bot_id: String,
+    agent_id: String,
+    tab_id: String,
+) -> Result<BotTabRestore, String> {
+    crate::blocking(move || {
+        if !crate::ipc::is_valid_tab_id(&tab_id) {
+            return Err("Identificativo del tab non valido.".to_string());
+        }
+        let ws = app.state::<WorkspaceStore>().find(&workspace_id).ok_or("Workspace non trovato.")?;
+        let bot = app.state::<BotSettingsStore>().read(|s| s.agents.iter().find(|b| b.id == bot_id).cloned());
+        let (env, warning) = launches::build_bot_restore(
+            bot.as_ref(),
+            &agent_id,
+            &workspace_agent_id(ws.agent),
+            &AgentCatalog::current(),
+        );
+        if !env.is_empty() {
+            crate::pty::stage_env(&app, &tab_id, env);
+        }
+        Ok(BotTabRestore { warning })
     })
     .await
 }

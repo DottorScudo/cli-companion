@@ -1,6 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { agentBotsKey, botTabSpec, botWarningsText } from "../src/lib/botLaunch.ts";
+import {
+  agentBotsKey,
+  botRestoreNotice,
+  botRestoreTargets,
+  botTabSpec,
+  botWarningsText,
+} from "../src/lib/botLaunch.ts";
 import { buildLaunchMenu } from "../src/lib/launchMenu.ts";
 import { assignRestoredNames } from "../src/lib/bots.ts";
 import { botLaunchesFor } from "../src/stores/config.ts";
@@ -149,5 +155,34 @@ describe("pezzi dell'avvio di un Bot", () => {
     ]) {
       assert.notEqual(agentBotsKey([{ ...bot, ...change }]), key);
     }
+  });
+});
+
+describe("ripristino dei tab Bot", () => {
+  const tab = (key, extra = {}) => ({ key, workspaceId: "w1", command: "", startCommand: "", ...extra });
+
+  it("chiede l'ambiente solo dei tab aperti da un Bot con il loro agente", () => {
+    const tabs = [
+      tab("a", { launchId: "bot:intake", agentId: "opencode" }),
+      tab("b"),
+      tab("c", { launchId: "builtin:claude", agentId: "claude" }),
+      tab("d", { launchId: "bot:general" }),
+      tab("e", { launchId: "bot:setup", agentId: "claude", workspaceId: "w2" }),
+    ];
+    assert.deepEqual(botRestoreTargets(tabs), [
+      { tabId: "a", workspaceId: "w1", botId: "intake", agentId: "opencode" },
+      { tabId: "e", workspaceId: "w2", botId: "setup", agentId: "claude" },
+    ]);
+  });
+
+  it("senza tab Bot non c'e' nulla da chiedere", () => {
+    assert.deepEqual(botRestoreTargets([]), []);
+    assert.deepEqual(botRestoreTargets([tab("a")]), []);
+  });
+
+  it("l'avviso e' uno solo, senza doppioni, e manca se e' andato tutto bene", () => {
+    assert.equal(botRestoreNotice([]), null);
+    assert.equal(botRestoreNotice([null, null]), null);
+    assert.equal(botRestoreNotice([null, "Uno.", "Uno.", "Due."]), "Uno. Due.");
   });
 });

@@ -43,3 +43,33 @@ export function launchBotId(launchId: string | null | undefined): string | undef
 export function isBotLaunch(launch: object): launch is BotLaunch {
   return "bot_id" in launch;
 }
+
+/** Un tab Bot ripristinato che chiede al backend l'ambiente del proprio Bot. */
+export interface BotRestoreTarget {
+  tabId: string;
+  workspaceId: string;
+  botId: string;
+  /** L'agente con cui il tab era partito: il ripristino lo confronta con quello attuale del Bot. */
+  agentId: string;
+}
+
+/** Dei tab ripristinati, quelli aperti da un Bot (la shell o un avvio di altro tipo non hanno nulla da rimettere). */
+export function botRestoreTargets(
+  tabs: readonly { key: string; workspaceId: string; launchId?: string; agentId?: string }[],
+): BotRestoreTarget[] {
+  return tabs.flatMap((tab) => {
+    const botId = launchBotId(tab.launchId);
+    if (botId === undefined || tab.agentId === undefined) return [];
+    return [{ tabId: tab.key, workspaceId: tab.workspaceId, botId, agentId: tab.agentId }];
+  });
+}
+
+/** Motivo mostrato quando il backend non risponde per un tab Bot. */
+export const BOT_RESTORE_FAILED =
+  "Non è stato possibile rimettere le impostazioni di un Bot nel terminale ripristinato.";
+
+/** Un solo avviso per tutti i tab Bot ripristinati senza le loro scelte; `null` se non c'è nulla da dire. */
+export function botRestoreNotice(warnings: readonly (string | null)[]): string | null {
+  const unique = [...new Set(warnings.filter((w): w is string => w !== null))];
+  return unique.length === 0 ? null : unique.join(" ");
+}

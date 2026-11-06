@@ -144,6 +144,7 @@ pub fn run() {
             bots::commands::list_bot_skills,
             bots::commands::bot_launches,
             bots::commands::bot_interactive_launch,
+            bots::commands::bot_restore_env,
             hub::settings::commands::hub_get_settings,
             hub::settings::commands::hub_set_enabled,
             hub::settings::commands::hub_set_provider,
