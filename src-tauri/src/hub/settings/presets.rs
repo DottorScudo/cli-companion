@@ -216,6 +216,7 @@ mod tests {
         assert!(coordinator.contains("Sort each request"));
         assert!(coordinator.contains("the bot whose task says it plans changes"));
         assert!(coordinator.contains("ask a secretary that operates the queue"));
+        assert!(coordinator.contains("open the Setup bot or the Skill Wizard bot from the terminals panel"));
     }
 
     #[test]
