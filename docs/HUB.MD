@@ -353,8 +353,8 @@ id: tempo e id li passa il chiamante. La usano i comandi e gli eventi della boar
 | Aggiungere un messaggio | `add_message(thread_id, NewMessage { id, author, body, reply_to, event, origin }, now)` |
 | Aggiungere un messaggio con allegati | `add_message_with_attachments(thread_id, new, attachments, now)` (solo `user` ed `external`) |
 | Allegato di un thread | `attachment(thread_id, attachment_id)` |
-| Chiudere / riaprire | `set_state(thread_id, ThreadState::Closed 
-| Eliminare un thread | `remove_thread(thread_id)` (qualunque stato; torna il thread tolto) |\| Open, now)` |
+| Chiudere / riaprire | `set_state(thread_id, ThreadState::Closed \| Open, now)` |
+| Eliminare un thread | `remove_thread(thread_id)` (qualunque stato; torna il thread tolto) |
 | Collegare task | `link_tasks(thread_id, task_ids, now)` (tutto o niente) |
 | Collegare una proposta | `link_proposal(thread_id, proposal_id, now)` |
 | Rendere titolare un segretario | `set_owner(thread_id, name, now)` |
