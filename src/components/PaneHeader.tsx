@@ -17,8 +17,8 @@ interface Props {
   status: TabStatus;
   /** Sessione automatica (worker): stato e tooltip; assente = tab normale. */
   automation?: { status: string; tooltip: string };
-  /** Avvio da cui e' nato il tab (il preset Task Intake ha il badge INTAKE). */
-  launchId?: string;
+  /** Tab di un Bot con la skill Task Intake: ha il badge INTAKE. */
+  intake?: boolean;
   /** Utilizzo di token della sessione dell'agente (testo compatto e tooltip). */
   usage?: { text: string; title: string };
   /** Il pannello riceve la tastiera. */
@@ -51,7 +51,7 @@ export default function PaneHeader({
   prefix,
   status,
   automation,
-  launchId,
+  intake,
   usage,
   focused = false,
   maximized,
@@ -64,7 +64,7 @@ export default function PaneHeader({
 }: Props) {
   // Per un worker la parola di stato e' quella del task, non quella dell'agente.
   const word = automation ? workerStatusWord(automation.status) : statusWord(status);
-  const badge = tabBadge({ automation, launchId });
+  const badge = tabBadge({ automation, intake });
   const tabTitle = prefix ? `${prefix} / ${label}` : label;
   const baseTitle = bot ? `${bot} · ${tabTitle}` : tabTitle;
   return (

@@ -1,8 +1,8 @@
 //! L'elenco dei contratti dichiarati da un'integrazione.
 
 use super::{
-    EffortLevels, HookEvents, InputProfileSource, IntegrationPackage, InteractiveLauncher, ModelCatalog,
-    PresetLauncher, SessionResume, SessionUsageReader, UsageLimits, UserSkills, WorkerAutomation, WorkerPermissions,
+    EffortLevels, HookEvents, InputProfileSource, IntegrationPackage, InteractiveLauncher, ModelCatalog, PluginSkills,
+    SessionResume, SessionUsageReader, UsageLimits, UserSkills, WorkerAutomation, WorkerPermissions,
 };
 use serde::Serialize;
 use ts_rs::TS;
@@ -17,7 +17,7 @@ pub struct Capabilities<'a> {
     pub session_resume: Option<&'a dyn SessionResume>,
     pub automation: Option<&'a dyn WorkerAutomation>,
     pub worker_permissions: Option<&'a dyn WorkerPermissions>,
-    pub presets: Option<&'a dyn PresetLauncher>,
+    pub plugin_skills: Option<&'a dyn PluginSkills>,
     pub user_skills: Option<&'a dyn UserSkills>,
     pub usage_limits: Option<&'a dyn UsageLimits>,
     pub session_usage: Option<&'a dyn SessionUsageReader>,
@@ -37,7 +37,7 @@ pub enum Capability {
     SessionResume,
     Automation,
     WorkerPermissions,
-    Presets,
+    PluginSkills,
     UserSkills,
     UsageLimits,
     SessionUsage,
@@ -57,7 +57,7 @@ impl Capabilities<'_> {
             session_resume,
             automation,
             worker_permissions,
-            presets,
+            plugin_skills,
             user_skills,
             usage_limits,
             session_usage,
@@ -72,7 +72,7 @@ impl Capabilities<'_> {
             (session_resume.is_some(), Capability::SessionResume),
             (automation.is_some(), Capability::Automation),
             (worker_permissions.is_some(), Capability::WorkerPermissions),
-            (presets.is_some(), Capability::Presets),
+            (plugin_skills.is_some(), Capability::PluginSkills),
             (user_skills.is_some(), Capability::UserSkills),
             (usage_limits.is_some(), Capability::UsageLimits),
             (session_usage.is_some(), Capability::SessionUsage),
@@ -99,7 +99,7 @@ mod tests {
         assert_eq!(json(Capability::SessionResume), "session-resume");
         assert_eq!(json(Capability::Automation), "automation");
         assert_eq!(json(Capability::WorkerPermissions), "worker-permissions");
-        assert_eq!(json(Capability::Presets), "presets");
+        assert_eq!(json(Capability::PluginSkills), "plugin-skills");
         assert_eq!(json(Capability::UserSkills), "user-skills");
         assert_eq!(json(Capability::UsageLimits), "usage-limits");
         assert_eq!(json(Capability::SessionUsage), "session-usage");
@@ -117,7 +117,7 @@ mod tests {
             session_resume: None,
             automation: None,
             worker_permissions: None,
-            presets: None,
+            plugin_skills: None,
             user_skills: None,
             usage_limits: None,
             session_usage: None,

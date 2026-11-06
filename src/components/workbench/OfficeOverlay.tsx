@@ -35,6 +35,7 @@ function computeSessions(): OfficeSession[] {
       },
       rt?.busy === true,
       tabLabel(tab, rt, ws, builtinLaunches),
+      botSettings.agents,
       imageOf(tab.bot),
     );
   });

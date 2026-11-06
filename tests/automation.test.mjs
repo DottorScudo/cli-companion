@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  INTAKE_LAUNCH_ID,
+  INTAKE_SKILL,
   applyAutomationUpdate,
   automationTooltip,
   isAutomated,
@@ -144,32 +144,50 @@ describe("automazione: badge del tab", () => {
     assert.deepEqual(b, { text: "AUTO", title: "Sessione automatica", kind: "auto" });
   });
 
-  it("i tab avviati dal preset Task Intake hanno INTAKE", () => {
-    assert.equal(INTAKE_LAUNCH_ID, "builtin:preset:task-intake");
-    const b = tabBadge({ launchId: INTAKE_LAUNCH_ID });
+  it("i tab di un Bot con la skill Task Intake hanno INTAKE", () => {
+    const b = tabBadge({ intake: true });
     assert.equal(b.text, "INTAKE");
     assert.equal(b.kind, "intake");
   });
 
   it("gli altri tab non hanno badge", () => {
     assert.equal(tabBadge({}), null);
-    assert.equal(tabBadge({ launchId: "builtin:claude-code" }), null);
-    assert.equal(tabBadge({ launchId: "builtin:preset:altro" }), null);
+    assert.equal(tabBadge({ intake: false }), null);
   });
 
   it("un tab Intake non e' automatico: resta persistibile", () => {
-    const tab = { key: "t", launchId: INTAKE_LAUNCH_ID };
+    const tab = { key: "t", launchId: "bot:intake" };
     assert.equal(isAutomated(tab), false);
     assert.equal(persistableTabs([tab]).length, 1);
-    assert.equal(isIntakeLaunch(INTAKE_LAUNCH_ID), true);
-    assert.equal(isIntakeLaunch(undefined), false);
+  });
+});
+
+describe("automazione: il Task Intake e' il Bot con la sua skill", () => {
+  const bot = (id, skill) => ({ id, skill });
+  const BOTS = [
+    bot("intake", { kind: "plugin", id: INTAKE_SKILL }),
+    bot("custom-mine", { kind: "plugin", id: INTAKE_SKILL }),
+    bot("setup", { kind: "plugin", id: "project-setup" }),
+    bot("custom-user", { kind: "user", id: INTAKE_SKILL }),
+    bot("general", null),
+  ];
+  it("qualunque Bot con la skill del plugin, non un id fisso", () => {
+    assert.equal(isIntakeLaunch("bot:intake", BOTS), true);
+    assert.equal(isIntakeLaunch("bot:custom-mine", BOTS), true);
+  });
+  it("altre skill, skill dell'utente omonime, Bot senza skill o spariti, altri avvii: no", () => {
+    for (const id of ["bot:setup", "bot:custom-user", "bot:general", "bot:gone", "builtin:claude-code", "l1"]) {
+      assert.equal(isIntakeLaunch(id, BOTS), false, id);
+    }
+    assert.equal(isIntakeLaunch(undefined, BOTS), false);
+    assert.equal(isIntakeLaunch("bot:intake", []), false);
   });
 });
 
 describe("automazione: più tab Intake nello stesso workspace", () => {
   const tabs = [
-    { key: "a", workspace: { id: "w1" }, launchId: INTAKE_LAUNCH_ID },
-    { key: "b", workspace: { id: "w1" }, launchId: INTAKE_LAUNCH_ID },
+    { key: "a", workspace: { id: "w1" }, intake: true },
+    { key: "b", workspace: { id: "w1" }, intake: true },
   ];
   it("ogni tab Intake ha il badge INTAKE", () => {
     assert.deepEqual(

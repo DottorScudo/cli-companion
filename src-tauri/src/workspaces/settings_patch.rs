@@ -11,7 +11,7 @@ mod tests;
 
 use super::delivery::{Delivery, DeliveryMode, MergeMethod};
 use super::e2e::E2eConfig;
-use super::launches::clear_default_if_removed;
+use super::launches::{clear_default_if_removed, shared_launch_ids};
 use super::model::{Launch, Workspace};
 use super::repo_config::RepoConfig;
 use super::store::{WorkspaceStore, LAUNCH_ID_PREFIX};
@@ -20,6 +20,8 @@ use super::validate::{
     repo_config_key, validate_launch,
 };
 use super::worker_settings::AgentWorkerSettings;
+use crate::bots::bot_launch_id;
+use crate::launch_migration::current_launch_id;
 use crate::store::data_dir;
 use crate::validate::ValidationError;
 use normalize::{normalize_delivery, normalize_launches, normalize_repos, normalize_worker_agents, replace_launches};
@@ -100,8 +102,9 @@ impl SettingsPatch {
     }
 
     /// Valida come i comandi dell'interfaccia e ritorna la patch con chiavi e
-    /// valori normalizzati.
-    pub fn normalized(&self, ws: &Workspace) -> Result<SettingsPatch, ValidationError> {
+    /// valori normalizzati. `shared` sono gli avvii integrati e dei Bot che
+    /// `default_launch` puo' nominare (vedi `shared_launch_ids`).
+    pub fn normalized(&self, ws: &Workspace, shared: &[String]) -> Result<SettingsPatch, ValidationError> {
         let launches = self.launches.as_deref().map(|l| normalize_launches(l, &ws.launches)).transpose()?;
         Ok(SettingsPatch {
             worker_rules: self.worker_rules.as_deref().map(normalize_rules).transpose()?,
@@ -114,7 +117,7 @@ impl SettingsPatch {
             worker_agents: self.worker_agents.as_ref().map(|m| normalize_worker_agents(m, ws)).transpose()?,
             delivery: self.delivery.as_ref().map(|d| normalize_delivery(d, ws)).transpose()?,
             use_schedule: self.use_schedule,
-            default_launch: self.normalized_default_launch(ws, launches.as_deref())?,
+            default_launch: self.normalized_default_launch(ws, launches.as_deref(), shared)?,
             launches,
             repos: self.repos.as_ref().map(|m| normalize_repos(m, ws)).transpose()?,
         })
@@ -125,10 +128,12 @@ impl SettingsPatch {
         &self,
         ws: &Workspace,
         launches: Option<&[LaunchPatch]>,
+        shared: &[String],
     ) -> Result<Option<Option<String>>, ValidationError> {
         let Some(choice) = &self.default_launch else { return Ok(None) };
         let Some(id) = choice else { return Ok(Some(None)) };
-        let id = id.trim();
+        // Una proposta salvata prima dell'aggiornamento puo' nominare una vecchia voce di un preset.
+        let id = current_launch_id(id.trim(), |bot| shared.contains(&bot_launch_id(bot)));
         // Gli avvii nuovi non hanno ancora un id: non si possono referenziare.
         let after: Vec<Launch> = match launches {
             Some(list) => ws
@@ -139,17 +144,19 @@ impl SettingsPatch {
                 .collect(),
             None => ws.launches.clone(),
         };
-        // L'agente del workspace dopo la patch decide con chi partono i preset.
-        let agent = self.agent.as_ref().map_or(ws.agent.as_deref(), |a| a.as_deref());
-        let agent = agent.map(str::trim).filter(|a| !a.is_empty());
-        check_default_launch(&after, id, &crate::agents::builtin_launch_list_for(agent))?;
-        Ok(Some(Some(id.to_string())))
+        check_default_launch(&after, &id, shared)?;
+        Ok(Some(Some(id)))
     }
 
     /// Applica la patch tutto-o-niente: ogni valore si valida su una copia.
     /// `new_launch_id` genera l'id degli avvii senza `id`.
-    pub fn apply(&self, ws: &mut Workspace, new_launch_id: &mut dyn FnMut() -> String) -> Result<(), ValidationError> {
-        let norm = self.normalized(ws)?;
+    pub fn apply(
+        &self,
+        ws: &mut Workspace,
+        shared: &[String],
+        new_launch_id: &mut dyn FnMut() -> String,
+    ) -> Result<(), ValidationError> {
+        let norm = self.normalized(ws, shared)?;
         let mut next = ws.clone();
         if let Some(r) = norm.worker_rules {
             next.worker.rules = r;
@@ -275,9 +282,10 @@ impl SettingsPatch {
 /// Non riallinea lo scheduler: vedi `needs_reconcile`.
 pub fn apply_settings_patch(app: &AppHandle, workspace_id: &str, patch: &SettingsPatch) -> Result<Workspace, String> {
     let dir = data_dir(app)?;
+    let shared = shared_launch_ids(crate::bots::enabled_launch_ids(app));
     let store = app.state::<WorkspaceStore>();
     store.modify(&dir, workspace_id, |ws| {
-        patch.apply(ws, &mut || store.next_id(LAUNCH_ID_PREFIX))?;
+        patch.apply(ws, &shared, &mut || store.next_id(LAUNCH_ID_PREFIX))?;
         Ok(())
     })
 }

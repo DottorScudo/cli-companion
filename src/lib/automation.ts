@@ -3,8 +3,10 @@
 // pure a zero dipendenze, importabili sia dall'app sia dai test `node --test`
 // (type-stripping). Il backend e' src-tauri/src/automation/.
 
+import type { AgentBot } from "../bindings/AgentBot.ts";
 import type { AutomationTabInfo } from "../bindings/AutomationTabInfo.ts";
 import type { WorkerStatus } from "../bindings/WorkerStatus.ts";
+import { launchBotId } from "./botLaunch.ts";
 
 export type { WorkerStatus };
 
@@ -18,29 +20,34 @@ export interface AutomationMeta {
   cwd?: string;
 }
 
-/** Id dell'avvio integrato "Task Intake" (preset, vedi agents/mod.rs). */
-export const INTAKE_LAUNCH_ID = "builtin:preset:task-intake";
+/** Skill del plugin che fa di un Bot un Task Intake (vedi agents/presets.rs). */
+export const INTAKE_SKILL = "task-intake";
 
 /** Badge dell'intestazione di un tab. */
 export interface TabBadge {
   text: string;
   title: string;
-  /** "intake" = tab del preset Task Intake (colore primary), "auto" = worker. */
+  /** "intake" = tab di un Bot con la skill Task Intake (colore primary), "auto" = worker. */
   kind: "auto" | "intake";
 }
 
-/** Il tab e' stato aperto dall'avvio Task Intake? */
-export function isIntakeLaunch(launchId: string | null | undefined): boolean {
-  return launchId === INTAKE_LAUNCH_ID;
+/** Il tab è stato aperto da un Bot con la skill Task Intake (fra `bots`)? */
+export function isIntakeLaunch(
+  launchId: string | null | undefined,
+  bots: readonly Pick<AgentBot, "id" | "skill">[],
+): boolean {
+  const botId = launchBotId(launchId);
+  const skill = botId === undefined ? undefined : bots.find((b) => b.id === botId)?.skill;
+  return skill?.kind === "plugin" && skill.id === INTAKE_SKILL;
 }
 
 /**
- * Badge dell'intestazione di un tab: AUTO per i worker, INTAKE per i tab avviati
- * dal preset Task Intake, nessuno per gli altri.
+ * Badge dell'intestazione di un tab: AUTO per i worker, INTAKE per i tab di un
+ * Bot con la skill Task Intake (`intake`, vedi `isIntakeLaunch`), nessuno per gli altri.
  */
-export function tabBadge(tab: { automation?: unknown; launchId?: string }): TabBadge | null {
+export function tabBadge(tab: { automation?: unknown; intake?: boolean }): TabBadge | null {
   if (tab.automation) return { text: "AUTO", title: "Sessione automatica", kind: "auto" };
-  if (isIntakeLaunch(tab.launchId)) {
+  if (tab.intake) {
     return { text: "INTAKE", title: "Task Intake: propone task per la coda", kind: "intake" };
   }
   return null;

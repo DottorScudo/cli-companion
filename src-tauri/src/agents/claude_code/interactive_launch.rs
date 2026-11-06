@@ -2,7 +2,7 @@
 //! `claude --dangerously-skip-permissions [--model <m>] [--effort <livello>] ["/<skill>"]`.
 //! Claude Code si configura solo con i flag: nessuna variabile d'ambiente.
 
-use super::presets::plugin_skill_invocation;
+use super::plugin_skills::plugin_skill_invocation;
 use super::{ClaudeCode, INTERACTIVE_COMMAND};
 use crate::agents::{
     is_safe_launch_token, EffortLevels, InteractiveLaunch, InteractiveLauncher, InteractiveRequest, LaunchSkill,
@@ -96,10 +96,10 @@ mod tests {
     }
 
     #[test]
-    fn a_plugin_skill_matches_the_preset_invocation() {
+    fn a_plugin_skill_is_the_first_prompt() {
         let preset = &crate::agents::presets::PRESETS[0];
         let l = launch(None, None, Some(LaunchSkill::Plugin(preset.id))).unwrap();
-        assert_eq!(l.command, crate::agents::PresetLauncher::command(&ClaudeCode, preset));
+        assert_eq!(l.command, format!("{BASE} \"/cli-companion-notify:{}\"", preset.id));
     }
 
     #[test]

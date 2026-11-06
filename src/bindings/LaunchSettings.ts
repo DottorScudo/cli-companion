@@ -2,7 +2,8 @@
 
 export type LaunchSettings = { 
 /**
- * Id di un avvio integrato (`builtin:...`); `None` = shell semplice.
+ * Id di un avvio integrato (`builtin:...`) o di un Bot (`bot:...`);
+ * `None` = shell semplice.
  */
 default_launch: string | null, 
 /**

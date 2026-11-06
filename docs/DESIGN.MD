@@ -172,6 +172,7 @@ domanda (`hub/direct_answer.rs`, senza passare dal modello) e il tool `relay_ans
 | `session.rs` | `session.json` e `scrollback/` |
 | `schedule.rs`, `awake.rs` | fasce orarie (logica pura + `schedule.json`) e blocco dello standby |
 | `launch_settings.rs`, `bots.rs` | impostazioni globali degli avvii e nomi/avatar dei bot (su `store/`) |
+| `launch_migration/` | migrazione dei vecchi id `builtin:preset:*` verso i Bot: tabella congelata (`ids.rs`), riconciliazione pura (`reconcile.rs`), passo all'avvio (`mod.rs`) |
 | `hub.rs`, `hub/` | Agents HUB (spento di default): impostazioni globali (provider del modello, lingua, sessioni, segretari), canali, thread e messaggi su `store/`, comandi ed evento `hub-update`, eventi della board nei thread, motore dei segretari (`hub/engine/`: menzioni, sessioni, tool calling verso un endpoint compatibile OpenAI, evento `hub-secretary-status`) |
 | `connectors.rs`, `connectors/` | connettori dell'Agents HUB, Fonti (`source`, es. Gmail) e Canali di contatto (`contact`, es. Telegram), compilati dietro contratti con registro, supervisori in background, comandi Tauri e configurazione in `connectors.json`; il registro di produzione è ancora vuoto (nessun connettore reale prima delle fasi 4 e 5); progetto e fasi in [CONNECTORS.MD](CONNECTORS.MD) |
 | `secrets.rs` | segreti nel portachiavi del sistema operativo (crate `keyring`) dietro il trait `SecretStore`; un finto in memoria per i test |
@@ -189,7 +190,11 @@ domanda (`hub/direct_answer.rs`, senza passare dal modello) e il tool `relay_ans
 2. `setup`, in quest'ordine: `store::install_emitter` (da qui un avviso dello store diventa un evento
    `store-warning`), `store::legacy::migrate_legacy_data` (copia dei vecchi identifier), caricamento di
    `workspaces.json`, `launch_settings.json`, `bots.json`, `hub_settings.json` (i thread dell'HUB no: si leggono alla
-   prima richiesta), delle board (`automation::load_boards`: migra i file
+   prima richiesta), `launch_migration::reconcile_at_startup` (dopo workspace, impostazioni degli avvii, bot e HUB:
+   crea una volta sola, in modo idempotente, il “Bot derivato” `<bot>-<agente>` a cui punta un avvio predefinito
+   migrato, copia del Bot del preset con l'agente fissato e nome tipo “Intake (OpenCode)”, adattato a 24 caratteri e
+   reso unico, `preset` = id del preset di base, costruito da `bots/derived.rs::derived_bot`; con un agente
+   sconosciuto ripiega sul Bot del preset, e riscrive ogni id legacy rimasto), delle board (`automation::load_boards`: migra i file
    vecchi e fa fallire come interrotti i task `running`), `automation::auto::init` (carica `schedule.json` e
    lancia il thread del timer, che aspetta `frontend_ready`), il ripristino in background delle skill utente
    e infine `ipc::start_listener` (apre il socket in modo sincrono: la porta è nota prima del primo terminale).
@@ -328,12 +333,13 @@ riportato senza far perdere gli altri).
   - `kind`: `"windows"` o `"wsl"`; `path`: percorso Windows (`C:\...`) o Linux assoluto; `distro` solo per WSL;
     `shell`: override opzionale. `target()` (in `target.rs`) lo traduce in un `platform::Target`.
   - `launches`: `Launch { id, name, command }` (id `ln-<millis>-<n>`), rimossi insieme al workspace.
-  - `default_launch`: assente = eredita il predefinito globale (`launch_settings.json`, solo integrati); `"shell"` =
-    shell vuota; altrimenti l'id di un avvio del workspace o di un integrato (`builtin:<agent_id>` per ogni
-    integrazione abilitata; `builtin:preset:<id>` per ogni preset, che parte con l'agente del workspace
-    (`resolve_agent(None, ws.agent)`); `builtin:preset:<id>@<agent_id>` con l'agente scelto; da
-    `agents::builtin_launches(workspace_agent)`). Un id salvato che punta a un'integrazione disabilitata non si
-    cancella: l'avvio ripiega sulla shell con un avviso.
+  - `default_launch`: assente = eredita il predefinito globale (`launch_settings.json`, stessi valori); `"shell"` =
+    shell vuota; altrimenti l'id di un avvio del workspace, di un integrato (`builtin:<agent_id>` per ogni
+    integrazione abilitata, da `agents::builtin_launch_list()`) o di un Bot abilitato (`bot:<id>`, da
+    `bots::enabled_launch_ids`). La validazione è `check_default_launch(launches, id, shared)`, con `shared =
+    workspaces::shared_launch_ids(bots::enabled_launch_ids(app))` (id integrati + id degli avvii dei Bot abilitati);
+    `get_workspace_settings.allowed.default_launch` elenca shell, avvii del workspace, integrati e Bot abilitati.
+    Un id salvato che punta a un'integrazione disabilitata non si cancella: l'avvio ripiega sulla shell con un avviso.
   - `worker_permission`: tetto dei permessi dei worker, `"plan" | "default" | "accept-edits" | "bypass"`
     (vocabolario di `agents::PermissionMode`); assente o sconosciuto → `"accept-edits"`, così i vecchi file non
     diventano più permissivi.
@@ -354,13 +360,20 @@ riportato senza far perdere gli altri).
   - `archived`: workspace congelato; la board non avvia task e quelli in corso tornano in coda.
 - `migrations.rs`: passo 0 → 1 (`migrate_v0`) sul JSON: porta alla busta il formato storico e converte
   `auto_orchestrate.enabled` → `use_schedule`, `worktree_setup` → `repos["."].setup` (se vuoto), il vecchio
-  `is_default` degli avvii → `default_launch` e `builtin:orchestrator` → `builtin:preset:task-intake`; i campi
-  vecchi spariscono.
+  `is_default` degli avvii → `default_launch` e `builtin:orchestrator` → `bot:intake`; i campi vecchi spariscono.
+  Il passo 2 → 3 (`migrate_v2`) riscrive i `default_launch` rimasti sugli id dei preset: `builtin:preset:task-intake`
+  → `bot:intake`, `builtin:preset:project-setup` → `bot:setup`, `builtin:preset:skill-wizard` → `bot:skill-wizard`,
+  `builtin:preset:<preset>@<agente>` → `bot:<bot>-<agente>`. Una versione precedente dell'app vede un
+  `workspaces.json` v3 come più recente e lo mette da parte (vedi "File su disco").
 - `store.rs`: `WorkspaceStore` (un `JsonStore<Vec<Workspace>>`). Ogni modifica passa da `update` / `modify`: si
   applica a una copia, si salva e solo poi si pubblica.
 - `validate.rs`, `delivery.rs`, `repo_config.rs`, `e2e.rs`: validazione e normalizzazione dei valori (errori
   tipizzati). `settings_patch.rs` (+ `settings_patch/`) applica in modo tutto-o-niente le modifiche proposte dagli
-  agenti (`propose_settings`), con le stesse funzioni di validazione dei comandi dell'interfaccia.
+  agenti (`propose_settings`), con le stesse funzioni di validazione dei comandi dell'interfaccia
+  (`SettingsPatch::normalized(ws, shared)` / `apply(ws, shared, new_id)`; il trait `Host` dell'automazione espone
+  `shared_launch_ids()`). Una proposta in attesa salvata prima dell'aggiornamento con un `default_launch`
+  `builtin:preset:*` viene rimappata al volo (`launch_migration::current_launch_id`: sul Bot derivato se esiste, altrimenti
+  sul Bot del preset).
 - Comandi (`commands.rs`, `launches.rs`, `explorer.rs`): `list_workspaces`, `add_workspace`, `rename_workspace`,
   `reorder_workspaces`, `set_workspace_archived`, `remove_workspace`, `set_worker_permission`,
   `set_workspace_agent`, `set_worker_permission_rules`, `set_worker_model`, `set_worker_rules`, `set_delivery`, `set_use_schedule`,
@@ -515,8 +528,8 @@ le servono.
   contratto: `integration` (`AgentIntegration`: id, nome, rilevamento, comando interattivo, `capabilities()`), `capabilities`
   (`Capabilities`: un campo `Option<&dyn …>` per ogni contratto, senza `Default`, quindi un nuovo contratto obbliga ogni
   integrazione a decidere), `package` (`IntegrationPackage`), `hook_events` (`HookEvents`), `session_resume`
-  (`SessionResume`), `automation` (`WorkerAutomation`), `worker_permissions` (`WorkerPermissions`), `presets`
-  (`PresetLauncher`), `user_skills` (`UserSkills`), `usage_limits` (`UsageLimits`), `session_usage`
+  (`SessionResume`), `automation` (`WorkerAutomation`), `worker_permissions` (`WorkerPermissions`), `plugin_skills`
+  (`PluginSkills`), `user_skills` (`UserSkills`), `usage_limits` (`UsageLimits`), `session_usage`
   (`SessionUsageReader`), `input_profile` (`InputProfileSource`), `models` (`ModelCatalog`: modelli consigliati per
   fascia e regola di validita' del nome; il core sceglie per fascia, non nomina modelli).
 - `registry.rs`: il registro `INTEGRATIONS`, l'unico punto in cui il core nomina i singoli agenti; il registro dice solo quali agenti esistono:
@@ -525,8 +538,8 @@ le servono.
   in cui si sceglie l'agente di un uso, `readiness.rs` quanto è pronta una coppia agente × target); finché non sceglie
   vale solo la prima voce. `detection.rs` rileva i target (Windows + ogni distro,
   escluse `docker-desktop*`); `package.rs` è il ciclo di vita dei pacchetti (lock per agente × target); `launches.rs`
-  produce gli avvii integrati delle sole integrazioni abilitate (`builtin:<agent_id>`, `builtin:preset:<id>`,
-  `builtin:preset:<id>@<agent_id>`); `presets.rs` + `presets/*.md` i preset;
+  produce gli avvii integrati delle sole integrazioni abilitate (`builtin:<agent_id>`); `presets.rs` +
+  `presets/*.md` le skill del plugin usate dai Bot;
   `worker_rules.rs` la validazione delle regole di permesso dei worker tramite il contratto.
 - `commands.rs`: comandi Tauri generici, che non nominano nessun agente: `agent_env_status` (sonda in parallelo ogni
   coppia agente × target), `agent_profiles`, `agent_usage_limits`, `agent_session_usage`, `install_agent_plugin(agent_id,
@@ -537,10 +550,11 @@ le servono.
 - Aggiungere un agente: una cartella `agents/<nome>/` che implementa `AgentIntegration` + i contratti dichiarati in
   `capabilities()` + una riga in `registry.rs` (e una nei due test architetturali). La UI (Impostazioni → Generale → Integrazioni)
   raggruppa per agente da sola.
-- Preset: `Preset { id, name, skill }` in `presets.rs`, con lo SKILL.md in inglese incluso con `include_str!`. Oggi tre
-  (`task-intake`, `skill-wizard`, `project-setup`, descritti sotto e in [BOARD.MD](BOARD.MD)); aggiungere un preset =
-  una voce in `PRESETS` + un file md. Il pacchetto di ogni integrazione che dichiara `presets` ne spedisce le skill e
-  l'app espone una voce rapida per ognuna.
+- Skill del plugin (preset): `Preset { id, name, skill }` in `presets.rs`, con lo SKILL.md in inglese incluso con
+  `include_str!`. Oggi tre (`task-intake`, `skill-wizard`, `project-setup`, descritte sotto e in [BOARD.MD](BOARD.MD));
+  aggiungere una skill = una voce in `PRESETS` + un file md. Il pacchetto di ogni integrazione che dichiara
+  `plugin-skills` (contratto `PluginSkills`, solo `skill_path`) ne spedisce le skill. Non esistono più voci rapide
+  dei preset: una sessione guidata da una skill del plugin parte solo come Bot (`bot:<id>`, vedi `bots/`).
 - Automazione (facoltativa): `WorkerAutomation::command(env_kind, &AutomationRequest)
   -> Option<AutomationLaunch>` (`{ command, env }`) costruisce il comando da digitare nel tab, e le variabili d'ambiente da impostare sul tab, per
   avviare una sessione automatica; ritorna `None` se la richiesta non è rappresentabile in modo sicuro (tutto ciò che
@@ -672,16 +686,15 @@ separati, tutti in `agents/`. Il vocabolario per l'utente è nel [README](../REA
   `set_default_integration`; ogni cambio emette `integrations-changed` col nuovo stato.
 - **Risolutore** (`resolve.rs` puro + `registry::resolve_agent`). L'unico punto in cui si sceglie l'agente di un uso:
   `resolve_agent(explicit, workspace_agent, AgentUse)` prende il primo `Some` fra `explicit` (l'agente del task o
-  della voce “Avvia con…”), `workspace_agent` (`Workspace.agent`) e il predefinito globale. `AgentUse::Worker` pretende il
-  contratto `automation`, `AgentUse::Preset` il contratto `presets`; il predefinito globale deve dichiararlo come gli
-  altri. Una scelta presente ma non utilizzabile è un `AgentUnavailable` (`Unknown`, `Disabled`, `MissingContract`), mai
+  del Bot), `workspace_agent` (`Workspace.agent`) e il predefinito globale. `AgentUse::Worker` (l'unico uso) pretende il
+  contratto `automation`; il predefinito globale deve dichiararlo come gli altri. Una scelta presente ma non utilizzabile è un `AgentUnavailable` (`Unknown`, `Disabled`, `MissingContract`), mai
   un ripiego su un altro agente; il testo è in inglese perché arriva al modello via RPC (“<nome> is disabled: enable it
-  in the integrations settings”, “<nome> does not support automated sessions” / “presets”, “unknown agent: <id>”).
+  in the integrations settings”, “<nome> does not support automated sessions”, “unknown agent: <id>”).
   `registry::find` invece cerca fra **tutte** le integrazioni, anche disabilitate: serve a hook, regole e comandi di un
   agente il cui pacchetto è ancora installato, e non sostituisce `resolve_agent` per scegliere. Chi risolve: la board
   (`board/agent.rs`, `resolve_spec_agent`, a proposta, accettazione, creazione e aggiornamento di un task),
   `workspaces/validate.rs` (`normalize_workspace_agent`, per `Workspace.agent`), `registry::automation_command`
-  (comando di avvio del worker, `AgentUse::Worker`) e `agents/launches.rs` (preset, `AgentUse::Preset`).
+  (comando di avvio del worker, `AgentUse::Worker`).
 - **Modelli** (`models.rs`). Il core ragiona per fascia: `model_is_valid(integration, nome)` usa
   `ModelCatalog::is_valid` se l'integrazione dichiara `models`, altrimenti la forma sicura di `validate::valid_model`;
   `tier_models` dà il primo consigliato di `Standard` e `Strong` ed è ciò che finisce nelle descrizioni del campo `model`
@@ -693,11 +706,13 @@ separati, tutti in `agents/`. Il vocabolario per l'utente è nel [README](../REA
   quindi sta fuori dal main thread e passa da una cache di 30 s per coppia agente × target, azzerata prima e dopo
   ogni operazione sui pacchetti (installazione, aggiornamento, rimozione). `agent_readiness(app, id, target)` è la versione per chi ha solo l'id (l'automazione).
 
-**Avvii integrati** (`agents/launches.rs`). `builtin_launch_list_for(workspace_agent)` produce le voci delle sole
-integrazioni abilitate: `builtin:<agent_id>` per l'avvio interattivo, `builtin:preset:<preset>` per ogni preset con l'agente
-che il risolutore sceglie per quel workspace (`BuiltinLaunch.follows_workspace_agent`, `agent_id` già risolto) e
-`builtin:preset:<preset>@<agent_id>` per ogni agente abilitato che dichiara `presets` (sottomenu “Avvia con…”). Tutte
-portano `restore_command` (l'interattivo: il tab riprende la conversazione, non rilancia la skill). Un id salvato
+**Avvii integrati** (`agents/launches.rs`). `builtin_launch_list()` (comando Tauri `builtin_launches`, senza argomenti)
+produce una sola voce interattiva `builtin:<agent_id>` per ogni integrazione abilitata (`BuiltinLaunch` non ha più i campi
+`preset` e `follows_workspace_agent`). Le sessioni guidate da una skill del plugin (Task Intake, Skill Wizard, Project Setup)
+partono solo come Bot (`bot:<id>`, `bots/launches.rs`), che porta agente, modello, effort e skill nella configurazione
+(`bots.json`); un Bot con una skill del plugin richiede un agente che dichiara `plugin-skills`
+(`bots/resolve.rs` avvisa “does not ship the plugin skills”). Tutte le voci integrate portano `restore_command`
+(il tab riprende la conversazione, non rilancia la skill). Un id salvato
 (avvio predefinito, tab) che punta a un'integrazione disabilitata non si cancella: l'avvio parte come shell con un avviso.
 
 **Avvio di un task con l'agente.**
@@ -963,7 +978,9 @@ testo in memoria, senza I/O. `JsonStore<T>` tiene il dato in memoria come stato 
 - **Migrazioni**: lista ordinata di passi puri `Value -> Value` (`Migration`); la versione
   corrente di un file e' il numero dei passi, quindi aggiungere un passo = incrementare la
   versione. Il passo 0 -> 1 introduce la busta (`adopt_envelope`, identita'; `launch_settings`
-  ne usa uno proprio che migra anche `builtin:orchestrator`). Al caricamento si applicano
+  ne usa uno proprio che migra anche `builtin:orchestrator`; il passo 1 -> 2 di `launch_settings`, `migrate_v1`,
+  riscrive gli id `builtin:preset:*` in id `bot:*` come `workspaces::migrate_v2`; i due passi usano la tabella congelata
+  di `launch_migration/ids.rs`). Al caricamento si applicano
   `steps[versione_del_file..]`; un passo che fallisce nomina il proprio indice nell'errore.
 - **File corrotto** (non UTF-8, non JSON, migrazione o deserializzazione fallita, controllo
   semantico `validated` fallito): mai cancellato. Viene rinominato
@@ -1116,7 +1133,9 @@ ricetta per un connettore nuovo: [wiki/integrare-un-connettore.md](wiki/integrar
   - `scrollback/<tab_id>.txt`: cronologia serializzata di un terminale, tetto 4 MB. `save_scrollback`,
     `load_scrollback`, `delete_scrollback`; il `tab_id` è validato con `ipc::is_valid_tab_id`.
     `prune_scrollback(keep)` elimina i file dei tab non elencati (chiamato dopo il ripristino).
-- `launch_settings.rs`: avvio predefinito globale dei nuovi terminali (solo integrati) e flag `show_usage`; stesso schema
+- `launch_settings.rs`: avvio predefinito globale dei nuovi terminali (`"shell"`, un integrato o un Bot abilitato) e flag
+  `show_usage`; schema 2 (`migrate_v1`: gli id `builtin:preset:*` diventano `bot:*`; una versione precedente dell'app
+  vede il file come più recente e lo mette da parte); stesso schema
   di `bots.rs` (un `JsonFile` statico + un `JsonStore` gestito da Tauri). Comandi `get_launch_settings`,
   `set_global_default_launch`, `set_show_usage`.
 - `user_skills.rs` (+ `user_skills/`): logica pura sulle skill globali dell'utente (`<app data>/user-skills/<nome>/`,
@@ -1381,8 +1400,15 @@ src/
   montati (regola del DOM sopra); la Vista Ufficio (z-30) sta sopra di lui, e aprire il manager con
   l'Ufficio aperto chiude l'Ufficio. `DependencyGraph` = React Flow (`@xyflow/react`) + auto-layout con
   `@dagrejs/dagre` (`boardLayout.ts`). "Task Intake" (`openIntake` in `app/actions/tabs.ts`) apre un nuovo tab del
-  preset `builtin:preset:task-intake` a ogni richiesta (più chat in parallelo); `PaneHeader` mostra il badge INTAKE (il `launchId` del
-  tab è già persistito nella sessione). Dettagli in [BOARD.MD](BOARD.MD).
+  primo Bot abilitato con la skill `task-intake` (`spawnBotFromMenu`) a ogni richiesta (più chat in parallelo);
+  `isIntakeLaunch(launchId, agentBots)` (`lib/automation.ts`) è vero quando il Bot del tab (`bot:<id>`) ha quella skill
+  (`INTAKE_SKILL`), e guida il badge INTAKE di `PaneHeader` (prop `intake`, `tabBadge({automation, intake})`) e la
+  cartella dell'Ufficio (`officeSession(tab, busy, label, agentBots, botImage?)`). Nello store di configurazione
+  `sharedLaunchesFor(s, ws)` (integrati + avvii dei Bot del workspace) e `defaultLaunchFor(s, ws)` sostituiscono
+  `agentLaunches`/`launchesFor`; `spawnTab` con un avvio predefinito Bot passa da `spawnBotFromMenu`, e le pagine delle
+  impostazioni offrono i Bot in un gruppo “Bot” (`components/settings/DefaultLaunchOptions.tsx`). I tab ripristinati con
+  un vecchio `launchId` `builtin:preset:*` sono mappati in lettura (`lib/legacyLaunch.ts::currentLaunchId`, usato da
+  `lib/session.ts`); il comando di ripristino salvato non cambia. Dettagli in [BOARD.MD](BOARD.MD).
 - `components/ui/dropdown-menu.tsx`: wrapper shadcn di Radix, usato dal menu
   "⋯" della card workspace.
 - `lib/launch.ts`: pure functions zero-dep (sanitizza, trigger, input pty

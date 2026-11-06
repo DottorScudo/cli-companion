@@ -4,15 +4,15 @@
 
 import { api } from "../../lib/tauri";
 import type { BotLaunch, BuiltinLaunch, Launch, Workspace } from "../../lib/tauri";
-import { botTabSpec, botWarningsText } from "../../lib/botLaunch";
+import { botTabSpec, botWarningsText, isBotLaunch } from "../../lib/botLaunch";
 import { errorMessage, report } from "../../lib/errors";
-import { INTAKE_LAUNCH_ID } from "../../lib/automation";
-import { launchAgentId, launchCommands, resolveDefaultLaunch, unavailableDefaultLaunch } from "../../lib/launch";
+import { isIntakeLaunch } from "../../lib/automation";
+import { launchAgentId, launchCommands, unavailableDefaultLaunch } from "../../lib/launch";
 import { launchBlockReason } from "../../lib/launchMenu";
 import { noticeStore } from "../../lib/notices";
 import { workspaceEnvKey } from "../../lib/usage";
 import { closeTabIn, openTab } from "../../lib/layout";
-import { configStore, launchesFor } from "../../stores/config";
+import { botLaunchesFor, configStore, defaultLaunchFor, sharedLaunchesFor } from "../../stores/config";
 import { hubStore, reservedBotNames } from "../../stores/hub";
 import { layoutStore } from "../../stores/layout";
 import { paneDragStore } from "../../stores/paneDrag";
@@ -37,19 +37,22 @@ function warn(key: string, text: string): void {
 }
 
 /**
- * Senza `launch` parte l'avvio predefinito del workspace, se esiste;
- * altrimenti una shell semplice, con un avviso se il predefinito salvato punta a
- * un'integrazione non più disponibile. Il nuovo terminale attiva il suo gruppo.
+ * Senza `launch` parte l'avvio predefinito del workspace, se esiste (un Bot
+ * passa dal backend come dal menu); altrimenti una shell semplice, con un avviso
+ * se il predefinito salvato punta a un avvio non più disponibile. Il nuovo
+ * terminale attiva il suo gruppo.
  */
 export function spawnTab(ws: Workspace, launch?: Launch | BuiltinLaunch): void {
   const config = configStore.getState();
-  const builtins = launchesFor(config, ws);
-  const { globalLaunch, botSettings } = config;
-  const chosen = launch ?? resolveDefaultLaunch(ws, builtins, globalLaunch);
-  if (!launch && unavailableDefaultLaunch(ws, builtins, globalLaunch) !== null) {
+  const chosen = launch ?? defaultLaunchFor(config, ws);
+  if (chosen && isBotLaunch(chosen)) {
+    void spawnBotFromMenu(ws, chosen);
+    return;
+  }
+  if (!launch && unavailableDefaultLaunch(ws, sharedLaunchesFor(config, ws), config.globalLaunch) !== null) {
     warn(
       "launch:default-unavailable",
-      "L'avvio predefinito non è più disponibile (integrazione disabilitata): apro una shell vuota.",
+      "L'avvio predefinito non è più disponibile (integrazione disabilitata o Bot eliminato): apro una shell vuota.",
     );
   }
   const key = newTabKey();
@@ -60,7 +63,7 @@ export function spawnTab(ws: Workspace, launch?: Launch | BuiltinLaunch): void {
   // Apertura sincrona: due tab aperti di seguito non prendono lo stesso nome.
   tabsStore.open(
     { key, workspaceId: ws.id, launchId: chosen?.id, agentId: launchAgentId(chosen), command, startCommand },
-    botSettings.names,
+    config.botSettings.names,
     reservedBotNames(hubStore.getState()),
   );
   layoutStore.apply((l) => openTab(l, ws.id, key));
@@ -117,22 +120,23 @@ export async function spawnBotFromMenu(ws: Workspace, entry: BotLaunch): Promise
 }
 
 /**
- * Task Intake: ogni richiesta apre un nuovo tab del preset nel workspace
- * (più chat in parallelo), con la stessa via delle voci rapide della sidebar.
- * Senza il preset tra gli avvii integrati (backend non aggiornato) avvisa.
+ * Task Intake: ogni richiesta apre un nuovo tab del primo Bot abilitato con la
+ * skill Task Intake (più chat in parallelo), con la stessa via del menu. Senza
+ * un Bot così avvisa.
  */
 export function openIntake(workspaceId: string): void {
   const ws = workspacesStore.get(workspaceId);
   if (!ws) return;
-  const launch = launchesFor(configStore.getState(), ws).find((b) => b.id === INTAKE_LAUNCH_ID);
-  if (!launch) {
+  const config = configStore.getState();
+  const entry = botLaunchesFor(config, ws).find((b) => isIntakeLaunch(b.id, config.botSettings.agents));
+  if (!entry) {
     warn(
       "launch:intake-unavailable",
-      "Task Intake non è disponibile: l'agente del workspace non lo supporta o è disabilitato.",
+      "Task Intake non è disponibile: nessun Bot attivo ha la skill Task Intake (ripristinalo nelle impostazioni dei Bot).",
     );
     return;
   }
-  spawnFromMenu(ws, launch);
+  void spawnBotFromMenu(ws, entry);
 }
 
 // Un tab automatico chiuso va comunicato al backend una volta sola, da

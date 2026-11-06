@@ -75,18 +75,14 @@ fn an_old_file_without_the_envelope_is_read_migrated_and_rewritten_with_it() {
     assert!(loaded.warning.is_none(), "un file vecchio ma valido non e' un'anomalia");
     let [a, b] = &loaded.value[..] else { panic!("attesi due workspace") };
     assert!(a.use_schedule && a.repos["."].setup == ["npm ci"]);
-    assert_eq!(
-        a.default_launch.as_deref(),
-        Some("builtin:preset:task-intake"),
-        "il flag non batte il valore esistente"
-    );
+    assert_eq!(a.default_launch.as_deref(), Some("bot:intake"), "il flag non batte il valore esistente");
     assert_eq!(b.default_launch.as_deref(), Some("l2"));
     assert_eq!(b.worker.permission, crate::agents::PermissionMode::Plan);
     assert!(backups(&dir).is_empty());
 
     FILE.save(&dir, &loaded.value).unwrap();
     let raw = read_json(&dir);
-    assert_eq!(raw["schema_version"], 2);
+    assert_eq!(raw["schema_version"], 3);
     let saved = &raw["data"][0];
     assert!(saved.get("auto_orchestrate").is_none() && saved.get("worktree_setup").is_none());
     assert!(saved["launches"][0].get("is_default").is_none());
@@ -130,10 +126,10 @@ fn a_real_v1_file_moves_the_worker_settings_to_the_default_agent() {
     assert_eq!(services.repos["web"].copy_ignored, [".env"]);
     assert_eq!(services.delivery.merge_method, crate::workspaces::MergeMethod::Rebase);
 
-    // Al salvataggio il file e' allo schema 2, senza i campi storici, e si rilegge uguale.
+    // Al salvataggio il file e' allo schema 3, senza i campi storici, e si rilegge uguale.
     FILE.save(&dir, &loaded.value).unwrap();
     let raw = read_json(&dir);
-    assert_eq!(raw["schema_version"], 2);
+    assert_eq!(raw["schema_version"], 3);
     let saved = &raw["data"];
     assert_eq!(saved.as_array().unwrap().len(), 3);
     for ws in saved.as_array().unwrap() {
@@ -161,7 +157,7 @@ fn the_written_json_keeps_the_historic_shape() {
         })
         .unwrap();
     let raw = read_json(&dir);
-    assert_eq!(raw["schema_version"], 2);
+    assert_eq!(raw["schema_version"], 3);
     assert_eq!(
         raw["data"],
         json!([{
@@ -375,4 +371,33 @@ fn generated_ids_are_unique_even_within_the_same_millisecond() {
     assert_eq!(unique.len(), ids.len());
     assert!(ids[0].starts_with("ws-") && ids[0].ends_with("-1"), "{}", ids[0]);
     assert!(store.next_id(LAUNCH_ID_PREFIX).starts_with("ln-"));
+}
+
+#[test]
+fn a_v2_file_moves_the_preset_launches_to_their_bots() {
+    static FILE: JsonFile<Vec<Workspace>> = workspaces_file();
+    let dir = temp_dir("v2-presets");
+    let with_launch = |id: &str, launch: &str| {
+        let mut ws = entry(id);
+        ws["default_launch"] = json!(launch);
+        ws
+    };
+    let data = json!([
+        with_launch("a", "builtin:preset:task-intake"),
+        with_launch("b", "builtin:preset:skill-wizard@opencode"),
+        with_launch("c", "builtin:preset:project-setup"),
+        with_launch("d", "builtin:claude-code"),
+        entry("e"),
+    ]);
+    std::fs::write(dir.join(FILE_NAME), json!({"schema_version": 2, "data": data}).to_string()).unwrap();
+
+    let loaded = FILE.load(&dir);
+    assert!(loaded.warning.is_none(), "{:?}", loaded.warning);
+    let launches: Vec<_> = loaded.value.iter().map(|ws| ws.default_launch.as_deref()).collect();
+    assert_eq!(
+        launches,
+        [Some("bot:intake"), Some("bot:skill-wizard-opencode"), Some("bot:setup"), Some("builtin:claude-code"), None]
+    );
+    assert!(backups(&dir).is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
 }

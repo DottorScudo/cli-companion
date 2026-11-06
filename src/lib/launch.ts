@@ -48,57 +48,64 @@ export function buildLaunchInput(cmd: string): string {
 /** Valore di `default_launch` per la shell vuota. */
 export const SHELL_LAUNCH_ID = "shell";
 
-/** Tutti gli avvii di un workspace: prima gli integrati, poi i suoi. */
-export function allLaunches<T extends Launch, B extends Launch>(ws: { launches?: T[] }, builtins: B[]): (T | B)[] {
-  return [...builtins, ...(ws.launches ?? [])];
+/** Un avvio che si può nominare come predefinito: del workspace, integrato o di un Bot. */
+interface LaunchRef {
+  id: string;
 }
 
-/** Prefisso degli id degli avvii integrati. */
-const BUILTIN_LAUNCH_PREFIX = "builtin:";
+/** Tutti gli avvii di un workspace: prima quelli condivisi (integrati, Bot), poi i suoi. */
+export function allLaunches<T extends LaunchRef, B extends LaunchRef>(ws: { launches?: T[] }, shared: B[]): (T | B)[] {
+  return [...shared, ...(ws.launches ?? [])];
+}
 
-const isBuiltinLaunchId = (id: string): boolean => id.startsWith(BUILTIN_LAUNCH_PREFIX);
+/** Prefissi degli id degli avvii condivisi da tutti i workspace: integrati e Bot. */
+const SHARED_LAUNCH_PREFIXES = ["builtin:", "bot:"] as const;
+
+const isSharedLaunchId = (id: string): boolean => SHARED_LAUNCH_PREFIXES.some((prefix) => id.startsWith(prefix));
 
 /**
  * Avvio predefinito effettivo: `default_launch` del workspace se punta a un
  * avvio noto ("shell" = nessuno), altrimenti (assente o id sparito) quello
- * globale, che deve essere un integrato noto; altrimenti nessuno (shell vuota).
- * Un integrato scelto dal workspace che non c'è più (integrazione disabilitata)
- * non ripiega sul globale: l'utente l'aveva scelto apposta, parte la shell.
+ * globale, che deve essere un avvio condiviso noto; altrimenti nessuno (shell
+ * vuota). `shared` sono gli avvii integrati e dei Bot. Un condiviso scelto dal
+ * workspace che non c'è più (integrazione disabilitata, Bot eliminato) non
+ * ripiega sul globale: l'utente l'aveva scelto apposta, parte la shell.
  */
-export function resolveDefaultLaunch<T extends Launch, B extends Launch>(
+export function resolveDefaultLaunch<T extends LaunchRef, B extends LaunchRef>(
   ws: { launches?: T[] } & Pick<Workspace, "default_launch">,
-  builtins: B[],
+  shared: B[],
   globalDefault: string | null | undefined,
 ): T | B | undefined {
   const own = ws.default_launch;
   if (own === SHELL_LAUNCH_ID) return undefined;
   if (own) {
-    const found = allLaunches(ws, builtins).find((l) => l.id === own);
+    const found = allLaunches(ws, shared).find((l) => l.id === own);
     if (found) return found;
-    if (isBuiltinLaunchId(own)) return undefined;
+    if (isSharedLaunchId(own)) return undefined;
   }
-  if (globalDefault) return builtins.find((b) => b.id === globalDefault);
+  if (globalDefault) return shared.find((b) => b.id === globalDefault);
   return undefined;
 }
 
 /**
- * Id salvato come predefinito che punta a un avvio integrato non più
- * disponibile (integrazione disabilitata o sconosciuta); `null` se non c'è. Con
- * l'elenco degli integrati ancora vuoto non si può dire: `null`.
+ * Id salvato come predefinito che punta a un avvio condiviso non più
+ * disponibile (integrazione disabilitata o sconosciuta, Bot eliminato o
+ * disattivato); `null` se non c'è. Con l'elenco dei condivisi ancora vuoto non
+ * si può dire: `null`.
  */
-export function unavailableDefaultLaunch<T extends Launch, B extends Launch>(
+export function unavailableDefaultLaunch<T extends LaunchRef, B extends LaunchRef>(
   ws: { launches?: T[] } & Pick<Workspace, "default_launch">,
-  builtins: B[],
+  shared: B[],
   globalDefault: string | null | undefined,
 ): string | null {
-  if (builtins.length === 0) return null;
+  if (shared.length === 0) return null;
   const own = ws.default_launch;
   if (own === SHELL_LAUNCH_ID) return null;
   if (own) {
-    if (allLaunches(ws, builtins).some((l) => l.id === own)) return null;
-    if (isBuiltinLaunchId(own)) return own;
+    if (allLaunches(ws, shared).some((l) => l.id === own)) return null;
+    if (isSharedLaunchId(own)) return own;
   }
-  return globalDefault && !builtins.some((b) => b.id === globalDefault) ? globalDefault : null;
+  return globalDefault && !shared.some((b) => b.id === globalDefault) ? globalDefault : null;
 }
 
 /** Agenti propri dei workspace, senza doppioni e in ordine stabile. */

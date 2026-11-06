@@ -98,7 +98,7 @@ describe("officeSession", () => {
   const base = { key: "t1", bot: "Bolt", workspace: { id: "w1", name: "App" } };
 
   it("copia i campi e calcola l'attivita'", () => {
-    const s = officeSession({ ...base, agent: { phase: "running" } }, false, "Bolt");
+    const s = officeSession({ ...base, agent: { phase: "running" } }, false, "Bolt", []);
     assert.deepEqual(s, {
       key: "t1",
       bot: "Bolt",
@@ -111,18 +111,31 @@ describe("officeSession", () => {
     assert.equal("taskTitle" in s, false);
   });
 
-  it("riconosce i tab del Task Intake", async () => {
-    const { INTAKE_LAUNCH_ID } = await import("../src/lib/automation.ts");
-    const s = officeSession({ ...base, launchId: INTAKE_LAUNCH_ID }, true, "x");
-    assert.equal(s.intake, true);
-    assert.equal(officeSession({ ...base, launchId: "altro" }, true, "x").intake, false);
+  it("la cartellina va ai tab di un Bot con la skill Task Intake", () => {
+    const bots = [
+      { id: "intake", skill: { kind: "plugin", id: "task-intake" } },
+      { id: "intake-beta", skill: { kind: "plugin", id: "task-intake" } },
+      { id: "setup", skill: { kind: "plugin", id: "project-setup" } },
+    ];
+    assert.equal(officeSession({ ...base, launchId: "bot:intake" }, true, "x", bots).intake, true);
+    assert.equal(officeSession({ ...base, launchId: "bot:intake-beta" }, true, "x", bots).intake, true);
+    assert.equal(officeSession({ ...base, launchId: "bot:setup" }, true, "x", bots).intake, false);
+    assert.equal(officeSession({ ...base, launchId: "altro" }, true, "x", bots).intake, false);
+    // La skill del Bot decide, non l'id: un Bot che l'ha persa non ha la cartellina.
+    const changed = [{ id: "intake", skill: null }];
+    assert.equal(officeSession({ ...base, launchId: "bot:intake" }, true, "x", changed).intake, false);
   });
 
   it("taskTitle solo per i tab dei worker", () => {
-    const w = officeSession({ ...base, automation: { status: "completed", title: "Fix login" } }, false, "Fix login");
+    const w = officeSession(
+      { ...base, automation: { status: "completed", title: "Fix login" } },
+      false,
+      "Fix login",
+      [],
+    );
     assert.equal(w.taskTitle, "Fix login");
     assert.equal(w.activity, "completed");
-    assert.equal(officeSession(base, false, "Bolt").taskTitle, undefined);
+    assert.equal(officeSession(base, false, "Bolt", []).taskTitle, undefined);
   });
 });
 

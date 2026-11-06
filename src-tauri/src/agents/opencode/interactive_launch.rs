@@ -8,7 +8,7 @@
 
 use super::automation::ENV_CONFIG_CONTENT;
 use super::mode_rules::model_only_content;
-use super::presets::skill_command;
+use super::plugin_skills::skill_command;
 use super::{OpenCode, INTERACTIVE_COMMAND};
 use crate::agents::{
     is_safe_launch_token, InteractiveLaunch, InteractiveLauncher, InteractiveRequest, LaunchSkill, ModelCatalog,
@@ -79,10 +79,10 @@ mod tests {
     }
 
     #[test]
-    fn a_plugin_skill_matches_the_preset_command() {
+    fn a_plugin_skill_is_loaded_by_the_first_prompt() {
         let preset = &crate::agents::presets::PRESETS[0];
         let l = launch(None, None, Some(LaunchSkill::Plugin(preset.id))).unwrap();
-        assert_eq!(l.command, crate::agents::PresetLauncher::command(&OpenCode, preset));
+        assert_eq!(l.command, skill_command(preset.id));
     }
 
     #[test]

@@ -120,7 +120,7 @@ fn is_free(list: &[AgentBot], name: &str, taken: &[String]) -> bool {
 }
 
 /// `base`, o `base N` col primo N libero, entro la lunghezza massima dei nomi.
-fn free_name(list: &[AgentBot], base: &str, taken: &[String]) -> String {
+pub(super) fn free_name(list: &[AgentBot], base: &str, taken: &[String]) -> String {
     if is_free(list, base, taken) {
         return base.to_string();
     }

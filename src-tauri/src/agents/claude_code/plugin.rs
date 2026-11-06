@@ -12,7 +12,7 @@
 //! Il marketplace locale e' caricato sul posto: la cartella deve restare su
 //! disco finche' il plugin e' installato.
 
-use super::presets::skill_path;
+use super::plugin_skills::skill_path;
 use super::{AGENT_ID, MARKETPLACE, PLUGIN};
 use crate::agents::fnv32;
 use crate::agents::presets::{Preset, PRESETS};

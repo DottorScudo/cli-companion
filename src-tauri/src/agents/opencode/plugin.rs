@@ -4,7 +4,7 @@
 //! La prima riga di `index.ts` e' un'intestazione fissa con la versione: serve
 //! a riconoscere una cartella NOSTRA prima di sovrascriverla o toglierla.
 
-use super::presets::skill_path;
+use super::plugin_skills::skill_path;
 use super::{AGENT_ID, MCP_SERVER, PLUGIN};
 use crate::agents::fnv32;
 use crate::agents::presets::{Preset, PRESETS};

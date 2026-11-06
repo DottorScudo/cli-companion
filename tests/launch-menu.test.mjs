@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildLaunchMenu, distinctLaunches, launchBlockReason, launchLabel } from "../src/lib/launchMenu.ts";
-import { launchesFor } from "../src/stores/config.ts";
+import { botLaunchLabel, buildLaunchMenu, launchBlockReason } from "../src/lib/launchMenu.ts";
+import { defaultLaunchFor, sharedLaunchesFor } from "../src/stores/config.ts";
 
 const agentLaunch = (agent, name) => ({
   id: `builtin:${agent}`,
@@ -10,38 +10,21 @@ const agentLaunch = (agent, name) => ({
   restore_command: agent,
   agent_id: agent,
   agent_name: name,
-  preset: null,
-  follows_workspace_agent: false,
 });
-const presetLaunch = (preset, agent, agentName, follows) => ({
-  id: follows ? `builtin:preset:${preset}` : `builtin:preset:${preset}@${agent}`,
-  name: preset === "task-intake" ? "Task Intake" : "Skill Wizard",
-  command: `${agent} run ${preset}`,
-  restore_command: agent,
+const botLaunch = (id, name, agent, agentName) => ({
+  id: `bot:${id}`,
+  bot_id: id,
+  name,
   agent_id: agent,
   agent_name: agentName,
-  preset,
-  follows_workspace_agent: follows,
+  blocked_reason: null,
 });
 
-// Due agenti che dichiarano i preset; "alpha" e' quello del workspace.
 const ALPHA = agentLaunch("alpha", "Alpha");
 const BETA = agentLaunch("beta", "Beta");
-const BOTH = [
-  ALPHA,
-  BETA,
-  presetLaunch("task-intake", "alpha", "Alpha", true),
-  presetLaunch("skill-wizard", "alpha", "Alpha", true),
-  presetLaunch("task-intake", "alpha", "Alpha", false),
-  presetLaunch("skill-wizard", "alpha", "Alpha", false),
-  presetLaunch("task-intake", "beta", "Beta", false),
-  presetLaunch("skill-wizard", "beta", "Beta", false),
-];
-const SINGLE = [
-  ALPHA,
-  presetLaunch("task-intake", "alpha", "Alpha", true),
-  presetLaunch("task-intake", "alpha", "Alpha", false),
-];
+const BOTH = [ALPHA, BETA];
+const INTAKE = botLaunch("intake", "Intake", "alpha", "Alpha");
+const INTAKE_BETA = botLaunch("intake-beta", "Intake (Beta)", "beta", "Beta");
 
 const WS = { kind: "windows" };
 const WSL_WS = { kind: "wsl", distro: "Ubuntu" };
@@ -49,63 +32,30 @@ const WSL_WS = { kind: "wsl", distro: "Ubuntu" };
 const env = (envKey, readiness, label = envKey) => ({ readiness, status: { env_key: envKey, env_label: label } });
 const info = (id, name, envs) => ({ id, name, envs });
 
-describe("launchLabel", () => {
-  it("un preset dice con quale agente parte; l'avvio dell'agente e quelli personalizzati hanno il loro nome", () => {
-    assert.equal(launchLabel(presetLaunch("task-intake", "alpha", "Alpha", true)), "Task Intake · Alpha");
-    assert.equal(launchLabel(presetLaunch("task-intake", "beta", "Beta", false)), "Task Intake · Beta");
-    assert.equal(launchLabel(ALPHA), "Alpha");
-    assert.equal(launchLabel({ id: "l1", name: "Dev server", command: "npm run dev" }), "Dev server");
-  });
-});
-
 describe("buildLaunchMenu", () => {
-  it("un avvio per ogni integrazione abilitata, poi i preset con l'agente del workspace", () => {
-    const { entries } = buildLaunchMenu(BOTH, [], WS);
+  it("un avvio per ogni integrazione abilitata, con il suo nome, e nessuna voce dei preset", () => {
+    const menu = buildLaunchMenu(BOTH, [], WS);
     assert.deepEqual(
-      entries.map((e) => e.label),
-      ["Alpha", "Beta", "Task Intake · Alpha", "Skill Wizard · Alpha"],
+      menu.entries.map((e) => e.label),
+      ["Alpha", "Beta"],
     );
-    assert.ok(entries.every((e) => e.blockedReason === null));
+    assert.ok(menu.entries.every((e) => e.blockedReason === null));
+    assert.deepEqual(Object.keys(menu).sort(), ["bots", "entries"], "niente sottomenu «Avvia con…»");
   });
 
-  it('"Avvia con…" elenca solo gli altri agenti, raggruppati, con il nome del preset', () => {
-    const { others } = buildLaunchMenu(BOTH, [], WS);
-    assert.equal(others.length, 1);
-    assert.equal(others[0].agentId, "beta");
-    assert.equal(others[0].agentName, "Beta");
+  it("i Bot coprono i casi dei preset: anche con l'agente fissato", () => {
+    const { bots } = buildLaunchMenu(BOTH, [], WS, [INTAKE, INTAKE_BETA]);
     assert.deepEqual(
-      others[0].entries.map((e) => [e.label, e.launch.id]),
+      bots.map((b) => [b.label, b.launch.id]),
       [
-        ["Task Intake", "builtin:preset:task-intake@beta"],
-        ["Skill Wizard", "builtin:preset:skill-wizard@beta"],
+        ["Intake · Alpha", "bot:intake"],
+        ["Intake (Beta) · Beta", "bot:intake-beta"],
       ],
     );
   });
 
-  it("con una sola integrazione il sottomenu e' vuoto", () => {
-    const { entries, others } = buildLaunchMenu(SINGLE, [], WS);
-    assert.deepEqual(
-      entries.map((e) => e.label),
-      ["Alpha", "Task Intake · Alpha"],
-    );
-    assert.deepEqual(others, []);
-  });
-
-  it("senza un agente risolto per i preset restano gli avvii e tutti gli agenti nel sottomenu", () => {
-    const unresolved = BOTH.filter((l) => !l.follows_workspace_agent);
-    const { entries, others } = buildLaunchMenu(unresolved, [], WS);
-    assert.deepEqual(
-      entries.map((e) => e.label),
-      ["Alpha", "Beta"],
-    );
-    assert.deepEqual(
-      others.map((a) => a.agentId),
-      ["alpha", "beta"],
-    );
-  });
-
   it("nessun avvio: menu vuoto", () => {
-    assert.deepEqual(buildLaunchMenu([], [], WS), { entries: [], others: [], bots: [] });
+    assert.deepEqual(buildLaunchMenu([], [], WS), { entries: [], bots: [] });
   });
 
   it("l'integrazione non pronta nell'ambiente del workspace resta in elenco, con il motivo", () => {
@@ -113,22 +63,29 @@ describe("buildLaunchMenu", () => {
       info("alpha", "Alpha", [env("windows", "ready"), env("Ubuntu", "not-installed", "WSL Ubuntu")]),
       info("beta", "Beta", [env("windows", "not-found", "Windows"), env("Ubuntu", "ready", "WSL Ubuntu")]),
     ];
-    const windows = buildLaunchMenu(BOTH, integrations, WS);
+    const windows = buildLaunchMenu(BOTH, integrations, WS, [INTAKE_BETA]);
     assert.deepEqual(
       windows.entries.map((e) => e.blockedReason === null),
-      [true, false, true, true],
+      [true, false],
     );
     assert.equal(
       windows.entries[1].blockedReason,
       "Beta non è stato trovato in Windows: installalo dalle Integrazioni.",
     );
-    assert.ok(windows.others[0].entries.every((e) => e.blockedReason?.startsWith("Beta non è stato trovato")));
+    assert.ok(windows.bots[0].blockedReason?.startsWith("Beta non è stato trovato"));
     const wsl = buildLaunchMenu(BOTH, integrations, WSL_WS);
     assert.equal(
       wsl.entries[0].blockedReason,
       "Il pacchetto di Alpha non è installato in WSL Ubuntu: installalo dalle Integrazioni.",
     );
     assert.equal(wsl.entries[1].blockedReason, null);
+  });
+});
+
+describe("botLaunchLabel", () => {
+  it("dice l'agente solo se si è potuto risolvere", () => {
+    assert.equal(botLaunchLabel(INTAKE), "Intake · Alpha");
+    assert.equal(botLaunchLabel({ name: "Setup", agent_name: null }), "Setup");
   });
 });
 
@@ -151,38 +108,27 @@ describe("launchBlockReason", () => {
   });
 });
 
-describe("distinctLaunches", () => {
-  it("toglie la voce con l'agente scelto uguale a quello risolto: sarebbe un doppione", () => {
-    assert.deepEqual(
-      distinctLaunches(BOTH).map((l) => l.id),
-      [
-        "builtin:alpha",
-        "builtin:beta",
-        "builtin:preset:task-intake",
-        "builtin:preset:skill-wizard",
-        "builtin:preset:task-intake@beta",
-        "builtin:preset:skill-wizard@beta",
-      ],
-    );
-    assert.deepEqual(
-      distinctLaunches(SINGLE).map((l) => l.id),
-      ["builtin:alpha", "builtin:preset:task-intake"],
-    );
-  });
-  it("senza agente risolto restano tutte le voci con l'agente scelto", () => {
-    const unresolved = BOTH.filter((l) => !l.follows_workspace_agent);
-    assert.equal(distinctLaunches(unresolved).length, unresolved.length);
-  });
-});
+describe("avvio predefinito con i Bot", () => {
+  const state = {
+    builtinLaunches: [ALPHA],
+    botLaunches: [INTAKE],
+    agentBotLaunches: { beta: [INTAKE_BETA] },
+    globalLaunch: "bot:intake",
+  };
 
-describe("launchesFor", () => {
-  const state = { builtinLaunches: [ALPHA], agentLaunches: { beta: [BETA] } };
-  it("un workspace con un agente proprio usa i suoi avvii, gli altri quelli senza agente", () => {
-    assert.deepEqual(launchesFor(state, { agent: "beta" }), [BETA]);
-    assert.deepEqual(launchesFor(state, {}), [ALPHA]);
-    assert.deepEqual(launchesFor(state, { agent: null }), [ALPHA]);
+  it("gli avvii condivisi sono gli integrati e i Bot dell'agente del workspace", () => {
+    assert.deepEqual(sharedLaunchesFor(state, {}), [ALPHA, INTAKE]);
+    assert.deepEqual(sharedLaunchesFor(state, { agent: "beta" }), [ALPHA, INTAKE_BETA]);
+    assert.deepEqual(sharedLaunchesFor(state, { agent: "gamma" }), [ALPHA, INTAKE], "non ancora letti: senza agente");
   });
-  it("avvii dell'agente non ancora letti: ripiega su quelli senza agente", () => {
-    assert.deepEqual(launchesFor(state, { agent: "gamma" }), [ALPHA]);
+
+  it("un Bot può essere il predefinito globale o del workspace", () => {
+    assert.equal(defaultLaunchFor(state, { default_launch: null }), INTAKE);
+    assert.equal(defaultLaunchFor(state, { agent: "beta", default_launch: "bot:intake-beta" }), INTAKE_BETA);
+    assert.equal(defaultLaunchFor(state, { default_launch: "builtin:alpha" }), ALPHA);
+  });
+
+  it("un Bot sparito scelto dal workspace non ripiega sul globale", () => {
+    assert.equal(defaultLaunchFor(state, { default_launch: "bot:gone" }), undefined);
   });
 });

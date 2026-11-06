@@ -7,7 +7,7 @@
 use super::boards::{session_workspace, workspace_of};
 use super::rpc::misrouted;
 use super::*;
-use crate::agents::{builtin_launch_list, registry, worker_rule_format, AgentIntegration, PermissionMode, RuleFormat};
+use crate::agents::{registry, worker_rule_format, AgentIntegration, PermissionMode, RuleFormat};
 use crate::board::SettingsProposal;
 use crate::workspaces::{
     DeliveryMode, MergeMethod, SettingsPatch, MAX_COMMAND_LEN, MAX_LAUNCH_NAME_LEN, MAX_PATCH_AGENTS,
@@ -93,7 +93,7 @@ pub(super) fn get_settings<H: Host>(st: &AutomationState, host: &H, ws: &Workspa
         "settings": settings_json(ws),
         "agents": agents_json(host, ws),
         "repos": repos_json(ws, &detected),
-        "allowed": allowed_json(ws),
+        "allowed": allowed_json(ws, host.shared_launch_ids()),
         "limits": limits_json(),
         "pending_settings_proposals": pending,
     });
@@ -156,10 +156,11 @@ fn repos_json(ws: &Workspace, detected: &[String]) -> Vec<Value> {
         .collect()
 }
 
-fn allowed_json(ws: &Workspace) -> Value {
+/// I valori ammessi; `shared` sono gli avvii integrati e dei Bot abilitati.
+fn allowed_json(ws: &Workspace, shared: Vec<String>) -> Value {
     let launches = std::iter::once(SHELL_LAUNCH.to_string())
         .chain(ws.launches.iter().map(|l| l.id.clone()))
-        .chain(builtin_launch_list().into_iter().map(|b| b.id))
+        .chain(shared)
         .collect::<Vec<_>>();
     json!({
         "worker_permission": PermissionMode::ALL.map(PermissionMode::as_str),
@@ -206,7 +207,7 @@ fn propose_settings<H: Host>(
     if patch.is_empty() {
         return Err("nothing to change: pass at least one setting besides reason".to_string());
     }
-    let patch = patch.normalized(ws).map_err(|e| e.message_en())?;
+    let patch = patch.normalized(ws, &host.shared_launch_ids()).map_err(|e| e.message_en())?;
     ensure_known_repos(host, ws, &patch.repo_keys())?;
     let now = now_millis();
     let id = st.run(host, |r| r.propose_settings(&ws.id, session, reason, patch, now))?;

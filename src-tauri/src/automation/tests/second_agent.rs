@@ -1,14 +1,14 @@
 //! Un secondo agente abilitato (`FakeIntegration` nel registro di test di
 //! `agents::test_registry`) usato end-to-end con l'host finto: la validazione
-//! dei task, lo scheduler, l'avvio dei worker e dei revisori, i preset, le
+//! dei task, lo scheduler, l'avvio dei worker e dei revisori, gli avvii, le
 //! impostazioni del workspace e il caso dell'agente disabilitato passano tutti
 //! dal registro, senza scorciatoie nella board.
 
 use super::*;
+use crate::agents::builtin_launch_list;
 use crate::agents::registry;
 use crate::agents::test_registry::SecondIntegration;
 use crate::agents::testing::{FakeIntegration, FAKE_ENV_NAME, FAKE_MODEL_LARGE, FAKE_MODEL_SMALL};
-use crate::agents::{builtin_launch_list_for, presets::PRESETS};
 
 const FAKE_ID: &str = "fake-second";
 /// Nome dell'agente finto negli errori.
@@ -152,24 +152,14 @@ fn a_review_task_of_the_fake_agent_starts_its_reviewer_with_that_agent() {
 }
 
 #[test]
-fn the_presets_of_a_workspace_with_the_fake_agent_run_with_it() {
+fn the_fake_agent_has_its_interactive_launch_and_no_skill_entry() {
     let second = second();
-    let launches = builtin_launch_list_for(Some(second.id()));
-    let find = |id: &str| launches.iter().find(|l| l.id == id).unwrap_or_else(|| panic!("avvio {id} mancante"));
-    assert_eq!(find(&format!("builtin:{FAKE_ID}")).agent_id, FAKE_ID);
-    for preset in PRESETS {
-        let follows = find(&format!("builtin:preset:{}", preset.id));
-        assert_eq!((follows.agent_id.as_str(), follows.follows_workspace_agent), (FAKE_ID, true));
-        assert_eq!(follows.command, format!("fake-run {}", preset.id));
-        for agent in [FAKE_ID, real_id()] {
-            let chosen = find(&format!("builtin:preset:{}@{agent}", preset.id));
-            assert_eq!((chosen.agent_id.as_str(), chosen.follows_workspace_agent), (agent, false));
-        }
-    }
-    // Senza un agente del workspace i preset seguono il predefinito.
-    let global = builtin_launch_list_for(None);
-    let first = global.iter().find(|l| l.id == format!("builtin:preset:{}", PRESETS[0].id)).unwrap();
-    assert_eq!(first.agent_id, real_id());
+    let launches = builtin_launch_list();
+    let fake = launches.iter().find(|l| l.id == format!("builtin:{}", second.id())).expect("avvio dell'agente finto");
+    assert_eq!((fake.agent_id.as_str(), fake.command.as_str()), (second.id(), fake.restore_command.as_str()));
+    // Un avvio per agente abilitato e nient'altro: le skill partono con i Bot.
+    let agents: Vec<String> = registry::enabled().iter().map(|a| format!("builtin:{}", a.id())).collect();
+    assert_eq!(launches.iter().map(|l| l.id.clone()).collect::<Vec<_>>(), agents);
 }
 
 #[test]
@@ -190,9 +180,10 @@ fn get_workspace_settings_lists_both_integrations() {
     assert!(fake["rule_format"]["max_rules"].as_u64().is_some_and(|n| n > 0));
     assert_eq!(fake["readiness"], "ready");
     assert_eq!(agents[0]["is_default"], true);
-    // Gli avvii ammessi comprendono i preset con l'agente finto.
+    // Gli avvii ammessi comprendono l'agente finto e i Bot, nessuna vecchia voce dei preset.
     let allowed = out["allowed"]["default_launch"].as_array().unwrap();
-    assert!(allowed.contains(&json!(format!("builtin:preset:{}@{FAKE_ID}", PRESETS[0].id))));
+    assert!(allowed.contains(&json!(format!("builtin:{FAKE_ID}"))) && allowed.contains(&json!(FAKE_BOT_LAUNCH)));
+    assert!(!allowed.iter().any(|id| id.as_str().is_some_and(|id| id.starts_with("builtin:preset:"))));
 }
 
 #[test]

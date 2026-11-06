@@ -50,10 +50,10 @@ describe("integrazioni: capability", () => {
   });
 
   it("etichette nell'ordine della tabella, senza doppioni", () => {
-    assert.deepEqual(capabilityLabels(["presets", "automation", "session-resume", "presets"]), [
+    assert.deepEqual(capabilityLabels(["plugin-skills", "automation", "session-resume", "plugin-skills"]), [
       "Ripresa sessioni",
       "Worker",
-      "Preset",
+      "Skill del plugin",
     ]);
     assert.deepEqual(capabilityLabels([]), []);
   });

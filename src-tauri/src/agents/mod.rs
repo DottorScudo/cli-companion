@@ -51,7 +51,7 @@ pub use commands::*;
 pub use contracts::*;
 pub use integrations_commands::*;
 pub use integrations_store::load_integrations;
-pub use launches::{builtin_launch_list, builtin_launch_list_for, BuiltinLaunch};
+pub use launches::{builtin_launch_list, BuiltinLaunch};
 pub use models::{effort_is_supported, model_is_valid, tier_models, unsupported_effort_warning, TierModels};
 pub use readiness::{agent_readiness, Readiness};
 pub use registry::automation_command;

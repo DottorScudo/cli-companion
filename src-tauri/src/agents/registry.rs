@@ -55,8 +55,7 @@ pub fn find(id: &str) -> Result<&'static dyn AgentIntegration, String> {
 /// del chiamante, per esempio l'agente di un task), poi `workspace_agent`,
 /// poi il predefinito globale; vince il primo presente e, se non e'
 /// utilizzabile, e' un errore: mai un ripiego su un altro agente. `purpose`
-/// serve a pretendere il contratto giusto (worker: automazione, preset:
-/// preset), cosi' un agente abilitato ma incapace fallisce subito e con un
+/// serve a pretendere il contratto giusto (worker: automazione), cosi' un agente abilitato ma incapace fallisce subito e con un
 /// messaggio chiaro.
 pub fn resolve_agent(
     explicit: Option<&str>,

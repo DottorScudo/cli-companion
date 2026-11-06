@@ -184,7 +184,7 @@ export const api = {
     invoke<Workspace>("set_default_launch", { workspaceId, launchId }),
 
   /** Avvii integrati; `workspaceAgent` è l'agente proprio del workspace (`null` = nessuno). */
-  builtinLaunches: (workspaceAgent: string | null) => invoke<BuiltinLaunch[]>("builtin_launches", { workspaceAgent }),
+  builtinLaunches: () => invoke<BuiltinLaunch[]>("builtin_launches"),
   /** Voci di avvio dei Bot agente per un workspace con quell'agente (`null` = il predefinito). */
   botLaunches: (workspaceAgent: string | null) => invoke<BotLaunch[]>("bot_launches", { workspaceAgent }),
   /** Costruisce l'avvio di un Bot per il tab `tabId` (il backend ne prepara l'ambiente); rifiuta con il motivo. */

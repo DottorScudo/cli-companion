@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 /// Difetto voluto, per provare che la conformita' lo segnala.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Flaw {
-    /// Il pacchetto non spedisce la skill del primo preset.
-    PresetSkillMissing,
+    /// Il pacchetto non spedisce la prima skill del plugin.
+    PluginSkillMissing,
     /// Il comando di automazione lascia passare `$` nel prompt.
     AutomationLetsDollarThrough,
     /// Il modello del comando di ripresa non contiene il segnaposto dell'id.
@@ -35,8 +35,6 @@ pub enum Flaw {
 pub struct FakeIntegration {
     pub id: &'static str,
     pub interactive: &'static str,
-    /// Prefisso del comando dei preset.
-    pub preset_cmd: &'static str,
     /// Versione del pacchetto.
     pub version: &'static str,
     pub declares: Vec<Capability>,
@@ -50,16 +48,7 @@ pub struct FakeIntegration {
 impl FakeIntegration {
     /// Nessun contratto dichiarato.
     pub fn bare(id: &'static str, interactive: &'static str) -> Self {
-        Self {
-            id,
-            interactive,
-            preset_cmd: "fake-run",
-            version: "1.0-hfake",
-            declares: Vec::new(),
-            flaw: None,
-            found: false,
-            installed: false,
-        }
+        Self { id, interactive, version: "1.0-hfake", declares: Vec::new(), flaw: None, found: false, installed: false }
     }
 
     /// Dichiara solo il pacchetto, con la versione data.
@@ -67,9 +56,9 @@ impl FakeIntegration {
         Self { version, declares: vec![Capability::Package], ..Self::bare(id, "fake-cli") }
     }
 
-    /// Dichiara solo i preset, con il prefisso di comando dato.
-    pub fn presets_only(id: &'static str, interactive: &'static str, preset_cmd: &'static str) -> Self {
-        Self { preset_cmd, declares: vec![Capability::Presets], ..Self::bare(id, interactive) }
+    /// Dichiara solo le skill del plugin.
+    pub fn plugin_skills_only(id: &'static str, interactive: &'static str) -> Self {
+        Self { declares: vec![Capability::PluginSkills], ..Self::bare(id, interactive) }
     }
 
     /// Dichiara tutti i contratti.
@@ -80,7 +69,7 @@ impl FakeIntegration {
             Capability::SessionResume,
             Capability::Automation,
             Capability::WorkerPermissions,
-            Capability::Presets,
+            Capability::PluginSkills,
             Capability::UserSkills,
             Capability::UsageLimits,
             Capability::SessionUsage,
@@ -136,7 +125,7 @@ impl AgentIntegration for FakeIntegration {
             session_resume: on(Capability::SessionResume).then_some(self as &dyn SessionResume),
             automation: on(Capability::Automation).then_some(self as &dyn WorkerAutomation),
             worker_permissions: on(Capability::WorkerPermissions).then_some(self as &dyn WorkerPermissions),
-            presets: on(Capability::Presets).then_some(self as &dyn PresetLauncher),
+            plugin_skills: on(Capability::PluginSkills).then_some(self as &dyn PluginSkills),
             user_skills: on(Capability::UserSkills).then_some(self as &dyn UserSkills),
             usage_limits: on(Capability::UsageLimits).then_some(self as &dyn UsageLimits),
             session_usage: on(Capability::SessionUsage).then_some(self as &dyn SessionUsageReader),
@@ -156,11 +145,11 @@ impl IntegrationPackage for FakeIntegration {
     fn files(&self, _: &InstallCtx, _: &Target) -> Result<Vec<PackageFile>, String> {
         let manifest =
             PackageFile { path: "manifest.json".into(), content: format!("{{\"version\":\"{}\"}}", self.version) };
-        let skipped = usize::from(self.flaw == Some(Flaw::PresetSkillMissing));
+        let skipped = usize::from(self.flaw == Some(Flaw::PluginSkillMissing));
         let skills = PRESETS
             .iter()
             .skip(skipped)
-            .map(|p| PackageFile { path: PresetLauncher::skill_path(self, p), content: p.skill_text() });
+            .map(|p| PackageFile { path: PluginSkills::skill_path(self, p), content: p.skill_text() });
         Ok(std::iter::once(manifest).chain(skills).collect())
     }
 
@@ -290,11 +279,7 @@ impl WorkerPermissions for FakeIntegration {
     }
 }
 
-impl PresetLauncher for FakeIntegration {
-    fn command(&self, preset: &Preset) -> String {
-        format!("{} {}", self.preset_cmd, preset.id)
-    }
-
+impl PluginSkills for FakeIntegration {
     fn skill_path(&self, preset: &Preset) -> String {
         format!("skills/{}/SKILL.md", preset.id)
     }

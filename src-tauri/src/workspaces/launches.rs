@@ -48,6 +48,12 @@ pub(super) fn remove_launch_from(ws: &mut Workspace, launch_id: &str) -> Result<
     Ok(())
 }
 
+/// Gli avvii che ogni workspace puo' scegliere come predefinito oltre ai suoi:
+/// gli integrati e le voci dei Bot abilitati (`bot_launches`).
+pub fn shared_launch_ids(bot_launches: Vec<String>) -> Vec<String> {
+    crate::agents::builtin_launch_list().into_iter().map(|b| b.id).chain(bot_launches).collect()
+}
+
 /// L'avvio `removed` non c'e' piu': se era il predefinito, si torna a ereditare.
 pub(super) fn clear_default_if_removed(ws: &mut Workspace, removed: &str) {
     if ws.default_launch.as_deref() == Some(removed) {
@@ -112,11 +118,10 @@ pub async fn set_default_launch(
     launch_id: Option<String>,
 ) -> Result<Workspace, String> {
     crate::blocking(move || {
+        let shared = shared_launch_ids(crate::bots::enabled_launch_ids(&app));
         edit(&app, &workspace_id, |ws| {
             if let Some(id) = launch_id.as_deref() {
-                // I preset partono con l'agente del workspace: si valida con la sua lista.
-                let builtin = crate::agents::builtin_launch_list_for(ws.agent.as_deref());
-                check_default_launch(&ws.launches, id, &builtin)?;
+                check_default_launch(&ws.launches, id, &shared)?;
             }
             ws.default_launch = launch_id;
             Ok(())

@@ -7,6 +7,7 @@ import type { AgentProfile } from "../bindings/AgentProfile.ts";
 import type { ResumeFlag } from "../bindings/ResumeFlag.ts";
 import { isResumeCommand, profileForCommand } from "./agents.ts";
 import { sanitizeBotName } from "./bots.ts";
+import { currentLaunchId } from "./legacyLaunch.ts";
 
 export const SESSION_VERSION = 1;
 
@@ -105,7 +106,8 @@ function parseTab(raw: unknown, workspaceIds: Set<string>): SessionTab | null {
     command: typeof raw.command === "string" ? raw.command.trim().slice(0, COMMAND_MAX) : "",
   };
   const launchId = optStr(raw.launchId, 100);
-  if (launchId) tab.launchId = launchId;
+  // Una sessione di una versione precedente puo' nominare la voce di un preset.
+  if (launchId) tab.launchId = currentLaunchId(launchId);
   const title = optStr(raw.title, TITLE_MAX);
   if (title) tab.title = title;
   const agentId = optStr(raw.agentId, 64);

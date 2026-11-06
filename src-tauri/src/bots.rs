@@ -14,12 +14,14 @@
 //! - `agent_bots`: le operazioni pure sull'elenco, `commands`: i comandi Tauri;
 //! - `resolve`: da un Bot ad agente, modello, effort e skill di un lancio;
 //! - `launches`: le voci del menu di avvio e il lancio di un Bot in un tab;
-//! - `skills`: le skill selezionabili per l'interfaccia.
+//! - `skills`: le skill selezionabili per l'interfaccia;
+//! - `derived`: i Bot derivati da un predefinito con un agente fissato.
 
 mod agent;
 mod agent_bots;
 mod catalog;
 pub mod commands;
+mod derived;
 mod image;
 mod launches;
 mod migrations;
@@ -29,7 +31,11 @@ mod skills;
 mod validate;
 
 pub use agent::AgentBot;
+pub(crate) use derived::derived_bot;
 pub(crate) use image::validate_image;
+pub use launches::{bot_launch_id, BOT_LAUNCH_PREFIX};
+#[cfg(test)]
+pub(crate) use presets::default_bots as default_agent_bots;
 
 use crate::store::{adopt_envelope, data_dir, Decoded, JsonFile, JsonStore};
 use serde::{Deserialize, Serialize};
@@ -132,6 +138,11 @@ pub fn load_from_disk(app: &tauri::App) {
         Ok(dir) => app.state::<BotSettingsStore>().load(&dir),
         Err(e) => log::error!("cartella dati non disponibile, impostazioni dei bot non caricate: {e}"),
     }
+}
+
+/// Le voci di lancio dei Bot abilitati salvati (vedi `launches::enabled_launch_ids`).
+pub fn enabled_launch_ids(app: &AppHandle) -> Vec<String> {
+    app.state::<BotSettingsStore>().read(|s| launches::enabled_launch_ids(&s.agents))
 }
 
 #[tauri::command]

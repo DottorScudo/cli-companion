@@ -255,7 +255,7 @@ mod tests {
         let source = "\
             // usa claude-code e \"claude\"\n\
             /// il modulo claude_code\n\
-            fn f() { let _ = \"claudette\"; let _ = \"claude code\"; let _ = \"builtin:preset\"; }\n\
+            fn f() { let _ = \"claudette\"; let _ = \"claude code\"; let _ = \"bot:general\"; }\n\
             #[cfg(test)]\n\
             mod tests { fn t() { let _ = \"claude-code\"; let _ = \"claude\"; } }\n";
         assert!(violations_of("board.rs", source).is_empty());

@@ -117,6 +117,9 @@ pub trait Host: Clone + Send + 'static {
     /// Applica una patch alle impostazioni del workspace (rivalidata sulla
     /// configurazione attuale, salvata su disco) e ritorna il workspace.
     fn apply_settings(&self, ws_id: &str, patch: &SettingsPatch) -> Result<Workspace, String>;
+    /// Gli avvii integrati e dei Bot abilitati che `default_launch` puo'
+    /// nominare (vedi `workspaces::shared_launch_ids`).
+    fn shared_launch_ids(&self) -> Vec<String>;
     /// Ultima prontezza nota di `agent` nel target di `ws`, SENZA bloccare (sicuro
     /// sotto il lock del registro). `None`: non nota ancora, un controllo e'
     /// partito e a fine lavoro l'automazione rivaluta le board.
@@ -414,6 +417,10 @@ impl Host for TauriHost {
 
     fn apply_settings(&self, ws_id: &str, patch: &SettingsPatch) -> Result<Workspace, String> {
         crate::workspaces::apply_settings_patch(&self.0, ws_id, patch)
+    }
+
+    fn shared_launch_ids(&self) -> Vec<String> {
+        crate::workspaces::shared_launch_ids(crate::bots::enabled_launch_ids(&self.0))
     }
 
     fn agent_readiness(&self, ws: &Workspace, agent: &str) -> Option<Readiness> {

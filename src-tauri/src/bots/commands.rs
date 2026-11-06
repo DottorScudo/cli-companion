@@ -76,7 +76,7 @@ pub async fn list_bot_skills(app: AppHandle) -> Result<Vec<BotSkillOption>, Stri
 }
 
 /// I nomi dei segretari dell'HUB, in minuscolo: un Bot non li puo' prendere.
-fn secretary_names(app: &AppHandle) -> Vec<String> {
+pub(crate) fn secretary_names(app: &AppHandle) -> Vec<String> {
     app.state::<HubSettingsStore>().read(|s| s.secretaries.iter().map(|sec| sec.name.to_lowercase()).collect())
 }
 

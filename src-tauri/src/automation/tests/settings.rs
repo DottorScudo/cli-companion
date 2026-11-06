@@ -144,7 +144,8 @@ fn get_settings_reports_values_repos_allowed_values_and_limits() {
         allowed["default_launch"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
     assert_eq!(&launches[..2], ["shell", "l-1"]);
     let builtin: Vec<String> = builtin_launch_list().into_iter().map(|b| b.id).collect();
-    assert!(!builtin.is_empty() && launches[2..] == builtin[..]);
+    assert!(!builtin.is_empty() && launches[2..launches.len() - 1] == builtin[..]);
+    assert_eq!(launches.last(), Some(&FAKE_BOT_LAUNCH));
 
     assert_eq!(out["limits"]["reason_chars"], REASON_MAX);
     assert_eq!(out["limits"]["worker_rules_chars"], MAX_RULES_LEN);

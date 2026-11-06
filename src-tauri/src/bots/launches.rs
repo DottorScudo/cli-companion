@@ -15,6 +15,17 @@ use ts_rs::TS;
 /// Prefisso degli id delle voci del menu di avvio che aprono un Bot.
 pub const BOT_LAUNCH_PREFIX: &str = "bot:";
 
+/// La voce di lancio del Bot `bot_id`: `bot:<id>`.
+pub fn bot_launch_id(bot_id: &str) -> String {
+    format!("{BOT_LAUNCH_PREFIX}{bot_id}")
+}
+
+/// Le voci dei Bot abilitati: i valori che un avvio predefinito puo' prendere
+/// oltre a quelli integrati e del workspace.
+pub fn enabled_launch_ids(bots: &[AgentBot]) -> Vec<String> {
+    bots.iter().filter(|b| b.enabled).map(|b| bot_launch_id(&b.id)).collect()
+}
+
 /// Voce del menu di avvio per un Bot abilitato.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(export)]
@@ -74,7 +85,7 @@ pub fn bot_launches(bots: &[AgentBot], workspace_agent: &str, catalog: &AgentCat
 
 fn bot_launch(bot: &AgentBot, workspace_agent: &str, catalog: &AgentCatalog) -> BotLaunch {
     let entry = BotLaunch {
-        id: format!("{BOT_LAUNCH_PREFIX}{}", bot.id),
+        id: bot_launch_id(&bot.id),
         bot_id: bot.id.clone(),
         name: bot.name.clone(),
         agent_id: None,

@@ -5,9 +5,7 @@
 
 use super::model::Launch;
 use super::worker_settings::AgentWorkerSettings;
-use crate::agents::{
-    model_is_valid, registry, validate_worker_rules, AgentUnavailable, AgentUse, BuiltinLaunch, PermissionMode,
-};
+use crate::agents::{model_is_valid, registry, validate_worker_rules, AgentUnavailable, AgentUse, PermissionMode};
 use crate::validate::{normalize_repo, ErrorCode, RuleList, ValidationError};
 
 /// Lunghezza massima del nome di un avvio (in caratteri).
@@ -114,14 +112,14 @@ pub fn validate_launch(name: &str, command: &str) -> Result<(String, String), Va
 }
 
 /// Id ammesso come predefinito del workspace: "shell", uno degli avvii dati o
-/// uno integrato.
-fn valid_default_launch(launches: &[Launch], id: &str, builtin: &[BuiltinLaunch]) -> bool {
-    id == SHELL_LAUNCH_ID || launches.iter().any(|l| l.id == id) || builtin.iter().any(|b| b.id == id)
+/// uno condiviso (`shared`: gli integrati e i Bot abilitati).
+fn valid_default_launch(launches: &[Launch], id: &str, shared: &[String]) -> bool {
+    id == SHELL_LAUNCH_ID || launches.iter().any(|l| l.id == id) || shared.iter().any(|s| s == id)
 }
 
 /// Come `valid_default_launch`, ma rifiuta con l'errore dell'interfaccia.
-pub fn check_default_launch(launches: &[Launch], id: &str, builtin: &[BuiltinLaunch]) -> Result<(), ValidationError> {
-    if valid_default_launch(launches, id, builtin) {
+pub fn check_default_launch(launches: &[Launch], id: &str, shared: &[String]) -> Result<(), ValidationError> {
+    if valid_default_launch(launches, id, shared) {
         Ok(())
     } else {
         Err(ValidationError::new(ErrorCode::DefaultLaunchInvalid))
@@ -249,14 +247,14 @@ mod tests {
     }
 
     #[test]
-    fn default_launch_accepts_shell_own_and_builtin_ids() {
+    fn default_launch_accepts_shell_own_and_shared_ids() {
         let launches = vec![launch("l1")];
-        let builtin = crate::agents::builtin_launch_list();
-        for ok in ["shell", "l1", "builtin:claude-code", "builtin:preset:task-intake"] {
-            assert!(check_default_launch(&launches, ok, &builtin).is_ok(), "{ok}");
+        let shared = ["builtin:claude-code".to_string(), "bot:intake".to_string()];
+        for ok in ["shell", "l1", "builtin:claude-code", "bot:intake"] {
+            assert!(check_default_launch(&launches, ok, &shared).is_ok(), "{ok}");
         }
-        for bad in ["l2", "builtin:nope", "builtin:orchestrator", ""] {
-            assert_eq!(code(check_default_launch(&launches, bad, &builtin)), ErrorCode::DefaultLaunchInvalid, "{bad}");
+        for bad in ["l2", "builtin:nope", "builtin:orchestrator", "builtin:preset:task-intake", "bot:gone", ""] {
+            assert_eq!(code(check_default_launch(&launches, bad, &shared)), ErrorCode::DefaultLaunchInvalid, "{bad}");
         }
     }
 

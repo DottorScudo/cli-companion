@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Pencil, Star, Trash2 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { api } from "../../lib/tauri";
 import type { Launch, Workspace } from "../../lib/tauri";
 import { useStore } from "../../hooks/useStore";
-import { configStore, launchesFor } from "../../stores/config";
+import { botLaunchesFor, configStore } from "../../stores/config";
 import {
   LAUNCH_COMMAND_MAX,
   LAUNCH_NAME_MAX,
@@ -14,9 +14,9 @@ import {
   sanitizeLaunchCommand,
   unavailableDefaultLaunch,
 } from "../../lib/launch";
-import { distinctLaunches, launchLabel } from "../../lib/launchMenu";
 import { cn } from "../../lib/utils";
 import { BuiltinBadge, Field, Section, SettingsPage, selectClass, useWorkspaceOp } from "./shared";
+import DefaultLaunchOptions from "./DefaultLaunchOptions";
 import UnavailableLaunchNotice from "./UnavailableLaunchNotice";
 
 interface Props {
@@ -25,8 +25,9 @@ interface Props {
 
 /** Workspace › Avvii: avvio predefinito, avvii integrati e personalizzati. */
 export default function WorkspaceLaunchesPage({ workspace }: Props) {
-  const all = useStore(configStore, (s) => launchesFor(s, workspace));
-  const builtins = distinctLaunches(all);
+  const builtins = useStore(configStore, (s) => s.builtinLaunches);
+  const bots = useStore(configStore, (s) => botLaunchesFor(s, workspace));
+  const shared = useMemo(() => [...builtins, ...bots], [builtins, bots]);
   const globalLaunch = useStore(configStore, (s) => s.globalLaunch);
   const { run, saving, error, setError } = useWorkspaceOp();
 
@@ -42,11 +43,11 @@ export default function WorkspaceLaunchesPage({ workspace }: Props) {
 
   const own = workspace.default_launch ?? null;
   // Il valore del select: un id stantio equivale a "eredita".
-  const known = [SHELL_LAUNCH_ID, ...all.map((b) => b.id), ...workspace.launches.map((l) => l.id)];
+  const known = [SHELL_LAUNCH_ID, ...shared.map((b) => b.id), ...workspace.launches.map((l) => l.id)];
   const selectValue = own !== null && known.includes(own) ? own : "";
-  const inherited = all.find((b) => b.id === globalLaunch);
-  const effectiveId = resolveDefaultLaunch(workspace, all, globalLaunch)?.id;
-  const unavailable = unavailableDefaultLaunch(workspace, all, globalLaunch);
+  const inherited = shared.find((b) => b.id === globalLaunch);
+  const effectiveId = resolveDefaultLaunch(workspace, shared, globalLaunch)?.id;
+  const unavailable = unavailableDefaultLaunch(workspace, shared, globalLaunch);
 
   const setDefault = (launchId: string | null) => void run(() => api.setDefaultLaunch(workspace.id, launchId));
 
@@ -118,15 +119,9 @@ export default function WorkspaceLaunchesPage({ workspace }: Props) {
             onChange={(e) => setDefault(e.target.value === "" ? null : e.target.value)}
             className={selectClass}
           >
-            <option value="">
-              Eredita dalle impostazioni generali ({inherited ? launchLabel(inherited) : "Shell vuota"})
-            </option>
+            <option value="">Eredita dalle impostazioni generali ({inherited ? inherited.name : "Shell vuota"})</option>
             <option value={SHELL_LAUNCH_ID}>Shell vuota</option>
-            {builtins.map((b) => (
-              <option key={b.id} value={b.id}>
-                {launchLabel(b)}
-              </option>
-            ))}
+            <DefaultLaunchOptions builtins={builtins} bots={bots} />
             {workspace.launches.map((l) => (
               <option key={l.id} value={l.id}>
                 {l.name}
@@ -144,7 +139,7 @@ export default function WorkspaceLaunchesPage({ workspace }: Props) {
             <div key={b.id} className="flex items-center gap-2 rounded-md border bg-background/40 p-2.5">
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-2 text-[13px] font-semibold">
-                  <span className="truncate">{launchLabel(b)}</span>
+                  <span className="truncate">{b.name}</span>
                   <BuiltinBadge />
                   {defaultTag(b.id)}
                 </p>

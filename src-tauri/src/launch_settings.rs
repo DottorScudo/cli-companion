@@ -3,6 +3,7 @@
 //! lettura dei consumi dell'agente (`show_usage`). Persistenza in
 //! `launch_settings.json` tramite `store` (busta versionata, migrazioni).
 
+use crate::launch_migration::migrate_launch_value;
 use crate::store::{data_dir, JsonFile, JsonStore};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -12,7 +13,8 @@ use ts_rs::TS;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct LaunchSettings {
-    /// Id di un avvio integrato (`builtin:...`); `None` = shell semplice.
+    /// Id di un avvio integrato (`builtin:...`) o di un Bot (`bot:...`);
+    /// `None` = shell semplice.
     #[serde(default)]
     pub default_launch: Option<String>,
     /// Mostra i consumi dell'agente (limiti e token). I file vecchi senza il
@@ -31,20 +33,33 @@ impl Default for LaunchSettings {
     }
 }
 
-/// Passo 0 -> 1: introduce la busta e migra l'avvio predefinito
-/// `builtin:orchestrator` (v0.11) in `builtin:preset:task-intake`.
-fn migrate_v0(mut v: Value) -> Result<Value, String> {
-    if let Some(slot) = v.get_mut("default_launch") {
-        let mut id = slot.as_str().map(str::to_string);
-        crate::agents::presets::migrate_launch_id(&mut id);
-        if let Some(id) = id {
-            *slot = Value::String(id);
-        }
+/// Campo dell'avvio predefinito nel dato.
+const DEFAULT_LAUNCH_KEY: &str = "default_launch";
+
+/// Riscrive una vecchia voce in `default_launch` (vedi `launch_migration`).
+fn rewrite_default_launch(mut v: Value) -> Result<Value, String> {
+    if let Some(slot) = v.get_mut(DEFAULT_LAUNCH_KEY) {
+        migrate_launch_value(slot);
     }
     Ok(v)
 }
 
-static SETTINGS_FILE: JsonFile<LaunchSettings> = JsonFile::new("launch_settings.json", &[migrate_v0]);
+/// Passo 0 -> 1: introduce la busta e migra l'avvio predefinito
+/// `builtin:orchestrator` (v0.11) nel Bot che lo sostituisce.
+fn migrate_v0(v: Value) -> Result<Value, String> {
+    rewrite_default_launch(v)
+}
+
+/// Passo 1 -> 2: le voci dei preset (`builtin:preset:<id>[@<agente>]`)
+/// diventano le voci dei loro Bot (`bot:<id>`); il Bot derivato di una voce
+/// con l'agente scelto lo crea `launch_migration` all'avvio.
+fn migrate_v1(v: Value) -> Result<Value, String> {
+    rewrite_default_launch(v)
+}
+
+const MIGRATIONS: [crate::store::Migration; 2] = [migrate_v0, migrate_v1];
+
+static SETTINGS_FILE: JsonFile<LaunchSettings> = JsonFile::new("launch_settings.json", &MIGRATIONS);
 
 pub type LaunchSettingsStore = JsonStore<LaunchSettings>;
 
@@ -52,10 +67,17 @@ pub fn new_store() -> LaunchSettingsStore {
     JsonStore::new(&SETTINGS_FILE)
 }
 
-/// Solo `None` o l'id di un avvio integrato (quelli personalizzati sono per workspace).
-fn validate(launch_id: &Option<String>, builtin: &[crate::agents::BuiltinLaunch]) -> Result<(), String> {
+/// Solo `None`, l'id di un avvio integrato o la voce di un Bot abilitato
+/// (`bots`); quelli personalizzati sono per workspace.
+fn validate(
+    launch_id: &Option<String>,
+    builtin: &[crate::agents::BuiltinLaunch],
+    bots: &[String],
+) -> Result<(), String> {
     match launch_id {
-        Some(id) if !builtin.iter().any(|b| b.id == *id) => Err("avvio predefinito non valido".to_string()),
+        Some(id) if !builtin.iter().any(|b| b.id == *id) && !bots.contains(id) => {
+            Err("avvio predefinito non valido".to_string())
+        }
         _ => Ok(()),
     }
 }
@@ -75,7 +97,7 @@ pub fn get_launch_settings(state: State<LaunchSettingsStore>) -> LaunchSettings 
 #[tauri::command]
 pub async fn set_global_default_launch(app: AppHandle, launch_id: Option<String>) -> Result<LaunchSettings, String> {
     crate::blocking(move || {
-        validate(&launch_id, &crate::agents::builtin_launch_list())?;
+        validate(&launch_id, &crate::agents::builtin_launch_list(), &crate::bots::enabled_launch_ids(&app))?;
         update(&app, |s| s.default_launch = launch_id)
     })
     .await
@@ -144,16 +166,23 @@ mod tests {
     }
 
     #[test]
-    fn only_none_or_builtin_ids_are_valid() {
+    fn only_none_builtin_or_bot_ids_are_valid() {
         let builtin = crate::agents::builtin_launch_list();
-        assert!(validate(&None, &builtin).is_ok());
-        assert!(validate(&Some("builtin:claude-code".into()), &builtin).is_ok());
-        assert!(validate(&Some("builtin:preset:task-intake".into()), &builtin).is_ok());
-        assert!(validate(&Some("builtin:preset:task-intake@claude-code".into()), &builtin).is_ok());
-        assert!(validate(&Some("builtin:preset:task-intake@gone".into()), &builtin).is_err());
-        assert!(validate(&Some("builtin:orchestrator".into()), &builtin).is_err());
-        assert!(validate(&Some("shell".into()), &builtin).is_err());
-        assert!(validate(&Some("ln-1-1".into()), &builtin).is_err());
+        let bots = ["bot:intake".to_string()];
+        let check = |id: &str| validate(&Some(id.into()), &builtin, &bots);
+        assert!(validate(&None, &builtin, &bots).is_ok());
+        assert!(check("builtin:claude-code").is_ok());
+        assert!(check("bot:intake").is_ok());
+        for bad in [
+            "bot:gone",
+            "builtin:preset:task-intake",
+            "builtin:preset:task-intake@claude-code",
+            "builtin:orchestrator",
+            "shell",
+            "ln-1-1",
+        ] {
+            assert!(check(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]
@@ -173,20 +202,39 @@ mod tests {
     }
 
     #[test]
-    fn v0_orchestrator_becomes_task_intake() {
+    fn v0_orchestrator_becomes_the_intake_bot() {
         let (dir, store) =
             load_fixture("v0-orchestrator", r#"{"default_launch":"builtin:orchestrator","show_usage":false}"#);
-        assert_eq!(store.get().default_launch.as_deref(), Some("builtin:preset:task-intake"));
+        assert_eq!(store.get().default_launch.as_deref(), Some("bot:intake"));
         assert!(!store.get().show_usage);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
+    fn v1_preset_launches_become_bot_launches() {
+        let cases = [
+            ("builtin:preset:task-intake", "bot:intake"),
+            ("builtin:preset:project-setup", "bot:setup"),
+            ("builtin:preset:skill-wizard@opencode", "bot:skill-wizard-opencode"),
+            ("builtin:claude-code", "builtin:claude-code"),
+        ];
+        for (i, (old, new)) in cases.into_iter().enumerate() {
+            let raw = format!(r#"{{"schema_version":1,"data":{{"default_launch":"{old}","show_usage":false}}}}"#);
+            let (dir, store) = load_fixture(&format!("v1-preset-{i}"), &raw);
+            assert_eq!(store.get(), LaunchSettings { default_launch: Some(new.into()), show_usage: false }, "{old}");
+            assert!(backups(&dir).is_empty());
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    #[test]
     fn migration_only_touches_a_string_default_launch() {
         use serde_json::json;
-        assert_eq!(migrate_v0(json!({"default_launch": null})).unwrap(), json!({"default_launch": null}));
-        assert_eq!(migrate_v0(json!({"show_usage": false})).unwrap(), json!({"show_usage": false}));
-        assert_eq!(migrate_v0(json!([1])).unwrap(), json!([1]));
+        for step in MIGRATIONS {
+            assert_eq!(step(json!({"default_launch": null})).unwrap(), json!({"default_launch": null}));
+            assert_eq!(step(json!({"show_usage": false})).unwrap(), json!({"show_usage": false}));
+            assert_eq!(step(json!([1])).unwrap(), json!([1]));
+        }
     }
 
     #[test]
@@ -202,7 +250,7 @@ mod tests {
             .unwrap();
         assert_eq!(next, LaunchSettings { default_launch: Some("builtin:claude-code".into()), show_usage: false });
         let raw: Value = serde_json::from_str(&std::fs::read_to_string(dir.join(FILE_NAME)).unwrap()).unwrap();
-        assert_eq!(raw["schema_version"], 1);
+        assert_eq!(raw["schema_version"], 2);
         assert_eq!(raw["data"]["default_launch"], "builtin:claude-code");
         assert_eq!(raw["data"]["show_usage"], false);
         let reloaded = new_store();
@@ -235,7 +283,7 @@ mod tests {
     #[test]
     fn unreadable_file_keeps_defaults_and_refuses_updates() {
         // Istanza locale: il blocco delle scritture e' appiccicoso per istanza.
-        static LOCAL_FILE: JsonFile<LaunchSettings> = JsonFile::new("launch_settings.json", &[migrate_v0]);
+        static LOCAL_FILE: JsonFile<LaunchSettings> = JsonFile::new("launch_settings.json", &MIGRATIONS);
         let dir = temp_dir("unreadable");
         std::fs::create_dir_all(dir.join(FILE_NAME)).unwrap();
         let store = JsonStore::new(&LOCAL_FILE);

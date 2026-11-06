@@ -3,8 +3,7 @@ import { Plus } from "lucide-react";
 import StatusIcon from "../StatusIcon";
 import { GROUP_STATUS } from "../../lib/agents";
 import { groupIndicator } from "../../lib/layout";
-import { launchLabel } from "../../lib/launchMenu";
-import type { BuiltinLaunch, Launch, Workspace } from "../../lib/tauri";
+import type { BotLaunch, BuiltinLaunch, Launch, Workspace } from "../../lib/tauri";
 import { spawnTab } from "../../app/actions/tabs";
 import type { SidebarTerminal } from "../../stores/selectors";
 import OpenFolderButton from "./OpenFolderButton";
@@ -16,7 +15,7 @@ interface Props {
   ws: Workspace;
   terminals: SidebarTerminal[];
   counts: RowTaskCounts | undefined;
-  def: Launch | BuiltinLaunch | undefined;
+  def: Launch | BuiltinLaunch | BotLaunch | undefined;
 }
 
 /** Riga chiusa: stato del gruppo, task in corso, numero di terminali e azioni (visibili al passaggio del mouse). */
@@ -48,7 +47,7 @@ function CollapsedInfo({ ws, terminals, counts, def }: Props) {
         <button
           type="button"
           className={ICON_BTN}
-          title={def ? `Nuovo terminale: ${launchLabel(def)}` : "Nuovo terminale"}
+          title={def ? `Nuovo terminale: ${def.name}` : "Nuovo terminale"}
           aria-label="Nuovo terminale"
           onClick={() => spawnTab(ws)}
         >

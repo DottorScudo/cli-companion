@@ -100,7 +100,7 @@ fn skill_obstacle(skill: &SkillRef, agent: &dyn AgentIntegration) -> Option<Stri
         SkillRef::Plugin(id) if !PLUGIN_SKILLS.iter().any(|p| p.id == id) => {
             Some(format!("unknown plugin skill \"{id}\": ignored"))
         }
-        SkillRef::Plugin(id) if caps.presets.is_none() => {
+        SkillRef::Plugin(id) if caps.plugin_skills.is_none() => {
             Some(format!("{name} does not ship the plugin skills: skill \"{id}\" ignored"))
         }
         SkillRef::User(id) if caps.user_skills.is_none() => {

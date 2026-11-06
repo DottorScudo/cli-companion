@@ -76,8 +76,8 @@ interface Props {
    * lo scrollback non viene salvato (il tab non e' mai ripristinato).
    */
   automation?: { status: string; tooltip: string };
-  /** Avvio del tab (per il badge INTAKE del preset Task Intake). */
-  launchId?: string;
+  /** Tab di un Bot con la skill Task Intake (badge INTAKE). */
+  intake?: boolean;
   /** Nome del bot della sessione (assente = funzione spenta). */
   bot?: string;
   /** Immagine del bot (se il suo nome ne ha una). */
@@ -118,7 +118,7 @@ function TerminalView({
   cwd = null,
   automation,
   usage,
-  launchId,
+  intake,
   bot,
   botImage,
 }: Props) {
@@ -524,7 +524,7 @@ function TerminalView({
           focused={focused}
           status={paneStatus}
           automation={automation}
-          launchId={launchId}
+          intake={intake}
           bot={bot}
           botImage={botImage}
           usage={usage}

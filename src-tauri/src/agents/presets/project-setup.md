@@ -58,6 +58,10 @@ propose it. This only works in a cli-companion terminal, with the app running.
   each agent: read them in `get_workspace_settings.agents`.
 - `delivery`: `mode`, `parallel`, `merge_method` (see below).
 - `use_schedule`: whether the queue respects the time windows.
+- `default_launch`: what a new terminal of the workspace opens, one of
+  `get_workspace_settings.allowed.default_launch`: `shell`, a launch of the workspace, an agent
+  (`builtin:<id>`) or a Bot (`bot:<id>`: an agent with its own model, effort and skill); `null` =
+  the global default.
 - `repos`: per repository (key = folder relative to the workspace root, `.` = root; `null`
   removes its configuration): `base_branch`, `container_root`, `copy_ignored`, `setup`, `cleanup`,
   `remove_force`, `e2e` (`command`, `junit`, `timeout_min`; see "E2E suite").

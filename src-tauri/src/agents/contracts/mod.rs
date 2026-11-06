@@ -15,7 +15,7 @@ mod integration;
 mod interactive_launch;
 mod models;
 mod package;
-mod presets;
+mod plugin_skills;
 mod session_resume;
 mod session_usage;
 mod usage_limits;
@@ -36,7 +36,7 @@ pub use interactive_launch::{
 };
 pub use models::{ModelCatalog, ModelTier, SuggestedModel};
 pub use package::{fnv32, plugins_dir, sanitize_env_key, InstallCtx, IntegrationPackage, PackageFile};
-pub use presets::PresetLauncher;
+pub use plugin_skills::PluginSkills;
 pub use session_resume::{ResumeFlag, ResumeSpec, SessionResume};
 #[cfg(test)]
 pub use session_resume::{COMMAND_PLACEHOLDER, SESSION_ID_PLACEHOLDER};

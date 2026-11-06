@@ -1,12 +1,11 @@
 import { useCallback } from "react";
-import type { BuiltinLaunch, Launch, Workspace } from "../../lib/tauri";
+import type { BotLaunch, BuiltinLaunch, Launch, Workspace } from "../../lib/tauri";
 import type { TaskCounts } from "../../lib/board";
 import { shallowEqual } from "../../lib/store";
-import { resolveDefaultLaunch } from "../../lib/launch";
 import { useStore, useStores } from "../../hooks/useStore";
 import { boardsStore, taskCountsOf } from "../../stores/boards";
 import type { BoardsState } from "../../stores/boards";
-import { botImageResolver, configStore, launchesFor } from "../../stores/config";
+import { botImageResolver, configStore, defaultLaunchFor } from "../../stores/config";
 import { layoutStore, viewWorkspaceId } from "../../stores/layout";
 import { sameSidebarTerminals, sidebarTerminals } from "../../stores/selectors";
 import type { SidebarTerminal } from "../../stores/selectors";
@@ -69,8 +68,6 @@ export function useRowManagerShown(id: string): boolean {
 }
 
 /** Avvio predefinito del workspace (proprio, altrimenti globale); undefined = shell vuota. */
-export function useDefaultLaunch(ws: Workspace): Launch | BuiltinLaunch | undefined {
-  const builtins = useStore(configStore, (s) => launchesFor(s, ws));
-  const globalLaunch = useStore(configStore, (s) => s.globalLaunch);
-  return resolveDefaultLaunch(ws, builtins, globalLaunch);
+export function useDefaultLaunch(ws: Workspace): Launch | BuiltinLaunch | BotLaunch | undefined {
+  return useStore(configStore, (s) => defaultLaunchFor(s, ws));
 }

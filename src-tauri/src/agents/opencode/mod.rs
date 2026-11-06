@@ -30,7 +30,7 @@ mod models;
 mod package;
 mod permissions;
 mod plugin;
-mod presets;
+mod plugin_skills;
 mod readable_dirs;
 mod resume;
 mod skills;
@@ -90,7 +90,7 @@ impl AgentIntegration for OpenCode {
             session_resume: Some(self),
             automation: Some(self),
             worker_permissions: Some(self),
-            presets: Some(self),
+            plugin_skills: Some(self),
             user_skills: Some(self),
             // Nessuna finestra di abbonamento da leggere.
             usage_limits: None,
@@ -124,7 +124,7 @@ mod tests {
                 Capability::SessionResume,
                 Capability::Automation,
                 Capability::WorkerPermissions,
-                Capability::Presets,
+                Capability::PluginSkills,
                 Capability::UserSkills,
                 Capability::Models,
                 Capability::InteractiveLaunch,

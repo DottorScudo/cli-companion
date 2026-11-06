@@ -30,3 +30,16 @@ export function botTabSpec(workspaceId: string, key: string, entry: Pick<BotLaun
     startCommand: launch.command,
   };
 }
+
+/** Prefisso degli id delle voci dei Bot (`bot:<id>`, vedi `bots/launches.rs`). */
+export const BOT_LAUNCH_PREFIX = "bot:";
+
+/** L'id del Bot di una voce di lancio; `undefined` se non è la voce di un Bot. */
+export function launchBotId(launchId: string | null | undefined): string | undefined {
+  return launchId?.startsWith(BOT_LAUNCH_PREFIX) ? launchId.slice(BOT_LAUNCH_PREFIX.length) : undefined;
+}
+
+/** La voce è quella di un Bot (non di un integrato o di un avvio del workspace)? */
+export function isBotLaunch(launch: object): launch is BotLaunch {
+  return "bot_id" in launch;
+}

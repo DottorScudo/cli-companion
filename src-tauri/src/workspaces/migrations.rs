@@ -7,6 +7,9 @@ use serde_json::{json, Value};
 /// Chiave del repository che coincide con la root del workspace.
 const ROOT_REPO_KEY: &str = ".";
 
+/// Campo dell'avvio predefinito di un workspace.
+const DEFAULT_LAUNCH_KEY: &str = "default_launch";
+
 /// Errore di un file che non e' un elenco di workspace (anche per la lettura).
 pub(super) const NOT_A_LIST: &str = "atteso un elenco di workspace";
 
@@ -15,7 +18,7 @@ pub(super) const NOT_A_LIST: &str = "atteso un elenco di workspace";
 /// - `auto_orchestrate.enabled` -> `use_schedule`;
 /// - `worktree_setup` -> `repos["."].setup` (se questo e' vuoto);
 /// - il flag `is_default` degli avvii -> `default_launch`;
-/// - l'avvio rapido `builtin:orchestrator` (v0.11) -> `builtin:preset:task-intake`.
+/// - l'avvio rapido `builtin:orchestrator` (v0.11) -> il Bot che lo sostituisce.
 ///
 /// Le voci che non sono oggetti restano com'erano: le scarta la lettura.
 pub(super) fn migrate_v0(mut data: Value) -> Result<Value, String> {
@@ -124,12 +127,22 @@ fn migrate_default_launch(ws: &mut Object) {
             l.remove("is_default");
         });
     }
-    if let Some(slot) = ws.get_mut("default_launch") {
-        let mut id = slot.as_str().map(str::to_string);
-        crate::agents::presets::migrate_launch_id(&mut id);
-        if let Some(id) = id {
-            *slot = Value::String(id);
-        }
+    migrate_launch_field(ws, DEFAULT_LAUNCH_KEY);
+}
+
+/// Passo 2 -> 3: le voci dei preset (`builtin:preset:<id>[@<agente>]`)
+/// diventano le voci dei loro Bot (`bot:<id>`); il Bot derivato di una voce
+/// con l'agente scelto lo crea `launch_migration` all'avvio.
+pub(super) fn migrate_v2(mut data: Value) -> Result<Value, String> {
+    let Value::Array(workspaces) = &mut data else { return Err(NOT_A_LIST.to_string()) };
+    workspaces.iter_mut().filter_map(Value::as_object_mut).for_each(|ws| migrate_launch_field(ws, DEFAULT_LAUNCH_KEY));
+    Ok(data)
+}
+
+/// Riscrive in `ws[key]` una vecchia voce di lancio (vedi `launch_migration`).
+fn migrate_launch_field(ws: &mut Object, key: &str) {
+    if let Some(slot) = ws.get_mut(key) {
+        crate::launch_migration::migrate_launch_value(slot);
     }
 }
 
@@ -180,15 +193,36 @@ mod tests {
     }
 
     #[test]
-    fn the_orchestrator_launch_becomes_task_intake() {
+    fn the_orchestrator_launch_becomes_the_intake_bot() {
         let out = migrate(json!([
             {"id":"a","default_launch":"builtin:orchestrator"},
             {"id":"b","default_launch":"builtin:claude-code"},
             {"id":"c","default_launch":null}
         ]));
-        assert_eq!(out[0]["default_launch"], "builtin:preset:task-intake");
+        assert_eq!(out[0]["default_launch"], "bot:intake");
         assert_eq!(out[1]["default_launch"], "builtin:claude-code");
         assert_eq!(out[2]["default_launch"], Value::Null);
+    }
+
+    #[test]
+    fn the_v2_step_moves_preset_launches_to_their_bots() {
+        let out = migrate_v2(json!([
+            {"id":"a","default_launch":"builtin:preset:task-intake"},
+            {"id":"b","default_launch":"builtin:preset:project-setup@opencode"},
+            {"id":"c","default_launch":"builtin:orchestrator"},
+            {"id":"d","default_launch":"l1","launches":[{"id":"l1"}]},
+            {"id":"e"},
+            7
+        ]))
+        .unwrap();
+        assert_eq!(out[0]["default_launch"], "bot:intake");
+        assert_eq!(out[1]["default_launch"], "bot:setup-opencode");
+        assert_eq!(out[2]["default_launch"], "bot:intake");
+        assert_eq!(out[3], json!({"id":"d","default_launch":"l1","launches":[{"id":"l1"}]}));
+        assert_eq!(out[4], json!({"id":"e"}));
+        assert_eq!(out[5], json!(7));
+        assert_eq!(migrate_v2(out.clone()).unwrap(), out, "idempotente");
+        assert_eq!(migrate_v2(json!({})).unwrap_err(), NOT_A_LIST);
     }
 
     #[test]

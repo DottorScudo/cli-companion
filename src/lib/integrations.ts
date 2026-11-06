@@ -19,7 +19,7 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   "session-resume": "Ripresa sessioni",
   automation: "Worker",
   "worker-permissions": "Permessi",
-  presets: "Preset",
+  "plugin-skills": "Skill del plugin",
   "user-skills": "Skill",
   "usage-limits": "Limiti di utilizzo",
   "session-usage": "Token per sessione",

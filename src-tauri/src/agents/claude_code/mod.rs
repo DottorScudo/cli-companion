@@ -13,7 +13,7 @@ mod models;
 mod package;
 mod permissions;
 mod plugin;
-mod presets;
+mod plugin_skills;
 mod readable_dirs;
 mod resume;
 mod session_usage;
@@ -72,7 +72,7 @@ impl AgentIntegration for ClaudeCode {
             session_resume: Some(self),
             automation: Some(self),
             worker_permissions: Some(self),
-            presets: Some(self),
+            plugin_skills: Some(self),
             user_skills: Some(self),
             usage_limits: Some(self),
             session_usage: Some(self),

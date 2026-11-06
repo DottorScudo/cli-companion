@@ -16,6 +16,14 @@ fn rule_limits() -> RuleFormat {
     worker_rule_format(agent_id()).expect("the default worker agent applies permission rules")
 }
 
+/// La voce del solo Bot abilitato nei test.
+const TEST_BOT_LAUNCH: &str = "bot:intake";
+
+/// Gli avvii integrati e il Bot dei test: quelli che `default_launch` puo' nominare.
+fn shared() -> Vec<String> {
+    shared_launch_ids(vec![TEST_BOT_LAUNCH.to_string()])
+}
+
 /// Proposta che cambia una sola voce di `worker_agents` dell'agente predefinito.
 fn agent_patch(fields: serde_json::Value) -> serde_json::Value {
     json!({"worker_agents": {agent_id(): fields}})
@@ -43,7 +51,7 @@ fn id_gen() -> impl FnMut() -> String {
 }
 
 fn apply(p: &SettingsPatch, w: &mut Workspace) -> Result<(), ValidationError> {
-    p.apply(w, &mut id_gen())
+    p.apply(w, &shared(), &mut id_gen())
 }
 
 #[test]
@@ -123,7 +131,7 @@ fn normalized_cleans_values() {
         "launches": [{"id": "l1", "name": " Dev ", "command": " ls "}],
         "repos": {"api/": {"base_branch": " main ", "setup": [" a ", ""]}}
     }));
-    let n = p.normalized(&w).unwrap();
+    let n = p.normalized(&w, &shared()).unwrap();
     assert_eq!(n.worker_rules.as_deref(), Some("no tests"));
     assert_eq!(n.agent, Some(Some(agent_id().to_string())));
     assert_eq!(n.worker_permission.as_deref(), Some("accept-edits"));
@@ -149,13 +157,13 @@ fn normalized_cleans_values() {
 fn delivery_keeps_parallel_with_branches_and_merges_onto_current() {
     let mut w = ws();
     w.delivery = Delivery { mode: DeliveryMode::Pr, parallel: true, merge_method: MergeMethod::Merge };
-    let n = patch(json!({"delivery": {"merge_method": "rebase"}})).normalized(&w).unwrap();
+    let n = patch(json!({"delivery": {"merge_method": "rebase"}})).normalized(&w, &shared()).unwrap();
     assert_eq!(n.delivery, Some(DeliveryPatch { merge_method: Some(MergeMethod::Rebase), ..Default::default() }));
     // Cambiando solo la modalita', `parallel` esistente viene riletto dalla normalizzazione.
-    let n = patch(json!({"delivery": {"mode": "push"}})).normalized(&w).unwrap();
+    let n = patch(json!({"delivery": {"mode": "push"}})).normalized(&w, &shared()).unwrap();
     assert_eq!(n.delivery, Some(DeliveryPatch { mode: Some(DeliveryMode::Push), ..Default::default() }));
     let mut next = w.clone();
-    patch(json!({"delivery": {"mode": "push"}})).apply(&mut next, &mut id_gen()).unwrap();
+    patch(json!({"delivery": {"mode": "push"}})).apply(&mut next, &shared(), &mut id_gen()).unwrap();
     assert!(!next.delivery.parallel);
 }
 
@@ -227,7 +235,7 @@ fn invalid_values_fail_with_the_english_texts_for_the_model() {
         (json!({"repos": {"/abs": {"remove_force": true}}}), "repos['/abs']"),
     ];
     for (v, expect) in cases {
-        let err = patch(v.clone()).normalized(&w).unwrap_err();
+        let err = patch(v.clone()).normalized(&w, &shared()).unwrap_err();
         let en = err.message_en();
         assert!(en.contains(expect), "{v}: {en} (it: {})", err.message_it());
     }
@@ -247,7 +255,7 @@ fn every_rejection_has_a_distinct_italian_and_english_text() {
         json!({"repos": {"x": {}}}),
         json!({"delivery": {}}),
     ] {
-        let err = patch(v.clone()).normalized(&w).unwrap_err();
+        let err = patch(v.clone()).normalized(&w, &shared()).unwrap_err();
         assert_ne!(err.message_it(), err.message_en(), "{v}");
         assert_eq!(String::from(err.clone()), err.message_it(), "i comandi dell'interfaccia usano l'italiano");
     }
@@ -257,7 +265,7 @@ fn every_rejection_has_a_distinct_italian_and_english_text() {
 fn errors_carry_a_code_and_the_place_where_they_happened() {
     let mut w = ws();
     w.launches = vec![launch("l1")];
-    let code = |v: serde_json::Value| patch(v).normalized(&w).unwrap_err().code();
+    let code = |v: serde_json::Value| patch(v).normalized(&w, &shared()).unwrap_err().code();
     assert_eq!(code(json!({"worker_rules": "a\u{1}b"})), ErrorCode::RulesControlChars);
     assert_eq!(code(json!({"worker_permission": "root"})), ErrorCode::PermissionInvalid);
     assert_eq!(code(json!({"default_launch": "nope"})), ErrorCode::DefaultLaunchInvalid);
@@ -269,10 +277,10 @@ fn errors_carry_a_code_and_the_place_where_they_happened() {
     );
     assert_eq!(code(json!({"launches": [{"id": "ghost", "name": "n", "command": "c"}]})), ErrorCode::LaunchIdUnknown);
     let err = patch(json!({"launches": [{"name": "n", "command": "c"}, {"name": "", "command": "c"}]}))
-        .normalized(&w)
+        .normalized(&w, &shared())
         .unwrap_err();
     assert_eq!(err.message_it(), "launches[1]: nome avvio mancante");
-    let err = patch(json!({"repos": {"api/": {"setup": ["a\nb"]}}})).normalized(&w).unwrap_err();
+    let err = patch(json!({"repos": {"api/": {"setup": ["a\nb"]}}})).normalized(&w, &shared()).unwrap_err();
     assert_eq!(err.message_it(), "repos['api']: il comando di setup deve stare su una riga: a\nb");
 }
 
@@ -281,20 +289,20 @@ fn rule_errors_name_their_list_and_keep_limits() {
     let w = ws();
     let too_long = format!("Bash({})", "a".repeat(rule_limits().max_rule_chars));
     let prefix = format!("worker_agents['{}']: ", agent_id());
-    let err = patch(agent_patch(json!({"deny": [too_long]}))).normalized(&w).unwrap_err();
+    let err = patch(agent_patch(json!({"deny": [too_long]}))).normalized(&w, &shared()).unwrap_err();
     assert_eq!(err.code(), ErrorCode::PermissionRuleTooLong);
     assert!(err.message_en().starts_with(&format!("{prefix}worker_deny: rule \"Bash(aaa")), "{}", err.message_en());
     let max_rule_chars = rule_limits().max_rule_chars;
     assert!(err.message_en().ends_with(&format!("longer than {max_rule_chars} characters")));
     assert!(err.message_it().starts_with(&format!("{prefix}Vietati: regola \"Bash(aaa")), "{}", err.message_it());
-    let err = patch(agent_patch(json!({"allow": ["a b"]}))).normalized(&w).unwrap_err();
+    let err = patch(agent_patch(json!({"allow": ["a b"]}))).normalized(&w, &shared()).unwrap_err();
     assert_eq!(err.message_en(), format!("{prefix}worker_allow: rule \"a b\": not a valid rule for the worker agent"));
     assert_eq!(
         err.message_it(),
         format!("{prefix}Consentiti: regola \"a b\": forma non valida per l'agente dei worker")
     );
     let many: Vec<String> = (0..=rule_limits().max_rules).map(|i| format!("R{i}")).collect();
-    let err = patch(agent_patch(json!({"deny": many}))).normalized(&w).unwrap_err();
+    let err = patch(agent_patch(json!({"deny": many}))).normalized(&w, &shared()).unwrap_err();
     let max_rules = rule_limits().max_rules;
     assert_eq!(err.message_en(), format!("{prefix}worker_deny: too many rules (max {max_rules})"));
 }
@@ -305,12 +313,39 @@ fn default_launch_is_checked_against_launches_after_the_patch() {
     w.launches = vec![launch("l1"), launch("l2")];
     // l2 viene tolto dalla lista proposta: non puo' essere il predefinito.
     let both = patch(json!({"launches": [{"id": "l1", "name": "a", "command": "b"}], "default_launch": "l2"}));
-    assert!(both.normalized(&w).is_err());
+    assert!(both.normalized(&w, &shared()).is_err());
     let ok = patch(json!({"launches": [{"id": "l1", "name": "a", "command": "b"}], "default_launch": "l1"}));
-    assert!(ok.normalized(&w).is_ok());
+    assert!(ok.normalized(&w, &shared()).is_ok());
     // "shell" e gli integrati sono sempre ammessi.
-    assert!(patch(json!({"default_launch": "shell"})).normalized(&w).is_ok());
-    assert!(patch(json!({"default_launch": "builtin:claude-code"})).normalized(&w).is_ok());
+    assert!(patch(json!({"default_launch": "shell"})).normalized(&w, &shared()).is_ok());
+    assert!(patch(json!({"default_launch": "builtin:claude-code"})).normalized(&w, &shared()).is_ok());
+}
+
+#[test]
+fn default_launch_accepts_an_enabled_bot_only() {
+    let w = ws();
+    let n = patch(json!({"default_launch": TEST_BOT_LAUNCH})).normalized(&w, &shared()).unwrap();
+    assert_eq!(n.default_launch, Some(Some(TEST_BOT_LAUNCH.to_string())));
+    let err = patch(json!({"default_launch": "bot:gone"})).normalized(&w, &shared()).unwrap_err();
+    assert_eq!(err.code(), ErrorCode::DefaultLaunchInvalid);
+}
+
+#[test]
+fn an_old_preset_launch_in_a_saved_proposal_goes_to_its_bot() {
+    let w = ws();
+    let launch = |id: &str, shared: &[String]| {
+        patch(json!({"default_launch": id}))
+            .normalized(&w, shared)
+            .map(|n| n.default_launch.flatten())
+            .map_err(|e| e.code())
+    };
+    let derived = shared_launch_ids(vec![TEST_BOT_LAUNCH.into(), "bot:intake-x".into()]);
+    assert_eq!(launch("builtin:preset:task-intake", &shared()), Ok(Some(TEST_BOT_LAUNCH.into())));
+    assert_eq!(launch("builtin:preset:task-intake@x", &derived), Ok(Some("bot:intake-x".into())));
+    // Senza il Bot derivato si ripiega sul predefinito, non sulla shell.
+    assert_eq!(launch("builtin:preset:task-intake@x", &shared()), Ok(Some(TEST_BOT_LAUNCH.into())));
+    // Il Bot del preset non e' abilitato: la proposta resta non valida.
+    assert_eq!(launch("builtin:preset:project-setup", &shared()), Err(ErrorCode::DefaultLaunchInvalid));
 }
 
 #[test]
@@ -444,7 +479,7 @@ fn current_reports_only_touched_fields() {
         "launches": [],
         "repos": {"api": {"setup": ["b"]}, "fresh": {"setup": ["x"]}, "gone": null}
     }))
-    .normalized(&w)
+    .normalized(&w, &shared())
     .unwrap();
     let cur = p.current(&w);
     assert_eq!(cur.worker_rules.as_deref(), Some("old"));
@@ -526,7 +561,9 @@ fn needs_reconcile_and_repo_keys() {
     assert!(patch(json!({"use_schedule": false})).needs_reconcile());
     assert!(!patch(json!({"worker_rules": "x", "repos": {"a": null}})).needs_reconcile());
     let w = ws();
-    let n = patch(json!({"repos": {"b/": {"remove_force": true}, "./": null, "a": null}})).normalized(&w).unwrap();
+    let n = patch(json!({"repos": {"b/": {"remove_force": true}, "./": null, "a": null}}))
+        .normalized(&w, &shared())
+        .unwrap();
     assert_eq!(n.repo_keys(), [".", "a", "b"]);
     assert!(patch(json!({})).repo_keys().is_empty());
 }
@@ -584,7 +621,7 @@ fn e2e_errors_have_english_texts() {
         (json!({"command": "c", "junit": "j", "timeout_min": 61}), "repos['x']: invalid e2e timeout_min"),
     ];
     for (e2e, expect) in cases {
-        let err = patch(json!({"repos": {"x": {"e2e": e2e}}})).normalized(&w).unwrap_err();
+        let err = patch(json!({"repos": {"x": {"e2e": e2e}}})).normalized(&w, &shared()).unwrap_err();
         let en = err.message_en();
         assert!(en.contains(expect), "{e2e}: {en} (it: {})", err.message_it());
         assert_ne!(en, err.message_it());

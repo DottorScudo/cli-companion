@@ -40,6 +40,8 @@ mod worker_state;
 
 /// Tab dell'Intake (una sessione normale del workspace "ws-1").
 const INTAKE: &str = "tab-intake";
+/// La voce del solo Bot abilitato dell'host finto.
+pub(super) const FAKE_BOT_LAUNCH: &str = "bot:intake";
 
 pub(super) fn ws(id: &str, name: &str, kind: &str) -> Workspace {
     let kind = TargetKind::parse(kind).expect("kind del workspace di test");
@@ -465,12 +467,15 @@ impl Host for FakeHost {
         }
         let mut w = self.ws_for(ws_id).expect("ws-1");
         let mut seq = 0;
-        patch.apply(&mut w, &mut || {
+        patch.apply(&mut w, &self.shared_launch_ids(), &mut || {
             seq += 1;
             format!("launch-{call}-{seq}")
         })?;
         self.store_ws1(w.clone());
         Ok(w)
+    }
+    fn shared_launch_ids(&self) -> Vec<String> {
+        crate::workspaces::shared_launch_ids(vec![FAKE_BOT_LAUNCH.to_string()])
     }
     fn agent_readiness(&self, _ws: &Workspace, agent: &str) -> Option<Readiness> {
         self.readiness.lock().unwrap().get(agent).copied().unwrap_or(Some(unforced_readiness(agent)))

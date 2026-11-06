@@ -5,22 +5,10 @@
  */
 export type BuiltinLaunch = { 
 /**
- * `builtin:<agent_id>`, `builtin:preset:<preset_id>` oppure
- * `builtin:preset:<preset_id>@<agent_id>`.
+ * `builtin:<agent_id>`.
  */
 id: string, name: string, command: string, 
 /**
- * Comando salvato nella sessione del tab per il ripristino: per un
- * preset e' quello interattivo (riprende la conversazione invece di
- * rieseguire la skill).
+ * Comando salvato nella sessione del tab per il ripristino.
  */
-restore_command: string, agent_id: string, agent_name: string, 
-/**
- * Id del preset; `None` per l'avvio interattivo di un agente.
- */
-preset: string | null, 
-/**
- * La voce di un preset senza agente scelto: parte con quello del
- * workspace (o il predefinito globale), qui gia' risolto in `agent_id`.
- */
-follows_workspace_agent: boolean, };
+restore_command: string, agent_id: string, agent_name: string, };

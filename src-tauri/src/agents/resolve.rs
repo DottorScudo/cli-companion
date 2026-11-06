@@ -13,8 +13,6 @@ use std::fmt;
 pub enum AgentUse {
     /// Le sessioni automatiche dei worker.
     Worker,
-    /// I preset (task intake, skill wizard, project setup).
-    Preset,
 }
 
 impl AgentUse {
@@ -22,7 +20,6 @@ impl AgentUse {
     pub fn required(self) -> Capability {
         match self {
             AgentUse::Worker => Capability::Automation,
-            AgentUse::Preset => Capability::Presets,
         }
     }
 
@@ -30,7 +27,6 @@ impl AgentUse {
     fn description(self) -> &'static str {
         match self {
             AgentUse::Worker => "automated sessions",
-            AgentUse::Preset => "presets",
         }
     }
 }
@@ -144,7 +140,7 @@ mod tests {
         let err = resolve_in(&registered, &only_first, Some(FAKE_ID), Some(first_id()), AgentUse::Worker).err();
         assert_eq!(err, Some(AgentUnavailable::Disabled { id: FAKE_ID.into(), name: "Fake" }));
         assert_eq!(err.unwrap().to_string(), "Fake is disabled: enable it in the integrations settings");
-        let from_workspace = resolve_in(&registered, &only_first, None, Some(FAKE_ID), AgentUse::Preset);
+        let from_workspace = resolve_in(&registered, &only_first, None, Some(FAKE_ID), AgentUse::Worker);
         assert!(matches!(from_workspace, Err(AgentUnavailable::Disabled { .. })));
     }
 
@@ -155,7 +151,7 @@ mod tests {
         assert_eq!(err, Some(AgentUnavailable::Unknown("nope".into())));
         assert_eq!(err.unwrap().to_string(), "unknown agent: nope");
         let from_workspace =
-            resolve_in(&registered, &IntegrationsState::default(), None, Some("gone"), AgentUse::Preset);
+            resolve_in(&registered, &IntegrationsState::default(), None, Some("gone"), AgentUse::Worker);
         assert_eq!(from_workspace.err(), Some(AgentUnavailable::Unknown("gone".into())));
     }
 
@@ -164,14 +160,10 @@ mod tests {
         let bare = FakeIntegration::bare(FAKE_ID, "fake-cli");
         let registered = [registry::all()[0], &bare as &dyn AgentIntegration];
         let both = state(&[first_id(), FAKE_ID], first_id());
-        for (purpose, text) in [
-            (AgentUse::Worker, "Fake does not support automated sessions"),
-            (AgentUse::Preset, "Fake does not support presets"),
-        ] {
-            let err = resolve_in(&registered, &both, Some(FAKE_ID), None, purpose).err().unwrap();
-            assert_eq!(err, AgentUnavailable::MissingContract { id: FAKE_ID.into(), name: "Fake", purpose });
-            assert_eq!(err.to_string(), text);
-        }
+        let purpose = AgentUse::Worker;
+        let err = resolve_in(&registered, &both, Some(FAKE_ID), None, purpose).err().unwrap();
+        assert_eq!(err, AgentUnavailable::MissingContract { id: FAKE_ID.into(), name: "Fake", purpose });
+        assert_eq!(err.to_string(), "Fake does not support automated sessions");
         // Anche il predefinito globale deve avere il contratto.
         let bare_default = state(&[first_id(), FAKE_ID], FAKE_ID);
         assert!(resolve_in(&registered, &bare_default, None, None, AgentUse::Worker).is_err());
@@ -180,6 +172,5 @@ mod tests {
     #[test]
     fn required_contracts_per_use() {
         assert_eq!(AgentUse::Worker.required(), Capability::Automation);
-        assert_eq!(AgentUse::Preset.required(), Capability::Presets);
     }
 }

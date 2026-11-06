@@ -151,7 +151,7 @@ error_codes! {
     ),
     DefaultLaunchInvalid => (
         "avvio predefinito non valido",
-        "invalid default_launch (use \"shell\", the id of a workspace launch or a builtin launch id)"
+        "invalid default_launch (use \"shell\", the id of a workspace launch, a builtin launch id or a Bot launch id)"
     ),
     // Proposte di impostazioni.
     AgentsTooMany => (

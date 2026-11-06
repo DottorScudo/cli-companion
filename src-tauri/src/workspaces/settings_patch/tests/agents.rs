@@ -13,7 +13,7 @@ fn entry(model: Option<&str>, allow: &[&str]) -> AgentWorkerSettings {
 }
 
 fn code(w: &Workspace, v: serde_json::Value) -> ErrorCode {
-    patch(v).normalized(w).unwrap_err().code()
+    patch(v).normalized(w, &shared()).unwrap_err().code()
 }
 
 #[test]
@@ -31,9 +31,9 @@ fn the_agent_is_set_trimmed_and_reset_to_the_global_default() {
 fn an_unknown_agent_is_rejected_for_the_workspace_and_for_the_settings() {
     let w = ws();
     assert_eq!(code(&w, json!({"agent": "nope"})), ErrorCode::AgentUnknown);
-    let err = patch(json!({"agent": "nope"})).normalized(&w).unwrap_err();
+    let err = patch(json!({"agent": "nope"})).normalized(&w, &shared()).unwrap_err();
     assert_eq!(err.message_en(), "unknown agent: nope");
-    let err = patch(json!({"worker_agents": {"nope": {"model": "m"}}})).normalized(&w).unwrap_err();
+    let err = patch(json!({"worker_agents": {"nope": {"model": "m"}}})).normalized(&w, &shared()).unwrap_err();
     assert_eq!(err.code(), ErrorCode::AgentUnknown);
     assert_eq!(err.message_en(), "worker_agents['nope']: unknown agent: nope");
 }
@@ -46,12 +46,12 @@ fn the_agent_is_not_a_sensitive_field() {
 #[test]
 fn an_empty_entry_and_too_many_entries_are_rejected() {
     let w = ws();
-    let err = patch(agent_patch(json!({}))).normalized(&w).unwrap_err();
+    let err = patch(agent_patch(json!({}))).normalized(&w, &shared()).unwrap_err();
     assert_eq!(err.code(), ErrorCode::RepoPatchEmpty);
     assert_eq!(err.message_en(), format!("worker_agents['{}']: has no fields", agent_id()));
     let many: serde_json::Map<String, serde_json::Value> =
         (0..=MAX_PATCH_AGENTS).map(|i| (format!("agent-{i}"), json!({"model": "m"}))).collect();
-    let err = patch(json!({ "worker_agents": many })).normalized(&w).unwrap_err();
+    let err = patch(json!({ "worker_agents": many })).normalized(&w, &shared()).unwrap_err();
     assert_eq!(err.code(), ErrorCode::AgentsTooMany);
     assert_eq!(err.message_en(), format!("too many agents in worker_agents (max {MAX_PATCH_AGENTS})"));
 }
@@ -60,7 +60,7 @@ fn an_empty_entry_and_too_many_entries_are_rejected() {
 fn a_model_the_agent_does_not_accept_is_rejected() {
     let w = ws();
     assert_eq!(code(&w, agent_patch(json!({"model": "bad model!"}))), ErrorCode::ModelNotForAgent);
-    assert!(patch(agent_patch(json!({"model": " sonnet "}))).normalized(&w).is_ok());
+    assert!(patch(agent_patch(json!({"model": " sonnet "}))).normalized(&w, &shared()).is_ok());
 }
 
 #[test]

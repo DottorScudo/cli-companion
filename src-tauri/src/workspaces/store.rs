@@ -3,7 +3,7 @@
 //! Ogni modifica passa da `update` / `modify`: si applica a una copia, si salva
 //! e solo poi si pubblica.
 
-use super::migrations::{migrate_v0, migrate_v1, NOT_A_LIST};
+use super::migrations::{migrate_v0, migrate_v1, migrate_v2, NOT_A_LIST};
 use super::model::Workspace;
 use crate::store::{data_dir, Decoded, JsonFile, JsonStore};
 use serde_json::Value;
@@ -21,7 +21,7 @@ pub(super) const LAUNCH_ID_PREFIX: &str = "ln";
 
 /// Descrizione del file: i test ne fanno istanze locali (il blocco delle scritture e' per istanza).
 const fn workspaces_file() -> JsonFile<Vec<Workspace>> {
-    JsonFile::new("workspaces.json", &[migrate_v0, migrate_v1]).decoded_with(decode_workspaces)
+    JsonFile::new("workspaces.json", &[migrate_v0, migrate_v1, migrate_v2]).decoded_with(decode_workspaces)
 }
 
 static WORKSPACES_FILE: JsonFile<Vec<Workspace>> = workspaces_file();

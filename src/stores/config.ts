@@ -5,6 +5,7 @@ import { createStore } from "../lib/store.ts";
 import { botImageOf } from "../lib/bots.ts";
 import type { BotImage } from "../lib/bots.ts";
 import { defaultOf, enabledEnvStatuses, enabledOf } from "../lib/integrations.ts";
+import { resolveDefaultLaunch } from "../lib/launch.ts";
 import type {
   AgentEnvStatus,
   AgentProfile,
@@ -12,6 +13,8 @@ import type {
   BotSettings,
   BuiltinLaunch,
   IntegrationInfo,
+  Launch,
+  Workspace,
 } from "../lib/tauri.ts";
 
 export interface ConfigState {
@@ -19,10 +22,8 @@ export interface ConfigState {
   agentProfiles: AgentProfile[];
   /** Profili caricati (o errore già segnalato): il ripristino della sessione li aspetta. */
   profilesReady: boolean;
-  /** Avvii integrati con i preset sull'agente predefinito (workspace senza un agente proprio). */
+  /** Avvii integrati: uno per agente abilitato. */
   builtinLaunches: BuiltinLaunch[];
-  /** Avvii integrati per i workspace con un agente proprio, per id dell'agente. */
-  agentLaunches: Record<string, BuiltinLaunch[]>;
   /** Avvii dei Bot agente: per l'agente predefinito e per ogni agente proprio dei workspace. */
   botLaunches: BotLaunch[];
   agentBotLaunches: Record<string, BotLaunch[]>;
@@ -42,7 +43,6 @@ export const INITIAL_CONFIG: ConfigState = {
   agentProfiles: [],
   profilesReady: false,
   builtinLaunches: [],
-  agentLaunches: {},
   botLaunches: [],
   agentBotLaunches: {},
   globalLaunch: null,
@@ -95,20 +95,27 @@ export function shownBot(bots: BotSettings, name: string): string | undefined {
   return bots.enabled ? name : undefined;
 }
 
-/** Avvii integrati di un workspace: i preset partono con il suo agente, se ne ha uno. */
-export function launchesFor(
-  s: Pick<ConfigState, "builtinLaunches" | "agentLaunches">,
-  ws: { agent?: string | null },
-): BuiltinLaunch[] {
-  return (ws.agent ? s.agentLaunches[ws.agent] : undefined) ?? s.builtinLaunches;
-}
-
-/** Avvii dei Bot agente di un workspace, come `launchesFor`. */
+/** Avvii dei Bot agente di un workspace: partono con il suo agente, se ne ha uno. */
 export function botLaunchesFor(
   s: Pick<ConfigState, "botLaunches" | "agentBotLaunches">,
   ws: { agent?: string | null },
 ): BotLaunch[] {
   return (ws.agent ? s.agentBotLaunches[ws.agent] : undefined) ?? s.botLaunches;
+}
+
+type WithSharedLaunches = Pick<ConfigState, "builtinLaunches" | "botLaunches" | "agentBotLaunches" | "globalLaunch">;
+
+/** Avvii che un workspace può scegliere come predefinito oltre ai suoi: gli integrati e i suoi Bot. */
+export function sharedLaunchesFor(s: WithSharedLaunches, ws: { agent?: string | null }): (BuiltinLaunch | BotLaunch)[] {
+  return [...s.builtinLaunches, ...botLaunchesFor(s, ws)];
+}
+
+/** Avvio predefinito effettivo di un workspace: uno degli oggetti degli elenchi, quindi stabile. */
+export function defaultLaunchFor<T extends Launch>(
+  s: WithSharedLaunches,
+  ws: { agent?: string | null; launches?: T[] } & Pick<Workspace, "default_launch">,
+): T | BuiltinLaunch | BotLaunch | undefined {
+  return resolveDefaultLaunch(ws, sharedLaunchesFor(s, ws), s.globalLaunch);
 }
 
 type WithIntegrations = Pick<ConfigState, "integrations">;

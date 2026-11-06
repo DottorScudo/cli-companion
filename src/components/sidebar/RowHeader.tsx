@@ -1,7 +1,7 @@
 import { memo } from "react";
 import EnvChip from "../EnvChip";
 import { cn } from "../../lib/utils";
-import type { BuiltinLaunch, Launch, Workspace } from "../../lib/tauri";
+import type { BotLaunch, BuiltinLaunch, Launch, Workspace } from "../../lib/tauri";
 import type { SidebarTerminal } from "../../stores/selectors";
 import CollapsedInfo from "./CollapsedInfo";
 import HubWaitingButton from "./HubWaitingButton";
@@ -14,7 +14,7 @@ interface Props {
   expanded: boolean;
   terminals: SidebarTerminal[];
   counts: RowTaskCounts | undefined;
-  def: Launch | BuiltinLaunch | undefined;
+  def: Launch | BuiltinLaunch | BotLaunch | undefined;
 }
 
 function wsPath(ws: Workspace): string {

@@ -14,7 +14,7 @@ import {
 import { closeTab, handleExit, handleInput, handleStatus, handleTitle } from "../../app/actions/tabs";
 import { registerFlush } from "../../app/lifecycle";
 import { resolveInputOverride, tabAgentId, tabStatus } from "../../lib/agents";
-import { automationTooltip } from "../../lib/automation";
+import { automationTooltip, isIntakeLaunch } from "../../lib/automation";
 import { GLOBAL_ID } from "../../lib/layout";
 import { usageText, usageTooltip } from "../../lib/usage";
 import { botImageResolver, configStore, shownBot } from "../../stores/config";
@@ -97,7 +97,7 @@ function TerminalPane({ tabId }: Props) {
       labelPrefix={pane?.groupWorkspaceId === GLOBAL_ID ? workspace?.name : undefined}
       status={status}
       cwd={tab.cwd}
-      launchId={tab.launchId}
+      intake={isIntakeLaunch(tab.launchId, bots.agents)}
       usage={usage}
       automation={automationInfo}
       maximized={pane?.maximized ?? false}

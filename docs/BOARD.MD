@@ -1061,17 +1061,18 @@ Codice in `automation/worktrees/start/free.rs` (avvio) e `board/texts/free.rs` (
 ## Preset di agenti
 
 Registro nell'app (`agents`): `Preset { id, name, skill }` con lo SKILL.md (inglese)
-incluso con `include_str!`. Il pacchetto di ogni integrazione che dichiara `presets` contiene la skill di
-ogni preset (per Claude Code `skills/<id>/SKILL.md` nel plugin; non più `orchestrate`/`workflow`:
-l'installazione rimuove le cartelle obsolete). Ogni preset diventa **voci rapide** integrate, una per
-integrazione abilitata che lo dichiara: `builtin:preset:<id>` parte con l'agente del workspace
-(`resolve_agent(None, Workspace.agent, Preset)`: workspace, poi predefinito globale) e
-`builtin:preset:<id>@<agente>` con l'agente scelto (sottomenu “Avvia con…”). Il comando lo costruisce il
-contratto `PresetLauncher` dell'agente (per Claude Code `claude --dangerously-skip-permissions
-"/cli-companion-notify:<id>"`) e `restore_command` è il comando interattivo (ripristino della
-conversazione), come faceva l'orchestratore. Una skill non nomina mai un agente o un modello: li legge da
+incluso con `include_str!`. Il pacchetto di ogni integrazione che dichiara `plugin-skills` (contratto `PluginSkills`,
+solo `skill_path`) contiene la skill di ogni preset (per Claude Code `skills/<id>/SKILL.md` nel plugin; non più
+`orchestrate`/`workflow`: l'installazione rimuove le cartelle obsolete). I preset non hanno più voci rapide proprie
+(niente `builtin:preset:<id>`, niente sottomenu “Avvia con…”): una sessione guidata da una skill del plugin parte solo
+come **Bot** (`bot:<id>`, `bots/launches.rs`), che porta agente, modello, effort e skill nella sua configurazione
+(`bots.json`); i Bot predefiniti `intake`, `setup` e `skill-wizard` usano le tre skill. Un Bot con una skill del plugin
+richiede un agente che dichiara `plugin-skills`. Una skill non nomina mai un agente o un modello: li legge da
 `get_workspace_settings.agents`.
-- Un `default_launch` salvato come `builtin:orchestrator` diventa `builtin:preset:task-intake`.
+- Un `default_launch` salvato come `builtin:orchestrator` o `builtin:preset:task-intake` diventa `bot:intake`
+  (`builtin:preset:project-setup` → `bot:setup`, `builtin:preset:skill-wizard` → `bot:skill-wizard`,
+  `builtin:preset:<preset>@<agente>` → `bot:<bot>-<agente>`, un Bot derivato creato una volta sola all'avvio): vedi
+  DESIGN.MD, `launch_migration/`. Una versione precedente dell'app mette da parte i file migrati.
 - Primo preset: **`task-intake`**, nome "Task Intake". Skill (inglese): accogli la richiesta;
   fai domande solo se servono; esplora il repository (file, convenzioni, test, comandi di
   verifica, CLAUDE.md); se il lavoro è grande dividilo in pochi task con dipendenze;
@@ -1093,7 +1094,7 @@ conversazione), come faceva l'orchestratore. Una skill non nomina mai un agente 
   workspace e non il lavoro sul codice, non crea un task ma usa `get_workspace_settings` /
   `propose_settings`, oppure suggerisce Project Setup.
 - **Scenari E2E (opzionali)**: se il progetto ha gia una suite E2E (`playwright.config.*`, `cypress.config.*`, cartelle `e2e/` o `tests/e2e/`, script `test:e2e`, pytest-playwright), per i task che cambiano un flusso visibile la specifica contiene una sezione **E2E scenarios**: elenco numerato punto di partenza -> azioni in parole semplici -> esito osservabile (con il caso negativo se conta), mai selettori, ripetuti in "Done when". I task senza flussi visibili non hanno scenari. Senza suite l'Intake non scrive scenari e non propone di configurarla. Solo su richiesta esplicita dell'utente il task di configurazione prevede Playwright (salvo un framework gia in uso), `webServer` sulla porta di `CLI_COMPANION_E2E_PORT` con `baseURL` coerente, reporter `junit` su `e2e-results/junit.xml` e `html` (`open: "never"`), un test di base e i browser documentati nel README.
-- **`project-setup`**, nome "Project Setup" (voce rapida `builtin:preset:project-setup`, skill
+- **`project-setup`**, nome "Project Setup" (Bot predefinito `bot:setup`, skill
   `/cli-companion-notify:project-setup`). L'agente con cui l'utente configura il workspace e il
   modo in cui ci lavorano i worker. Skill (inglese): solo proposte, nessuna modifica diretta di
   file o impostazioni, nessun git che cambia stato; legge prima `get_workspace_settings`;
@@ -1214,7 +1215,7 @@ Testi in italiano.
   trascorso oppure "Richiede attenzione"; clic → mette a fuoco il tab del worker nella griglia),
   **In coda N** (numerata, trascinabile per riordinare, "attende X" se aspetta dipendenze; clic
   → dettaglio), **Falliti** (solo se non vuota, con Riprova). Piede: "+ Nuovo task" e "Task
-  Intake" (apre la voce rapida del preset nel workspace).
+  Intake" (apre il primo Bot abilitato con la skill `task-intake`).
 - Da vuoto: "Nessun task" + pulsante "Apri Task Intake".
 - I tab dei worker restano nella griglia dei terminali come oggi (badge AUTO).
 - **Vista Globale**: il pannello raggruppa per workspace (solo quelli con task attivi o

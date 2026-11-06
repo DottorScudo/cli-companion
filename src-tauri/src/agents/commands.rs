@@ -8,7 +8,7 @@ use super::contracts::{
 };
 use super::detection::{invalidate_detection_cache, list_targets};
 use super::env_status::{collect_status, AgentEnvStatus};
-use super::launches::{builtin_launch_list_for, BuiltinLaunch};
+use super::launches::{builtin_launch_list, BuiltinLaunch};
 use super::package::{self, OutdatedPlugin, PluginUpdateResult};
 use super::readiness::forget_readiness;
 use super::registry;
@@ -18,11 +18,11 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use ts_rs::TS;
 
-/// Comando Tauri `builtin_launches`: gli avvii integrati per un workspace con
-/// quell'agente (`None` = senza un agente proprio). Economico, nessun processo.
+/// Comando Tauri `builtin_launches`: gli avvii integrati, uno per agente
+/// abilitato. Economico, nessun processo.
 #[tauri::command]
-pub fn builtin_launches(workspace_agent: Option<String>) -> Vec<BuiltinLaunch> {
-    builtin_launch_list_for(workspace_agent.as_deref())
+pub fn builtin_launches() -> Vec<BuiltinLaunch> {
+    builtin_launch_list()
 }
 
 #[tauri::command]

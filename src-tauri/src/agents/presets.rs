@@ -1,10 +1,10 @@
-//! Preset di agenti: sessioni interattive guidate da una skill (es. Task Intake).
+//! Le skill del plugin: sessioni guidate da una skill (es. Task Intake), che i
+//! Bot portano nella loro configurazione (`bots::AgentBot::skill`).
 //!
-//! Aggiungere un preset = una voce in `PRESETS` + un file in `presets/<id>.md`
+//! Aggiungere una skill = una voce in `PRESETS` + un file in `presets/<id>.md`
 //! (SKILL.md completo di frontmatter `name`/`description`, in inglese: lo legge il
-//! modello). Il pacchetto di ogni integrazione che dichiara `presets` ne spedisce
-//! la skill e l'app espone una voce rapida `builtin:preset:<id>` per ogni preset
-//! (vedi `launches.rs`).
+//! modello). Il pacchetto di ogni integrazione che dichiara `plugin-skills` le
+//! spedisce tutte (vedi il contratto `PluginSkills`).
 
 /// Un preset: id (= nome della skill e della cartella), nome mostrato e SKILL.md.
 pub struct Preset {
@@ -25,26 +25,7 @@ impl Preset {
         let front = text.strip_prefix("---\n").and_then(|s| s.split_once("\n---\n")).map_or("", |(front, _)| front);
         front.lines().find_map(|l| l.strip_prefix("description:")).map_or_else(String::new, |d| d.trim().to_string())
     }
-
-    /// Id della voce rapida integrata, che parte con l'agente del workspace.
-    pub fn launch_id(&self) -> String {
-        format!("{PRESET_LAUNCH_PREFIX}{}", self.id)
-    }
-
-    /// Id della voce rapida con un agente scelto: `<launch_id>@<agent_id>`.
-    pub fn agent_launch_id(&self, agent_id: &str) -> String {
-        format!("{}{PRESET_AGENT_SEPARATOR}{agent_id}", self.launch_id())
-    }
 }
-
-/// Prefisso degli id delle voci rapide dei preset.
-pub const PRESET_LAUNCH_PREFIX: &str = "builtin:preset:";
-
-/// Separa il preset dall'agente nell'id di una voce con l'agente scelto.
-pub const PRESET_AGENT_SEPARATOR: char = '@';
-
-/// Vecchia voce rapida dell'orchestratore (v0.11), sostituita dal preset Task Intake.
-pub const LEGACY_ORCHESTRATOR_LAUNCH: &str = "builtin:orchestrator";
 
 /// Registro dei preset.
 pub static PRESETS: &[Preset] = &[
@@ -52,13 +33,6 @@ pub static PRESETS: &[Preset] = &[
     Preset { id: "skill-wizard", name: "Skill Wizard", skill: include_str!("presets/skill-wizard.md") },
     Preset { id: "project-setup", name: "Project Setup", skill: include_str!("presets/project-setup.md") },
 ];
-
-/// Migra l'id del vecchio avvio dell'orchestratore a quello di Task Intake.
-pub fn migrate_launch_id(id: &mut Option<String>) {
-    if id.as_deref() == Some(LEGACY_ORCHESTRATOR_LAUNCH) {
-        *id = Some(format!("{PRESET_LAUNCH_PREFIX}task-intake"));
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -114,7 +88,6 @@ mod tests {
     fn task_intake_skill_covers_the_method() {
         let p = PRESETS.iter().find(|p| p.id == "task-intake").unwrap();
         assert_eq!(p.name, "Task Intake");
-        assert_eq!(p.launch_id(), "builtin:preset:task-intake");
         let skill = p.skill_text();
         for t in [
             "propose_tasks",
@@ -164,7 +137,6 @@ mod tests {
     fn skill_wizard_skill_covers_the_method() {
         let p = PRESETS.iter().find(|p| p.id == "skill-wizard").unwrap();
         assert_eq!(p.name, "Skill Wizard");
-        assert_eq!(p.launch_id(), "builtin:preset:skill-wizard");
         let skill = p.skill_text();
         for t in [
             "save_skill",
@@ -187,7 +159,6 @@ mod tests {
     fn project_setup_skill_covers_the_method() {
         let p = PRESETS.iter().find(|p| p.id == "project-setup").unwrap();
         assert_eq!(p.name, "Project Setup");
-        assert_eq!(p.launch_id(), "builtin:preset:project-setup");
         let skill = p.skill_text();
         for t in [
             "get_workspace_settings",
@@ -233,24 +204,6 @@ mod tests {
             "You do not edit",
         ] {
             assert!(skill.contains(t), "{t}");
-        }
-    }
-
-    #[test]
-    fn the_launch_id_with_a_chosen_agent_extends_the_plain_one() {
-        let p = PRESETS.iter().find(|p| p.id == "task-intake").unwrap();
-        assert_eq!(p.agent_launch_id("some-agent"), "builtin:preset:task-intake@some-agent");
-    }
-
-    #[test]
-    fn legacy_orchestrator_launch_is_migrated() {
-        let mut id = Some("builtin:orchestrator".to_string());
-        migrate_launch_id(&mut id);
-        assert_eq!(id.as_deref(), Some("builtin:preset:task-intake"));
-        for keep in [None, Some("shell".to_string()), Some("builtin:claude-code".to_string())] {
-            let mut id = keep.clone();
-            migrate_launch_id(&mut id);
-            assert_eq!(id, keep);
         }
     }
 }

@@ -51,7 +51,7 @@ contratto); un contratto dichiarato ma fatto male è un difetto.
 | Ripresa della sessione | `session_resume` | `SessionResume` | `contracts/session_resume.rs` |
 | Automazione dei worker | `automation` | `WorkerAutomation` | `contracts/automation.rs` |
 | Permessi dei worker | `worker_permissions` | `WorkerPermissions` | `contracts/worker_permissions.rs` |
-| Preset | `presets` | `PresetLauncher` | `contracts/presets.rs` |
+| Skill del plugin | `plugin_skills` | `PluginSkills` | `contracts/plugin_skills.rs` |
 | Skill utente | `user_skills` | `UserSkills` | `contracts/user_skills.rs` |
 | Limiti di utilizzo | `usage_limits` | `UsageLimits` | `contracts/usage_limits.rs` |
 | Consumi della sessione | `session_usage` | `SessionUsageReader` | `contracts/session_usage.rs` |
@@ -76,12 +76,12 @@ vede e usa dipende da quattro passi, tutti nel core: nessuno è codice dell'inte
    le abilitate. Una disabilitata non compare in avvii, form dei task, scelte dei worker né in
    `get_workspace_settings.agents`.
 2. **Scelta.** `registry::resolve_agent(explicit, workspace_agent, uso)` sceglie l'agente di ogni
-   uso: prima la scelta esplicita (l'agente di un task, la voce “Avvia con…”), poi `Workspace.agent`, poi
+   uso: prima la scelta esplicita (l'agente di un task o di un Bot), poi `Workspace.agent`, poi
    il predefinito globale. L'uso decide il contratto che l'integrazione deve dichiarare
-   (`AgentUse::required`): `Worker` → `automation`, `Preset` → `presets`. Una scelta sconosciuta,
+   (`AgentUse::required`): oggi esiste solo `Worker` → `automation`. Una scelta sconosciuta,
    disabilitata o senza il contratto è un errore (`AgentUnavailable`: `unknown agent: <id>`,
    `<nome> is disabled: enable it in the integrations settings`, `<nome> does not support automated
-   sessions` / `presets`), **mai un ripiego** su un altro agente. Nel core non scrivere mai un
+   sessions`), **mai un ripiego** su un altro agente. Nel core non scrivere mai un
    `if agent == ...` per scegliere: passa dal risolutore.
 3. **Pronta.** Per sapere se si può avviare qualcosa in un ambiente il core usa `Readiness`
    (`agents/readiness.rs`), nell'ordine: disabilitata, agente non trovato (`detect`), pacchetto non
@@ -98,7 +98,7 @@ vede e usa dipende da quattro passi, tutti nel core: nessuno è codice dell'inte
 | Scheda nelle Integrazioni, avvio `builtin:<id>` (“+ Terminale”) | solo il nucleo | — |
 | Installa / Aggiorna / Rimuovi, stato “Pronto” | `package` | nessuna azione; pronta appena rilevata |
 | Notifiche di fine lavoro, ripresa dei tab | `hook_events`, `session_resume` (con `package` per gli hook) | niente notifiche / ripresa |
-| Voci dei preset (`builtin:preset:<id>`, `…@<id>`, “Avvia con…”), agente dei preset | `presets` (richiede `package`) | nessuna voce; come agente dei preset: `does not support presets` |
+| Skill del plugin nei Bot (un Bot con una skill del plugin) | `plugin_skills` (richiede `package`) | il Bot non può usare quell'agente: `does not ship the plugin skills` |
 | Agente dei worker e dei task, campo **Agente** dei form | `automation` | non selezionabile; come agente del workspace o del task: `does not support automated sessions` |
 | Elenco `agents` di `get_workspace_settings` (modelli, `rule_format`, prontezza) per l'Intake e Project Setup | nessuno: ci sono tutte le abilitate | — |
 | Regole allow/deny dei worker per l'agente | `worker_permissions` | le regole sono rifiutate; `rule_format` è `null` |
@@ -379,38 +379,41 @@ campi delle regole.
 vuota; righe vuote scartate; l'esempio è una regola valida e invariata da
 `validate_rules`; senza regole `prepare` dà `Ok(None)`.
 
-### 6. Preset: `PresetLauncher`
+### 6. Skill del plugin: `PluginSkills`
 
 **Scopo.** Sessioni interattive guidate da una skill (Task Intake, Skill Wizard,
-Project Setup). Il catalogo è del core (`agents/presets.rs`, `PRESETS`, testi in
+Project Setup), che partono solo come Bot (`bot:<id>`, `bots/launches.rs`). Il
+catalogo è del core (`agents/presets.rs`, `PRESETS`, testi in
 `agents/presets/<id>.md`, **in inglese**: li legge il modello).
 
-**Firma** (`contracts/presets.rs`).
+**Firma** (`contracts/plugin_skills.rs`).
 
 ```rust
-fn command(&self, preset: &Preset) -> String;     // avvia l'agente con la skill come primo prompt
-fn skill_path(&self, preset: &Preset) -> String;  // dove il pacchetto spedisce la skill
+fn skill_path(&self, skill: &Preset) -> String;  // dove il pacchetto spedisce la skill
 ```
 
-**Chi dichiara `presets` deve spedire nel proprio pacchetto la skill di *ogni*
-preset del catalogo**, al path `skill_path`, con contenuto identico a
-`preset.skill_text()`. L'integrazione adatta solo il *contenitore* (cartella,
-nome file, frontmatter che l'agente richiede), mai il testo del preset, e deve
-poter invocare la skill dal primo prompt. Richiede quindi `package`.
+Il comando di avvio non è più qui: lo costruisce `InteractiveLauncher` (punto 13).
 
-**Core con il contratto.** `launches.rs` aggiunge un avvio `builtin:preset:<id>`
-per ogni preset, con l'agente che `resolve_agent` sceglie per il workspace
-(il suo, altrimenti il predefinito) se li dichiara, e un avvio
-`builtin:preset:<id>@<agent>` per ogni agente abilitato che li dichiara (sottomenu
-"Avvia con…"). Il comando di ripristino del tab è quello interattivo (riprende la
-conversazione invece di rieseguire la skill).
+**Chi dichiara `plugin-skills` (campo `plugin_skills`) deve spedire nel proprio
+pacchetto la skill di *ogni* voce di `PRESETS`**, al path `skill_path`, con
+contenuto identico a `preset.skill_text()`. L'integrazione adatta solo il
+*contenitore* (cartella, nome file, frontmatter che l'agente richiede), mai il
+testo della skill, e deve poter invocare la skill dal primo prompt. Richiede
+quindi `package`.
 
-**Core senza il contratto.** Nessun avvio di preset da quell'agente; se nessun
-agente li dichiara non ce ne sono affatto.
+**Core con il contratto.** Un Bot con una skill del plugin può usare l'agente.
+Gli avvii integrati (`launches.rs`) sono solo `builtin:<agent_id>`, nessuna voce
+per le skill: niente `builtin:preset:<id>` né sottomenu “Avvia con…”. Il comando
+di ripristino del tab è quello interattivo (riprende la conversazione invece di
+rieseguire la skill).
 
-**Conformità** (`presets`): richiede `package`; ogni comando è sicuro per la
-shell; `skill_path` univoci; la skill di ogni preset è nel pacchetto e coincide col
-catalogo.
+**Core senza il contratto.** Un Bot con una skill del plugin e questo agente
+dà l'avviso `does not ship the plugin skills` (`bots/resolve.rs`) e la skill non
+viene applicata.
+
+**Conformità** (`plugin_skills`): richiede `package`; ogni skill di `PRESETS` è
+spedita a `skill_path` con contenuto identico al catalogo; nessun controllo sul
+comando (non esiste più).
 
 ### 7. Skill utente: `UserSkills`
 
@@ -616,8 +619,7 @@ automazione, su Windows e WSL.
 
 **Scopo.** Aprire un terminale interattivo *da un Bot* (`bots/agent.rs`): agente, modello,
 effort e skill li sceglie il Bot e il comando lo costruisce il backend, mai una stringa
-statica come per i preset (che restano com'erano: `PresetLauncher` e questo contratto
-convivono).
+statica (come era per i preset, oggi rimossi: la skill del plugin passa da qui).
 
 **Firma** (`contracts/interactive_launch.rs`).
 
@@ -658,8 +660,8 @@ prontezza dell'agente nell'ambiente la valuta il frontend.
 Bot.` e il lancio fallisce con lo stesso messaggio.
 
 **Conformità** (`interactive_launch`): per ogni combinazione di modello (nessuno e i
-consigliati), effort (nessuno e i livelli dichiarati) e skill (nessuna, ogni preset se
-`presets`, una skill utente se `user_skills`) esiste un avvio; `command` e `restore_command`
+consigliati), effort (nessuno e i livelli dichiarati) e skill (nessuna, ogni skill del plugin se
+`plugin_skills`, una skill utente se `user_skills`) esiste un avvio; `command` e `restore_command`
 sono sicuri per la shell e partono da `interactive_command()`; senza skill coincidono; il
 ripristino non contiene mai la skill; le `env` sono valide; gli argomenti dell'effort
 dichiarato compaiono in entrambe le righe. Nomi di skill con `$`, `"`, spazi o vuoti e un
@@ -678,7 +680,7 @@ L'effort è ignorato: OpenCode non dichiara `EffortLevels`.
 
 1. **Leggi l'integrazione di riferimento.** `agents/claude_code/` ha un file per
    contratto (`package.rs`, `hook_events.rs`, `resume.rs`, `automation.rs`,
-   `permissions.rs`, `presets.rs`, `skills.rs`, `usage_limits.rs`,
+   `permissions.rs`, `plugin_skills.rs`, `skills.rs`, `usage_limits.rs`,
    `session_usage.rs`, `input_profile.rs`, `models.rs`, `effort.rs`, `interactive_launch.rs`)
    più il rilevamento in `mod.rs`.
    Copia la *struttura*, non i dettagli.
@@ -739,8 +741,8 @@ L'effort è ignorato: OpenCode non dichiara `EffortLevels`.
      con i suoi modelli e la sua prontezza.
    - Permessi: regole allow/deny rispettate in un worker (se
      `worker_permissions`), impostate per l'agente nelle impostazioni del workspace.
-   - Preset: ognuno dei tre si avvia e carica la skill, sia con l'agente del
-     workspace (“Task Intake · <agente>”) sia dal sottomenu “Avvia con…”.
+   - Skill del plugin: ognuno dei tre Bot predefiniti (Intake, Project Setup,
+     Skill Wizard), con l'agente fissato sul tuo, si avvia e carica la skill.
    - Ogni voce "da verificare" della tua analisi del punto 2.
 10. **Documenta.** Aggiorna `README.md` solo se serve all'utente (installazione
     dell'agente) e `docs/DESIGN.MD`, sezione `agents/`, con una sottosezione per la
@@ -790,7 +792,7 @@ Due casi reali, entrambi emersi con OpenCode e risolti così (non con un `if`):
       e senza residui; hook su `session-start`, `finished`, `needs-input`
       (e `permission-request`/`session-end` se l'agente li ha); server MCP
       `cli-companion` con `--mcp`.
-- [ ] Se dichiari `presets`: la skill di *tutti* i preset di `PRESETS` è nel
+- [ ] Se dichiari `plugin_skills`: la skill di *tutte* le voci di `PRESETS` è nel
       pacchetto, testo identico al catalogo, invocabile come primo prompt.
 - [ ] Se dichiari `automation`: ogni `PermissionMode` mappato; il server MCP è
       utilizzabile senza conferme; prompt, modello e path non fidati rifiutati;
@@ -805,7 +807,7 @@ Due casi reali, entrambi emersi con OpenCode e risolti così (non con un `if`):
       se i task dell'agente partono o restano in attesa.
 - [ ] Mostrata con l'integrazione abilitata (non basta registrarla): scheda nelle
       Integrazioni, avvio `builtin:<id>`, e per ogni contratto dichiarato la voce
-      corrispondente (preset e “Avvia con…” con `presets`; campo **Agente** dei task e
+      corrispondente (Bot con skill del plugin con `plugin_skills`; campo **Agente** dei task e
       scelta dell'agente del workspace con `automation`).
 - [ ] Se dichiari `worker_permissions`: l'esempio di `RuleFormat` è valido;
       `prepare` scrive solo se cambia.
@@ -1059,8 +1061,8 @@ sezione 11 dei contratti.
 
 L'effort non è dichiarato (nessun flag nel TUI). L'avvio interattivo dei Bot (`interactive_launch.rs`)
 riusa le parti già provate: il modello va in `OPENCODE_CONFIG_CONTENT` con il solo campo `model`
-(stessa variabile dei worker, senza permessi né agente di partenza), la skill è il primo prompt dei
-preset (`presets::skill_command`, condiviso) e il ripristino è `opencode --standalone`.
+(stessa variabile dei worker, senza permessi né agente di partenza), la skill è il primo prompt
+(`plugin_skills::skill_command`, condiviso) e il ripristino è `opencode --standalone`.
 
 ### Riepilogo: cosa dichiara OpenCode
 
@@ -1071,18 +1073,18 @@ preset (`presets::skill_command`, condiviso) e il ripristino è `opencode --stan
 | `session_resume` | Sì | `--session`/`--continue` provati, sempre con `--standalone` |
 | `automation` | Sì | TUI con `--prompt` e `env` (`OPENCODE_CONFIG_CONTENT`/`OPENCODE_CONFIG`); `run` non adatto |
 | `worker_permissions` | Sì | `azione(risorsa)`, file in `OPENCODE_CONFIG` che batte le regole di modalità |
-| `presets` | Sì | skill del plugin caricate dal primo prompt |
+| `plugin_skills` | Sì | skill del plugin caricate dal primo prompt |
 | `user_skills` | Sì | `<config>/skills`; nessun doppione con `~/.claude/skills` |
 | `usage_limits` | No | nessuna finestra di utilizzo |
 | `session_usage` | No | niente transcript su file |
 | `input_profile` | No | incolla immagini non verificato |
 | `models` | Sì | `provider/modello`, regola propria dentro la forma generica |
 | `effort` | No | nessun flag di effort nel TUI né nell'avvio (solo `run --model provider/modello#variante`, non verificato in `OPENCODE_CONFIG_CONTENT`) |
-| `interactive_launch` | Sì | modello in `OPENCODE_CONFIG_CONTENT` (il TUI non ha `--model`), skill dal primo prompt come i preset, effort ignorato (non dichiarato) |
+| `interactive_launch` | Sì | modello in `OPENCODE_CONFIG_CONTENT` (il TUI non ha `--model`), skill dal primo prompt, effort ignorato (non dichiarato) |
 
 Cosa vede l'utente: abilitata da Impostazioni → Generale → Integrazioni e con il
 pacchetto installato (**Installa**) per una 2.x rilevata, una scheda “OpenCode”, l'avvio
-`builtin:opencode`, le voci dei preset “… · OpenCode” e `…@opencode` da “Avvia con…”,
+`builtin:opencode`, OpenCode come agente fissabile nei Bot (anche con skill del plugin),
 OpenCode come **Agente** dei worker e dei task con i modelli suggeriti e le regole
 nelle impostazioni dei worker. Senza pacchetto o con una versione diversa dalla 2 i
 task che lo usano restano in coda con “In attesa”.
@@ -1106,7 +1108,7 @@ accanto all'app installata: stessa cartella dati). Checklist manuale rimasta:
 
 - [ ] pagina Integrazioni: OpenCode “Trovato” e poi “Pronto” dopo **Installa**;
 - [ ] tab `builtin:opencode`: parte, a fine turno suono e ✓, richiesta di permesso ❗;
-- [ ] un preset da “Avvia con…” (e con OpenCode agente del workspace);
+- [ ] un Bot con una skill del plugin (con OpenCode come agente fissato e come agente del workspace);
 - [ ] un worker completo fino a `complete_task`, con modello e regole del workspace;
 - [ ] ripresa del tab dopo il riavvio dell'app;
 - [ ] WSL con un OpenCode nativo nella distro.

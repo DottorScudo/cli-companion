@@ -5,6 +5,7 @@
 // qui. Funzioni pure a zero dipendenze: orologio e casualita' sono iniettati.
 // Importabile sia dall'app sia dai test `node --test`.
 
+import type { AgentBot } from "../bindings/AgentBot.ts";
 import type { BotImage } from "./bots.ts";
 import type { AgentPhase } from "./agents.ts";
 import { isIntakeLaunch } from "./automation.ts";
@@ -82,7 +83,7 @@ export interface OfficeSession {
   /** `tabLabel(t)` (titolo del task per i worker). */
   label: string;
   activity: BotActivity;
-  /** Tab aperto dal preset Task Intake. */
+  /** Tab di un Bot con la skill Task Intake. */
   intake: boolean;
   /** Titolo del task: solo per i tab dei worker. */
   taskTitle?: string;
@@ -98,8 +99,17 @@ export interface OfficeTabLike {
   automation?: { status: string; title: string };
 }
 
-/** Sessione dell'ufficio di un tab, con la shell occupata e l'etichetta gia' calcolate. */
-export function officeSession(tab: OfficeTabLike, busy: boolean, label: string, botImage?: BotImage): OfficeSession {
+/**
+ * Sessione dell'ufficio di un tab, con la shell occupata e l'etichetta gia' calcolate.
+ * `agentBots` sono i Bot agente: la cartellina va ai tab di un Bot con la skill Task Intake.
+ */
+export function officeSession(
+  tab: OfficeTabLike,
+  busy: boolean,
+  label: string,
+  agentBots: readonly Pick<AgentBot, "id" | "skill">[],
+  botImage?: BotImage,
+): OfficeSession {
   return {
     key: tab.key,
     bot: tab.bot,
@@ -108,7 +118,7 @@ export function officeSession(tab: OfficeTabLike, busy: boolean, label: string, 
     workspaceName: tab.workspace.name,
     label,
     activity: botActivity({ agent: tab.agent, busy, automation: tab.automation }),
-    intake: isIntakeLaunch(tab.launchId),
+    intake: isIntakeLaunch(tab.launchId, agentBots),
     ...(tab.automation ? { taskTitle: tab.automation.title } : {}),
   };
 }

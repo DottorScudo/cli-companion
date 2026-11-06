@@ -77,7 +77,7 @@ describe("launch: avvii integrati non disponibili", () => {
   const ws = (d) => ({ launches: [{ id: "l1", name: "L", command: "ls" }], default_launch: d });
 
   it("un integrato scelto dal workspace che non c'e' piu' non ripiega sul globale: shell", () => {
-    assert.equal(resolveDefaultLaunch(ws("builtin:preset:task-intake@gone"), [cc], "builtin:claude-code"), undefined);
+    assert.equal(resolveDefaultLaunch(ws("builtin:gone"), [cc], "builtin:claude-code"), undefined);
     assert.equal(resolveDefaultLaunch(ws("builtin:codex"), [cc], "builtin:claude-code"), undefined);
   });
 
@@ -96,6 +96,17 @@ describe("launch: avvii integrati non disponibili", () => {
     assert.equal(unavailableDefaultLaunch(ws(SHELL_LAUNCH_ID), [cc], "builtin:codex"), null);
     // Elenco non ancora letto: non si puo' dire.
     assert.equal(unavailableDefaultLaunch(ws("builtin:claude-code"), [], "builtin:claude-code"), null);
+  });
+
+  it("un Bot è un avvio condiviso: scelto, ereditato o sparito come un integrato", () => {
+    const intake = { id: "bot:intake", bot_id: "intake", name: "Intake" };
+    assert.equal(resolveDefaultLaunch(ws("bot:intake"), [cc, intake], null), intake);
+    assert.equal(resolveDefaultLaunch(ws(null), [cc, intake], "bot:intake"), intake);
+    // Un Bot del workspace eliminato non ripiega sul globale.
+    assert.equal(resolveDefaultLaunch(ws("bot:gone"), [cc, intake], "builtin:claude-code"), undefined);
+    assert.equal(unavailableDefaultLaunch(ws("bot:gone"), [cc, intake], null), "bot:gone");
+    assert.equal(unavailableDefaultLaunch(ws(null), [cc, intake], "bot:gone"), "bot:gone");
+    assert.equal(unavailableDefaultLaunch(ws("bot:intake"), [cc, intake], null), null);
   });
 
   it("launchAgentId: l'agente di un integrato, niente per un avvio personalizzato", () => {

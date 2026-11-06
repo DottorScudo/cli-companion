@@ -61,7 +61,7 @@ fn core(i: &dyn AgentIntegration) -> Vec<String> {
         (caps.session_resume.is_some(), Capability::SessionResume),
         (caps.automation.is_some(), Capability::Automation),
         (caps.worker_permissions.is_some(), Capability::WorkerPermissions),
-        (caps.presets.is_some(), Capability::Presets),
+        (caps.plugin_skills.is_some(), Capability::PluginSkills),
         (caps.user_skills.is_some(), Capability::UserSkills),
         (caps.usage_limits.is_some(), Capability::UsageLimits),
         (caps.session_usage.is_some(), Capability::SessionUsage),
@@ -129,26 +129,22 @@ fn package(package: &dyn IntegrationPackage, data_dir: &Path) -> Vec<String> {
     v
 }
 
-fn presets(i: &dyn AgentIntegration, launcher: &dyn PresetLauncher, data_dir: &Path) -> Vec<String> {
+fn plugin_skills(i: &dyn AgentIntegration, skills: &dyn PluginSkills, data_dir: &Path) -> Vec<String> {
     let mut v = Vec::new();
     let Some(pkg) = i.capabilities().package else {
-        return vec!["presets: richiede il contratto package (la skill va spedita)".to_string()];
+        return vec!["plugin-skills: richiede il contratto package (la skill va spedita)".to_string()];
     };
     let files = pkg.files(&install_ctx(data_dir), &Target::Windows).unwrap_or_default();
     let mut seen: Vec<String> = Vec::new();
-    for preset in PRESETS {
-        let command = launcher.command(preset);
-        if command.trim().is_empty() || !shell_safe(&command) {
-            v.push(format!("presets: comando non valido o non sicuro per {}: {command:?}", preset.id));
-        }
-        let path = launcher.skill_path(preset);
+    for skill in PRESETS {
+        let path = skills.skill_path(skill);
         if seen.contains(&path) {
-            v.push(format!("presets: skill_path duplicato: {path:?}"));
+            v.push(format!("plugin-skills: skill_path duplicato: {path:?}"));
         }
         match files.iter().find(|f| f.path == path) {
-            None => v.push(format!("presets: la skill del preset {} manca nel pacchetto ({path})", preset.id)),
-            Some(f) if f.content != preset.skill_text() => {
-                v.push(format!("presets: la skill del preset {} nel pacchetto non coincide col catalogo", preset.id));
+            None => v.push(format!("plugin-skills: la skill {} manca nel pacchetto ({path})", skill.id)),
+            Some(f) if f.content != skill.skill_text() => {
+                v.push(format!("plugin-skills: la skill {} nel pacchetto non coincide col catalogo", skill.id));
             }
             Some(_) => {}
         }
@@ -350,7 +346,7 @@ fn interactive_launch(i: &dyn AgentIntegration, launcher: &dyn InteractiveLaunch
     let efforts: Vec<Option<Effort>> =
         std::iter::once(None).chain(caps.effort.iter().flat_map(|c| c.levels().iter().copied().map(Some))).collect();
     let mut skills: Vec<Option<LaunchSkill>> = vec![None];
-    if caps.presets.is_some() {
+    if caps.plugin_skills.is_some() {
         skills.extend(PRESETS.iter().map(|p| Some(LaunchSkill::Plugin(p.id))));
     }
     if caps.user_skills.is_some() {
@@ -539,8 +535,8 @@ fn violations(i: &dyn AgentIntegration) -> Vec<String> {
     if let Some(c) = caps.package {
         v.extend(package(c, dir));
     }
-    if let Some(c) = caps.presets {
-        v.extend(presets(i, c, dir));
+    if let Some(c) = caps.plugin_skills {
+        v.extend(plugin_skills(i, c, dir));
     }
     if let Some(c) = caps.automation {
         v.extend(automation(i, c));
@@ -595,10 +591,10 @@ fn fake_integrations_conform() {
 }
 
 #[test]
-fn a_missing_preset_skill_is_reported() {
-    let broken = FakeIntegration::full("broken-skill").with_flaw(Flaw::PresetSkillMissing);
+fn a_missing_plugin_skill_is_reported() {
+    let broken = FakeIntegration::full("broken-skill").with_flaw(Flaw::PluginSkillMissing);
     let found = violations(&broken);
-    assert!(found.iter().any(|m| m.contains("presets:") && m.contains("manca nel pacchetto")), "{found:?}");
+    assert!(found.iter().any(|m| m.contains("plugin-skills:") && m.contains("manca nel pacchetto")), "{found:?}");
 }
 
 #[test]
@@ -651,9 +647,9 @@ fn identity_and_declaration_problems_are_reported() {
     let found = violations(&FakeIntegration::bare("Bad Id-", "echo $HOME"));
     assert!(found.iter().any(|m| m.contains("id non valido")), "{found:?}");
     assert!(found.iter().any(|m| m.contains("interactive_command")), "{found:?}");
-    // Preset senza pacchetto: la skill non avrebbe dove stare.
-    let presets_only = FakeIntegration::presets_only("only-presets", "fake --yes", "fake-run");
-    assert!(violations(&presets_only).iter().any(|m| m.contains("richiede il contratto package")));
+    // Skill del plugin senza pacchetto: la skill non avrebbe dove stare.
+    let skills_only = FakeIntegration::plugin_skills_only("only-skills", "fake --yes");
+    assert!(violations(&skills_only).iter().any(|m| m.contains("richiede il contratto package")));
 }
 
 #[test]
