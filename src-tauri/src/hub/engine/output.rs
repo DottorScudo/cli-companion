@@ -14,10 +14,12 @@ use crate::validate::clip_with_ellipsis;
 use serde_json::{json, Map, Value};
 
 mod message_body;
+mod message_page;
 mod overview;
 mod task_details;
 
 pub use message_body::message_body;
+use message_page::message_page;
 pub use overview::board_overview;
 pub use task_details::task_details;
 
@@ -53,25 +55,17 @@ fn task_row(v: &TaskView) -> Value {
 }
 
 /// Il thread per `thread_read`: titolo, stato, task collegati, riassunto e una
-/// pagina di `THREAD_PAGE_SIZE` messaggi (`page`). `older_messages` conta i
-/// messaggi prima della pagina e `next_before` e' l'id da passare a `before`
-/// per leggerli; `newer_messages` conta quelli dopo. Con `ThreadPage::Body` il
+/// pagina di al massimo `THREAD_PAGE_SIZE` messaggi, meno se lunghi, che sta in
+/// `TOOL_RESULT_MAX` (vedi `message_page`). `older_messages` conta i messaggi
+/// prima della pagina e `next_before` e' l'id da passare a `before` per
+/// leggerli; `newer_messages` conta quelli dopo. Con `ThreadPage::Body` il
 /// risultato e' un pezzo del testo di un solo messaggio (vedi `message_body`).
 pub fn thread(thread: &Thread, names: &WorkspaceNames, page: &ThreadPage) -> Result<Value, String> {
     if let ThreadPage::Body { message_id, offset } = page {
         return message_body(&thread.messages, message_id, *offset);
     }
-    let range = thread_page::window(&thread.messages, page)?;
-    let mut out = header(thread, names);
-    out["messages"] = messages(&thread.messages[range.clone()], names);
-    if range.start > 0 {
-        out["older_messages"] = Value::from(range.start);
-        out["next_before"] = Value::from(thread.messages[range.start].id.as_str());
-    }
-    if range.end < thread.messages.len() {
-        out["newer_messages"] = Value::from(thread.messages.len() - range.end);
-    }
-    Ok(out)
+    let window = thread_page::window(&thread.messages, page)?;
+    Ok(message_page(thread, names, window))
 }
 
 /// Titolo, canale, stato, task e proposta collegati e riassunto del thread.

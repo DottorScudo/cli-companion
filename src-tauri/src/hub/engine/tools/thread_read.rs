@@ -12,20 +12,21 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
     ToolSpec {
         name: tool.code(),
         description: "Read this thread: its title, its summary and a page of its messages, including the data of the \
-            board events reported in it. By default you get the latest messages. When `older_messages` is present, \
-            earlier messages exist: call the tool again with `before` set to the `next_before` of the result (or with \
-            an `offset`) to read the page before. Use only one of `before` and `offset`. The text of a long message \
-            is cut in the page: its `body_truncated.total_chars` gives its full length. To read all of it call the \
-            tool with that message's `message_id` and an `offset` in characters (0, then the `next_offset` of each \
-            part) until `next_offset` is absent. The task data of events is shortened too: read a task in full with \
-            `task_details`.",
+            board events reported in it. By default you get the latest messages. A page has up to 20 messages, fewer \
+            when they are long. When `older_messages` is present, earlier messages exist: call the tool again with \
+            `before` set to the `next_before` of the result to read the page before, without gaps or repeats. Use \
+            only one of `before` and `offset`. The text of a long message is cut in the page: its \
+            `body_truncated.total_chars` gives its full length. To read all of it call the tool with that message's \
+            `message_id` and an `offset` in characters (0, then the `next_offset` of each part) until `next_offset` \
+            is absent. The task data of events is shortened too, and when a message is too long for a page alone \
+            only the ids of its event remain (`event_truncated`): read a task in full with `task_details`.",
         parameters: json!({
             "type": "object",
             "properties": {
                 "before": {
                     "type": "string",
                     "description": format!(
-                        "Id of a message of this thread: read the {THREAD_PAGE_SIZE} messages just before it \
+                        "Id of a message of this thread: read up to {THREAD_PAGE_SIZE} messages just before it \
                         (use `next_before` of the previous page)."
                     ),
                     "minLength": 1,
@@ -42,7 +43,7 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
                     "type": "integer",
                     "description": format!(
                         "Without `message_id`: how many of the latest messages to skip before reading \
-                        {THREAD_PAGE_SIZE}. Default 0 (the latest messages). With `message_id`: the character of \
+                        up to {THREAD_PAGE_SIZE}. Default 0 (the latest messages). With `message_id`: the character of \
                         the message to start from (the `next_offset` of the previous part). Default 0."
                     ),
                     "minimum": 0
