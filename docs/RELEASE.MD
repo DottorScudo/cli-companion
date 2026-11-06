@@ -159,6 +159,29 @@ vanno scritte qui sotto, per versione, prima del tag.
 - **Badge dei task.** Review, Pianificazione, verdetto, E2E, Bot e Agente: la mappa è in
   `docs/BOARD.MD`, «Badge dei task».
 
+### Prossima versione: la pool predefinita (domande e bug)
+
+- **Domande sul codice.** Si può chiedere al Coordinatore «dove si imposta il tema?»: apre un
+  task di pianificazione in sola lettura con il nuovo Bot **Quick Answer** (fascia `standard`,
+  effort `low`, skill `code-answer`), che risponde senza proporre nulla. Nel thread arriva
+  «Risposta: <titolo>» con la risposta intera; nel dettaglio del task il badge «Risposta».
+- **Bot Bug Fixer.** Nuovo Bot per la correzione dei bug (skill `bug-fix`: riproduce, aggiunge
+  un test di regressione, corregge la causa). È `strong`/`high`: il costo medio di un bug sale
+  rispetto a `General` con il modello del workspace; si regola in Impostazioni › Generale › Bot.
+- **Coordinatore come punto d'ingresso.** Smista le richieste: stato del lavoro dalla board,
+  domande al Bot che risponde, modifiche al Bot che pianifica, gestione della coda rimandata a un
+  segretario che la gestisce. L'Analista non intervista più chi fa solo una domanda.
+- **Chi ha già i file.** `bots.json` passa alla versione 5: Quick Answer e Bug Fixer si creano
+  **una volta sola** (un Bot cancellato non ricompare, un nome già preso diventa «Quick Answer 2»);
+  il `task` di `General` e `Planner` cambia solo se era ancora il testo del preset. Una versione
+  precedente dell'app mette da parte il file come `bots.json.bak-<timestamp>`.
+- **I prompt dei segretari non si aggiornano da soli.** Coordinatore e Analista già salvati
+  tengono il prompt vecchio: la riga e l'editor del segretario mostrano «È disponibile una
+  versione aggiornata: Ripristina predefinito». Il ripristino riporta prompt e tool al preset e
+  perde eventuali modifiche fatte a mano.
+- **Skill del plugin.** `code-answer` e `bug-fix` arrivano con l'aggiornamento del pacchetto
+  dell'agente (prontezza «da aggiornare» finché non lo si aggiorna).
+
 ## 6. Checklist release
 
 - [ ] `updater.config.json`: `owner`/`repo` reali

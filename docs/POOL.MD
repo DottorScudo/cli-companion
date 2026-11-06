@@ -13,6 +13,19 @@ kind, Bot, skill del plugin, review e pianificazione), [DESIGN.MD](DESIGN.MD) (m
 Convenzione: i testi che leggerà il modello (prompt dei segretari, `task` dei Bot, SKILL.md) sono citati come bozza
 **in inglese**; tutto il resto è in italiano.
 
+> **Stato di adozione.** Le decisioni D1–D9 (§8) sono prese: l'utente ha adottato **tutte le raccomandazioni**.
+> D1 (a) esito "Answer" dei task `plan` + Bot dedicati; D2 (a) `Standard` + effort `low` ora, fascia `Light` (T10) da
+> rivalutare dopo l'uso; D3 (a) Operatore opt-in; D4 (b) passo che aggiorna il `task` solo se identico al vecchio
+> preset; D5 (a) Bot rischiosi seeded spenti; D6 (a) nessun Bot "feature" separato; D7 (a) nessun segretario
+> dedicato, Coordinatore esteso; D8 (b) avviso «versione aggiornata»; D9 (b) solo `code-answer` e `bug-fix` nella
+> prima release. Il blocco **must** è consegnato: T2 (skill `code-answer`, `bug-fix`), T1 (esito "Answer"), T3 (Bot
+> `quick-answer`, `bug-fixer`, migrazione v4), T4 (`task` esclusivi, migrazione v5), T5 (Coordinatore e Analista,
+> avviso «versione aggiornata»), T11 (documentazione: [BOARD.MD](BOARD.MD), "Skill del plugin e Bot" e
+> "Agente e modello di un task"; [HUB.MD](HUB.MD), "Segretari predefiniti" e "Pianificazione dal thread"). Restano da
+> fare i task should/could (T6–T10) e i Bot nuovi non ancora creati (`researcher`, `test-writer`, `docs-writer`,
+> `refactorer`, `git-operator`, `release`) con le loro skill. Le sezioni 1–8 restano l'analisi originale: dove il
+> codice è cambiato fa fede la documentazione collegata.
+
 ---
 
 ## 1. Stato attuale
@@ -56,16 +69,16 @@ salvati finché l'utente non usa «Ripristina predefinito» (`secretaries::resto
 
 ### 1.3 Bot predefiniti (8)
 
-`PRESETS: [BotPreset; 6]` in `src-tauri/src/bots/presets.rs`.
+`PRESETS: [BotPreset; 8]` in `src-tauri/src/bots/presets.rs`.
 
 | Id | Nome | `task` | Modello | Effort | Skill | `kinds` |
 |---|---|---|---|---|---|---|
-| `general` | General | General-purpose coding agent. | `Default` (decide la CLI) | — | — | `[work]` |
+| `general` | General | General-purpose coding agent: new features and any change no specialized bot covers. | `Default` (decide la CLI) | — | — | `[work]` |
 | `intake` | Intake | Turns requests into queue tasks. | `Tier(Strong)` | high | `task-intake` | `[]` |
 | `setup` | Setup | Configures the workspace and the worker rules. | `Tier(Standard)` | medium | `project-setup` | `[]` |
 | `skill-wizard` | Skill Wizard | Creates and manages global skills. | `Tier(Standard)` | medium | `skill-wizard` | `[]` |
 | `reviewer` | Reviewer | Verifies the integrated result of finished tasks and proposes fixes. | `Tier(Strong)` | high | — | `[review]` |
-| `planner` | Planner | Explores the repository read-only and proposes queue tasks. | `Tier(Strong)` | high | — | `[plan]` |
+| `planner` | Planner | Plans changes to the project: explores the repository read-only and proposes queue tasks. | `Tier(Strong)` | high | — | `[plan]` |
 | `quick-answer` | Quick Answer | Answers a quick question about the code or its git history, read-only, in a few lines. Changes nothing and proposes nothing. | `Tier(Standard)` | low | `code-answer` | `[plan]` |
 | `bug-fixer` | Bug Fixer | Fixes a reported bug: reproduces it, adds a failing regression test, fixes the root cause and verifies. | `Tier(Strong)` | high | `bug-fix` | `[work]` |
 

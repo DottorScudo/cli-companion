@@ -72,8 +72,8 @@ che il motore aggiunge a ogni system prompt (`ENGINE_INSTRUCTIONS`): descrivono 
 
 | Id | Etichetta | Nome | Tool | Mansione |
 |---|---|---|---|---|
-| `coordinator` | Coordinatore | `mario` | `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message`, `open_plan_task`, `decide_proposal`, `relay_answer`, `set_thread_state` | trasforma gli obiettivi dell'utente in lavoro per gli agenti: chiarisce l'obiettivo (al massimo una domanda), apre il task di pianificazione con uno dei Bot che pianificano (`kinds` con `plan`, di serie `Planner`), scelto dal compito, presenta le proposte e le decide solo se l'utente accetta o rifiuta con chiarezza, riferisce fallimenti e domande dei worker |
-| `analyst` | Analista | `giulia` | `thread_read`, `post_message`, `open_plan_task` | trasforma un'idea vaga in una richiesta completa: chiede obiettivo, criteri di completamento, vincoli ed esclusioni (mai domande tecniche sul codice), poi riassume in Goal / Done when / Constraints / Out of scope e apre la pianificazione solo dopo la conferma, scegliendo il Bot come il Coordinatore. Senza `decide_proposal`, se arriva una proposta la presenta e dice di rispondere sul messaggio della proposta |
+| `coordinator` | Coordinatore | `mario` | `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message`, `open_plan_task`, `decide_proposal`, `relay_answer`, `set_thread_state` | **punto d'ingresso unico**: smista ogni richiesta prima di agire. Una domanda sullo stato del lavoro la risponde da sé dalla board (la panoramica mostra tutti i workspace); una domanda sul codice, sulla sua storia o su un'opzione tecnica, senza nulla da cambiare, apre un task di pianificazione con il Bot il cui compito dice che risponde alle domande (di serie `Quick Answer`), o con quello che fa ricerca se l'utente vuole un'analisi approfondita (nessuno di serie: lo crea l'utente); una modifica al progetto: chiarisce l'obiettivo (al massimo una domanda) e apre la pianificazione con il Bot che pianifica le modifiche (di serie `Planner`). Sceglie sempre fra i Bot ricevuti (`kinds` con `plan`), dal compito: il prompt descrive le categorie di Bot e non ne nomina gli id. Per fermare, eliminare o modificare un task, o cambiare la coda, rimanda a un segretario che gestisce la coda. Presenta le proposte e le decide solo se l'utente accetta o rifiuta con chiarezza, riferisce fallimenti e domande dei worker |
+| `analyst` | Analista | `giulia` | `thread_read`, `post_message`, `open_plan_task` | trasforma un'idea vaga in una richiesta completa: chiede obiettivo, criteri di completamento, vincoli ed esclusioni (mai domande tecniche sul codice), poi riassume in Goal / Done when / Constraints / Out of scope e apre la pianificazione solo dopo la conferma, scegliendo il Bot come il Coordinatore. Se la richiesta è in realtà una domanda sul codice, senza nulla da cambiare, non intervista: apre la pianificazione con la domanda come goal e il Bot che risponde alle domande. Senza `decide_proposal`, se arriva una proposta la presenta e dice di rispondere sul messaggio della proposta |
 | `reporter` | Cronista | `luca` | `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message` | tiene informato l'utente: cosa è fatto, cosa gira, cosa aspetta lui, cosa è fallito; nel Generale una riga per workspace, prima quelli che aspettano l'utente; spiega i fallimenti dalle note dei task senza ipotesi. Non apre task e non decide: per nuovo lavoro rimanda a un segretario che può aprirli |
 | `operator` | Operatore | `ugo` | `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message`, `task_action`, `board_control`, `request_task_action`, `request_task_update`, `set_thread_state` | agisce sulla coda solo su richiesta esplicita dell'utente: ritenta i task falliti, porta un task in testa o prima di un altro, mette in pausa o riprende la board e ne regola `max_parallel`. Prima di cambiare un task lo legge; se la richiesta è ambigua chiede; dopo una modifica la dice in una riga. Fermare, eliminare o segnare fatto non lo fa mai da solo: lo chiede con `request_task_action`; titolo, specifica, dipendenze, modello e Bot di un task in coda o fallito li cambia solo con `request_task_update` (schede di conferma, vedi "Azioni che chiedono conferma"). Non apre lavoro nuovo. **Non si crea da solo** (`seeded: false`): lo sceglie l'utente da «Aggiungi da modello» |
 
@@ -96,6 +96,13 @@ Tutti hanno `channels` = tutti i canali.
 - **Ripristina predefinito.** Nell'editor di un segretario nato da un preset, con conferma, riporta prompt e tool al
   testo del preset (`hub_restore_secretary_preset`, `secretaries::restore_preset`); nome, canali e immagine restano. Un
   segretario creato da zero non ha il pulsante.
+- **Versione aggiornata.** Un prompt di preset cambiato in una release non raggiunge da solo i segretari già salvati
+  (nessuna migrazione dei prompt: sovrascriverebbe quelli personalizzati). Per farlo sapere, la riga del segretario
+  (`SecretaryRow`) e l'editor, accanto a «Ripristina predefinito» (`PresetRestore`), mostrano «È disponibile una
+  versione aggiornata: Ripristina predefinito» quando il prompt salvato differisce da quello del preset da cui il
+  segretario è nato (`updatedPresetOf` in `src/lib/hubPresets.ts`, confronto nel frontend con
+  `HubSecretaryPreset.system_prompt`, nessun binding nuovo). Il confronto è testuale: anche un prompt personalizzato a
+  mano mostra l'avviso, e ripristinare ne perde le modifiche.
 
 **Nomi riservati.** I nomi dei segretari non devono mai diventare nomi delle sessioni dei terminali (`@mario` non
 può essere un terminale): il frontend li legge da `hub_get_settings` e li esclude quando sceglie il nome di una
@@ -1247,6 +1254,13 @@ diretta «… le azioni sulla board non sono disponibili.».
   quando l'utente risponde, il segretario può aprire un **nuovo** `open_plan_task` con il goal originale, le domande
   e le risposte (la descrizione del tool lo chiede; anche il testo del piano porta i messaggi recenti con le
   domande). Durante la pianificazione il pianificatore può anche chiedere con `ask_user` (vedi "Domande dei worker").
+- **Domande sul codice.** «@mario dove si imposta il tema?» non chiede modifiche: il Coordinatore apre comunque un
+  `open_plan_task`, con il Bot che risponde alle domande (di serie `Quick Answer`, skill `code-answer`). Il task `plan`
+  gira in sola lettura e chiude senza proposta con un riassunto che inizia con «Answer:» (esito "Answer" delle
+  istruzioni del pianificatore, vedi [BOARD.MD](BOARD.MD), "Task di pianificazione"). L'evento nel thread è allora
+  «Risposta: <titolo>» invece di «Pianificazione conclusa senza proposta: <titolo>», con la risposta intera
+  (`events/texts.rs::plan_without_proposal`; il marcatore si riconosce in testa al report, spazi iniziali e maiuscole
+  ignorati), e sveglia il titolare, che la riferisce all'utente.
 
 **`decide_proposal { accept }`.** La decisione resta dell'utente e la garanzia è nel codice, non nel modello:
 

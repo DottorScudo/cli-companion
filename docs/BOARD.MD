@@ -189,10 +189,13 @@ Limiti: 200 task per board, 20 task per proposta, 20 proposte pendenti per board
   doppioni) sono i tipi di task automatici che il Bot può eseguire; `[]` = Bot solo interattivo (tab e avvii), mai per
   un task. Il comportamento del ruolo viene sempre e solo da `kind`: `kinds` decide soltanto quali Bot si possono
   scegliere. Predefiniti: `general` `[work]`, `reviewer` "Reviewer" `[review]`, `planner` "Planner" `[plan]` (fascia
-  `strong`, effort `high`, nessuna skill), `intake`, `setup`, `skill-wizard` `[]`; il ripristino di un predefinito
-  rimette anche i suoi `kinds`, e l'utente può allargare quelli di General. La migrazione 2→3 dà `[work, review,
-  plan]` ai Bot derivati e a quelli dell'utente (`custom-*`), aggiunge Reviewer e Planner una volta sola (un Bot
-  cancellato non ricompare, un nome già preso diventa "Reviewer 2"...). Il controllo, senza ripieghi, vale in
+  `strong`, effort `high`, nessuna skill), `quick-answer` "Quick Answer" `[plan]` (fascia `standard`, effort `low`,
+  skill `code-answer`), `bug-fixer` "Bug Fixer" `[work]` (fascia `strong`, effort `high`, skill `bug-fix`), `intake`,
+  `setup`, `skill-wizard` `[]` (tabella completa in "Skill del plugin e Bot"); il ripristino di un predefinito rimette
+  anche i suoi `kinds`, e l'utente può allargare quelli di General. La migrazione 2→3 dà `[work, review, plan]` ai Bot
+  derivati e a quelli dell'utente (`custom-*`), aggiunge Reviewer e Planner una volta sola (un Bot cancellato non
+  ricompare, un nome già preso diventa "Reviewer 2"...); le migrazioni 3→4 e 4→5 aggiungono Quick Answer e Bug Fixer e
+  rendono esclusivi i `task` di General e Planner. Il controllo, senza ripieghi, vale in
   `Board::check_specs` (proposte, accettazione, task dall'UI con Bot, `plan` dell'HUB), in `update_task` quando il
   patch cambia il Bot o il `kind` (con solo `kind` lo snapshot resta, si verifica il Bot del task) e quindi anche nella
   verifica di `request_task_update` prima della card: "task '<id>': bot <nome> cannot run <kind> tasks: choose a bot
@@ -1142,9 +1145,10 @@ solo `skill_path`) contiene la skill di ogni preset (per Claude Code `skills/<id
 `orchestrate`/`workflow`: l'installazione rimuove le cartelle obsolete). Le skill non hanno voci rapide proprie
 (niente sottomenu “Avvia con…”): una sessione guidata da una skill del plugin parte solo
 come **Bot** (`bot:<id>`, `bots/launches.rs`), che porta agente, modello, effort e skill nella sua configurazione
-(`bots.json`); i Bot predefiniti `intake`, `setup` e `skill-wizard` usano le skill `task-intake`, `project-setup` e `skill-wizard`; `code-answer` e `bug-fix` sono skill da worker per i Bot della pool (vedi sotto). Un Bot con una skill del plugin
-richiede un agente che dichiara `plugin-skills`. Una skill non nomina mai un agente o un modello: li legge da
-`get_workspace_settings.agents`.
+(`bots.json`); i Bot predefiniti `intake`, `setup` e `skill-wizard` usano le skill `task-intake`, `project-setup` e
+`skill-wizard`; `code-answer` e `bug-fix` sono skill da worker dei Bot `quick-answer` e `bug-fixer` (vedi sotto e
+"Bot predefiniti"). Un Bot con una skill del plugin richiede un agente che dichiara `plugin-skills`. Una skill non
+nomina mai un agente o un modello: li legge da `get_workspace_settings.agents`.
 - Migrazione: un `default_launch` salvato come `builtin:orchestrator` o `builtin:preset:task-intake` diventa `bot:intake`
   (`builtin:preset:project-setup` → `bot:setup`, `builtin:preset:skill-wizard` → `bot:skill-wizard`,
   `builtin:preset:<preset>@<agente>` → `bot:<bot>-<agente>`, un Bot derivato creato una volta sola all'avvio): vedi
@@ -1197,6 +1201,48 @@ richiede un agente che dichiara `plugin-skills`. Una skill non nomina mai un age
   "Answer:" in al massimo 10 righe nella lingua della domanda. `bug-fix` (task `work`): riproduce prima (test che
   fallisce o passi documentati), corregge la causa, la riproduzione resta come test di regressione; se il bug non si
   riproduce `ask_user` o chiusura `failed` con i passi provati; report con causa, correzione e test.
+
+### Bot predefiniti
+
+`PRESETS` in `bots/presets.rs`, 8 voci, tutte con l'agente del workspace (`agent: None`) e il modello per fascia, mai
+per nome: valgono con ogni agente. Il `task` (inglese) è ciò che leggono pianificatore, Intake e segretari per
+scegliere il Bot; i testi sono **esclusivi**, così ogni richiesta ha un solo Bot adatto.
+
+| Id | Nome | `task` | Modello | Effort | Skill | Kinds |
+|---|---|---|---|---|---|---|
+| `general` | General | General-purpose coding agent: new features and any change no specialized bot covers. | dei worker del workspace | — | — | `[work]` |
+| `intake` | Intake | Turns requests into queue tasks. | `strong` | high | `task-intake` | `[]` |
+| `setup` | Setup | Configures the workspace and the worker rules. | `standard` | medium | `project-setup` | `[]` |
+| `skill-wizard` | Skill Wizard | Creates and manages global skills. | `standard` | medium | `skill-wizard` | `[]` |
+| `reviewer` | Reviewer | Verifies the integrated result of finished tasks and proposes fixes. | `strong` | high | — | `[review]` |
+| `planner` | Planner | Plans changes to the project: explores the repository read-only and proposes queue tasks. | `strong` | high | — | `[plan]` |
+| `quick-answer` | Quick Answer | Answers a quick question about the code or its git history, read-only, in a few lines. Changes nothing and proposes nothing. | `standard` | low | `code-answer` | `[plan]` |
+| `bug-fixer` | Bug Fixer | Fixes a reported bug: reproduces it, adds a failing regression test, fixes the root cause and verifies. | `strong` | high | `bug-fix` | `[work]` |
+
+- **Quick Answer** è un Bot `plan` perché il `plan` gira in sola lettura (worktree isolato) e il suo report torna
+  intero nel thread dell'HUB: chiude con l'esito "Answer:" (vedi "Task di pianificazione"), senza proposte. Fascia
+  `standard` ed effort `low` perché è la richiesta più frequente; su OpenCode l'effort si scarta.
+- **Costo di Bug Fixer.** È `strong`/`high`: dove prima un bug finiva su `general` con il modello dei worker del
+  workspace, ora il pianificatore sceglie il Bot dedicato e il costo medio di una correzione sale. È voluto (qualità
+  della correzione); chi vuole spendere meno ne cambia modello o effort in Impostazioni › Generale › Bot, o lo disattiva.
+- **Migrazioni** (`bots.rs`, passi congelati in `bots/migrations.rs`; `bots.json` alla `schema_version` 5):
+  `add_answer_and_fix_bots` (3→4) aggiunge in fondo Quick Answer e Bug Fixer se l'id manca, una volta sola (un Bot
+  cancellato non ricompare, un nome già preso fra i Bot diventa "Quick Answer 2");
+  `exclusive_general_and_planner_tasks` (4→5) dà a `general` e `planner` il `task` nuovo **solo se è ancora il
+  vecchio testo del preset** ("General-purpose coding agent.", "Explores the repository read-only and proposes queue
+  tasks."): un testo personalizzato resta. I passi non leggono i segretari (`bots.json` si carica prima di
+  `hub_settings.json`): all'avvio, caricati entrambi, `bots::rename_bots_named_like_secretaries`
+  (`bots/secretary_names.rs`) dà il primo nome libero a un Bot che porta il nome di un segretario e salva solo se ne
+  ha rinominato uno.
+- **Esempi non predefiniti** (idee da creare in Impostazioni › Generale › Bot; l'app non li crea):
+  - *Security Reviewer*: `kinds` `[review]`, fascia `strong`, effort `high`, una skill utente con la checklist di
+    sicurezza dell'organizzazione, per una seconda review indipendente. Non è predefinito perché raddoppierebbe il
+    costo di ogni review.
+  - *Bot su un altro agente*: per esempio un Reviewer su OpenCode, per un controllo da un modello diverso. Il
+    pianificatore lo prevede già ("a Bot that uses that agent", `board/prompts/planner_instructions.md`) e i Bot
+    derivati (`bots/derived.rs`) ne sono un caso.
+  - *Bot di stack*: `kinds` `[work]` e una skill utente con le convenzioni del progetto (framework, struttura,
+    comandi), creata con Skill Wizard; il `task` dice per quale parte del progetto sceglierlo.
 
 ## Fasce orarie (semplificate)
 
