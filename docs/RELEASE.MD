@@ -141,6 +141,24 @@ vanno scritte qui sotto, per versione, prima del tag.
   rimettendo a posto il file dal backup, ma i Bot creati e gli avvii scelti dopo
   l'aggiornamento non sono leggibili dalla versione vecchia.
 
+### Prossima versione: tipi di task dei Bot
+
+- **Bot per tipo di task.** Ogni Bot ha i **Tipi di task** che può eseguire (Lavoro, Review,
+  Pianificazione; nessuno = solo terminali interattivi), modificabili da Impostazioni › Bot.
+  Un task può avere solo un Bot che ne esegue il tipo: proposte, accettazione, creazione e
+  cambio di Bot o di tipo lo verificano e non ripiegano mai su `General`.
+- **Bot Reviewer e Planner.** Due nuovi Bot predefiniti, `Reviewer` (review) e `Planner`
+  (pianificazione, fascia `strong`, effort `high`). `General` esegue il lavoro; Intake, Setup
+  e Skill Wizard restano solo interattivi.
+- **Migrazione automatica.** I Bot esistenti (derivati e creati dall'utente) ricevono tutti i
+  tipi, così nulla cambia; Reviewer e Planner si aggiungono una volta sola (un Bot cancellato
+  non ricompare, un nome già preso diventa «Reviewer 2»). `bots.json` passa alla versione 3:
+  una versione precedente dell'app lo mette da parte come `bots.json.bak-<timestamp>`.
+- **Segretari dell'HUB.** Vedono solo i Bot che possono pianificare; senza Bot con
+  Pianificazione abilitato non possono aprire pianificazioni.
+- **Badge dei task.** Review, Pianificazione, verdetto, E2E, Bot e Agente: la mappa è in
+  `docs/BOARD.MD`, «Badge dei task».
+
 ## 6. Checklist release
 
 - [ ] `updater.config.json`: `owner`/`repo` reali

@@ -233,6 +233,27 @@ che non sono più quelli del task è rifiutato (`Stale`) e non cambia niente.
 chiusa per un workspace che usa le fasce), `delivery` del workspace (comodità per la UI) e `limits: { max_parallel: { min, max } }`
 (gli estremi di `max_parallel`, gli stessi che validano `board_set` e `set_board`: la UI li legge da qui).
 
+### Badge dei task
+
+Le card e le righe mostrano pochi badge; ognuno deriva da un campo del task e, dove indicato, cambia cosa fa il
+worker o cosa si può scegliere. Compaiono in `KanbanCard`, `ListRow`, `TaskDetail`, `TaskNode`, `PanelQueue`,
+`PanelRunningCard` e `ProposalCard` (`PlanBadge` anche nel pannello del thread dell'HUB).
+
+| Badge | Origine del dato | Effetto |
+|---|---|---|
+| **Review** | `kind: review` | Ruolo Reviewer: `get_task` con `reviewed_tasks`, nessuna consegna, verdetto e `findings` obbligatori; `propose_tasks`, `get_task_details` e `get_workspace_settings` ma niente `ask_user`; almeno una dipendenza (i task rivisti); notifica `ReviewDone`; la proposta torna nel thread d'origine. Serve un Bot con `review` fra i `kinds` (`Reviewer`) |
+| **Pianificazione** | `kind: plan`, solo task creati dall'app (HUB e `create_plan_task`) | Ruolo Planner: worktree isolato sempre, non occupa il repository nello scheduler, niente setup, consegna, commit né E2E; `list_tasks`, `get_workspace_settings` e `ask_user`; notifica `PlanWithoutProposal` se chiude senza proposta; escluso dalla chiusura automatica del thread. Il `kind` è riservato all'app. Serve un Bot con `plan` (`Planner`) |
+| **Verificato** / **Problemi trovati** | verdetto del report di una review `done` | Solo informativo: i `findings` si leggono nel dettaglio |
+| **E2E richiesto** / esito | `e2e` del task e ultima esecuzione (`e2e_run` o `report.e2e`) | "E2E richiesto" finché il task marcato non ha mai eseguito gli E2E, poi l'esito (vedi "Test E2E") |
+| **Bot** (avatar e nome) | `bot` del task (snapshot all'accettazione); assente nei task vecchi | Dice chi esegue il task; il selettore del Bot offre solo i Bot abilitati con quel `kind` |
+| **Agente** | `agent` del task (snapshot dal Bot, o dal workspace nei task senza Bot) | Agente che lancia il worker; con un Bot non si sceglie a parte |
+| **Richiede attenzione** | `attention` della vista (task `running`) | Il worker aspetta l'utente: è uno stato, non un tipo |
+| **attende X** / **attende N task** | `waiting_on` della vista (dipendenze non `done`) | Il task `queued` parte quando sono tutte `done` |
+| Repository | `repo` del task | Repository in cui lavora (assente = root) |
+
+Tipo e Bot: `work` → `General` (o un Bot con `work`), `review` → `Reviewer`, `plan` → `Planner`. Nei form,
+cambiando il tipo il Bot scelto resta se lo esegue, altrimenti passa al default del tipo con un avviso in linea.
+
 ### Azioni consentite (`allowed_actions`, `can_edit`, `can_reorder`, `cascade`)
 
 Cosa si può fare a un task dipende solo dal suo stato; la tabella è una sola (`permits` in
@@ -733,8 +754,8 @@ always finish with complete_task; nobody reads the terminal.
 
 Sessione (workspace = quello del tab):
 - `propose_tasks { tasks: TaskSpec[] }` — `TaskSpec = { id, title, task, bot, model?, agent?,
-  depends_on?, repo?, kind? }` (`bot` obbligatorio nelle proposte: id di un Bot di `get_workspace_settings.bots`,
-  `general` per il lavoro senza specializzazione, altrimenti "tasks[<i>]: task <id>: bot is required (see
+  depends_on?, repo?, kind? }` (`bot` obbligatorio nelle proposte: id di un Bot di `get_workspace_settings.bots` i cui `kinds`
+  includono il `kind` della specifica (`general` solo per il lavoro, mai per una review), altrimenti "tasks[<i>]: task <id>: bot is required (see
   get_workspace_settings.bots)"; `model` è un override facoltativo del modello del Bot; `kind` `work` | `review`,
   default `work`; una `review` richiede almeno una dipendenza, controllata a proposta,
   accettazione, creazione manuale e aggiornamento: "task '<id>': a review task needs at least one
@@ -1134,8 +1155,8 @@ richiede un agente che dichiara `plugin-skills`. Una skill non nomina mai un age
   specifica: **Goal, Context, Constraints, Done when, Verify** (comandi). Non implementare
   mai il lavoro, non toccare file, non fare merge; può usare `list_tasks`,
   `get_task_details`, `update_task`, `delete_task` per lo stato della coda. Ogni task ha
-  sempre `bot`, scelto dal `task` di ogni Bot in `get_workspace_settings.bots` (`general` per il lavoro
-  senza specializzazione) fra i soli Bot abilitati con agente `ready`, altrimenti avvisa l'utente; `model` è solo un override
+  sempre `bot`, scelto dal `task` di ogni Bot in `get_workspace_settings.bots` (`general` per il lavoro,
+  `reviewer` per le review, `planner` per le pianificazioni: i `kinds` del Bot devono includere il `kind` del task) fra i soli Bot abilitati con agente `ready`, altrimenti avvisa l'utente; `model` è solo un override
   facoltativo quando serve una fascia diversa da quella del Bot (`tier: "standard"` per lavoro ben
   definito, `"strong"` per design/rischio), letto da `get_workspace_settings.agents` e mai a memoria; `agent` si omette
   (deve coincidere con quello del Bot). La specifica deve
