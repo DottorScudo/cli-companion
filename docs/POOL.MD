@@ -553,9 +553,9 @@ Struttura comune delle bozze: `## When this applies`, `## Rules`, `## Workflow`,
 - **`skill-wizard`** (`agents/presets/skill-wizard.md`): prima di creare una skill, confrontare la richiesta con le
   skill del plugin (elencate dall'app) e suggerire di usare o specializzare un Bot esistente invece di duplicare
   (es. "le nostre regole sui bug" = skill utente da dare a un Bot derivato da Bug Fixer, non una copia di `bug-fix`).
-  **Non verificato**: se `list_skills` restituisca anche le skill del plugin; dal codice
-  (`automation/skills.rs`) restituisce solo quelle dell'utente, quindi la skill dovrebbe conoscerle per nome o serve
-  un campo in `get_workspace_settings` (§7, T8).
+  **Fatto (T8)**: `list_skills` restituisce solo le skill dell'utente; le skill del plugin (nome e descrizione)
+  sono nel campo `get_workspace_settings.plugin_skills` (`automation/settings.rs`), che la skill legge insieme ai
+  `bots` (sezione "Do not duplicate a plugin skill").
 
 ### 5.4 Come evitare duplicazioni con le skill utente
 

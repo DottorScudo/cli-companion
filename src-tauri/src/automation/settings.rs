@@ -8,6 +8,7 @@ use self::bots::{bots_json, ProbedAgents};
 use super::boards::{session_workspace, workspace_of};
 use super::rpc::misrouted;
 use super::*;
+use crate::agents::presets::PRESETS;
 use crate::agents::{registry, worker_rule_format, AgentIntegration, PermissionMode, Readiness, RuleFormat};
 use crate::board::SettingsProposal;
 use crate::workspaces::{
@@ -98,6 +99,7 @@ pub(super) fn get_settings<H: Host>(st: &AutomationState, host: &H, ws: &Workspa
         "settings": settings_json(ws),
         "agents": agents_json(&probed),
         "bots": bots_json(&bots, ws.agent.as_deref(), &probed),
+        "plugin_skills": plugin_skills_json(),
         "repos": repos_json(ws, &detected),
         "allowed": allowed_json(ws, host.shared_launch_ids()),
         "limits": limits_json(),
@@ -156,6 +158,12 @@ fn rule_format_json(format: RuleFormat) -> Value {
         "max_rule_chars": format.max_rule_chars,
         "example": format.example,
     })
+}
+
+/// Le skill del plugin (nome e descrizione), che i Bot nominano in `skill`:
+/// Skill Wizard le confronta con la skill da creare per non duplicarle.
+fn plugin_skills_json() -> Vec<Value> {
+    PRESETS.iter().map(|p| json!({ "name": p.id, "description": p.description() })).collect()
 }
 
 /// Repository rilevati e repository con una configurazione, per chiave.

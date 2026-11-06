@@ -1,6 +1,7 @@
 //! Tool MCP delle impostazioni del workspace e decisione dell'utente.
 
 use super::*;
+use crate::agents::presets::PRESETS;
 use crate::agents::{builtin_launch_list, registry, PermissionMode};
 use crate::automation::settings::{limits_json, settings_proposal_decide, SettingsDecision, REASON_MAX};
 use crate::workspaces::{AgentWorkerSettings, Launch, MAX_PATCH_AGENTS, MAX_RULES_LEN};
@@ -161,6 +162,19 @@ fn get_settings_reports_values_repos_allowed_values_and_limits() {
         assert!(out["limits"][key].as_u64().unwrap() > 0, "{key}");
     }
     assert_eq!(out["pending_settings_proposals"], json!([{"id": id, "reason": REASON}]));
+}
+
+#[test]
+fn get_settings_lists_every_plugin_skill_with_its_description() {
+    let (st, h) = (AutomationState::default(), host_with_repos());
+    let out = read_settings(&st, &h);
+    let skills = out["plugin_skills"].as_array().unwrap();
+    assert_eq!(skills.len(), PRESETS.len());
+    for (skill, preset) in skills.iter().zip(PRESETS) {
+        assert_eq!(skill["name"], preset.id);
+        assert_eq!(skill["description"], preset.description());
+        assert!(!preset.description().is_empty(), "{}", preset.id);
+    }
 }
 
 #[test]

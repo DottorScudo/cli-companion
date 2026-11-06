@@ -346,6 +346,25 @@ mod tests {
     }
 
     #[test]
+    fn skill_wizard_skill_does_not_duplicate_a_plugin_skill() {
+        let skill = preset("skill-wizard").skill_text();
+        for t in [
+            "## Do not duplicate a plugin skill",
+            "get_workspace_settings",
+            "`plugin_skills`",
+            "It does not list the plugin skills",
+            "never copy or rewrite the\n  plugin skill",
+            "the cli-companion plugin skill `<name>` first",
+            "works with every agent",
+            "A Bot loads one skill",
+            "derived from Bug Fixer, not a copy of `bug-fix`",
+            "you never propose settings",
+        ] {
+            assert!(skill.contains(t), "{t}");
+        }
+    }
+
+    #[test]
     fn project_setup_skill_covers_the_method() {
         let p = PRESETS.iter().find(|p| p.id == "project-setup").unwrap();
         assert_eq!(p.name, "Project Setup");
