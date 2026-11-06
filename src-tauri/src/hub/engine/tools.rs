@@ -375,8 +375,8 @@ fn workspace_reference(raw: Option<&str>) -> Result<Option<String>, String> {
 fn bot_parameter() -> Value {
     json!({
         "type": "string",
-        "description": "Id of the bot whose task fits the work, from the bots listed in your instructions; \
-            `general` when no bot is specific.",
+        "description": "Id of one of the bots listed in your instructions whose kinds include the \
+            task's kind (plan for open_plan_task), chosen by its task.",
         "minLength": 1,
         "maxLength": BOT_ID_MAX
     })

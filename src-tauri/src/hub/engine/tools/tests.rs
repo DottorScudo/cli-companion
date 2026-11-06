@@ -496,3 +496,10 @@ fn the_new_read_tools_exist_only_for_a_secretary_who_has_them() {
     let names: Vec<&str> = specs(&old).iter().map(|t| t.name).collect();
     assert_eq!(names, ["board_status", "thread_read"]);
 }
+
+#[test]
+fn the_bot_parameter_names_kinds_and_no_general_fallback() {
+    let description = bot_parameter()["description"].as_str().unwrap().to_string();
+    assert!(description.contains("kinds"));
+    assert!(!description.contains("general"));
+}
