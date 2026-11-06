@@ -22,8 +22,17 @@ fn the_system_prompt_adds_the_engine_rules_and_the_language() {
 fn the_system_prompt_lists_the_bots_before_the_language() {
     let bots = crate::bots::default_agent_bots();
     let p = system_prompt(&secretary("mario"), Language::It, &ws(), &names(), &bots);
-    assert!(p.contains("\n- general: General - General-purpose coding agent. [work]\n"), "{p}");
-    assert!(p.contains("\n- planner: Planner - Explores the repository read-only and proposes queue tasks. [plan]\n"));
+    assert!(
+        p.contains(
+            "\n- general: General - General-purpose coding agent: new features and any change no \
+             specialized bot covers. [work]\n"
+        ),
+        "{p}"
+    );
+    assert!(p.contains(
+        "\n- planner: Planner - Plans changes to the project: explores the repository read-only and \
+         proposes queue tasks. [plan]\n"
+    ));
     assert!(
         p.ends_with(
             "- bug-fixer: Bug Fixer - Fixes a reported bug: reproduces it, adds a failing regression test, fixes the \

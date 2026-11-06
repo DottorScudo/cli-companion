@@ -133,8 +133,9 @@ mod tests {
         assert_eq!(
             text,
             format!(
-                "{INTRO}\n{PLAN_INTRO}\n- general: General - General-purpose coding agent.\n- planner: Planner - \
-                 Explores the repository read-only and proposes queue tasks.\n- quick-answer: Quick Answer - Answers \
+                "{INTRO}\n{PLAN_INTRO}\n- general: General - General-purpose coding agent: new features and any \
+                 change no specialized bot covers.\n- planner: Planner - Plans changes to the project: explores the \
+                 repository read-only and proposes queue tasks.\n- quick-answer: Quick Answer - Answers \
                  a quick question about the code or its git history, read-only, in a few lines. Changes nothing and \
                  proposes nothing."
             )
@@ -148,10 +149,17 @@ mod tests {
         by_id(&mut list, "reviewer").enabled = false;
         let text = describe(&with_tools(vec![SecretaryTool::RequestTaskUpdate]), &list).unwrap();
         assert!(text.starts_with(&format!("{INTRO}\n{UPDATE_INTRO}\n")), "{text}");
-        assert!(text.contains("\n- general: General - General-purpose coding agent. [work, review, plan]"), "{text}");
         assert!(
-            text.contains("\n- planner: Planner - Explores the repository read-only and proposes queue tasks. [plan]")
+            text.contains(
+                "\n- general: General - General-purpose coding agent: new features and any change no \
+                 specialized bot covers. [work, review, plan]"
+            ),
+            "{text}"
         );
+        assert!(text.contains(
+            "\n- planner: Planner - Plans changes to the project: explores the repository \
+                 read-only and proposes queue tasks. [plan]"
+        ));
         for hidden in ["intake", "setup", "skill-wizard", "reviewer"] {
             assert!(!text.contains(&format!("- {hidden}:")), "{hidden}: {text}");
         }

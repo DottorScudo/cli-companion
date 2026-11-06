@@ -57,7 +57,7 @@ pub static PRESETS: [BotPreset; 8] = [
     BotPreset {
         id: GENERAL_ID,
         name: "General",
-        task: "General-purpose coding agent.",
+        task: "General-purpose coding agent: new features and any change no specialized bot covers.",
         model: ModelChoice::Default,
         effort: None,
         skill: None,
@@ -102,7 +102,7 @@ pub static PRESETS: [BotPreset; 8] = [
     BotPreset {
         id: "planner",
         name: "Planner",
-        task: "Explores the repository read-only and proposes queue tasks.",
+        task: "Plans changes to the project: explores the repository read-only and proposes queue tasks.",
         model: ModelChoice::Tier(ModelTier::Strong),
         effort: Some(Effort::High),
         skill: None,

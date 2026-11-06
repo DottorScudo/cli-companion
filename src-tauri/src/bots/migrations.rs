@@ -10,6 +10,8 @@ use serde_json::{json, Map, Value};
 
 /// Campo dei Bot-agente nel dato.
 const AGENTS_KEY: &str = "agents";
+/// Campo della descrizione di un Bot.
+const TASK_KEY: &str = "task";
 /// Campo dei tipi di task di un Bot (dalla v3).
 const KINDS_KEY: &str = "kinds";
 /// Tutti i tipi di task della v3.
@@ -135,6 +137,36 @@ pub fn add_answer_and_fix_bots(mut value: Value) -> Result<Value, String> {
     add_missing(value, added)
 }
 
+/// Passo 4 -> 5: i `task` di `general` e `planner` resi esclusivi rispetto a
+/// Quick Answer e Bug Fixer. Cambia solo un testo ancora uguale al vecchio
+/// preset: uno diverso e' una personalizzazione e resta com'e'.
+pub fn exclusive_general_and_planner_tasks(mut value: Value) -> Result<Value, String> {
+    /// Per id: il vecchio `task` del preset e quello nuovo.
+    const UPDATES: [(&str, &str, &str); 2] = [
+        (
+            GENERAL,
+            "General-purpose coding agent.",
+            "General-purpose coding agent: new features and any change no specialized bot covers.",
+        ),
+        (
+            "planner",
+            "Explores the repository read-only and proposes queue tasks.",
+            "Plans changes to the project: explores the repository read-only and proposes queue tasks.",
+        ),
+    ];
+    for bot in agents_mut(&mut value)?.iter_mut() {
+        let bot = bot.as_object_mut().ok_or("un Bot non è un oggetto")?;
+        let id = bot.get("id").and_then(Value::as_str);
+        let Some(&(_, old, new)) = UPDATES.iter().find(|(update_id, ..)| id == Some(*update_id)) else {
+            continue;
+        };
+        if bot.get(TASK_KEY).and_then(Value::as_str) == Some(old) {
+            bot.insert(TASK_KEY.to_string(), json!(new));
+        }
+    }
+    Ok(value)
+}
+
 /// I nomi dei Bot dell'elenco, in minuscolo.
 fn bot_names(list: &[Value]) -> Vec<String> {
     list.iter().filter_map(|b| b.get("name").and_then(Value::as_str)).map(str::to_lowercase).collect()
@@ -203,7 +235,7 @@ mod tests {
     /// un passo nuovo in coda.
     #[test]
     fn the_steps_match_the_presets_of_the_current_release() {
-        let steps = [add_agent_bots, add_task_kinds, add_answer_and_fix_bots];
+        let steps = [add_agent_bots, add_task_kinds, add_answer_and_fix_bots, exclusive_general_and_planner_tasks];
         let current = steps.iter().try_fold(json!({}), |value, step| step(value)).unwrap();
         let bots: Vec<AgentBot> = serde_json::from_value(current[AGENTS_KEY].clone()).unwrap();
         assert_eq!(bots, default_bots());
@@ -221,11 +253,12 @@ mod tests {
 
     #[test]
     fn malformed_data_is_an_error() {
-        for step in [add_agent_bots, add_task_kinds, add_answer_and_fix_bots] {
+        for step in [add_agent_bots, add_task_kinds, add_answer_and_fix_bots, exclusive_general_and_planner_tasks] {
             assert!(step(json!([1, 2])).is_err());
             assert!(step(json!({"agents": "nope"})).is_err());
         }
         assert!(add_task_kinds(json!({"agents": [1]})).is_err());
+        assert!(exclusive_general_and_planner_tasks(json!({"agents": [1]})).is_err());
     }
 
     fn kinds_of<'a>(value: &'a Value, id: &str) -> &'a Value {
@@ -290,5 +323,19 @@ mod tests {
         assert_eq!(ids(&v4), ["bug-fixer", "custom-q", "quick-answer"]);
         assert_eq!(v4[AGENTS_KEY][0], mine);
         assert_eq!(v4[AGENTS_KEY][2]["name"], "Quick Answer 2");
+    }
+
+    #[test]
+    fn the_v5_step_changes_only_the_task_of_general_and_planner() {
+        let old = "General-purpose coding agent.";
+        let general =
+            json!({"id": "general", "name": "Mine", "task": old, "model": {"kind": "default"}, "kinds": ["work"]});
+        let derived = json!({"id": "general-other", "name": "General (Other)", "task": old, "kinds": ["work"]});
+        let v4 = json!({"enabled": false, "names": ["Ada"], "agents": [general.clone(), derived.clone()]});
+        let v5 = exclusive_general_and_planner_tasks(v4.clone()).unwrap();
+        let mut expected = general;
+        expected[TASK_KEY] = json!(crate::bots::presets::find(GENERAL).unwrap().task);
+        assert_eq!(v5[AGENTS_KEY], json!([expected, derived]), "only the task of the general id changes");
+        assert_eq!((&v5["enabled"], &v5["names"]), (&v4["enabled"], &v4["names"]));
     }
 }

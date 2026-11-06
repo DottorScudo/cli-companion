@@ -593,7 +593,7 @@ Note:
 | Elemento | Utente nuovo | Utente esistente |
 |---|---|---|
 | Bot nuovi | creati dal passo di migrazione v4 (il file nuovo passa da tutti i passi) | creati **una volta** dal passo v4 se l'id manca; nomi liberi come "Researcher 2" se presi |
-| `task` cambiati di `general` / `planner` | dal preset | **invariati** (i passi non toccano i Bot esistenti): arrivano solo con il ripristino del Bot. Serve una scelta (§8, D4) |
+| `task` cambiati di `general` / `planner` | dal preset | aggiornati **una volta** dal passo v5 solo se il `task` è ancora il vecchio testo del preset; un testo personalizzato resta (§8, D4) |
 | Segretari (prompt cambiati) | dal seeding | **invariati** finché l'utente non usa «Ripristina predefinito» |
 | Skill del plugin nuove | nel pacchetto dell'agente | al prossimo aggiornamento del pacchetto (prontezza `outdated`) |
 | Task in coda | — | invariati (snapshot del Bot) |

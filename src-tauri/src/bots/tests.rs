@@ -235,7 +235,7 @@ fn update_writes_the_envelope_and_roundtrips() {
         })
         .unwrap();
     let raw: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join(FILE_NAME)).unwrap()).unwrap();
-    assert_eq!(raw["schema_version"], 4);
+    assert_eq!(raw["schema_version"], 5);
     assert_eq!(raw["data"]["agents"][0]["id"], "general");
     assert_eq!(raw["data"]["enabled"], false);
     assert_eq!(raw["data"]["images"]["Ada"]["color"], "#445566");
@@ -348,6 +348,43 @@ fn v3_file_gets_quick_answer_and_bug_fixer_once() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Un file v4 com'era su disco: `general` col vecchio `task` del preset,
+/// `planner` con un `task` personalizzato.
+const V4_FILE: &str = r#"{"schema_version":4,"data":{"enabled":true,"names":["Ada"],"agents":[
+{"id":"general","name":"Generic","task":"General-purpose coding agent.","agent":null,"model":{"kind":"default"},"effort":null,"skill":null,"kinds":["work"],"enabled":true,"image":null,"preset":"general"},
+{"id":"planner","name":"Planner","task":"Plans my way.","agent":"other","model":{"kind":"tier","value":"standard"},"effort":"low","skill":null,"kinds":["plan","work"],"enabled":false,"image":null,"preset":"planner"}
+]}}"#;
+
+#[test]
+fn v4_file_gets_the_new_task_only_where_it_was_the_old_preset_text() {
+    let (dir, store) = load_fixture("v4-tasks", V4_FILE);
+    let s = store.get();
+    assert!(backups(&dir).is_empty());
+    assert_eq!(agent_ids(&s), ["general", "planner"]);
+    let preset = presets::find(GENERAL_ID).unwrap().bot();
+    assert_eq!(agent(&s, "general"), &AgentBot { name: "Generic".into(), ..preset });
+    let planner = agent(&s, "planner");
+    assert_eq!(planner.task, "Plans my way.", "a customized task is kept");
+    assert_eq!(
+        (planner.agent.as_deref(), planner.effort, planner.enabled),
+        (Some("other"), Some(crate::agents::Effort::Low), false)
+    );
+    assert_eq!(planner.kinds, [TaskKind::Plan, TaskKind::Work]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_new_file_has_the_exclusive_tasks_of_general_and_planner() {
+    let (dir, store) = load_fixture("v0-tasks", "{}");
+    let s = store.get();
+    for id in [GENERAL_ID, "planner"] {
+        assert_eq!(agent(&s, id).task, presets::find(id).unwrap().task, "{id}");
+    }
+    assert!(agent(&s, GENERAL_ID).task.contains("no specialized bot covers"));
+    assert!(agent(&s, "planner").task.starts_with("Plans changes to the project"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_missing_file_starts_with_the_preset_bots() {
     let dir = temp_dir("absent");
@@ -393,7 +430,7 @@ fn a_v4_file_without_general_gets_it_back_enabled() {
 
 #[test]
 fn a_newer_schema_is_set_aside() {
-    let (dir, store) = load_fixture("newer", r#"{"schema_version":5,"data":{}}"#);
+    let (dir, store) = load_fixture("newer", r#"{"schema_version":6,"data":{}}"#);
     assert_eq!(store.get(), BotSettings::default());
     assert_eq!(backups(&dir).len(), 1);
     let _ = std::fs::remove_dir_all(&dir);
