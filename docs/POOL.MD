@@ -23,7 +23,8 @@ Convenzione: i testi che leggerà il modello (prompt dei segretari, `task` dei B
 > avviso «versione aggiornata»), T11 (documentazione: [BOARD.MD](BOARD.MD), "Skill del plugin e Bot" e
 > "Agente e modello di un task"; [HUB.MD](HUB.MD), "Segretari predefiniti" e "Pianificazione dal thread"). Restano da
 > fare i task should/could (T6–T10) e i Bot nuovi non ancora creati (`researcher`, `test-writer`, `docs-writer`,
-> `refactorer`, `git-operator`, `release`) con le loro skill. Le sezioni 1–8 restano l'analisi originale: dove il
+> `refactorer`, `git-operator`, `release`) e le skill `git-ops` e `release-prep`: la seconda tappa di T2 ha già
+> consegnato `code-research`, `test-qa`, `docs-writer` e `safe-refactor`. Le sezioni 1–8 restano l'analisi originale: dove il
 > codice è cambiato fa fede la documentazione collegata.
 
 ---
@@ -442,9 +443,10 @@ Da documentare (es. in [BOARD.MD](BOARD.MD) o nella UI dei Bot come "idee"), non
   equivalenti per costo; accettabile, perché la differenza di esito sta nella skill.
 - Le skill nuove vanno spedite nel pacchetto di entrambe le integrazioni (`plugin_skills` di
   `agents/claude_code/plugin_skills.rs` e `agents/opencode/plugin_skills.rs`): avviene da sé per ogni voce di
-  `agents::presets::PRESETS` ([BOARD.MD](BOARD.MD), "Skill del plugin e Bot"); **non verificato** se OpenCode
-  richieda un riavvio o un aggiornamento del pacchetto per vedere le skill nuove (lo stato `outdated` della prontezza
-  lo suggerisce).
+  `agents::presets::PRESETS` ([BOARD.MD](BOARD.MD), "Skill del plugin e Bot"); verificato nel codice che una skill
+  nuova richiede l'aggiornamento del pacchetto su entrambe le integrazioni: la versione del pacchetto dipende dal
+  testo di tutte le skill, quindi la prontezza diventa `outdated` finché l'utente non lo aggiorna (per OpenCode le
+  skill registrate a runtime sono `SKILL_IDS` dell'`index.ts` generato).
 - Le fasce sono due: se si vuole una fascia economica vera per `quick-answer` serve una terza fascia (`Light`/`Fast`)
   nel contratto (§8, D2).
 

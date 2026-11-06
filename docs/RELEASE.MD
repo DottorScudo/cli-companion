@@ -179,8 +179,10 @@ vanno scritte qui sotto, per versione, prima del tag.
   tengono il prompt vecchio: la riga e l'editor del segretario mostrano «È disponibile una
   versione aggiornata: Ripristina predefinito». Il ripristino riporta prompt e tool al preset e
   perde eventuali modifiche fatte a mano.
-- **Skill del plugin.** `code-answer` e `bug-fix` arrivano con l'aggiornamento del pacchetto
-  dell'agente (prontezza «da aggiornare» finché non lo si aggiorna).
+- **Skill del plugin.** `code-answer` e `bug-fix`, e le skill da worker per i Bot che verranno
+  (`code-research`, `test-qa`, `docs-writer`, `safe-refactor`), arrivano con l'aggiornamento del
+  pacchetto dell'agente, Claude Code e OpenCode (prontezza «da aggiornare» finché non lo si
+  aggiorna).
 
 ## 6. Checklist release
 

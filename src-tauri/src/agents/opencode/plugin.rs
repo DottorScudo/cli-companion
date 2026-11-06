@@ -100,9 +100,9 @@ mod tests {
         );
         assert!(index.contains(r#"const AGENT_ID = "opencode""#));
         assert!(index.contains(r#"const MCP_SERVER = "cli-companion""#));
-        assert!(index.contains(
-            r#"const SKILL_IDS: string[] = ["task-intake","skill-wizard","project-setup","code-answer","bug-fix"]"#
-        ));
+        let ids: Vec<String> = PRESETS.iter().map(|p| format!("\"{}\"", p.id)).collect();
+        assert!(index.contains(&format!("const SKILL_IDS: string[] = [{}]", ids.join(","))));
+        assert!(index.contains(r#""code-answer","bug-fix","code-research","test-qa","docs-writer","safe-refactor"]"#));
         assert!(index.contains(r#"id: "cli-companion-notify","#));
         assert!(!index.contains("__"), "segnaposto rimasto");
         assert!(!index.contains('\r'));

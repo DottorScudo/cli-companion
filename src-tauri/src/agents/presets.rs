@@ -34,6 +34,10 @@ pub static PRESETS: &[Preset] = &[
     Preset { id: "project-setup", name: "Project Setup", skill: include_str!("presets/project-setup.md") },
     Preset { id: "code-answer", name: "Code Answer", skill: include_str!("presets/code-answer.md") },
     Preset { id: "bug-fix", name: "Bug Fix", skill: include_str!("presets/bug-fix.md") },
+    Preset { id: "code-research", name: "Code Research", skill: include_str!("presets/code-research.md") },
+    Preset { id: "test-qa", name: "Test QA", skill: include_str!("presets/test-qa.md") },
+    Preset { id: "docs-writer", name: "Docs Writer", skill: include_str!("presets/docs-writer.md") },
+    Preset { id: "safe-refactor", name: "Safe Refactor", skill: include_str!("presets/safe-refactor.md") },
 ];
 
 #[cfg(test)]
@@ -88,7 +92,8 @@ mod tests {
 
     /// The skills a worker loads from its bot: their description must keep them out of every
     /// other session, where the agent lists them too.
-    const WORKER_SKILLS: &[&str] = &["code-answer", "bug-fix"];
+    const WORKER_SKILLS: &[&str] =
+        &["code-answer", "bug-fix", "code-research", "test-qa", "docs-writer", "safe-refactor"];
 
     /// The sections every worker skill has, in this order.
     const WORKER_SKILL_SECTIONS: &[&str] = &["## When this applies", "## Rules", "## Workflow", "## Report"];
@@ -165,6 +170,96 @@ mod tests {
             "the cause",
             "the fix",
             "the test",
+        ] {
+            assert!(skill.contains(t), "{t}");
+        }
+    }
+
+    /// The plugin skills of the interactive bots: with the worker skills, the whole registry.
+    const INTERACTIVE_SKILLS: &[&str] = &["task-intake", "skill-wizard", "project-setup"];
+
+    #[test]
+    fn registry_holds_the_interactive_and_the_worker_skills() {
+        assert_eq!(PRESETS.len(), INTERACTIVE_SKILLS.len() + WORKER_SKILLS.len());
+        for id in INTERACTIVE_SKILLS.iter().chain(WORKER_SKILLS) {
+            preset(id);
+        }
+    }
+
+    #[test]
+    fn code_research_skill_reports_findings_and_options() {
+        let p = preset("code-research");
+        assert_eq!(p.name, "Code Research");
+        assert!(p.description().contains("planning task"));
+        let skill = p.skill_text();
+        for t in [
+            "Read-only",
+            "git only to read",
+            "output is ignored by git",
+            "network access: cite each one",
+            "Propose tasks only if the request asks for them",
+            "starts with\n\"Answer:\"",
+            "relative effort",
+            "could not verify",
+        ] {
+            assert!(skill.contains(t), "{t}");
+        }
+        let sections = ["`Question`:", "`Findings`:", "`Options`:", "`Recommendation`:", "`Open points`:"];
+        let positions: Vec<usize> = sections.iter().map(|s| skill.find(s).unwrap_or_else(|| panic!("{s}"))).collect();
+        assert!(positions.windows(2).all(|w| w[0] < w[1]), "report sections out of order");
+    }
+
+    #[test]
+    fn test_qa_skill_follows_the_existing_framework() {
+        let p = preset("test-qa");
+        assert_eq!(p.name, "Test QA");
+        assert!(p.description().contains("work task"));
+        let skill = p.skill_text();
+        for t in [
+            "the project already uses",
+            "Never add a new test framework",
+            "unless the specification asks for it",
+            "Deterministic tests only",
+            "no fixed sleeps",
+            "A test that reveals a bug",
+            "`follow_ups`",
+        ] {
+            assert!(skill.contains(t), "{t}");
+        }
+    }
+
+    #[test]
+    fn docs_writer_skill_verifies_what_it_cites() {
+        let p = preset("docs-writer");
+        assert_eq!(p.name, "Docs Writer");
+        assert!(p.description().contains("work task"));
+        let skill = p.skill_text();
+        for t in [
+            "reader and the language from the specification",
+            "language of the request",
+            "non-technical reader",
+            "no jargon",
+            "numbered steps",
+            "Verify in the repository every command, path",
+            "Do not change code, except its comments",
+        ] {
+            assert!(skill.contains(t), "{t}");
+        }
+    }
+
+    #[test]
+    fn safe_refactor_skill_keeps_the_behaviour() {
+        let p = preset("safe-refactor");
+        assert_eq!(p.name, "Safe Refactor");
+        assert!(p.description().contains("work task"));
+        let skill = p.skill_text();
+        for t in [
+            "Green tests before you start",
+            "write them first",
+            "Small steps",
+            "No change of behaviour, public API or data format",
+            "the list of steps",
+            "proof of equivalence",
         ] {
             assert!(skill.contains(t), "{t}");
         }
