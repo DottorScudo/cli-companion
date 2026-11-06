@@ -14,7 +14,8 @@ id: string, instance: string,
  */
 external_account: string, 
 /**
- * La chat privata in cui scrivere.
+ * La chat in cui scrivere: quella dell'abbinamento (una chat privata, o un gruppo
+ * con le sotto-chat). Un nuovo abbinamento da un'altra chat la sposta.
  */
 external_chat: string, 
 /**

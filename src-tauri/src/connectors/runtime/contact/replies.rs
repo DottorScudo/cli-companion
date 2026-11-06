@@ -52,26 +52,81 @@ pub fn thread_label(channel_name: &str, title: &str) -> String {
     format!("{channel_name} › {title}")
 }
 
-pub fn help() -> String {
+const UNKNOWN_COMMAND: &str = "Comando sconosciuto.";
+
+/// L'elenco dei comandi: con e senza sotto-chat cambiano solo `/use`, `/new` e la
+/// spiegazione finale.
+fn help_text(use_line: &str, new_line: &str, usage: &str) -> String {
     [
         "Comandi:",
         "/threads: i thread aperti",
-        "/use <n>: scegli il thread dall'ultimo elenco",
+        use_line,
         "/ws [n|nome]: scegli il workspace dove /new apre i thread",
-        "/new <titolo>: apri un thread nuovo",
+        new_line,
         "/status: thread corrente e cosa aspetta te",
         "/mute [minuti]: silenzia le notifiche",
         "/unmute: riattiva le notifiche",
         "/unlink: scollega questo account",
         "/help: questo elenco",
         "",
-        "Un messaggio normale va nel thread corrente. Se rispondi a una notifica, scrivi nel thread di quella notifica.",
+        usage,
     ]
     .join("\n")
 }
 
+pub fn help() -> String {
+    help_text(
+        "/use <n>: scegli il thread dall'ultimo elenco",
+        "/new <titolo>: apri un thread nuovo",
+        "Un messaggio normale va nel thread corrente. Se rispondi a una notifica, scrivi nel thread di quella notifica.",
+    )
+}
+
+/// L'aiuto in una chat con le sotto-chat: ogni thread ha la sua conversazione.
+pub fn subchat_help() -> String {
+    help_text(
+        "/use <n>: apri la conversazione del thread n dell'ultimo elenco",
+        "/new <titolo>: apri un thread nuovo, con la sua conversazione",
+        "Ogni thread ha la sua conversazione: un messaggio scritto lì va in quel thread. Nella conversazione \
+         principale un messaggio va nel thread corrente; se rispondi a una notifica, nel thread di quella notifica.",
+    )
+}
+
 pub fn unknown_command() -> String {
-    format!("Comando sconosciuto.\n\n{}", help())
+    format!("{UNKNOWN_COMMAND}\n\n{}", help())
+}
+
+pub fn unknown_subchat_command() -> String {
+    format!("{UNKNOWN_COMMAND}\n\n{}", subchat_help())
+}
+
+pub fn wrong_chat() -> String {
+    "Questa chat non è collegata: scrivimi nella chat (o nel gruppo) dove hai fatto l'abbinamento.".to_string()
+}
+
+pub fn subchat_unmapped() -> String {
+    "Questa conversazione non è legata a un thread: nella conversazione principale scegli un thread con /threads e \
+     /use <n>, oppure aprine uno con /new <titolo>."
+        .to_string()
+}
+
+pub fn subchat_thread_gone() -> String {
+    "Il thread di questa conversazione non esiste più: nella conversazione principale scegline un altro con /threads \
+     e /use <n>, oppure apri un thread con /new <titolo>."
+        .to_string()
+}
+
+/// `label` e' il nome della conversazione del thread («canale › titolo»).
+pub fn subchat_ready(label: &str) -> String {
+    format!("Scrivi nella conversazione «{label}»: i messaggi lì vanno in quel thread.")
+}
+
+pub fn subchat_thread_created(label: &str) -> String {
+    format!("Thread creato: scrivi nella conversazione «{label}».")
+}
+
+pub fn thread_created_without_subchat(title: &str) -> String {
+    format!("Thread creato e scelto: {title}. Non sono riuscito ad aprire la sua conversazione: scrivi qui.")
 }
 
 pub fn rate_limited() -> String {

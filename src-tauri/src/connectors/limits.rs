@@ -15,6 +15,10 @@ pub const SEEN_MAX: usize = 5000;
 /// Voci di ciascuna mappa dello stato (chiave di conversazione -> thread, id
 /// esterno <-> id del messaggio dell'HUB): le meno recenti escono per prime.
 pub const MAP_MAX: usize = 2000;
+/// Voci della mappa thread <-> sotto-chat di un canale di contatto: le meno recenti escono per prime.
+pub const SUBCHATS_MAX: usize = 1000;
+/// Lunghezza massima dell'id di una sotto-chat che arriva da un servizio.
+pub const SUBCHAT_ID_MAX: usize = 64;
 /// Chiavi private di un connettore nel suo stato.
 pub const CUSTOM_KEYS_MAX: usize = 64;
 /// Dimensione massima, serializzata, di un valore privato di un connettore.

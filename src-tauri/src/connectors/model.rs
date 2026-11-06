@@ -191,7 +191,8 @@ pub struct ConnectorLink {
     pub instance: String,
     /// L'id dell'utente esterno: stringa opaca.
     pub external_account: String,
-    /// La chat privata in cui scrivere.
+    /// La chat in cui scrivere: quella dell'abbinamento (una chat privata, o un gruppo
+    /// con le sotto-chat). Un nuovo abbinamento da un'altra chat la sposta.
     pub external_chat: String,
     /// Il nome esterno ripulito, solo per l'interfaccia.
     pub display_name: String,
@@ -269,14 +270,17 @@ impl ConnectorRoute {
     }
 }
 
+/// Un id esterno (account, chat) si puo' salvare? Da 1 a `EXTERNAL_REF_MAX` caratteri, senza caratteri di controllo.
+pub fn valid_external_ref(id: &str) -> bool {
+    !id.is_empty() && id.chars().count() <= EXTERNAL_REF_MAX && !id.chars().any(char::is_control)
+}
+
 impl ConnectorLink {
     pub fn check(&self) -> Result<(), String> {
-        let ref_ok =
-            |s: &str| !s.is_empty() && s.chars().count() <= EXTERNAL_REF_MAX && !s.chars().any(char::is_control);
         if !valid_link_id(&self.id) || !valid_instance_id(&self.instance) {
             return Err("id collegamento o istanza non valido".to_string());
         }
-        if !ref_ok(&self.external_account) || !ref_ok(&self.external_chat) {
+        if !valid_external_ref(&self.external_account) || !valid_external_ref(&self.external_chat) {
             return Err("account o chat esterni non validi".to_string());
         }
         if self.display_name.chars().count() > DISPLAY_NAME_MAX || self.display_name.chars().any(char::is_control) {

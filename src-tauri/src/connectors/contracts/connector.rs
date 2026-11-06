@@ -86,6 +86,69 @@ pub trait ContactConnector: Connector {
         outcome: &'a PairingOutcome,
         chat: &'a str,
     ) -> BoxFuture<'a, Result<(), ConnectorError>>;
+
+    // Le sotto-chat (docs/CONNECTORS.MD §10, «Sotto-chat»): conversazioni separate dentro
+    // una chat collegata (es. i topic di un forum), una per thread dell'HUB. Sono una
+    // capacita' facoltativa: le implementazioni predefinite dicono «non supportate», e il
+    // runtime chiama le altre solo per una chat per cui `subchats` e' vero.
+
+    /// Pura: la `chat` collegata ha le sotto-chat? Puo' dipendere dalla chat (un gruppo
+    /// forum si', una chat privata no). Predefinita: no.
+    fn subchats(&self, _config: &Value, _chat: &str) -> bool {
+        false
+    }
+
+    /// Apre una sotto-chat nella `chat` e ne ritorna l'id. Il `title` lo costruisce il
+    /// runtime («canale › thread»): il connettore lo taglia al limite del servizio.
+    fn open_subchat<'a>(
+        &'a self,
+        _ctx: &'a ConnectorContext,
+        _chat: &'a str,
+        _title: &'a str,
+    ) -> BoxFuture<'a, Result<String, ConnectorError>> {
+        subchats_unsupported()
+    }
+
+    /// Rinomina una sotto-chat (il thread ha cambiato titolo).
+    #[cfg_attr(not(test), expect(dead_code, reason = "il runtime non rinomina ne' chiude ancora le sotto-chat"))]
+    fn rename_subchat<'a>(
+        &'a self,
+        _ctx: &'a ConnectorContext,
+        _chat: &'a str,
+        _subchat: &'a str,
+        _title: &'a str,
+    ) -> BoxFuture<'a, Result<(), ConnectorError>> {
+        subchats_unsupported()
+    }
+
+    /// Chiude una sotto-chat senza cancellarla (il thread e' concluso).
+    #[cfg_attr(not(test), expect(dead_code, reason = "il runtime non rinomina ne' chiude ancora le sotto-chat"))]
+    fn close_subchat<'a>(
+        &'a self,
+        _ctx: &'a ConnectorContext,
+        _chat: &'a str,
+        _subchat: &'a str,
+    ) -> BoxFuture<'a, Result<(), ConnectorError>> {
+        subchats_unsupported()
+    }
+
+    /// Elimina una sotto-chat (il thread e' stato eliminato).
+    #[cfg_attr(not(test), expect(dead_code, reason = "il runtime non rinomina ne' chiude ancora le sotto-chat"))]
+    fn delete_subchat<'a>(
+        &'a self,
+        _ctx: &'a ConnectorContext,
+        _chat: &'a str,
+        _subchat: &'a str,
+    ) -> BoxFuture<'a, Result<(), ConnectorError>> {
+        subchats_unsupported()
+    }
+}
+
+/// L'esito delle operazioni sulle sotto-chat di un connettore che non le ha: il runtime
+/// non le chiede (vedi `ContactConnector::subchats`), quindi arrivarci e' un errore di
+/// programma, che ferma il supervisore invece di passare inosservato.
+fn subchats_unsupported<'a, T: Send + 'a>() -> BoxFuture<'a, Result<T, ConnectorError>> {
+    Box::pin(async { Err(ConnectorError::Fatal("sotto-chat non supportate dal connettore".to_string())) })
 }
 
 /// Un connettore registrato, col suo tipo.

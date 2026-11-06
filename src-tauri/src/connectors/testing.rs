@@ -5,8 +5,7 @@
 
 use super::contracts::{
     ActionOutcome, ActiveRoute, BoxFuture, Clock, Connector, ConnectorContext, ConnectorError, ConnectorImpl,
-    ContactConnector, ContextParts, OutboundMessage, PairingOutcome, PollBatch, ReceiveBatch, RemoteFile,
-    SourceConnector, StateHandle,
+    ContextParts, PollBatch, SourceConnector, StateHandle,
 };
 use super::descriptor::{
     Action, ActionId, ConfigField, ConnectorDescriptor, ConnectorKind, DescriptorLimits, FieldKind, HubCapability,
@@ -15,12 +14,11 @@ use super::descriptor::{
 use super::runtime::http::{shared_client, ContextHttp};
 use super::secrets::InstanceSecrets;
 use super::state::InstanceState;
-use crate::hub::attachments::IncomingFile;
-use crate::hub::{Author, NoticeCategory};
+use crate::hub::Author;
 use crate::secrets::MemorySecrets;
 use serde_json::{json, Value};
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub const INSTANCE: &str = "con-1700000000000-1";
@@ -174,157 +172,6 @@ impl SourceConnector for FakeSource {
     }
 }
 
-/// L'esito di `fetch_file` per un id: i byte o un errore.
-type ScriptedFile = (String, Result<Vec<u8>, ConnectorError>);
-
-/// Un canale di contatto finto: registra i messaggi mandati e le risposte di abbinamento.
-pub struct FakeContact {
-    script: Mutex<VecDeque<Result<ReceiveBatch, ConnectorError>>>,
-    pub sent: Mutex<Vec<OutboundMessage>>,
-    pub pairing: Mutex<Vec<(PairingOutcome, String)>>,
-    /// Se impostato, `send` fallisce con questo errore.
-    pub send_error: Mutex<Option<ConnectorError>>,
-    /// I tipi di notifica che `wants_notice` rifiuta.
-    refused: Mutex<Vec<NoticeCategory>>,
-    /// In quante parti `send` spezza ogni messaggio (almeno una): un id per parte.
-    parts: AtomicUsize,
-    next_id: AtomicU64,
-    /// I file che `fetch_file` sa scaricare, per id.
-    files: Mutex<Vec<ScriptedFile>>,
-    /// Gli id dei file chiesti a `fetch_file`, in ordine.
-    pub fetched: Mutex<Vec<String>>,
-}
-
-impl FakeContact {
-    pub const fn new() -> Self {
-        Self {
-            script: Mutex::new(VecDeque::new()),
-            sent: Mutex::new(Vec::new()),
-            pairing: Mutex::new(Vec::new()),
-            send_error: Mutex::new(None),
-            refused: Mutex::new(Vec::new()),
-            parts: AtomicUsize::new(1),
-            next_id: AtomicU64::new(0),
-            files: Mutex::new(Vec::new()),
-            fetched: Mutex::new(Vec::new()),
-        }
-    }
-
-    pub fn push(&self, result: Result<ReceiveBatch, ConnectorError>) {
-        self.script.lock().unwrap().push_back(result);
-    }
-
-    /// Da ora `wants_notice` rifiuta questo tipo.
-    pub fn refuse(&self, category: NoticeCategory) {
-        self.refused.lock().unwrap().push(category);
-    }
-
-    /// Ogni `send` si spezza in `parts` parti.
-    pub fn split_sends_in(&self, parts: usize) {
-        self.parts.store(parts, Ordering::SeqCst);
-    }
-
-    /// Prepara l'esito di `fetch_file` per l'id `file_id`.
-    pub fn script_file(&self, file_id: &str, result: Result<Vec<u8>, ConnectorError>) {
-        self.files.lock().unwrap().push((file_id.to_string(), result));
-    }
-
-    /// I testi mandati, in ordine.
-    pub fn sent_texts(&self) -> Vec<String> {
-        self.sent.lock().unwrap().iter().map(|m| m.text.clone()).collect()
-    }
-}
-
-impl Connector for FakeContact {
-    fn descriptor(&self) -> &'static ConnectorDescriptor {
-        &FAKE_CONTACT
-    }
-
-    fn migrate_config(&self, from: u32, _config: Value) -> Result<Value, String> {
-        Err(format!("nessuna migrazione dalla versione {from}"))
-    }
-
-    fn validate_config(&self, _config: &Value) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn action<'a>(
-        &'a self,
-        ctx: &'a ConnectorContext,
-        action: ActionId,
-    ) -> BoxFuture<'a, Result<ActionOutcome, ConnectorError>> {
-        Box::pin(async move {
-            let detail = match ctx.pairing_code() {
-                Some(code) => format!("invito:{code}"),
-                None => "dettaglio".to_string(),
-            };
-            Ok(ActionOutcome { message: format!("azione {}", action.as_str()), detail: Some(detail) })
-        })
-    }
-}
-
-impl ContactConnector for FakeContact {
-    fn wants_notice(&self, _config: &Value, category: NoticeCategory) -> bool {
-        !self.refused.lock().unwrap().contains(&category)
-    }
-
-    fn receive<'a>(
-        &'a self,
-        _ctx: &'a ConnectorContext,
-        cursor: Option<Value>,
-    ) -> BoxFuture<'a, Result<ReceiveBatch, ConnectorError>> {
-        Box::pin(async move {
-            if let Some(result) = self.script.lock().unwrap().pop_front() {
-                return result;
-            }
-            Ok(ReceiveBatch { messages: Vec::new(), cursor: cursor.unwrap_or(Value::Null) })
-        })
-    }
-
-    fn send<'a>(
-        &'a self,
-        _ctx: &'a ConnectorContext,
-        out: &'a OutboundMessage,
-    ) -> BoxFuture<'a, Result<Vec<String>, ConnectorError>> {
-        Box::pin(async move {
-            if let Some(error) = self.send_error.lock().unwrap().clone() {
-                return Err(error);
-            }
-            self.sent.lock().unwrap().push(out.clone());
-            let parts = self.parts.load(Ordering::SeqCst).max(1);
-            Ok((0..parts).map(|_| format!("ext-{}", self.next_id.fetch_add(1, Ordering::SeqCst) + 1)).collect())
-        })
-    }
-
-    fn fetch_file<'a>(
-        &'a self,
-        _ctx: &'a ConnectorContext,
-        file: &'a RemoteFile,
-    ) -> BoxFuture<'a, Result<IncomingFile, ConnectorError>> {
-        Box::pin(async move {
-            self.fetched.lock().unwrap().push(file.id.clone());
-            let scripted = self.files.lock().unwrap().iter().find(|(id, _)| *id == file.id).map(|(_, r)| r.clone());
-            match scripted {
-                Some(Ok(bytes)) => Ok(IncomingFile { name: file.name.clone(), bytes }),
-                Some(Err(error)) => Err(error),
-                None => Err(ConnectorError::Transient("file non disponibile".to_string())),
-            }
-        })
-    }
-
-    fn pairing_reply<'a>(
-        &'a self,
-        _ctx: &'a ConnectorContext,
-        outcome: &'a PairingOutcome,
-        chat: &'a str,
-    ) -> BoxFuture<'a, Result<(), ConnectorError>> {
-        Box::pin(async move {
-            self.pairing.lock().unwrap().push((outcome.clone(), chat.to_string()));
-            Ok(())
-        })
-    }
-}
-
 pub static FAKE_SOURCE_CONNECTOR: FakeSource = FakeSource::new();
 pub static FAKE_CONTACT_CONNECTOR: FakeContact = FakeContact::new();
 
@@ -399,7 +246,9 @@ pub fn external_author() -> Author {
     }
 }
 
+mod contact;
 mod hub;
 mod kit;
+pub use contact::*;
 pub use hub::*;
 pub use kit::*;

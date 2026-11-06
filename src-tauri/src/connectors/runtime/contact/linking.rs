@@ -1,8 +1,7 @@
 //! L'abbinamento di un account e i collegamenti nel file: il codice presentato,
 //! la creazione del collegamento e le modifiche ai collegamenti esistenti.
 
-use super::replies;
-use super::ContactCtx;
+use super::{ContactCtx, Place};
 use crate::connectors::contracts::{ConnectorError, InboundMessage, PairingOutcome};
 use crate::connectors::ids::LINK_PREFIX;
 use crate::connectors::limits::CALL_TIMEOUT;
@@ -89,12 +88,15 @@ impl ContactCtx<'_> {
             log::warn!("connettori {}: risposta di abbinamento non inviata ({})", self.instance(), e.class());
         }
         if matches!(outcome, PairingOutcome::Linked { .. }) {
-            self.reply(&message.chat, &replies::help()).await?;
+            let place = self.place_of(message).unwrap_or_else(|| Place::main(&message.chat));
+            self.reply(&place, &self.help_for(&message.chat)).await?;
         }
         Ok(())
     }
 
-    /// Crea il collegamento (uno solo per account) rispettando il limite per istanza.
+    /// Crea il collegamento (uno solo per account) rispettando il limite per istanza. Un
+    /// account gia' collegato che si abbina da un'altra chat (es. da un gruppo con le
+    /// sotto-chat) sposta li' il suo collegamento.
     async fn create_link(&self, message: &InboundMessage) -> Result<String, String> {
         let now = self.clock.now_ms();
         let link = ConnectorLink {
@@ -111,8 +113,12 @@ impl ContactCtx<'_> {
         link.check()?;
         let shown = link.display_name.clone();
         update_blocking(self.store, move |file| {
-            let known = file.links_of(&link.instance).any(|l| l.external_account == link.external_account);
-            if known {
+            let known = file
+                .links
+                .iter_mut()
+                .find(|l| l.instance == link.instance && l.external_account == link.external_account);
+            if let Some(known) = known {
+                known.external_chat = link.external_chat;
                 return Ok(());
             }
             file.check_link_capacity(&link.instance)?;

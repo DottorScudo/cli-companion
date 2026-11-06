@@ -142,14 +142,17 @@ aperto dalla prima.
 | `id` | `lnk-<millisecondi>-<n>` |
 | `instance` | un'istanza di tipo `contact` |
 | `external_account` | id dell'utente esterno (Telegram: `from.id`), stringa opaca, al massimo 128 caratteri |
-| `external_chat` | id della chat privata in cui scrivere (Telegram: `chat.id`) |
+| `external_chat` | id della chat in cui scrivere (Telegram: `chat.id`): quella da cui è arrivato l'abbinamento, una chat privata o un gruppo con le sotto-chat (§10, «Sotto-chat») |
 | `display_name` | il nome esterno al momento dell'abbinamento, ripulito, al massimo 60 caratteri; solo per l'interfaccia |
 | `current` | thread corrente `{ channel, thread_id }` o `null` (vedi §10) |
 | `muted_until` | millisecondi Unix o `null` |
 | `created_at` | millisecondi Unix |
 
-Si crea **solo** con un codice di abbinamento monouso (§10, §11). La mappa *id del messaggio esterno ↔ messaggio
-dell'HUB* (per le risposte) è nello stato dell'istanza, limitata (§6).
+Si crea **solo** con un codice di abbinamento monouso (§10, §11). Un account ha **un** collegamento per istanza: se
+si abbina di nuovo da un'altra chat (es. dal gruppo dopo la chat privata) il collegamento si **sposta** lì
+(`external_chat` cambia, il resto resta), e i suoi messaggi da una chat diversa da `external_chat` ricevono un breve
+avviso e non si salvano. La mappa *id del messaggio esterno ↔ messaggio dell'HUB* (per le risposte) e quella
+*thread ↔ sotto-chat* sono nello stato dell'istanza, limitate (§6).
 
 ## 3. Descrittore
 
@@ -207,7 +210,9 @@ arresto con `JoinHandle::abort`). Nessun processo esterno, nessun runtime in pi�
 
 Stessa forma dei contratti degli agenti: trait con oggetti `&'static dyn`, futuri boxati (alias
 `BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>`, senza il crate `futures`), nessuna implementazione
-di default che nasconda una lacuna.
+di default che nasconda una lacuna. Fanno eccezione le **sotto-chat** dei canali di contatto (§10), una capacità
+facoltativa: i metodi predefiniti dicono «non supportate» (`subchats` vale `false`, gli altri rispondono `Fatal` e il
+runtime non li chiede).
 
 ```rust
 pub trait Connector: Send + Sync {
@@ -239,6 +244,14 @@ pub trait ContactConnector: Connector {
     fn fetch_file<'a>(&'a self, ctx: &'a ConnectorContext, file: &'a RemoteFile) -> BoxFuture<'a, Result<IncomingFile, ConnectorError>>;
     /// Un account ha presentato un codice di abbinamento: il connettore risponde come crede (benvenuto, errore generico).
     fn pairing_reply<'a>(&'a self, ctx: &'a ConnectorContext, outcome: &'a PairingOutcome, chat: &'a str) -> BoxFuture<'a, Result<(), ConnectorError>>;
+    /// Sotto-chat (facoltative, predefinite «non supportate»). Pura: la chat collegata ha le sotto-chat?
+    fn subchats(&self, config: &Value, chat: &str) -> bool { false }
+    /// Apre una sotto-chat col titolo del runtime («canale › thread», tagliato al limite del servizio) e ne ritorna l'id.
+    fn open_subchat<'a>(&'a self, ctx: &'a ConnectorContext, chat: &'a str, title: &'a str) -> BoxFuture<'a, Result<String, ConnectorError>>;
+    /// Per il ciclo di vita dei thread: rinomina, chiude, elimina.
+    fn rename_subchat<'a>(&'a self, ctx: &'a ConnectorContext, chat: &'a str, subchat: &'a str, title: &'a str) -> BoxFuture<'a, Result<(), ConnectorError>>;
+    fn close_subchat<'a>(&'a self, ctx: &'a ConnectorContext, chat: &'a str, subchat: &'a str) -> BoxFuture<'a, Result<(), ConnectorError>>;
+    fn delete_subchat<'a>(&'a self, ctx: &'a ConnectorContext, chat: &'a str, subchat: &'a str) -> BoxFuture<'a, Result<(), ConnectorError>>;
 }
 
 /// Un connettore registrato, col suo tipo.
@@ -247,7 +260,9 @@ pub enum ConnectorImpl { Source(&'static dyn SourceConnector), Contact(&'static 
 
 `ConnectorError` è la classificazione che il supervisore usa per il backoff (§7): `Transient(String)`,
 `RateLimited { retry_after: Option<Duration> }`, `Auth(String)` (→ `needs_auth`), `Config(String)` (configurazione
-non valida: si ferma con `error`), `Fatal(String)`. I messaggi sono già ripuliti (mai segreti né contenuti).
+non valida: si ferma con `error`), `Fatal(String)`, `SubchatGone` (un `send` in una sotto-chat che il servizio non ha
+più: il runtime la ricrea una volta, il supervisore non si ferma). I messaggi sono già ripuliti (mai segreti né
+contenuti).
 
 Il contesto (`ConnectorContext`, uno solo per fonti, canali di contatto e azioni) dà al connettore solo:
 
@@ -385,6 +400,7 @@ non si crea nessun file. Tetti (costanti in `connectors/runtime/`):
 | Id già visti per istanza (dedupe) | 5000, i più vecchi escono per primi |
 | Voci di `per_conversation` per istanza (chiave di conversazione → thread) | 2000, le meno recenti escono (un elemento successivo della conversazione apre un thread nuovo) |
 | Mappe id esterno ↔ messaggio HUB per istanza | 2000 voci ciascuna (le due direzioni), le meno recenti escono |
+| Mappa thread ↔ sotto-chat per istanza (canali di contatto) | 1000 voci, le meno recenti (per creazione o uso) escono dalle due direzioni insieme; uno stato senza la mappa la legge vuota |
 | Intervallo di polling di una fonte | dalla config (`interval_secs` o `interval_minutes`, se il descrittore dichiara il campo), altrimenti `default_interval_secs` del descrittore; almeno 60 s |
 | Elementi per giro | 20 (`more` → il giro dopo parte subito) |
 | Valori privati del connettore nello stato | 64 chiavi, 64 KB ciascuno |
@@ -576,8 +592,8 @@ del segretario svegliato dà una notifica sola (la risposta).
 **Abbinamento.** In Impostazioni › Connettori › l'istanza, «Abbina un account» (azione `pair`) genera un **codice
 monouso** (12 caratteri casuali da `getrandom`, alfabeto senza ambiguità, valido 10 minuti, tenuto solo in memoria)
 e lo mostra con le istruzioni del connettore (Telegram: un link `https://t.me/<bot>?start=<codice>` e il testo
-`/start <codice>`). Il primo messaggio con il codice valido, da una **chat privata**, crea il `ContactLink` e
-consuma il codice; il bot risponde con il benvenuto e l'aiuto (`/help`). Il nome mostrato del collegamento è quello
+`/start <codice>`). Il primo messaggio con il codice valido, da una **chat privata** (o da un gruppo con le
+sotto-chat, se il connettore lo ammette: vedi «Sotto-chat»), crea il `ContactLink` e consuma il codice; il bot risponde con il benvenuto e l'aiuto (`/help`). Il nome mostrato del collegamento è quello
 del mittente (`InboundMessage.sender_name`, ripulito). Un codice sbagliato o scaduto risponde in modo generico e conta
 per il limite di frequenza (§11). Il collegamento si revoca dall'interfaccia o con `/unlink` (alias `/stop`) dalla
 chat.
@@ -647,6 +663,43 @@ per finestra.
 per istanza sono ammessi (telefono e tablet con account diversi), ciascuno con il suo thread corrente; più thread si
 gestiscono con `/threads`, `/use` e le risposte alle notifiche.
 
+### Sotto-chat
+
+Una chat collegata può avere **sotto-chat**: conversazioni separate al suo interno (in Telegram i topic di un
+supergruppo forum). Con le sotto-chat ogni thread dell'HUB ha la sua, chiamata «<canale> › <titolo>», e non serve il
+thread corrente. È una capacità facoltativa del connettore (`ContactConnector::subchats`, `open_subchat`; predefinite
+«non supportate»); il runtime (`runtime/contact/subchats.rs`) non nomina servizi.
+
+- **Contratto.** `subchats(config, chat)` dice, per chat, se le sotto-chat ci sono. `InboundMessage.subchat` e
+  `OutboundMessage.subchat` portano l'id opaco della sotto-chat (`None` = la principale, in Telegram «General»).
+  `open_subchat(chat, title)` ne apre una e ne ritorna l'id; il titolo lo costruisce il runtime con `thread_label`, il
+  connettore lo taglia al limite del servizio. `rename_subchat`, `close_subchat` e `delete_subchat` servono al ciclo di
+  vita dei thread. Se il servizio dice che la sotto-chat non c'è più (eliminata a mano), `send` risponde
+  `ConnectorError::SubchatGone`.
+- **Mappa** `(canale, thread, chat) ↔ (chat, sotto-chat)` nello stato dell'istanza (`InstanceState.subchats`), nei
+  due versi, limitata a 1000 voci (§6); lo stesso thread può avere una sotto-chat in ogni chat collegata. Gli id che
+  arrivano dal servizio si validano prima di salvarli (lettere, cifre e `-_.:`, al più 64 caratteri): un id non valido
+  non entra nella mappa e un messaggio con un id non valido si ignora.
+- **Notifiche.** Per una chat con le sotto-chat la notifica va in quella del suo thread, aperta al primo bisogno, con
+  il solo testo (senza il prefisso «canale › thread», che è già il nome). Se `open_subchat` fallisce per un errore che
+  non ferma il supervisore, la notifica va nella chat principale col prefisso, con una riga nel log. `SubchatGone`
+  toglie la voce e la sotto-chat si ricrea **una volta**; se sparisce di nuovo, chat principale. Più collegamenti
+  nella stessa chat ricevono la notifica una volta sola.
+- **Messaggi in entrata.** Da una sotto-chat mappata a un thread esistente il messaggio va lì, con `reply_to` solo se
+  risponde a un messaggio mappato dello **stesso** thread; il `current` del collegamento non serve e non cambia. Una
+  sotto-chat non mappata, o il cui thread è sparito, riceve una spiegazione lì e non si salva nulla (la voce morta si
+  toglie). Dalla sotto-chat principale valgono le regole di sempre: risposta a una notifica, poi thread corrente. Le
+  risposte del bot vanno nella sotto-chat del messaggio.
+- **Comandi.** `/new <titolo>` crea il thread (e lo rende corrente, come sempre) **e** la sua sotto-chat, e risponde
+  col nome; `/use <n>` apre (o ritrova) la sotto-chat del thread n invece di cambiare il thread corrente (se non si
+  apre, cambia il corrente come sempre). `/threads`, `/ws`, `/status`, `/mute`, `/unmute`, `/unlink` non cambiano.
+  Dentro la sotto-chat di un thread i comandi valgono come nella principale (`/new` lì crea comunque un thread nuovo
+  con la sua sotto-chat). `/help` spiega le sotto-chat.
+- **Collegamento.** L'abbinamento da un gruppo con le sotto-chat lega l'account a quel gruppo (`external_chat`); un
+  account già collegato in privato che si abbina dal gruppo vi **sposta** il collegamento, e i suoi messaggi dalla
+  vecchia chat ricevono l'avviso «scrivimi nella chat collegata». In un gruppo scrivono anche altre persone: si
+  accettano solo i messaggi degli account collegati, gli altri si ignorano in silenzio.
+
 ## 11. Sicurezza
 
 - **Codice fidato.** I connettori sono codice compilato nell'app, revisionato come il resto: in v1 nessun codice di
@@ -659,9 +712,11 @@ gestiscono con `/threads`, `/use` e le risposte alle notifiche.
   come l'API key del provider.
 - **Allowlist degli host** nel client del contesto (§4): solo `https`, solo host dichiarati, redirect controllati,
   dimensione delle risposte limitata (10 MB + margine per gli allegati, 1 MB per le altre).
-- **Abbinamento esplicito e revocabile** dei canali di contatto: solo chat private, codice monouso a scadenza; i
-  messaggi di chat o account **non abbinati** si ignorano (nessuna risposta oltre al messaggio generico per un
-  `/start` non valido, nessun salvataggio). Il bot non va aggiunto a gruppi: se succede, esce dal gruppo.
+- **Abbinamento esplicito e revocabile** dei canali di contatto: chat private (o un gruppo con le sotto-chat, se il
+  connettore lo ammette), codice monouso a scadenza; i messaggi di account **non abbinati** si ignorano (nessuna
+  risposta oltre al messaggio generico per un `/start` non valido, nessun salvataggio), anche dentro un gruppo
+  collegato; un account collegato che scrive da un'altra chat riceve solo un avviso. Un gruppo senza sotto-chat non
+  si usa: se il bot ci viene aggiunto, esce. Gli id di sotto-chat del servizio si validano prima di salvarli.
 - **Limiti di frequenza**: in entrata al più 20 messaggi al minuto per collegamento (gli altri si scartano con un
   avviso); tentativi di abbinamento al più 5 per 10 minuti per istanza, poi i codici in corso si annullano; in
   uscita i limiti del servizio (§13).

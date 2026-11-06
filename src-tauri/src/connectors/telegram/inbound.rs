@@ -40,6 +40,7 @@ pub fn to_inbound(message: ChatMessage) -> InboundMessage {
         external_id: external_id(message.chat_id, message.message_id),
         account: message.sender_id.to_string(),
         chat: message.chat_id.to_string(),
+        subchat: None,
         sender_name: message.sender_name,
         text,
         reply_to_external: message.reply_to.map(|id| external_id(message.chat_id, id)),

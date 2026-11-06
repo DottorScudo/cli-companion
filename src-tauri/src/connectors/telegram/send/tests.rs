@@ -6,7 +6,7 @@ use serde_json::json;
 use tauri::async_runtime::block_on;
 
 fn out(chat: &str, text: &str) -> OutboundMessage {
-    OutboundMessage { chat: chat.to_string(), text: text.to_string(), reply_to_external: None }
+    OutboundMessage { chat: chat.to_string(), subchat: None, text: text.to_string(), reply_to_external: None }
 }
 
 #[test]

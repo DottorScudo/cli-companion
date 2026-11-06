@@ -130,10 +130,20 @@ fn hostile_input(connector: ConnectorImpl, d: &ConnectorDescriptor, value: &Valu
     }
     let _ = validate_values(d.config_fields, value);
     let _ = validate_values(d.filter_fields, value);
-    if let ConnectorImpl::Source(source) = connector {
-        let _ = source.validate_filter(value);
+    match connector {
+        ConnectorImpl::Source(source) => {
+            let _ = source.validate_filter(value);
+        }
+        ConnectorImpl::Contact(contact) => {
+            for chat in HOSTILE_CHATS {
+                let _ = contact.subchats(value, chat);
+            }
+        }
     }
 }
+
+/// Id di chat ostili per `ContactConnector::subchats`.
+const HOSTILE_CHATS: [&str; 5] = ["", "-", "0", "-1001234567890123456789", "ü\u{0}\n"];
 
 fn duplicates(list: &[ConnectorImpl]) -> Vec<&'static str> {
     let mut seen = HashSet::new();

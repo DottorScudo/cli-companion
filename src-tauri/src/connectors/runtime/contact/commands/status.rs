@@ -1,7 +1,7 @@
 //! `/status`, `/mute [minuti]` e `/unmute`.
 
 use super::super::replies::{self, MuteState};
-use super::super::ContactCtx;
+use super::super::{ContactCtx, Place};
 use crate::connectors::contracts::ConnectorError;
 use crate::connectors::model::ConnectorLink;
 use crate::hub::contact::ThreadEntry;
@@ -61,21 +61,19 @@ fn current_label(link: &ConnectorLink, open: &[ThreadEntry]) -> String {
 }
 
 impl ContactCtx<'_> {
-    pub(super) async fn show_status(&self, link: &ConnectorLink) -> Result<(), ConnectorError> {
-        let chat = &link.external_chat;
+    pub(super) async fn show_status(&self, link: &ConnectorLink, place: &Place) -> Result<(), ConnectorError> {
         let open = match self.hub.open_threads().await {
             Ok(open) => open,
-            Err(e) => return self.reply(chat, &replies::hub_error(&e)).await,
+            Err(e) => return self.reply(place, &replies::hub_error(&e)).await,
         };
         let mute = mute_state(link.muted_until, self.clock.now_ms());
         let text = replies::status(&current_label(link, &open), &waiting_by_channel(&open), mute);
-        self.reply(chat, &text).await
+        self.reply(place, &text).await
     }
 
-    pub(super) async fn mute(&self, link: &ConnectorLink, arg: &str) -> Result<(), ConnectorError> {
-        let chat = &link.external_chat;
+    pub(super) async fn mute(&self, link: &ConnectorLink, place: &Place, arg: &str) -> Result<(), ConnectorError> {
         let Some(request) = parse_mute(arg) else {
-            return self.reply(chat, &replies::mute_usage(MUTE_MINUTES_MAX)).await;
+            return self.reply(place, &replies::mute_usage(MUTE_MINUTES_MAX)).await;
         };
         let (until, done) = match request {
             MuteRequest::UntilUnmute => (i64::MAX, replies::muted_forever()),
@@ -89,16 +87,16 @@ impl ContactCtx<'_> {
         } else {
             replies::not_saved()
         };
-        self.reply(chat, &text).await
+        self.reply(place, &text).await
     }
 
-    pub(super) async fn unmute(&self, link: &ConnectorLink) -> Result<(), ConnectorError> {
+    pub(super) async fn unmute(&self, link: &ConnectorLink, place: &Place) -> Result<(), ConnectorError> {
         let text = if self.change_link(&link.id, |l| l.muted_until = None).await {
             replies::unmuted()
         } else {
             replies::not_saved()
         };
-        self.reply(&link.external_chat, &text).await
+        self.reply(place, &text).await
     }
 }
 

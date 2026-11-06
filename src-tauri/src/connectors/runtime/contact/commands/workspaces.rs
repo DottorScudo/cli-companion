@@ -1,7 +1,7 @@
 //! `/ws [n|nome]`: il canale dove `/new` apre i thread.
 
 use super::super::replies::{self, ChannelLine};
-use super::super::ContactCtx;
+use super::super::{ContactCtx, Place};
 use super::target_channel;
 use crate::connectors::contracts::ConnectorError;
 use crate::connectors::model::ConnectorLink;
@@ -25,11 +25,15 @@ fn pick_channel(arg: &str, shown: &[ChannelEntry], current: &[ChannelEntry]) -> 
 }
 
 impl ContactCtx<'_> {
-    pub(super) async fn choose_workspace(&self, link: &ConnectorLink, arg: &str) -> Result<(), ConnectorError> {
-        let chat = &link.external_chat;
+    pub(super) async fn choose_workspace(
+        &self,
+        link: &ConnectorLink,
+        place: &Place,
+        arg: &str,
+    ) -> Result<(), ConnectorError> {
         let channels = match self.hub.channels().await {
             Ok(channels) => channels,
-            Err(e) => return self.reply(chat, &replies::hub_error(&e)).await,
+            Err(e) => return self.reply(place, &replies::hub_error(&e)).await,
         };
         if arg.trim().is_empty() {
             let chosen = target_channel(link);
@@ -37,11 +41,11 @@ impl ContactCtx<'_> {
                 channels.iter().map(|c| ChannelLine { name: &c.name, chosen: c.channel == chosen }).collect();
             let text = replies::workspaces_list(&lines);
             self.session.with(&link.external_account, |s| s.remember_channels(channels));
-            return self.reply(chat, &text).await;
+            return self.reply(place, &text).await;
         }
         let shown = self.session.with(&link.external_account, |s| s.listed_channels().to_vec());
         let Some(entry) = pick_channel(arg, &shown, &channels) else {
-            return self.reply(chat, &replies::workspace_not_found()).await;
+            return self.reply(place, &replies::workspace_not_found()).await;
         };
         let chosen = entry.channel.clone();
         let text = if self.change_link(&link.id, move |l| l.channel = Some(chosen)).await {
@@ -49,7 +53,7 @@ impl ContactCtx<'_> {
         } else {
             replies::not_saved()
         };
-        self.reply(chat, &text).await
+        self.reply(place, &text).await
     }
 }
 

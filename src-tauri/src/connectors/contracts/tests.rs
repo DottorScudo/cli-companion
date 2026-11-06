@@ -227,6 +227,7 @@ fn a_fake_contact_receives_sends_and_answers_pairing() {
         external_id: "7".to_string(),
         account: "42".to_string(),
         chat: "42".to_string(),
+        subchat: None,
         sender_name: "Mario".to_string(),
         text: "/start CODICE".to_string(),
         reply_to_external: None,
@@ -237,7 +238,12 @@ fn a_fake_contact_receives_sends_and_answers_pairing() {
     contact.push(Ok(ReceiveBatch { messages: vec![inbound.clone()], cursor: json!(8) }));
     let batch = block_on(contact.receive(&t.ctx, None)).unwrap();
     assert_eq!((batch.messages, batch.cursor), (vec![inbound], json!(8)));
-    let out = OutboundMessage { chat: "42".to_string(), text: "ciao".to_string(), reply_to_external: Some("7".into()) };
+    let out = OutboundMessage {
+        chat: "42".to_string(),
+        subchat: None,
+        text: "ciao".to_string(),
+        reply_to_external: Some("7".into()),
+    };
     assert_eq!(block_on(contact.send(&t.ctx, &out)).unwrap(), vec!["ext-1".to_string()]);
     let outcome = PairingOutcome::Linked { display_name: "Mario".to_string() };
     block_on(contact.pairing_reply(&t.ctx, &outcome, "42")).unwrap();
@@ -246,6 +252,33 @@ fn a_fake_contact_receives_sends_and_answers_pairing() {
     assert!(idle.messages.is_empty() && idle.cursor == json!(8));
     let done = block_on(contact.action(&t.ctx, ActionId::Pair)).unwrap();
     assert_eq!(done.detail.as_deref(), Some("dettaglio"));
+}
+
+#[test]
+fn the_fake_contact_simulates_subchats_and_the_lifecycle_defaults_are_unsupported() {
+    use crate::connectors::testing::FakeContact;
+    let contact = FakeContact::new();
+    let t = test_context(&FAKE_CONTACT, json!({}));
+    assert!(!contact.subchats(&json!({}), "g1"), "di predefinito nessuna chat ha le sotto-chat");
+    contact.with_subchats_in("g1");
+    assert!(contact.subchats(&json!({}), "g1") && !contact.subchats(&json!({}), "42"));
+    assert_eq!(block_on(contact.open_subchat(&t.ctx, "g1", "Generale › Piano")).unwrap(), "sub-1");
+    assert_eq!(contact.opened_titles(), vec!["Generale › Piano".to_string()]);
+    contact.delete_remotely("sub-1");
+    let out = OutboundMessage {
+        chat: "g1".to_string(),
+        subchat: Some("sub-1".to_string()),
+        text: "ciao".to_string(),
+        reply_to_external: None,
+    };
+    assert_eq!(block_on(contact.send(&t.ctx, &out)), Err(ConnectorError::SubchatGone));
+    for unsupported in [
+        block_on(contact.rename_subchat(&t.ctx, "g1", "sub-1", "nuovo")),
+        block_on(contact.close_subchat(&t.ctx, "g1", "sub-1")),
+        block_on(contact.delete_subchat(&t.ctx, "g1", "sub-1")),
+    ] {
+        assert!(matches!(unsupported, Err(ConnectorError::Fatal(_))), "{unsupported:?}");
+    }
 }
 
 #[test]

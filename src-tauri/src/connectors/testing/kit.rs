@@ -86,6 +86,7 @@ pub fn inbound(external_id: &str, account: &str, text: &str) -> InboundMessage {
         external_id: external_id.to_string(),
         account: account.to_string(),
         chat: format!("chat-{account}"),
+        subchat: None,
         sender_name: String::new(),
         text: text.to_string(),
         reply_to_external: None,

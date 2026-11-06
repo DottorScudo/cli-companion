@@ -2,11 +2,13 @@
 
 use super::super::replies::{self, ThreadLine};
 use super::super::session::ListedThread;
-use super::super::ContactCtx;
+use super::super::subchats::ThreadKey;
+use super::super::{ContactCtx, Place};
 use super::target_channel;
 use crate::connectors::contracts::ConnectorError;
 use crate::connectors::model::ConnectorLink;
 use crate::hub::contact::ThreadEntry;
+use crate::hub::Channel;
 
 /// Thread mostrati al massimo da `/threads`.
 const THREADS_LISTED: usize = 10;
@@ -24,11 +26,10 @@ fn parse_number(arg: &str) -> Option<usize> {
 }
 
 impl ContactCtx<'_> {
-    pub(super) async fn list_threads(&self, link: &ConnectorLink) -> Result<(), ConnectorError> {
-        let chat = &link.external_chat;
+    pub(super) async fn list_threads(&self, link: &ConnectorLink, place: &Place) -> Result<(), ConnectorError> {
         let entries = match self.hub.open_threads().await {
             Ok(entries) => listing(entries),
-            Err(e) => return self.reply(chat, &replies::hub_error(&e)).await,
+            Err(e) => return self.reply(place, &replies::hub_error(&e)).await,
         };
         let listed: Vec<ListedThread> = entries
             .iter()
@@ -49,45 +50,87 @@ impl ContactCtx<'_> {
             replies::threads_list(&lines)
         };
         self.session.with(&link.external_account, |s| s.remember_threads(listed));
-        self.reply(chat, &text).await
+        self.reply(place, &text).await
     }
 
-    pub(super) async fn use_thread(&self, link: &ConnectorLink, arg: &str) -> Result<(), ConnectorError> {
-        let chat = &link.external_chat;
+    /// `/use <n>`: in una chat con le sotto-chat apre (o ritrova) quella del thread n;
+    /// altrimenti, o se la sotto-chat non si apre, il thread n diventa il corrente.
+    pub(super) async fn use_thread(
+        &self,
+        link: &ConnectorLink,
+        place: &Place,
+        arg: &str,
+    ) -> Result<(), ConnectorError> {
         let (picked, listed) = self.session.with(&link.external_account, |s| {
             (parse_number(arg).and_then(|n| s.thread_at(n).cloned()), s.listed_threads())
         });
-        let Some(picked) = picked else { return self.reply(chat, &replies::use_usage(listed)).await };
+        let Some(picked) = picked else { return self.reply(place, &replies::use_usage(listed)).await };
         match self.hub.thread_exists(&picked.channel, &picked.thread_id).await {
             Ok(true) => {}
-            Ok(false) => return self.reply(chat, &replies::thread_gone()).await,
-            Err(e) => return self.reply(chat, &replies::hub_error(&e)).await,
+            Ok(false) => return self.reply(place, &replies::thread_gone()).await,
+            Err(e) => return self.reply(place, &replies::hub_error(&e)).await,
+        }
+        let chat = &link.external_chat;
+        if self.has_subchats(chat) {
+            let thread = ThreadKey { channel: picked.channel.clone(), thread_id: picked.thread_id.clone() };
+            if self.ensure_subchat(chat, &thread, &picked.label).await?.is_some() {
+                return self.reply(place, &replies::subchat_ready(&picked.label)).await;
+            }
         }
         let text = if self.set_current(link, &picked.channel, &picked.thread_id).await {
             replies::now_using(&picked.label)
         } else {
             replies::not_saved()
         };
-        self.reply(chat, &text).await
+        self.reply(place, &text).await
     }
 
-    pub(super) async fn new_thread(&self, link: &ConnectorLink, title: &str) -> Result<(), ConnectorError> {
-        let chat = &link.external_chat;
+    /// `/new <titolo>`: crea il thread e lo rende corrente; in una chat con le sotto-chat
+    /// gli apre anche la sua.
+    pub(super) async fn new_thread(
+        &self,
+        link: &ConnectorLink,
+        place: &Place,
+        title: &str,
+    ) -> Result<(), ConnectorError> {
         let title = title.trim();
         if title.is_empty() {
-            return self.reply(chat, &replies::new_usage()).await;
+            return self.reply(place, &replies::new_usage()).await;
         }
         let channel = target_channel(link);
         let thread_id = match self.hub.create_thread(&channel, title).await {
             Ok(id) => id,
-            Err(e) => return self.reply(chat, &replies::new_failed(&e)).await,
+            Err(e) => return self.reply(place, &replies::new_failed(&e)).await,
         };
-        let text = if self.set_current(link, &channel, &thread_id).await {
+        let saved = self.set_current(link, &channel, &thread_id).await;
+        let chat = &link.external_chat;
+        let text = if self.has_subchats(chat) {
+            let label = self.thread_label_of(&channel, title).await;
+            let thread = ThreadKey { channel, thread_id };
+            match self.ensure_subchat(chat, &thread, &label).await? {
+                Some(_) => replies::subchat_thread_created(&label),
+                None if saved => replies::thread_created_without_subchat(title),
+                None => replies::not_saved(),
+            }
+        } else if saved {
             replies::thread_created(title)
         } else {
             replies::not_saved()
         };
-        self.reply(chat, &text).await
+        self.reply(place, &text).await
+    }
+
+    /// Il nome di un thread come lo mostra `/threads` («canale › titolo»); solo il
+    /// titolo se il nome del canale non si trova.
+    async fn thread_label_of(&self, channel: &Channel, title: &str) -> String {
+        let name = match self.hub.channels().await {
+            Ok(channels) => channels.into_iter().find(|c| c.channel == *channel).map(|c| c.name),
+            Err(_) => {
+                log::warn!("connettori {}: nome del canale non disponibile", self.instance());
+                None
+            }
+        };
+        name.map_or_else(|| title.to_string(), |name| replies::thread_label(&name, title))
     }
 }
 

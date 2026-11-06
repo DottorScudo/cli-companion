@@ -2,7 +2,9 @@
 //! con cui si fa classificare dal supervisore, i DTO che scambia con il runtime e
 //! il contesto che il runtime gli da'. Stessa forma dei contratti degli agenti
 //! (`agents/contracts/`): oggetti `&'static dyn`, futuri boxati senza il crate
-//! `futures`, nessuna implementazione di default che nasconda una lacuna.
+//! `futures`, nessuna implementazione di default che nasconda una lacuna. Fanno
+//! eccezione le sotto-chat dei canali di contatto, una capacita' facoltativa: i metodi
+//! predefiniti dicono «non supportate» e il runtime non le chiede.
 
 mod connector;
 mod context;

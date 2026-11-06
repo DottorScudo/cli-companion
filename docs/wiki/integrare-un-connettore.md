@@ -116,11 +116,24 @@ pub trait ContactConnector: Connector {
         -> BoxFuture<'a, Result<IncomingFile, ConnectorError>>;
     fn pairing_reply<'a>(&'a self, ctx: &'a ConnectorContext, outcome: &'a PairingOutcome, chat: &'a str)
         -> BoxFuture<'a, Result<(), ConnectorError>>;
+
+    // Sotto-chat, facoltative: le implementazioni predefinite dicono «non supportate».
+    fn subchats(&self, config: &Value, chat: &str) -> bool { false }
+    fn open_subchat<'a>(&'a self, ctx: &'a ConnectorContext, chat: &'a str, title: &'a str)
+        -> BoxFuture<'a, Result<String, ConnectorError>>;
+    fn rename_subchat<'a>(&'a self, ctx: &'a ConnectorContext, chat: &'a str, subchat: &'a str, title: &'a str)
+        -> BoxFuture<'a, Result<(), ConnectorError>>;
+    fn close_subchat<'a>(&'a self, ctx: &'a ConnectorContext, chat: &'a str, subchat: &'a str)
+        -> BoxFuture<'a, Result<(), ConnectorError>>;
+    fn delete_subchat<'a>(&'a self, ctx: &'a ConnectorContext, chat: &'a str, subchat: &'a str)
+        -> BoxFuture<'a, Result<(), ConnectorError>>;
 }
 ```
 
 Non ci sono implementazioni di default che nascondano una lacuna: se aggiungi un metodo ai trait del core, ogni
-connettore smette di compilare finché non decide.
+connettore smette di compilare finché non decide. L'unica eccezione sono le **sotto-chat** dei canali di contatto,
+una capacità facoltativa: chi non le ha non scrive nulla (`subchats` vale `false` e il runtime non chiede le altre;
+se ci arrivasse, rispondono `Fatal`).
 
 - **`poll`** (fonte): un giro. Legge dal servizio gli elementi nuovi per le regole attive a partire da `cursor`
   (`None` = si parte da «adesso»: gli arretrati non entrano) e restituisce `PollBatch { items, cursor, more }`.
@@ -130,14 +143,22 @@ connettore smette di compilare finché non decide.
 - **`receive`** (contatto): long polling con un timeout del servizio più breve di `limits::RECEIVE_TIMEOUT`.
   Restituisce i messaggi `InboundMessage` già tradotti — `pairing_code` se il testo è un invito ad abbinare,
   `command` (`ContactCommand`) se è un comando, `reply_to_external` per una risposta, `sender_name`, gli allegati come
-  `RemoteFile` **non scaricati** — e il cursore nuovo. I messaggi che il canale non gestisce (gruppi, modificati,
-  sticker) non diventano `InboundMessage`. Comandi, collegamenti, thread corrente e testi delle risposte sono del
-  runtime (`runtime/contact/`), uguali per ogni canale.
+  `RemoteFile` **non scaricati** — e il cursore nuovo. I messaggi che il canale non gestisce (gruppi senza
+  sotto-chat, modificati, sticker) non diventano `InboundMessage`. Comandi, collegamenti, thread corrente e testi
+  delle risposte sono del runtime (`runtime/contact/`), uguali per ogni canale.
 - **`send`**: manda un testo a una chat collegata, spezzandolo al limite del servizio e rispettandone la frequenza, e
   ritorna l'id esterno di ogni parte (servono per le risposte).
 - **`fetch_file`**: scarica un allegato; il runtime lo chiede solo per un account collegato ed entro i limiti dell'HUB.
 - **`wants_notice`**: pura, dice se la configurazione dell'istanza vuole le notifiche di un tipo (`NoticeCategory`).
 - **`pairing_reply`**: risponde a chi ha presentato un codice (benvenuto, codice errato, troppi tentativi).
+- **Sotto-chat** (facoltative; `docs/CONNECTORS.MD` §10, «Sotto-chat»): se il servizio ha conversazioni separate
+  dentro una chat (i topic di un forum), `subchats(config, chat)` dice per quali chat valgono (pura, può dipendere
+  dalla chat) e `open_subchat` ne apre una col titolo che sceglie il runtime («canale › thread»), tagliandolo al limite
+  del servizio, e ne ritorna l'id opaco (lettere, cifre e `-_.:`, al più 64 caratteri, o il runtime lo scarta). In
+  `receive` metti in `InboundMessage.subchat` la sotto-chat del messaggio (`None` per quella principale); in `send`
+  scrivi in `OutboundMessage.subchat`. Se il servizio dice che la sotto-chat non esiste più (eliminata a mano),
+  `send` risponde `ConnectorError::SubchatGone`: il runtime la toglie dalla sua mappa e la ricrea una volta. La mappa
+  thread ↔ sotto-chat è del runtime, non del connettore.
 - **`action`**: `Authorize` (di solito apre il browser e salva il refresh token con `ctx.set_secret`), `Pair` (il
   codice emesso dal runtime è in `ctx.pairing_code()`: va mostrato all'utente, il connettore può metterlo in un
   invito e restituirlo in `ActionOutcome.detail`), `Test`.
@@ -151,6 +172,7 @@ connettore smette di compilare finché non decide.
 | `Auth(msg)` | 401, 403, `invalid_grant` | stato `needs_auth`: si ferma finché l'utente non cambia segreto o rifà `authorize` |
 | `Config(msg)` | configurazione inutilizzabile | stato `error`, fermo fino a una modifica dell'istanza |
 | `Fatal(msg)` | errore non recuperabile | stato `error` |
+| `SubchatGone` | `send` in una sotto-chat che il servizio non ha più | il runtime ricrea la sotto-chat una volta, poi ripiega sulla chat principale; il supervisore non si ferma |
 
 I messaggi sono già ripuliti: **mai** segreti, URL con token, corpi di risposta o contenuti degli elementi. All'utente
 arriva solo un testo generico scelto dalla classe; il dettaglio va nel log (solo id dell'istanza e classe).
@@ -204,7 +226,8 @@ niente stato su file proprio.
 6. **Togli gli `expect(dead_code)`** che esistevano perché il registro era vuoto: con il primo connettore reale
    clippy (`-D warnings`) segnala come «unfulfilled expectation» quelli in `contracts/connector.rs`, `contracts/error.rs`,
    `contracts/context.rs`, `descriptor/mod.rs`, `limits.rs`, `state.rs` e `runtime/http.rs`, `runtime/backoff.rs` che
-   ora sono raggiungibili. Quelli che il tuo connettore non usa ancora (per esempio `with_max_body`) restano.
+   ora sono raggiungibili. Quelli che il tuo connettore non usa ancora (per esempio `with_max_body`, o `SubchatGone` e
+   `rename_subchat`/`close_subchat`/`delete_subchat` senza sotto-chat) restano.
 7. **Documenta**: la riga nella tabella delle fasi di `docs/CONNECTORS.MD` e, se serve, la sezione del connettore.
 
 ## Test
@@ -219,7 +242,8 @@ niente stato su file proprio.
   `ingress`, `attachments`, `Author`, `Message`, `MessageOrigin`, `Channel`, `HubNotice` e non usa `reqwest`.
 - **Del connettore**: parsing delle risposte del servizio, costruzione delle richieste, mappatura errori → classi,
   migrazione, validazioni. Per provare il comportamento end-to-end con il runtime usa i finti di
-  `connectors/testing.rs` (`FakeSource`, `FakeContact`, `FakeHub`, `FakeClock`) e il registro di test per thread
+  `connectors/testing.rs` (`FakeSource`, `FakeContact` in `testing/contact.rs`, che simula anche le sotto-chat con
+  `with_subchats_in`, `open_error` e `delete_remotely`, `FakeHub`, `FakeClock`) e il registro di test per thread
   (`registry::test_registry::Registered`). Nessun test parla con la rete.
 
 ## Checklist finale

@@ -17,6 +17,13 @@ pub enum ConnectorError {
     Config(String),
     /// Errore non recuperabile (o un permesso non dichiarato): si ferma in `error`.
     Fatal(String),
+    /// La sotto-chat di un `send` non c'e' piu' (l'utente l'ha eliminata nel servizio):
+    /// il runtime toglie la voce dalla sua mappa e la ricrea una volta. Non ferma il supervisore.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "lo costruisce un connettore con le sotto-chat: nessuno registrato le ha ancora")
+    )]
+    SubchatGone,
 }
 
 impl ConnectorError {
@@ -28,6 +35,7 @@ impl ConnectorError {
             Self::Auth(_) => "auth",
             Self::Config(_) => "config",
             Self::Fatal(_) => "fatal",
+            Self::SubchatGone => "subchat_gone",
         }
     }
 
@@ -45,6 +53,7 @@ impl ConnectorError {
             Self::Auth(_) => "Credenziali rifiutate: serve il tuo intervento.",
             Self::Config(_) => "Configurazione non valida.",
             Self::Fatal(_) => "Errore non recuperabile.",
+            Self::SubchatGone => "Conversazione non più disponibile nel servizio.",
         }
     }
 }
@@ -56,7 +65,7 @@ impl fmt::Display for ConnectorError {
                 write!(f, "{}: {m}", self.class())
             }
             Self::RateLimited { retry_after: Some(after) } => write!(f, "rate_limited: attesa {}s", after.as_secs()),
-            Self::RateLimited { retry_after: None } => write!(f, "rate_limited"),
+            Self::RateLimited { retry_after: None } | Self::SubchatGone => f.write_str(self.class()),
         }
     }
 }
@@ -71,6 +80,8 @@ mod tests {
     fn only_transient_and_rate_limited_errors_are_retried() {
         assert!(!ConnectorError::Transient("x".into()).stops_the_supervisor());
         assert!(!ConnectorError::RateLimited { retry_after: None }.stops_the_supervisor());
+        assert!(!ConnectorError::SubchatGone.stops_the_supervisor());
+        assert_eq!(ConnectorError::SubchatGone.to_string(), "subchat_gone");
         for e in
             [ConnectorError::Auth("x".into()), ConnectorError::Config("x".into()), ConnectorError::Fatal("x".into())]
         {

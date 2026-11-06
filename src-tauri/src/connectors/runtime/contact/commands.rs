@@ -9,7 +9,7 @@ mod threads;
 mod workspaces;
 
 use super::replies;
-use super::ContactCtx;
+use super::{ContactCtx, Place};
 use crate::connectors::contracts::{ConnectorError, ContactCommand};
 use crate::connectors::model::{ConnectorLink, LinkThread};
 use crate::hub::Channel;
@@ -24,29 +24,41 @@ fn target_channel(link: &ConnectorLink) -> Channel {
 }
 
 impl ContactCtx<'_> {
-    /// Esegue `command` per `link`. Un errore che ferma il supervisore risale.
+    /// Esegue `command` per `link`, rispondendo in `place` (la chat o la sotto-chat del
+    /// comando: dentro una sotto-chat i comandi valgono come nella chat principale). Un
+    /// errore che ferma il supervisore risale.
     pub(super) async fn run_command(
         &self,
         link: &ConnectorLink,
+        place: &Place,
         command: ContactCommand,
     ) -> Result<(), ConnectorError> {
         match command {
-            ContactCommand::Help => self.reply(&link.external_chat, &replies::help()).await,
-            ContactCommand::Unknown => self.reply(&link.external_chat, &replies::unknown_command()).await,
-            ContactCommand::Threads => self.list_threads(link).await,
-            ContactCommand::Use(arg) => self.use_thread(link, &arg).await,
-            ContactCommand::Workspaces(arg) => self.choose_workspace(link, &arg).await,
-            ContactCommand::New(title) => self.new_thread(link, &title).await,
-            ContactCommand::Status => self.show_status(link).await,
-            ContactCommand::Mute(arg) => self.mute(link, &arg).await,
-            ContactCommand::Unmute => self.unmute(link).await,
-            ContactCommand::Unlink => self.unlink(link).await,
+            ContactCommand::Help => self.reply(place, &self.help_for(&link.external_chat)).await,
+            ContactCommand::Unknown => self.reply(place, &self.unknown_for(&link.external_chat)).await,
+            ContactCommand::Threads => self.list_threads(link, place).await,
+            ContactCommand::Use(arg) => self.use_thread(link, place, &arg).await,
+            ContactCommand::Workspaces(arg) => self.choose_workspace(link, place, &arg).await,
+            ContactCommand::New(title) => self.new_thread(link, place, &title).await,
+            ContactCommand::Status => self.show_status(link, place).await,
+            ContactCommand::Mute(arg) => self.mute(link, place, &arg).await,
+            ContactCommand::Unmute => self.unmute(link, place).await,
+            ContactCommand::Unlink => self.unlink(link, place).await,
+        }
+    }
+
+    /// La risposta a un comando sconosciuto, con l'aiuto adatto alla chat.
+    fn unknown_for(&self, chat: &str) -> String {
+        if self.has_subchats(chat) {
+            replies::unknown_subchat_command()
+        } else {
+            replies::unknown_command()
         }
     }
 
     /// `/unlink`: prima la risposta (dopo il collegamento non ci sarebbe piu' a chi), poi via dal file.
-    async fn unlink(&self, link: &ConnectorLink) -> Result<(), ConnectorError> {
-        let replied = self.reply(&link.external_chat, &replies::unlinked()).await;
+    async fn unlink(&self, link: &ConnectorLink, place: &Place) -> Result<(), ConnectorError> {
+        let replied = self.reply(place, &replies::unlinked()).await;
         self.remove_link(link).await;
         replied
     }

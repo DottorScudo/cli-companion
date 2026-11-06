@@ -5,6 +5,7 @@
 //! (le meno recenti escono per prime). Mai segreti qui: il file e' in chiaro.
 
 use super::limits::{CUSTOM_KEYS_MAX, CUSTOM_VALUE_MAX, MAP_MAX, SEEN_MAX};
+use super::runtime::contact::subchats::SubchatMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -208,6 +209,10 @@ pub struct InstanceState {
     /// Id del messaggio dell'HUB -> id esterno.
     #[serde(default)]
     pub hub_to_external: BoundedMap,
+    /// Thread dell'HUB <-> sotto-chat delle chat collegate (canali di contatto,
+    /// `runtime::contact::subchats`). Assente in uno stato vecchio = vuota.
+    #[serde(default)]
+    pub subchats: SubchatMap,
     /// Chiavi private del connettore (`[a-z0-9_]`, poche, di dimensione limitata).
     #[serde(default)]
     pub custom: BTreeMap<String, Value>,
@@ -383,6 +388,20 @@ mod tests {
         assert!(!state.seen.contains("r:2") && state.seen.contains("r:3"));
         assert_eq!(state.external_to_hub.len(), MAP_MAX);
         assert_eq!(state.external_to_hub.get("e2"), None);
+    }
+
+    #[test]
+    fn an_old_state_without_the_subchat_map_reads_it_empty_and_the_map_roundtrips() {
+        use crate::connectors::runtime::contact::subchats::{SubchatKey, ThreadKey};
+        use crate::hub::Channel;
+        let old = json!({"cursors": {"main": 7}, "external_to_hub": [["e1", "general thr-1 msg-1"]]});
+        let mut state: InstanceState = serde_json::from_value(old).unwrap();
+        assert_eq!(state.subchats.len(), 0);
+        assert_eq!(state.external_to_hub.get("e1"), Some("general thr-1 msg-1"));
+        let thread = ThreadKey { channel: Channel::General, thread_id: "thr-1".to_string() };
+        assert!(state.subchats.insert(thread.clone(), SubchatKey { chat: "g1".into(), subchat: "7".into() }));
+        let mut back: InstanceState = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        assert_eq!(back.subchats.subchat_of(&thread, "g1").as_deref(), Some("7"));
     }
 
     #[test]

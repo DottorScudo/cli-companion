@@ -52,6 +52,9 @@ pub struct InboundMessage {
     pub account: String,
     /// La chat in cui rispondere.
     pub chat: String,
+    /// La sotto-chat della `chat` in cui e' stato scritto (es. un topic di un forum): id
+    /// opaco del servizio. `None` = la chat principale, o un servizio senza sotto-chat.
+    pub subchat: Option<String>,
     /// Come si presenta il mittente (nome o username), per il collegamento; vuoto se ignoto.
     pub sender_name: String,
     pub text: String,
@@ -109,6 +112,9 @@ pub struct ReceiveBatch {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutboundMessage {
     pub chat: String,
+    /// La sotto-chat della `chat` in cui scrivere (da `ContactConnector::open_subchat`);
+    /// `None` = la chat principale.
+    pub subchat: Option<String>,
     /// Testo semplice, senza markup.
     pub text: String,
     /// L'id esterno del messaggio a cui legare la risposta.

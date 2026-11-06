@@ -12,7 +12,8 @@
 //! - `linking`: abbinamento e collegamenti nel file;
 //! - `commands`: l'esecuzione dei comandi;
 //! - `inbound`: un messaggio normale verso il thread giusto, con gli allegati;
-//! - `notices`: le notifiche dell'HUB verso i collegamenti.
+//! - `notices`: le notifiche dell'HUB verso i collegamenti;
+//! - `subchats`: le sotto-chat di una chat collegata, una per thread (mappa pura e uso).
 
 mod commands;
 mod inbound;
@@ -21,6 +22,7 @@ mod notices;
 pub mod refs;
 mod replies;
 mod session;
+pub mod subchats;
 
 use crate::connectors::contracts::{
     Clock, ConnectorContext, ConnectorError, ContactConnector, HubPort, InboundMessage, OutboundMessage, StateHandle,
@@ -35,9 +37,24 @@ use refs::MessageRef;
 use session::Admission;
 pub use session::ContactSession;
 use std::sync::Arc;
+use subchats::valid_subchat_id;
 
 /// Lo "slot" della dedupe dei messaggi in entrata (le regole delle fonti hanno il loro id).
 const INBOUND_SEEN: &str = "inbound";
+
+/// Dove scrivere una risposta del bot: la chat e, se c'e', la sua sotto-chat.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Place {
+    chat: String,
+    subchat: Option<String>,
+}
+
+impl Place {
+    /// La chat principale.
+    fn main(chat: &str) -> Self {
+        Self { chat: chat.to_string(), subchat: None }
+    }
+}
 
 pub struct ContactCtx<'a> {
     pub connector: &'a dyn ContactConnector,
@@ -71,40 +88,73 @@ impl ContactCtx<'_> {
         Ok(())
     }
 
-    /// Abbinamento, poi (per un account collegato) limite, comando o messaggio normale.
+    /// Abbinamento, poi (per un account collegato) limite, chat del collegamento, comando o
+    /// messaggio normale. Gli altri account (anche in un gruppo) si ignorano in silenzio.
     async fn dispatch(&self, message: &InboundMessage) -> Result<(), ConnectorError> {
         if let Some(code) = message.pairing_code.as_deref() {
             return self.pair(message, code).await;
         }
         let Some(link) = self.link_of(&message.account) else { return Ok(()) };
-        if !self.admit(&link).await? {
+        let Some(place) = self.place_of(message) else {
+            log::info!("connettori {}: messaggio ignorato, id di sotto-chat non valido", self.instance());
+            return Ok(());
+        };
+        if !self.admit(&link, &place).await? {
             return Ok(());
         }
+        if message.chat != link.external_chat {
+            log::info!("connettori {}: messaggio ignorato, non viene dalla chat collegata", self.instance());
+            return self.reply(&place, &replies::wrong_chat()).await;
+        }
         match message.command.clone() {
-            Some(command) => self.run_command(&link, command).await,
-            None => self.forward(&link, message).await,
+            Some(command) => self.run_command(&link, &place, command).await,
+            None => self.forward(&link, &place, message).await,
         }
     }
 
+    /// Dove rispondere al messaggio: la sua chat e la sua sotto-chat, se la chat ne ha
+    /// (altrimenti la sotto-chat si ignora). `None` se l'id della sotto-chat non e' valido.
+    fn place_of(&self, message: &InboundMessage) -> Option<Place> {
+        let subchat = message.subchat.clone().filter(|_| self.has_subchats(&message.chat));
+        if subchat.as_deref().is_some_and(|id| !valid_subchat_id(id)) {
+            return None;
+        }
+        Some(Place { chat: message.chat.clone(), subchat })
+    }
+
     /// Il messaggio rientra nel limite al minuto? Il primo scarto di una finestra riceve una risposta.
-    async fn admit(&self, link: &ConnectorLink) -> Result<bool, ConnectorError> {
+    async fn admit(&self, link: &ConnectorLink, place: &Place) -> Result<bool, ConnectorError> {
         let now = self.clock.now_ms();
         match self.session.with(&link.external_account, |s| s.admit(now)) {
             Admission::Allowed => Ok(true),
             Admission::Dropped { first } => {
                 log::info!("connettori {}: messaggio scartato, troppi in un minuto", self.instance());
                 if first {
-                    self.reply(&link.external_chat, &replies::rate_limited()).await?;
+                    self.reply(place, &replies::rate_limited()).await?;
                 }
                 Ok(false)
             }
         }
     }
 
-    /// Una risposta del bot nella chat. Un errore che ferma il supervisore (credenziali,
-    /// configurazione) risale; gli altri si registrano con la loro classe.
-    async fn reply(&self, chat: &str, text: &str) -> Result<(), ConnectorError> {
-        let out = OutboundMessage { chat: chat.to_string(), text: text.to_string(), reply_to_external: None };
+    /// L'aiuto adatto alla chat: con le sotto-chat spiega anche quelle.
+    fn help_for(&self, chat: &str) -> String {
+        if self.has_subchats(chat) {
+            replies::subchat_help()
+        } else {
+            replies::help()
+        }
+    }
+
+    /// Una risposta del bot nella chat (e nella sotto-chat) del messaggio. Un errore che ferma
+    /// il supervisore (credenziali, configurazione) risale; gli altri si registrano con la loro classe.
+    async fn reply(&self, place: &Place, text: &str) -> Result<(), ConnectorError> {
+        let out = OutboundMessage {
+            chat: place.chat.clone(),
+            subchat: place.subchat.clone(),
+            text: text.to_string(),
+            reply_to_external: None,
+        };
         match with_timeout(CALL_TIMEOUT, self.connector.send(self.ctx, &out)).await {
             Ok(_) => Ok(()),
             Err(e) if e.stops_the_supervisor() => Err(e),

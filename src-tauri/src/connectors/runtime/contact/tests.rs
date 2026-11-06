@@ -12,6 +12,7 @@ mod commands;
 mod inbound;
 mod notices;
 mod pairing;
+mod subchats;
 
 /// L'istante iniziale dell'orologio finto.
 const NOW: i64 = 1_700_000_000_000;
