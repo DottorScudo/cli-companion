@@ -33,7 +33,7 @@ mod sinks;
 pub(super) mod text;
 
 pub use dispatch::HubNotifier;
-pub use kind::NoticeKind;
+pub use kind::{NoticeKind, PlanEnd};
 pub use notice::{validate_thread_ref, AppMessage, ContactNotice, HubThreadRef, NoticeCategory};
 #[cfg(test)]
 pub use notice::{HubNotice, HubNoticeSound};

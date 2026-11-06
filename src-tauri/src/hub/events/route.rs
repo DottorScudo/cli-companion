@@ -37,7 +37,7 @@ use crate::board::{TaskKind, TaskStatus};
 use crate::hub::channel::Channel;
 use crate::hub::engine::confirm;
 use crate::hub::model::{Author, HubEvent, HubEventKind, Thread, ThreadState, ThreadSummary};
-use crate::hub::notify::NoticeKind;
+use crate::hub::notify::{NoticeKind, PlanEnd};
 use crate::hub::state::{MESSAGE_ID_PREFIX, THREAD_ID_PREFIX};
 use crate::hub::threads::{summary, ChannelThreads, NewMessage, TASKS_PER_THREAD_MAX};
 
@@ -225,14 +225,18 @@ impl Router<'_> {
         if change != TaskChange::Deleted {
             self.reopen(&thread)?;
         }
-        let unanswered_plan =
-            change == TaskChange::Done && task.kind == TaskKind::Plan && !self.proposed(&thread, task);
-        let parts = if unanswered_plan { texts::plan_without_proposal(task) } else { vec![texts::task(change, task)] };
+        let unanswered_plan = self.unanswered_plan(&thread, change, task);
+        let parts = match unanswered_plan {
+            Some(_) => texts::plan_without_proposal(task),
+            None => vec![texts::task(change, task)],
+        };
         let event = self.task_hub_event(change, task);
         let notice = notices::for_task(change, task.kind, unanswered_plan);
         let message = self.post_parts(&thread, parts, event, notice)?;
         self.invalidate_requests(&thread, change, task);
-        if unanswered_plan || matches!(change, TaskChange::Failed | TaskChange::Attention | TaskChange::Question) {
+        if unanswered_plan.is_some()
+            || matches!(change, TaskChange::Failed | TaskChange::Attention | TaskChange::Question)
+        {
             self.wake_owner(&thread, message);
         }
         Ok(())
@@ -245,6 +249,13 @@ impl Router<'_> {
         if let Err(e) = confirm::invalidate_for_task(self.list, thread, &task.id, status, self.now) {
             log::warn!("hub {}: richieste del task {} non invalidate: {e}", self.board.workspace_id, task.id);
         }
+    }
+
+    /// Come e' finito un task `plan` concluso senza proposta: con le domande per
+    /// l'utente o con la risposta alla sua domanda. `None` per ogni altro evento.
+    fn unanswered_plan(&self, thread: &str, change: TaskChange, task: &TaskSnap) -> Option<PlanEnd> {
+        let unanswered = change == TaskChange::Done && task.kind == TaskKind::Plan && !self.proposed(thread, task);
+        unanswered.then(|| if texts::plan_answers(task) { PlanEnd::Answer } else { PlanEnd::Questions })
     }
 
     /// Il task `plan` ha fatto una proposta: e' nella board o e' gia' stata

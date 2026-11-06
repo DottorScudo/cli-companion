@@ -18,12 +18,22 @@ pub enum NoticeKind {
     },
     TaskFailed,
     TaskAttention,
-    /// La pianificazione e' finita senza proposta: servono risposte.
-    PlanWithoutProposal,
+    /// La pianificazione e' finita senza proposta: con le domande per l'utente
+    /// o con la risposta alla sua domanda.
+    PlanWithoutProposal(PlanEnd),
     ProposalCreated,
     ThreadConcluded,
     ReviewDone,
     TaskDone,
+}
+
+/// Cosa porta il riassunto di un task `plan` finito senza proposta.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanEnd {
+    /// Le domande del pianificatore: servono le risposte dell'utente.
+    Questions,
+    /// La risposta alla domanda dell'utente (il riassunto apre con "Answer:").
+    Answer,
 }
 
 /// Significativita' di un tipo, dalla minore alla maggiore (l'ordine delle
@@ -50,7 +60,7 @@ impl NoticeKind {
             Self::External { .. } => Priority::External,
             Self::TaskFailed => Priority::TaskFailed,
             Self::TaskAttention => Priority::TaskAttention,
-            Self::PlanWithoutProposal => Priority::PlanWithoutProposal,
+            Self::PlanWithoutProposal(_) => Priority::PlanWithoutProposal,
             Self::ProposalCreated => Priority::ProposalCreated,
             Self::ThreadConcluded => Priority::ThreadConcluded,
             Self::ReviewDone => Priority::ReviewDone,
@@ -66,7 +76,7 @@ impl NoticeKind {
             Self::External { .. } => NoticeCategory::External,
             Self::TaskFailed => NoticeCategory::TaskFailed,
             Self::TaskAttention => NoticeCategory::TaskAttention,
-            Self::PlanWithoutProposal => NoticeCategory::PlanWithoutProposal,
+            Self::PlanWithoutProposal(_) => NoticeCategory::PlanWithoutProposal,
             Self::ProposalCreated => NoticeCategory::ProposalCreated,
             Self::ThreadConcluded => NoticeCategory::ThreadConcluded,
             Self::ReviewDone => NoticeCategory::ReviewDone,
@@ -77,7 +87,7 @@ impl NoticeKind {
     /// Attenzione quando serve l'utente, ding per il resto.
     pub fn sound(&self) -> HubNoticeSound {
         match self {
-            Self::Question | Self::TaskFailed | Self::TaskAttention | Self::PlanWithoutProposal => {
+            Self::Question | Self::TaskFailed | Self::TaskAttention | Self::PlanWithoutProposal(_) => {
                 HubNoticeSound::Attention
             }
             Self::Reply { .. }
@@ -96,7 +106,10 @@ impl NoticeKind {
             Self::External { name } => format!("Nuovo da {name}"),
             Self::TaskFailed => "Task fallito".to_string(),
             Self::TaskAttention => "Un task richiede attenzione".to_string(),
-            Self::PlanWithoutProposal => "Pianificazione conclusa: servono tue risposte".to_string(),
+            Self::PlanWithoutProposal(PlanEnd::Questions) => {
+                "Pianificazione conclusa: servono tue risposte".to_string()
+            }
+            Self::PlanWithoutProposal(PlanEnd::Answer) => "Risposta pronta alla tua domanda".to_string(),
             Self::ProposalCreated => "Nuova proposta di task".to_string(),
             Self::ThreadConcluded => "Thread concluso".to_string(),
             Self::ReviewDone => "Revisione finita".to_string(),
@@ -116,7 +129,7 @@ mod tests {
             NoticeKind::Question,
             NoticeKind::TaskFailed,
             NoticeKind::TaskAttention,
-            NoticeKind::PlanWithoutProposal,
+            NoticeKind::PlanWithoutProposal(PlanEnd::Questions),
             NoticeKind::ProposalCreated,
             NoticeKind::ThreadConcluded,
             NoticeKind::ReviewDone,
@@ -177,5 +190,14 @@ mod tests {
                 "Task finito",
             ]
         );
+    }
+
+    #[test]
+    fn a_plan_that_answers_has_an_answer_title_and_keeps_category_priority_and_sound() {
+        let answer = NoticeKind::PlanWithoutProposal(PlanEnd::Answer);
+        let questions = NoticeKind::PlanWithoutProposal(PlanEnd::Questions);
+        assert_eq!(answer.title(), "Risposta pronta alla tua domanda");
+        assert_eq!(answer.category(), NoticeCategory::PlanWithoutProposal);
+        assert_eq!((answer.priority(), answer.sound()), (questions.priority(), questions.sound()));
     }
 }

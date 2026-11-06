@@ -134,6 +134,17 @@ fn a_board_event_opens_the_turn_with_its_data_and_the_owner_guide() {
 }
 
 #[test]
+fn the_owner_guide_relays_an_answer_and_asks_the_planner_questions() {
+    let answer_case = EVENT_GUIDE.find("summary starts with \"Answer:\"").expect("answer case");
+    let questions_case = EVENT_GUIDE.find("holds the planner's questions, ask them").expect("questions case");
+    assert!(answer_case < questions_case, "the answer case comes first: the other case is \"any other plan\"");
+    assert!(EVENT_GUIDE.contains("relay it in plain words") && EVENT_GUIDE.contains("do not open a new planning task"));
+    assert!(EVENT_GUIDE.contains("Any other plan that ended without a proposal"));
+    assert!(EVENT_GUIDE.contains("once they answer you can open a new planning task"));
+    assert!(EVENT_GUIDE.is_ascii());
+}
+
+#[test]
 fn a_worker_question_wakes_the_owner_to_present_it_without_answering() {
     let mut event = msg("e1", Author::System, "Domanda del worker: Login\nQuale database?", 5);
     event.event = Some(HubEvent {

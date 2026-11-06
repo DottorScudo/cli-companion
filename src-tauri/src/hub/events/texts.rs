@@ -90,14 +90,25 @@ fn question_asked(task: &TaskSnap) -> String {
 /// `ANSWER_MARKER`), che nel thread non si vedono altrove. Un testo piu' lungo
 /// di un messaggio si divide in parti (`text::parts`), nell'ordine.
 pub fn plan_without_proposal(task: &TaskSnap) -> Vec<String> {
-    let report = task.plan_report.as_deref().or(task.summary.as_deref());
-    let kind = if report.is_some_and(is_answer) { "Risposta" } else { "Pianificazione conclusa senza proposta" };
+    let report = plan_report(task);
+    let kind = if plan_answers(task) { "Risposta" } else { "Pianificazione conclusa senza proposta" };
     let headline = format!("{kind}: {}", task.title);
     let text = match report {
         Some(report) => format!("{headline}\n{report}"),
         None => headline,
     };
     parts::split(&text, Remainder::InTask)
+}
+
+/// Il task `plan` risponde alla domanda dell'utente invece di porgli domande:
+/// il suo report apre con `ANSWER_MARKER`.
+pub fn plan_answers(task: &TaskSnap) -> bool {
+    plan_report(task).is_some_and(is_answer)
+}
+
+/// Il report intero di un task `plan`, o il riassunto se manca.
+fn plan_report(task: &TaskSnap) -> Option<&str> {
+    task.plan_report.as_deref().or(task.summary.as_deref())
 }
 
 /// Il report apre con `ANSWER_MARKER` (maiuscole ignorate, spazi iniziali ammessi).
@@ -222,10 +233,12 @@ mod tests {
         // Il report intero vince sul riassunto tagliato.
         t.plan_report = Some("Answer: tutto il testo".to_string());
         assert_eq!(plan_without_proposal(&t), ["Risposta: Task a\nAnswer: tutto il testo"]);
+        assert!(plan_answers(&t));
         // "Answer" senza i due punti, o non in testa, non e' una risposta.
         for report in ["Answers below", "Questions for the user:\n1. Answer: quale?", "Ans"] {
             t.plan_report = Some(report.to_string());
             assert!(plan_without_proposal(&t)[0].starts_with("Pianificazione conclusa senza proposta"), "{report}");
+            assert!(!plan_answers(&t), "{report}");
         }
         // Un report che inizia con un carattere multibyte non manda in panico il taglio.
         t.plan_report = Some("èèèèèèèè".to_string());

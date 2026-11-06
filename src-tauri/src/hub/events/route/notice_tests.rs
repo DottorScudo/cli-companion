@@ -73,14 +73,26 @@ fn a_finished_review_and_a_finished_task_differ_and_each_thread_concludes() {
     assert_eq!(out.notices[0].thread_id, out.notices[1].thread_id);
 }
 
-#[test]
-fn a_plan_without_a_proposal_notifies_as_such() {
+/// La notifica di un task `plan` che finisce senza proposta con il report `report`.
+fn plan_without_proposal_notice(report: &str) -> Vec<NoticeKind> {
     let mut list = ChannelThreads::default();
     let plan = |status| TaskSnap { kind: TaskKind::Plan, ..task("plan-x", status) };
     let running = board(vec![plan(TaskStatus::Running)], vec![]);
     route_step(&mut list, &board(vec![], vec![]), &running, 10);
-    let out = route_step(&mut list, &running, &board(vec![plan(TaskStatus::Done)], vec![]), 20);
-    assert_eq!(kinds(&out), [NoticeKind::PlanWithoutProposal]);
+    let done = TaskSnap { plan_report: Some(report.to_string()), ..plan(TaskStatus::Done) };
+    kinds(&route_step(&mut list, &running, &board(vec![done], vec![]), 20))
+}
+
+#[test]
+fn a_plan_without_a_proposal_notifies_its_questions() {
+    let kinds = plan_without_proposal_notice("Questions for the user:\n1. Quale database?");
+    assert_eq!(kinds, [NoticeKind::PlanWithoutProposal(PlanEnd::Questions)]);
+}
+
+#[test]
+fn a_plan_that_answers_notifies_an_answer() {
+    let kinds = plan_without_proposal_notice("Answer: il tema e' in src/theme.ts.");
+    assert_eq!(kinds, [NoticeKind::PlanWithoutProposal(PlanEnd::Answer)]);
 }
 
 #[test]

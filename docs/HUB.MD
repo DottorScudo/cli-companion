@@ -845,7 +845,8 @@ sistema scritti dal motore (avvisi, «Risposta inviata»). Un messaggio che l'ut
 | Domanda di un worker | Question | «Un worker ha una domanda» | attenzione |
 | Task fallito | TaskFailed | «Task fallito» | attenzione |
 | Task in attenzione | TaskAttention | «Un task richiede attenzione» | attenzione |
-| Task `plan` finito senza proposta | PlanWithoutProposal | «Pianificazione conclusa: servono tue risposte» | attenzione |
+| Task `plan` finito senza proposta, con le domande del pianificatore | PlanWithoutProposal | «Pianificazione conclusa: servono tue risposte» | attenzione |
+| Task `plan` finito senza proposta, con la risposta (riassunto che apre con «Answer:») | PlanWithoutProposal | «Risposta pronta alla tua domanda» | attenzione |
 | Proposta creata | ProposalCreated | «Nuova proposta di task» | ding |
 | Thread concluso (chiuso dal router) | ThreadConcluded | «Thread concluso» | ding |
 | Task di revisione finito | ReviewDone | «Revisione finita» | ding |
@@ -1013,8 +1014,9 @@ Dopo aver salvato i thread (e rilasciato il loro lock) il thread degli eventi ch
 accoda il turno (`Sessions::route_event`) se il titolare è ancora configurato e ammesso nel canale; altrimenti nulla
 (riga nel log). Il turno parte con una **sessione nuova** che si apre dall'evento: il primo messaggio porta i dati del
 thread, gli ultimi messaggi, l'evento in JSON e le indicazioni per il titolare (in inglese: raccontare in poche righe;
-una proposta si presenta e si chiede all'utente di usare «Rispondi» sul suo messaggio; le domande del pianificatore si
-pongono all'utente; la domanda di un worker si presenta in breve, con le opzioni, aiutando a capirla, e si chiede di
+una proposta si presenta e si chiede all'utente di usare «Rispondi» sul suo messaggio; un piano il cui riassunto apre
+con «Answer:» è la risposta alla domanda dell'utente e si riferisce, senza aprire una nuova pianificazione; le altre
+domande del pianificatore si pongono all'utente; la domanda di un worker si presenta in breve, con le opzioni, aiutando a capirla, e si chiede di
 usare «Rispondi» sul suo messaggio; un fallimento si spiega; la fine si riassume). Se il titolare ha già una sessione aperta sul thread
 l'evento diventa il suo turno successivo, con la conversazione che ha già (due sessioni dello stesso segretario sullo
 stesso thread non esistono). Un turno svegliato da un evento **non può mai** usare `decide_proposal` né
@@ -1270,7 +1272,10 @@ diretta «… le azioni sulla board non sono disponibili.».
   istruzioni del pianificatore, vedi [BOARD.MD](BOARD.MD), "Task di pianificazione"). L'evento nel thread è allora
   «Risposta: <titolo>» invece di «Pianificazione conclusa senza proposta: <titolo>», con la risposta intera
   (`events/texts.rs::plan_without_proposal`; il marcatore si riconosce in testa al report, spazi iniziali e maiuscole
-  ignorati), e sveglia il titolare, che la riferisce all'utente.
+  ignorati, `events/texts.rs::plan_answers`), e sveglia il titolare, che la riferisce all'utente a parole semplici
+  senza aprire una nuova pianificazione (le indicazioni del titolare distinguono la risposta dalle domande). La
+  notifica di sistema resta della categoria PlanWithoutProposal (`notify_plans` su Telegram) ma si intitola «Risposta
+  pronta alla tua domanda».
 
 **`decide_proposal { accept }`.** La decisione resta dell'utente e la garanzia è nel codice, non nel modello:
 

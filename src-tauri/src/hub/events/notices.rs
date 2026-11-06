@@ -4,7 +4,7 @@
 
 use super::diff::TaskChange;
 use crate::board::TaskKind;
-use crate::hub::notify::NoticeKind;
+use crate::hub::notify::{NoticeKind, PlanEnd};
 
 /// Una notifica da dare per un messaggio appena scritto in un thread: `text` e'
 /// il corpo del messaggio.
@@ -17,16 +17,17 @@ pub struct EventNotice {
 }
 
 /// La notifica di un evento di un task. `unanswered_plan`: il task `plan` e'
-/// finito senza una proposta (i suoi dubbi sono per l'utente).
-pub fn for_task(change: TaskChange, kind: TaskKind, unanswered_plan: bool) -> Option<NoticeKind> {
-    match change {
-        TaskChange::Done if unanswered_plan => Some(NoticeKind::PlanWithoutProposal),
-        TaskChange::Done if kind == TaskKind::Review => Some(NoticeKind::ReviewDone),
-        TaskChange::Done => Some(NoticeKind::TaskDone),
-        TaskChange::Failed => Some(NoticeKind::TaskFailed),
-        TaskChange::Attention => Some(NoticeKind::TaskAttention),
-        TaskChange::Question => Some(NoticeKind::Question),
-        TaskChange::Created | TaskChange::Started | TaskChange::QuestionAnswered | TaskChange::Deleted => None,
+/// finito senza una proposta, con le domande per l'utente o con la risposta
+/// alla sua domanda.
+pub fn for_task(change: TaskChange, kind: TaskKind, unanswered_plan: Option<PlanEnd>) -> Option<NoticeKind> {
+    match (change, unanswered_plan) {
+        (TaskChange::Done, Some(end)) => Some(NoticeKind::PlanWithoutProposal(end)),
+        (TaskChange::Done, None) if kind == TaskKind::Review => Some(NoticeKind::ReviewDone),
+        (TaskChange::Done, None) => Some(NoticeKind::TaskDone),
+        (TaskChange::Failed, _) => Some(NoticeKind::TaskFailed),
+        (TaskChange::Attention, _) => Some(NoticeKind::TaskAttention),
+        (TaskChange::Question, _) => Some(NoticeKind::Question),
+        (TaskChange::Created | TaskChange::Started | TaskChange::QuestionAnswered | TaskChange::Deleted, _) => None,
     }
 }
 
@@ -36,27 +37,32 @@ mod tests {
 
     #[test]
     fn a_finished_task_depends_on_its_kind() {
-        assert_eq!(for_task(TaskChange::Done, TaskKind::Work, false), Some(NoticeKind::TaskDone));
-        assert_eq!(for_task(TaskChange::Done, TaskKind::Review, false), Some(NoticeKind::ReviewDone));
-        assert_eq!(for_task(TaskChange::Done, TaskKind::Plan, false), Some(NoticeKind::TaskDone));
+        assert_eq!(for_task(TaskChange::Done, TaskKind::Work, None), Some(NoticeKind::TaskDone));
+        assert_eq!(for_task(TaskChange::Done, TaskKind::Review, None), Some(NoticeKind::ReviewDone));
+        assert_eq!(for_task(TaskChange::Done, TaskKind::Plan, None), Some(NoticeKind::TaskDone));
     }
 
     #[test]
-    fn a_plan_without_a_proposal_wins_over_done() {
-        assert_eq!(for_task(TaskChange::Done, TaskKind::Plan, true), Some(NoticeKind::PlanWithoutProposal));
+    fn a_plan_without_a_proposal_wins_over_done_and_keeps_how_it_ended() {
+        for end in [PlanEnd::Questions, PlanEnd::Answer] {
+            assert_eq!(
+                for_task(TaskChange::Done, TaskKind::Plan, Some(end)),
+                Some(NoticeKind::PlanWithoutProposal(end))
+            );
+        }
     }
 
     #[test]
     fn problems_and_questions_notify() {
-        assert_eq!(for_task(TaskChange::Failed, TaskKind::Work, false), Some(NoticeKind::TaskFailed));
-        assert_eq!(for_task(TaskChange::Attention, TaskKind::Work, false), Some(NoticeKind::TaskAttention));
-        assert_eq!(for_task(TaskChange::Question, TaskKind::Work, false), Some(NoticeKind::Question));
+        assert_eq!(for_task(TaskChange::Failed, TaskKind::Work, None), Some(NoticeKind::TaskFailed));
+        assert_eq!(for_task(TaskChange::Attention, TaskKind::Work, None), Some(NoticeKind::TaskAttention));
+        assert_eq!(for_task(TaskChange::Question, TaskKind::Work, None), Some(NoticeKind::Question));
     }
 
     #[test]
     fn the_other_changes_stay_silent() {
         for change in [TaskChange::Created, TaskChange::Started, TaskChange::QuestionAnswered, TaskChange::Deleted] {
-            assert_eq!(for_task(change, TaskKind::Work, false), None, "{change:?}");
+            assert_eq!(for_task(change, TaskKind::Work, None), None, "{change:?}");
         }
     }
 }

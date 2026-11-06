@@ -74,9 +74,11 @@ do.";
 /// Cosa fare quando un evento della board sveglia il titolare del thread.
 const EVENT_GUIDE: &str = "You are the owner of this thread because you opened its planning task, or you asked for \
 an action on a task. Tell the user in a few lines what happened and what, if anything, they need to do. A new proposal: present its tasks briefly and ask \
-the user to use Reply on the proposal message to accept or reject it; you cannot decide it yourself now. A plan that \
-ended without a proposal: its summary holds the planner's questions, ask them to the user; once they answer you can \
-open a new planning task with the original goal, the questions and the answers. A question from a worker or from \
+the user to use Reply on the proposal message to accept or reject it; you cannot decide it yourself now. A plan whose \
+summary starts with \"Answer:\": it is the answer to the user's question, relay it in plain words; do not ask them \
+anything about it and do not open a new planning task. Any other plan that ended without a proposal: its summary holds \
+the planner's questions, ask them to the user; once they answer you can open a new planning task with the original \
+goal, the questions and the answers. A question from a worker or from \
 the planner: present it in a few words, with its options if any, help the user understand it if needed, and tell \
 them to use Reply on the question message: their reply reaches the worker as written. You cannot answer it yourself \
 now. A failed task or a task that needs attention: say which one and why, if known. All tasks concluded: sum up the \
