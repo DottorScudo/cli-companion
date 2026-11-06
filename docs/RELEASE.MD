@@ -120,7 +120,7 @@ La CI crea la Release con `--generate-notes` (elenco dei commit/PR); le note a m
 aggiungono dopo con `gh release edit vX.Y.Z --notes-file <file>`. Le novità da riportare
 vanno scritte qui sotto, per versione, prima del tag.
 
-### Prossima versione: i Bot-agente
+### v0.21.0: i Bot-agente
 
 - **Dai preset ai Bot.** Task Intake, Project Setup e Skill Wizard non sono più preset
   di agenti con voci rapide proprie ma **Bot** (`Intake`, `Setup`, `Skill Wizard`),
@@ -141,7 +141,7 @@ vanno scritte qui sotto, per versione, prima del tag.
   rimettendo a posto il file dal backup, ma i Bot creati e gli avvii scelti dopo
   l'aggiornamento non sono leggibili dalla versione vecchia.
 
-### Prossima versione: tipi di task dei Bot
+### v0.22.0: tipi di task dei Bot
 
 - **Bot per tipo di task.** Ogni Bot ha i **Tipi di task** che può eseguire (Lavoro, Review,
   Pianificazione; nessuno = solo terminali interattivi), modificabili da Impostazioni › Bot.
@@ -159,7 +159,7 @@ vanno scritte qui sotto, per versione, prima del tag.
 - **Badge dei task.** Review, Pianificazione, verdetto, E2E, Bot e Agente: la mappa è in
   `docs/BOARD.MD`, «Badge dei task».
 
-### Prossima versione: la pool predefinita (domande e bug)
+### v0.22.0: la pool predefinita (domande e bug)
 
 - **Domande sul codice.** Si può chiedere al Coordinatore «dove si imposta il tema?»: apre un
   task di pianificazione in sola lettura con il nuovo Bot **Quick Answer** (fascia `standard`,
@@ -184,7 +184,7 @@ vanno scritte qui sotto, per versione, prima del tag.
   pacchetto dell'agente, Claude Code e OpenCode (prontezza «da aggiornare» finché non lo si
   aggiorna).
 
-### Prossima versione: Bot per ricerca, test, documentazione e refactoring
+### v0.22.0: Bot per ricerca, test, documentazione e refactoring
 
 - **Quattro Bot nuovi, accesi.** **Researcher** (pianificazione, `strong`/`high`, skill
   `code-research`) risponde a una domanda tecnica con un report su opzioni, fattibilità, rischi
@@ -203,7 +203,7 @@ vanno scritte qui sotto, per versione, prima del tag.
 - **Skill del plugin.** Le quattro skill sono già nel pacchetto dell'agente: se la prontezza è
   «da aggiornare», l'aggiornamento del pacchetto le rende disponibili.
 
-### Prossima versione: Bot Git Operator e Release, spenti
+### v0.22.0: Bot Git Operator e Release, spenti
 
 - **Due Bot nuovi, spenti di serie.** **Git Operator** (`strong`/`medium`, skill `git-ops`) fa la
   manutenzione git chiesta dall'utente (pulizia dei branch, conflitti, annullare un cambiamento)
