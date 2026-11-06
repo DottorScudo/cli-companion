@@ -12,6 +12,7 @@ import {
   settingsLoaded,
   summaryUpdated,
   threadLoaded,
+  threadRemoved,
   threadSelected,
   threadsLoaded,
 } from "../src/stores/hub.ts";
@@ -294,5 +295,54 @@ describe("createHubStore", () => {
     store.threadLoaded(thread("a"));
     assert.equal(calls, 4);
     assert.equal(store.getState().thread.id, "a");
+  });
+});
+
+describe("hub store: thread eliminato", () => {
+  const listed = threadsLoaded({ ...INITIAL_HUB, enabled: true }, "general", [summary("a"), summary("b")]);
+
+  it("il thread aperto sparisce dall'elenco e la conversazione si chiude", () => {
+    const open = replySet(threadLoaded(threadSelected(listed, "a"), thread("a", [message("m1")])), "m1");
+    const next = threadRemoved(open, "general", "a");
+    assert.deepEqual(ids(next.threads.general), ["b"]);
+    assert.equal(next.threadId, null);
+    assert.equal(next.thread, null);
+    assert.equal(next.replyTo, null);
+  });
+
+  it("un thread non aperto sparisce dall'elenco e la conversazione aperta resta", () => {
+    const open = threadLoaded(threadSelected(listed, "a"), thread("a"));
+    const next = threadRemoved(open, "general", "b");
+    assert.deepEqual(ids(next.threads.general), ["a"]);
+    assert.equal(next.threadId, "a");
+    assert.equal(next.thread, open.thread);
+  });
+
+  it("thread o canale sconosciuto: stesso stato", () => {
+    assert.equal(threadRemoved(listed, "general", "zzz"), listed);
+    assert.equal(threadRemoved(listed, "ws-x", "a"), listed);
+  });
+
+  it("lo stesso id in un altro canale non chiude la conversazione aperta", () => {
+    const open = threadLoaded(threadSelected(listed, "a"), thread("a"));
+    assert.equal(threadRemoved(open, "ws-x", "a"), open);
+  });
+
+  it("non conta più tra i thread che aspettano l'utente", () => {
+    const waiting = threadsLoaded(listed, "general", [summary("a", { waiting_user: true }), summary("b")]);
+    const next = threadRemoved(waiting, "general", "a");
+    assert.equal(next.threads.general.filter((t) => t.waiting_user).length, 0);
+  });
+
+  it("l'azione dello store notifica e toglie il thread", () => {
+    const store = createHubStore(null);
+    store.settingsLoaded(settingsView());
+    store.threadsLoaded("general", [summary("a")]);
+    let calls = 0;
+    store.subscribe(() => (calls += 1));
+    store.threadRemoved("general", "a");
+    store.threadRemoved("general", "a");
+    assert.equal(calls, 1);
+    assert.deepEqual(store.getState().threads.general, []);
   });
 });

@@ -10,6 +10,7 @@ import { hubStore } from "../../stores/hub";
 import { useManagerNow } from "../tasks/useManagerNow";
 import type { HubSecretary } from "../../lib/tauri";
 import { Button } from "../ui/button";
+import DeleteThreadButton from "./DeleteThreadButton";
 import HubComposer from "./HubComposer";
 import HubMessageItem from "./HubMessageItem";
 import ThreadOwner from "./ThreadOwner";
@@ -94,6 +95,7 @@ export default function HubConversation({ channel, channelName, messenger }: Pro
         <ThreadSession channel={channel} threadId={thread.id} now={now} />
         <ThreadPanelToggle />
         <ThreadStateButton thread={thread} />
+        <DeleteThreadButton key={thread.id} thread={thread} />
         <span className="rounded border px-1.5 py-px text-[10px] text-muted-foreground">
           {thread.state === "open" ? "Aperto" : "Chiuso"}
         </span>

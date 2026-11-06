@@ -9,6 +9,7 @@ import {
   seenPruned,
   settingsLoaded,
   threadLoaded,
+  threadRemoved,
   threadSeen,
   threadSelected,
   threadsLoaded,
@@ -227,6 +228,41 @@ describe("hub store: aprire una chat", () => {
     const next = threadSelected(channelSelected(s, "w1"), "t7");
     assert.equal(next.channel, "w1");
     assert.equal(next.threadId, "t7");
+    assert.equal(next.thread, null);
+    assert.equal(next.viewMode, "messenger");
+  });
+});
+
+describe("hub store: chat eliminata", () => {
+  const preview = { updatedAt: 1, author: "Tu", text: "x", at: 1 };
+
+  it("toglie anteprima e messaggi visti del thread, non quelli degli altri", () => {
+    const listed = threadsLoaded(messenger, "general", [summary("t1"), summary("t2")]);
+    const busy = threadSeen(
+      threadSeen(previewLoaded(previewLoaded(listed, "t1", preview), "t2", preview), "t1", 3),
+      "t2",
+      1,
+    );
+    const next = threadRemoved(busy, "general", "t1");
+    assert.deepEqual(Object.keys(next.previews), ["t2"]);
+    assert.deepEqual(next.lastSeen, { t2: 1 });
+    assert.deepEqual(
+      next.threads.general.map((t) => t.id),
+      ["t2"],
+    );
+  });
+
+  it("toglie anteprima e messaggi visti anche se l'elenco del canale non è ancora letto", () => {
+    const busy = threadSeen(previewLoaded(messenger, "t1", preview), "t1", 2);
+    const next = threadRemoved(busy, "general", "t1");
+    assert.deepEqual(next.previews, {});
+    assert.deepEqual(next.lastSeen, {});
+    assert.equal(next.threads, busy.threads);
+  });
+
+  it("la chat aperta si chiude e la vista resta messenger", () => {
+    const next = threadRemoved(opened(messenger, "t1"), "general", "t1");
+    assert.equal(next.threadId, null);
     assert.equal(next.thread, null);
     assert.equal(next.viewMode, "messenger");
   });

@@ -2,7 +2,7 @@
 // dei messaggi. Lo stato sta in `stores/hub.ts`; qui l'I/O col backend.
 
 import { api } from "../../lib/tauri";
-import type { HubSecretaryStatus, HubThreadSummary } from "../../lib/tauri";
+import type { HubSecretaryStatus, HubThreadRef, HubThreadSummary } from "../../lib/tauri";
 import { report } from "../../lib/errors";
 import { summarizeThread, threadNeedsReload } from "../../lib/hub";
 import { threadAsksTask, threadsToSearch } from "../../lib/hubQuestions";
@@ -129,6 +129,21 @@ export function onHubUpdate(summary: HubThreadSummary): void {
  */
 export async function setThreadClosed(channel: string, threadId: string, closed: boolean): Promise<void> {
   onHubUpdate(await api.hubSetThreadState(channel, threadId, closed));
+}
+
+/**
+ * Elimina definitivamente il thread (messaggi e allegati; i task restano nella
+ * board) e lo toglie subito dallo store, senza aspettare `hub-thread-removed`.
+ * Rifiuta con l'errore del backend, e allora il thread resta.
+ */
+export async function deleteThread(channel: string, threadId: string): Promise<void> {
+  await api.hubDeleteThread(channel, threadId);
+  hubStore.threadRemoved(channel, threadId);
+}
+
+/** `hub-thread-removed`: il thread è stato eliminato (anche da un'altra finestra o flusso). */
+export function onThreadRemoved(ref: HubThreadRef): void {
+  hubStore.threadRemoved(ref.channel, ref.thread_id);
 }
 
 /**

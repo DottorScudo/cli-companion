@@ -50,6 +50,17 @@ export function upsertSummary(list: readonly HubThreadSummary[], summary: HubThr
   return sortThreads([...list.filter((t) => t.id !== summary.id), summary]);
 }
 
+/** Toglie il riassunto di un thread; se non c'è, ritorna lo stesso elenco. */
+export function removeSummary(list: readonly HubThreadSummary[], threadId: string): readonly HubThreadSummary[] {
+  return list.some((t) => t.id === threadId) ? list.filter((t) => t.id !== threadId) : list;
+}
+
+/** Toglie la voce di un thread da una mappa per id (anteprime, messaggi visti); se non c'è, ritorna la stessa mappa. */
+export function withoutThread<T>(byThread: Readonly<Record<string, T>>, threadId: string): Readonly<Record<string, T>> {
+  if (!(threadId in byThread)) return byThread;
+  return Object.fromEntries(Object.entries(byThread).filter(([id]) => id !== threadId));
+}
+
 /** Riassunti dei thread per canale, come li tiene `stores/hub.ts`. */
 export type ThreadsByChannel = Readonly<Record<string, readonly HubThreadSummary[]>>;
 

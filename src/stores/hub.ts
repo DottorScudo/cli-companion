@@ -4,7 +4,7 @@
 // stesso stato se non cambia nulla.
 
 import { browserStorage } from "../lib/browserStorage.ts";
-import { GENERAL_CHANNEL, appendMessage, upsertSummary } from "../lib/hub.ts";
+import { GENERAL_CHANNEL, appendMessage, removeSummary, upsertSummary, withoutThread } from "../lib/hub.ts";
 import { previewOf, withPreview } from "../lib/hubChats.ts";
 import type { ThreadPreview } from "../lib/hubChats.ts";
 import { secretaryNames } from "../lib/hubSecretaries.ts";
@@ -118,6 +118,22 @@ export function summaryUpdated(s: HubState, summary: HubThreadSummary): HubState
   return next === current ? s : { ...s, threads: { ...s.threads, [summary.channel]: next } };
 }
 
+/**
+ * Un thread è stato eliminato (qui o `hub-thread-removed`): sparisce da elenco,
+ * anteprime e messaggi visti e, se era aperto, la conversazione si chiude.
+ */
+export function threadRemoved(s: HubState, channel: string, threadId: string): HubState {
+  const current = s.threads[channel];
+  const list = current === undefined ? current : removeSummary(current, threadId);
+  const previews = withoutThread(s.previews, threadId);
+  const lastSeen = withoutThread(s.lastSeen, threadId);
+  const open = s.channel === channel && s.threadId === threadId;
+  if (list === current && previews === s.previews && lastSeen === s.lastSeen && !open) return s;
+  const threads = list === undefined || list === current ? s.threads : { ...s.threads, [channel]: list };
+  const next = { ...s, threads, previews, lastSeen };
+  return open ? { ...next, threadId: null, thread: null, replyTo: null } : next;
+}
+
 /** Seleziona un thread (o nessuno); la conversazione si rilegge dal backend. */
 export function threadSelected(s: HubState, threadId: string | null): HubState {
   if (s.threadId === threadId) return s;
@@ -204,6 +220,7 @@ export function createHubStore(storage: StorageLike | null = browserStorage()) {
     threadsLoaded: (channel: string, list: readonly HubThreadSummary[]) =>
       store.update((s) => threadsLoaded(s, channel, list)),
     summaryUpdated: (summary: HubThreadSummary) => store.update((s) => summaryUpdated(s, summary)),
+    threadRemoved: (channel: string, threadId: string) => store.update((s) => threadRemoved(s, channel, threadId)),
     threadSelected: (threadId: string | null) => store.update((s) => threadSelected(s, threadId)),
     threadLoaded: (thread: HubThread) => store.update((s) => threadLoaded(s, thread)),
     messageAdded: (threadId: string, message: HubMessage) => store.update((s) => messageAdded(s, threadId, message)),

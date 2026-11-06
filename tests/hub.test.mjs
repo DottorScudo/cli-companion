@@ -16,6 +16,7 @@ import {
   hubChannels,
   hubTitlePath,
   latestWaitingChannel,
+  removeSummary,
   replyTarget,
   resolveChannel,
   sortThreads,
@@ -26,6 +27,7 @@ import {
   upsertSummary,
   waitingCount,
   waitingText,
+  withoutThread,
 } from "../src/lib/hub.ts";
 import { cutNotice, eventLook, eventReport, workerTabOf } from "../src/lib/hubEvents.ts";
 
@@ -180,6 +182,19 @@ describe("hub: elenco dei thread", () => {
   it("upsertSummary: una versione più vecchia di quella nota non la sostituisce", () => {
     const base = [summary("a", { updated_at: 5, title: "Attuale" })];
     assert.equal(upsertSummary(base, summary("a", { updated_at: 4, title: "Vecchio" })), base);
+  });
+
+  it("removeSummary: toglie il thread; se non c'è ritorna lo stesso elenco", () => {
+    const base = [summary("a", { updated_at: 5 }), summary("b", { updated_at: 3 })];
+    assert.deepEqual(ids(removeSummary(base, "a")), ["b"]);
+    assert.equal(removeSummary(base, "zzz"), base);
+  });
+
+  it("withoutThread: toglie la voce; se non c'è ritorna la stessa mappa", () => {
+    const map = { a: 1, b: 2 };
+    assert.deepEqual(withoutThread(map, "a"), { b: 2 });
+    assert.deepEqual(map, { a: 1, b: 2 });
+    assert.equal(withoutThread(map, "zzz"), map);
   });
 });
 
