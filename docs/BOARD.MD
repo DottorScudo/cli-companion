@@ -1161,14 +1161,15 @@ nomina mai un agente o un modello: li legge da `get_workspace_settings.agents`.
   specifica: **Goal, Context, Constraints, Done when, Verify** (comandi). Non implementare
   mai il lavoro, non toccare file, non fare merge; può usare `list_tasks`,
   `get_task_details`, `update_task`, `delete_task` per lo stato della coda. Ogni task ha
-  sempre `bot`, scelto dal `task` di ogni Bot in `get_workspace_settings.bots` (`general` per il lavoro,
-  `reviewer` per le review, `planner` per le pianificazioni: i `kinds` del Bot devono includere il `kind` del task) fra i soli Bot abilitati con agente `ready`, altrimenti avvisa l'utente; `model` è solo un override
+  sempre `bot`, scelto fra i Bot di `get_workspace_settings.bots` abilitati e con agente `ready` i cui `kinds`
+  includono il `kind` del task, e fra questi quello il cui `task` corrisponde al lavoro (la skill non nomina id fissi
+  di Bot, quindi anche i Bot nuovi sono scelti), altrimenti avvisa l'utente; `model` è solo un override
   facoltativo quando serve una fascia diversa da quella del Bot (`tier: "standard"` per lavoro ben
   definito, `"strong"` per design/rischio), letto da `get_workspace_settings.agents` e mai a memoria; `agent` si omette
   (deve coincidere con quello del Bot). La specifica deve
   bastare a un worker che non vede la conversazione. Quando la richiesta produce 2 o più task
   (o un solo task rischioso o la correzione di un bug difficile) aggiunge in fondo alla proposta
-  una **review** del goal (`kind: "review"`, Bot adatto o `general` con modello della fascia `strong`, se l'utente vuole un controllo
+  una **review** del goal (`kind: "review"`, un Bot i cui `kinds` includono `review` con modello della fascia `strong`, se l'utente vuole un controllo
   indipendente anche su un altro agente (un Bot che lo usa), `depends_on` su tutti i task del goal); l'utente può scartarla.
 - Il pannello dei terminali mostra il badge **INTAKE** sull'intestazione dei tab avviati da un
   Bot con la skill `task-intake`.

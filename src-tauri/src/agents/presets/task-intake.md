@@ -124,9 +124,9 @@ for), `enabled`, `agent`, `agent_error`, `readiness` (of its agent in this works
 and its suggested `models` (`id`, `label`, `tier`).
 
 - `bot`: required, every task has one. It is the `id` of a Bot from `get_workspace_settings.bots`.
-  Choose it by the Bot's `task`: the Bot whose purpose matches the work of the task. Its `kinds` must include
-  the kind of the task (`work` or `review`); among those, pick the one whose `task` matches. Use
-  `general` only for `work` tasks (or kinds the user granted it). A Bot with empty `kinds` is
+  Choose among the Bots that are enabled and ready (see "Readiness"). Its `kinds` must include
+  the kind of the task (`work` for normal work, `review` for a goal review); among those, pick the
+  one whose `task` (what it is for) best matches the work of the task. A Bot with empty `kinds` is
   interactive only: never propose it. Never invent an id.
   The Bot sets agent, model, effort and skill: you do not set them.
 - **Readiness**: use only a Bot that is `enabled` and whose `readiness` is `ready` (a Bot with an

@@ -218,8 +218,13 @@ mod tests {
             "an override of the Bot's model",
             "it must equal the agent of the Bot",
             "a capability that only another agent",
+            "enabled and ready",
+            "best matches the work of the task",
         ] {
             assert!(skill.contains(t), "{t}");
+        }
+        for fixed_bot_id in ["`general`", "`reviewer`", "`planner`"] {
+            assert!(!skill.contains(fixed_bot_id), "{fixed_bot_id}");
         }
     }
 
