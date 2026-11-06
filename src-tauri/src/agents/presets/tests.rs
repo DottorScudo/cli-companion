@@ -100,6 +100,7 @@ fn code_answer_skill_answers_read_only() {
         "Read-only",
         "git only to read",
         "Do not propose tasks",
+        "suggest, in one line, that the user asks for the change",
         "starts with \"Answer:\"",
         "at most 10 lines",
         "language of the question",

@@ -188,13 +188,21 @@ fn get_task_of_a_plan_has_planner_instructions_and_no_delivery() {
 }
 
 #[test]
-fn the_planner_instructions_allow_an_answer_only_for_a_question_that_asks_for_no_change() {
+fn the_planner_instructions_allow_an_answer_only_for_a_no_change_question_or_by_skill() {
     let answer = PLANNER_INSTRUCTIONS
         .lines()
         .find(|l| l.contains("starts with \"Answer:\""))
         .expect("the Answer outcome is described");
-    assert!(answer.contains("asks for no change") && answer.contains("do not propose anything"), "{answer}");
-    assert!(answer.contains("Never use this outcome to avoid proposing"), "{answer}");
+    // Regola stretta per un Bot senza skill: l'Answer non e' una scorciatoia.
+    let (strict, exception) = answer.split_once("Only exception:").expect("the skill exception is separate");
+    assert!(strict.contains("asks for no change: do not propose anything"), "{strict}");
+    assert!(strict.contains("Never use this outcome to avoid proposing"), "{strict}");
+    assert!(!strict.contains("skill"), "{strict}");
+    // Una skill che dice di rispondere prevale, come vuole `code-answer`.
+    assert!(exception.contains("the skill of your Bot says to answer without proposing"), "{exception}");
+    assert!(exception.contains("the skill wins even if the request asks for a change"), "{exception}");
+    assert!(exception.contains("suggest, in one line, that the user asks for the change"), "{exception}");
+    assert!(PLANNER_INSTRUCTIONS.contains("asks for no change, unless the skill of your Bot says to answer"));
     // Gli altri due esiti restano.
     assert!(PLANNER_INSTRUCTIONS.contains("starts with \"Questions for the user:\""));
     assert!(PLANNER_INSTRUCTIONS.contains("after the proposal: status \"completed\""));
