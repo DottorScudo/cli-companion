@@ -2,7 +2,7 @@
 //! agenti.
 
 use super::claude_code;
-use super::contracts::{first_invalid_env_name, AgentIntegration, AutomationLaunch, AutomationRequest};
+use super::contracts::{first_invalid_env_name, AgentIntegration, AutomationRequest, AutomationStart, Effort};
 use super::enablement;
 use super::integrations_store;
 use super::models::model_is_valid;
@@ -68,22 +68,25 @@ pub fn resolve_agent(
 
 /// Comando e variabili d'ambiente di avvio di una sessione automatica per
 /// l'agente `agent_id`. Le variabili sono validate qui: un'integrazione che ne
-/// restituisce di non valide e' difettosa e la sessione non parte.
+/// restituisce di non valide e' difettosa e la sessione non parte. Un `effort`
+/// che l'agente non sa applicare non blocca l'avvio: viene tolto dalla
+/// richiesta e segnalato in `AutomationStart::warnings`.
 pub fn automation_command(
     agent_id: &str,
     env_kind: TargetKind,
     req: &AutomationRequest,
-) -> Result<AutomationLaunch, String> {
+) -> Result<AutomationStart, String> {
     // Errori letti dal modello via RPC: in inglese.
     let integration =
         resolve_agent(Some(agent_id), None, AgentUse::Worker).map_err(|unavailable| unavailable.to_string())?;
     if let Some(model) = req.model.filter(|m| !model_is_valid(integration, m)) {
         return Err(format!("invalid model for {}: {model}", integration.display_name()));
     }
+    let (req, warnings) = supported_effort(integration, req);
     let launch = integration
         .capabilities()
         .automation
-        .and_then(|automation| automation.command(env_kind, req))
+        .and_then(|automation| automation.command(env_kind, &req))
         .ok_or_else(|| format!("{} does not support automated sessions", integration.display_name()))?;
     if let Some(name) = first_invalid_env_name(&launch.env) {
         return Err(format!(
@@ -91,13 +94,35 @@ pub fn automation_command(
             integration.display_name()
         ));
     }
-    Ok(launch)
+    Ok(AutomationStart { launch, warnings })
+}
+
+/// La richiesta con il solo effort che l'agente sa applicare, piu' l'avviso
+/// (nel log e per il chiamante) se ne ha tolto uno.
+fn supported_effort<'a>(
+    integration: &dyn AgentIntegration,
+    req: &AutomationRequest<'a>,
+) -> (AutomationRequest<'a>, Vec<String>) {
+    let supported =
+        |effort: Effort| integration.capabilities().effort.is_some_and(|levels| levels.levels().contains(&effort));
+    match req.effort {
+        Some(effort) if !supported(effort) => {
+            let warning = format!(
+                "{} does not support the effort level \"{}\": ignored",
+                integration.display_name(),
+                effort.as_str()
+            );
+            log::warn!("{warning}");
+            (AutomationRequest { effort: None, ..*req }, vec![warning])
+        }
+        _ => (*req, Vec::new()),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::PermissionMode;
+    use crate::agents::{Capability, PermissionMode};
 
     #[test]
     fn registry_ids_are_unique_and_findable() {
@@ -116,6 +141,7 @@ mod tests {
             permission_mode: PermissionMode::Default,
             model: None,
             permissions_file: None,
+            effort: None,
         };
         assert!(automation_command(default_agent().id(), TargetKind::Wsl, &req).is_ok());
         assert_eq!(automation_command("nope", TargetKind::Windows, &req), Err("unknown agent: nope".to_string()));
@@ -136,12 +162,13 @@ mod tests {
             permission_mode: PermissionMode::Plan,
             model: None,
             permissions_file: None,
+            effort: None,
         };
         let _good = SecondIntegration::enabled(FakeIntegration::full("fake-env"));
-        let launch = automation_command("fake-env", TargetKind::Windows, &req).unwrap();
+        let launch = automation_command("fake-env", TargetKind::Windows, &req).unwrap().launch;
         assert_eq!(launch.env, [(FAKE_ENV_NAME.to_string(), "plan".to_string())]);
         // Claude Code non chiede variabili.
-        assert!(automation_command(default_agent().id(), TargetKind::Windows, &req).unwrap().env.is_empty());
+        assert!(automation_command(default_agent().id(), TargetKind::Windows, &req).unwrap().launch.env.is_empty());
         drop(_good);
 
         let _bad = SecondIntegration::enabled(FakeIntegration::full("fake-bad").with_flaw(Flaw::AutomationInvalidEnv));
@@ -152,12 +179,54 @@ mod tests {
     }
 
     #[test]
+    fn automation_command_ignores_an_effort_the_agent_cannot_apply() {
+        use crate::agents::test_registry::SecondIntegration;
+        use crate::agents::testing::FakeIntegration;
+        use crate::agents::Effort;
+        let req = AutomationRequest {
+            bootstrap_prompt: "ok",
+            permission_mode: PermissionMode::Plan,
+            model: None,
+            permissions_file: None,
+            effort: Some(Effort::Max),
+        };
+        // Un agente senza il contratto: l'avvio riesce, l'effort sparisce dal comando e arriva l'avviso.
+        let _bare = SecondIntegration::enabled(FakeIntegration::full("fake-no-effort").without(Capability::Effort));
+        let start = automation_command("fake-no-effort", TargetKind::Windows, &req).unwrap();
+        assert!(!start.launch.command.contains("--think"), "{}", start.launch.command);
+        assert_eq!(start.warnings, ["Fake does not support the effort level \"max\": ignored"]);
+        drop(_bare);
+
+        // Un livello fuori da quelli dichiarati dall'agente si comporta allo stesso modo.
+        let _partial = SecondIntegration::enabled(FakeIntegration::full("fake-partial"));
+        let start = automation_command("fake-partial", TargetKind::Windows, &req).unwrap();
+        assert!(!start.launch.command.contains("--think"));
+        assert_eq!(start.warnings.len(), 1);
+
+        // Un livello dichiarato passa e non produce avvisi.
+        let high = AutomationRequest { effort: Some(Effort::High), ..req };
+        let start = automation_command("fake-partial", TargetKind::Windows, &high).unwrap();
+        assert!(start.launch.command.ends_with(" --think high"), "{}", start.launch.command);
+        assert!(start.warnings.is_empty());
+        drop(_partial);
+
+        // Senza effort nessun avviso, e Claude Code lo applica.
+        let plain = AutomationRequest { effort: None, ..req };
+        assert!(automation_command(default_agent().id(), TargetKind::Windows, &plain).unwrap().warnings.is_empty());
+        let claude = AutomationRequest { effort: Some(Effort::XHigh), ..req };
+        let start = automation_command(default_agent().id(), TargetKind::Windows, &claude).unwrap();
+        assert!(start.launch.command.ends_with(" --effort xhigh"));
+        assert!(start.warnings.is_empty());
+    }
+
+    #[test]
     fn automation_command_rejects_a_model_the_agent_does_not_accept() {
         let req = AutomationRequest {
             bootstrap_prompt: "ok",
             permission_mode: PermissionMode::Default,
             model: Some("a b"),
             permissions_file: None,
+            effort: None,
         };
         assert_eq!(
             automation_command(default_agent().id(), TargetKind::Windows, &req),

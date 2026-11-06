@@ -67,6 +67,7 @@ fn core(i: &dyn AgentIntegration) -> Vec<String> {
         (caps.session_usage.is_some(), Capability::SessionUsage),
         (caps.input_profile.is_some(), Capability::InputProfile),
         (caps.models.is_some(), Capability::Models),
+        (caps.effort.is_some(), Capability::Effort),
     ];
     let expected: Vec<_> = present.into_iter().filter_map(|(on, c)| on.then_some(c)).collect();
     if caps.declared() != expected {
@@ -156,7 +157,13 @@ fn presets(i: &dyn AgentIntegration, launcher: &dyn PresetLauncher, data_dir: &P
 }
 
 fn request<'a>(prompt: &'a str, model: Option<&'a str>, permissions_file: Option<&'a str>) -> AutomationRequest<'a> {
-    AutomationRequest { bootstrap_prompt: prompt, permission_mode: PermissionMode::Default, model, permissions_file }
+    AutomationRequest {
+        bootstrap_prompt: prompt,
+        permission_mode: PermissionMode::Default,
+        model,
+        permissions_file,
+        effort: None,
+    }
 }
 
 /// Modello accettato dalla forma generica, per le integrazioni senza catalogo.
@@ -280,6 +287,43 @@ fn models(i: &dyn AgentIntegration, catalog: &dyn ModelCatalog) -> Vec<String> {
                 if automation.command(kind, &req).is_none() {
                     v.push(format!("models: automation rifiuta il modello consigliato {:?} ({kind:?})", model.id));
                 }
+            }
+        }
+    }
+    v
+}
+
+/// Effort: livelli non vuoti e senza doppioni, argomenti sicuri per la shell e
+/// presenti nel comando di automazione, che richiede il contratto `automation`.
+fn effort(i: &dyn AgentIntegration, effort: &dyn EffortLevels) -> Vec<String> {
+    let mut v = Vec::new();
+    let levels = effort.levels();
+    if levels.is_empty() {
+        v.push("effort: nessun livello dichiarato".to_string());
+    }
+    let Some(automation) = i.capabilities().automation else {
+        v.push("effort: richiede il contratto automation (l'effort si applica all'avvio dei worker)".to_string());
+        return v;
+    };
+    for (n, level) in levels.iter().enumerate() {
+        if levels[..n].contains(level) {
+            v.push(format!("effort: livello duplicato: {level:?}"));
+        }
+        let Some(args) = effort.command_args(*level) else {
+            v.push(format!("effort: nessun argomento per il livello dichiarato {level:?}"));
+            continue;
+        };
+        if args.trim().is_empty() || !shell_safe(&args) {
+            v.push(format!("effort: argomenti non sicuri per la shell ({level:?}): {args:?}"));
+        }
+        for kind in [TargetKind::Windows, TargetKind::Wsl] {
+            let req =
+                AutomationRequest { effort: Some(*level), ..request(crate::automation::BOOTSTRAP_PROMPT, None, None) };
+            match automation.command(kind, &req) {
+                Some(launch) if launch.command.contains(&args) => {}
+                other => v.push(format!(
+                    "effort: il comando non contiene gli argomenti del livello {level:?} ({kind:?}): {other:?}"
+                )),
             }
         }
     }
@@ -442,6 +486,9 @@ fn violations(i: &dyn AgentIntegration) -> Vec<String> {
     if let Some(c) = caps.models {
         v.extend(models(i, c));
     }
+    if let Some(c) = caps.effort {
+        v.extend(effort(i, c));
+    }
     v.into_iter().map(|m| format!("{}: {m}", i.id())).collect()
 }
 
@@ -504,6 +551,13 @@ fn a_suggested_model_outside_the_generic_shape_is_reported() {
     let broken = FakeIntegration::full("broken-shape").with_flaw(Flaw::SuggestedModelOutsideShape);
     let found = violations(&broken);
     assert!(found.iter().any(|m| m.contains("models:") && m.contains("valid_model_shape")), "{found:?}");
+}
+
+#[test]
+fn unsafe_effort_arguments_are_reported() {
+    let broken = FakeIntegration::full("broken-effort").with_flaw(Flaw::EffortArgsUnsafe);
+    let found = violations(&broken);
+    assert!(found.iter().any(|m| m.contains("effort:") && m.contains("non sicuri")), "{found:?}");
 }
 
 #[test]

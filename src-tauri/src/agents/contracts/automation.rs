@@ -1,5 +1,6 @@
 //! Contratto di automazione: avviare una sessione senza utente (worker).
 
+use super::Effort;
 use crate::platform::TargetKind;
 use ts_rs::TS;
 
@@ -53,6 +54,7 @@ impl PermissionMode {
 }
 
 /// Richiesta di avvio di una sessione automatica.
+#[derive(Debug, Clone, Copy)]
 pub struct AutomationRequest<'a> {
     /// ASCII sicuro (`[A-Za-z0-9 .,:;_()'-]`, garantito dal chiamante):
     /// finisce in una riga di comando digitata nella shell del tab.
@@ -64,6 +66,10 @@ pub struct AutomationRequest<'a> {
     /// Regole di permesso dei worker preparate dal contratto `WorkerPermissions`
     /// della stessa integrazione, gia' nel formato di path del target.
     pub permissions_file: Option<&'a str>,
+    /// Livello di ragionamento richiesto. Il core lo consegna all'integrazione
+    /// solo se il suo contratto `EffortLevels` lo ammette; altrimenti lo toglie
+    /// e lo segnala in `AutomationStart::warnings`.
+    pub effort: Option<Effort>,
 }
 
 /// Come si avvia una sessione automatica: un comando e, se l'agente si
@@ -78,6 +84,14 @@ pub struct AutomationLaunch {
     /// interpretati da una shell; vanno gia' nel formato di path del target.
     /// Nomi e valori devono superare `is_valid_env_name` / `is_valid_env_value`.
     pub env: Vec<(String, String)>,
+}
+
+/// Esito dell'avvio per il chiamante: il comando e cio' che e' stato ignorato
+/// della richiesta (avvisi in inglese, come quelli dell'avvio dei worker).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AutomationStart {
+    pub launch: AutomationLaunch,
+    pub warnings: Vec<String>,
 }
 
 /// Avvio di sessioni automatiche.

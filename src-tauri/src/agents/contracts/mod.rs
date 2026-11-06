@@ -8,6 +8,7 @@
 
 mod automation;
 mod capabilities;
+mod effort;
 mod hook_events;
 mod input_profile;
 mod integration;
@@ -22,9 +23,10 @@ mod worker_permissions;
 
 pub use automation::{
     first_invalid_env_name, is_shell_safe_path, is_valid_env_name, is_valid_env_value, AutomationLaunch,
-    AutomationRequest, PermissionMode, WorkerAutomation,
+    AutomationRequest, AutomationStart, PermissionMode, WorkerAutomation,
 };
 pub use capabilities::{Capabilities, Capability};
+pub use effort::{Effort, EffortLevels};
 pub use hook_events::{HookEvent, HookEventKind, HookEvents, WaitKind};
 pub use input_profile::{InputEvent, InputProfile, InputProfileSource, InputRule};
 pub use integration::{AgentIntegration, Detection};

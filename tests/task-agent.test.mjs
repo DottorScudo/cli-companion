@@ -30,6 +30,7 @@ const integration = (id, over = {}) => ({
   is_default: false,
   capabilities: ["automation", "models"],
   models: [],
+  effort_levels: [],
   default_model: null,
   envs: [],
   ...over,

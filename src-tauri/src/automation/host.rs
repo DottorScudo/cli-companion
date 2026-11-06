@@ -4,7 +4,7 @@
 
 use super::process::CancelFlag;
 use super::*;
-use crate::agents::{self, AutomationLaunch, AutomationRequest};
+use crate::agents::{self, AutomationRequest, AutomationStart};
 use crate::platform::{Target, TargetKind};
 use crate::schedule::{Schedule, ScheduleState};
 use crate::user_skills::targets;
@@ -34,7 +34,7 @@ pub trait Host: Clone + Send + 'static {
         agent: &str,
         env_kind: TargetKind,
         req: &AutomationRequest,
-    ) -> Result<AutomationLaunch, String>;
+    ) -> Result<AutomationStart, String>;
     /// Prepara le variabili d'ambiente del PTY del tab `tab_id`: il backend le
     /// applica allo spawn del tab, nulla passa dal frontend. Prima di `emit_spawn`.
     fn stage_env(&self, tab_id: &str, env: Vec<(String, String)>);
@@ -262,7 +262,7 @@ impl Host for TauriHost {
         agent: &str,
         env_kind: TargetKind,
         req: &AutomationRequest,
-    ) -> Result<AutomationLaunch, String> {
+    ) -> Result<AutomationStart, String> {
         agents::automation_command(agent, env_kind, req)
     }
 

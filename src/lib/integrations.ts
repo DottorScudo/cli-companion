@@ -25,6 +25,7 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   "session-usage": "Token per sessione",
   "input-profile": "Profilo di input",
   models: "Modelli",
+  effort: "Effort",
 };
 
 const CAPABILITY_ORDER = Object.keys(CAPABILITY_LABELS) as Capability[];

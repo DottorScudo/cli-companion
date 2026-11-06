@@ -57,6 +57,7 @@ contratto); un contratto dichiarato ma fatto male è un difetto.
 | Consumi della sessione | `session_usage` | `SessionUsageReader` | `contracts/session_usage.rs` |
 | Profilo di input | `input_profile` | `InputProfileSource` | `contracts/input_profile.rs` |
 | Modelli | `models` | `ModelCatalog` | `contracts/models.rs` |
+| Effort | `effort` | `EffortLevels` | `contracts/effort.rs` |
 
 Il frontend non conosce i contratti per nome di agente: riceve i dati
 dichiarativi (`agent_profiles`: contratti dichiarati, regole di input, dati di
@@ -276,7 +277,7 @@ Tasks Manager) senza utente.
 
 ```rust
 fn command(&self, env_kind: TargetKind, req: &AutomationRequest) -> Option<AutomationLaunch>;
-// AutomationRequest { bootstrap_prompt, permission_mode, model, permissions_file }
+// AutomationRequest { bootstrap_prompt, permission_mode, model, permissions_file, effort }
 // AutomationLaunch  { command: String, env: Vec<(String, String)> }
 ```
 
@@ -286,6 +287,7 @@ fn command(&self, env_kind: TargetKind, req: &AutomationRequest) -> Option<Autom
   (`PermissionMode::ALL`, dal più restrittivo). L'integrazione mappa ciascun
   livello su ciò che l'agente offre.
 - `model`: già validato (forma generica `validate::valid_model_shape` e `ModelCatalog::is_valid` dell'agente), ma l'integrazione **rivalida**.
+- `effort`: `Option<Effort>`, vedi il contratto 12. L'integrazione lo riceve solo se lo dichiara e lo ammette; con `None` il comando resta identico.
 - `permissions_file`: file di regole preparato dal contratto `WorkerPermissions`
   *della stessa integrazione*, già nel formato di path del target.
 - Il risultato è un `AutomationLaunch` con due parti. `command` è digitato nella
@@ -573,6 +575,40 @@ vuoti o con spazi, `$`, virgolette, backtick, `;`, `|`, `&`, a capo; se l'agente
 dichiara anche `automation`, il comando di avvio accetta ogni modello consigliato
 (Windows e WSL). Il test architetturale vieta i nomi dei modelli dell'agente fuori
 dalla sua cartella, skill dei preset comprese.
+
+### 12. Effort: `EffortLevels`
+
+**Scopo.** Il livello di ragionamento del modello in una sessione automatica. Il vocabolario
+è del core (`Effort`: `low` | `medium` | `high` | `xhigh` | `max`, in serde minuscolo ed
+esportato nei bindings); ogni agente dichiara quali livelli sa applicare. I Bot e i worker
+chiedono un `Effort`, mai un flag.
+
+**Firma** (`contracts/effort.rs`).
+
+```rust
+fn levels(&self) -> &'static [Effort];                    // dal più basso, mai vuoto
+fn command_args(&self, effort: Effort) -> Option<String>; // argomenti da aggiungere alla riga di comando
+```
+
+- `command_args` è chiamato solo con un livello di `levels`. Il testo del livello viene da
+  `Effort::as_str`, mai da una stringa libera: nella riga di comando non finiscono valori
+  fuori dall'enum.
+- `WorkerAutomation::command` aggiunge `command_args(req.effort)` **solo se** `effort` è
+  impostato: con `None` il comando è identico, byte per byte, a quello di prima.
+- **Agente senza il contratto** (o livello che non dichiara): l'avvio non fallisce.
+  `automation_command` toglie l'effort dalla richiesta, scrive un `log::warn!` e restituisce
+  l'avviso in `AutomationStart::warnings` (accanto al comando, in `launch`), così il
+  chiamante lo mostra. L'integrazione non vede mai un effort che non ha dichiarato.
+- Al frontend: `IntegrationInfo.effort_levels` elenca i livelli di ogni agente (vuoto senza il
+  contratto), così l'interfaccia nasconde il selettore; il contratto compare anche fra le
+  `capabilities` come `effort`.
+
+**Conformità** (`effort`): almeno un livello, senza doppioni; il contratto `automation` è
+richiesto; gli argomenti di ogni livello sono sicuri per la shell e compaiono nel comando di
+automazione, su Windows e WSL.
+
+**Claude Code.** Dichiara tutti e cinque i livelli: `--effort <livello>`, in coda al comando
+(dopo `--model`). **OpenCode** non lo dichiara.
 
 ## Procedura passo passo
 
@@ -968,6 +1004,7 @@ sezione 11 dei contratti.
 | `session_usage` | No | niente transcript su file |
 | `input_profile` | No | incolla immagini non verificato |
 | `models` | Sì | `provider/modello`, regola propria dentro la forma generica |
+| `effort` | No | nessun flag di effort nel TUI né nell'avvio (solo `run --model provider/modello#variante`, non verificato in `OPENCODE_CONFIG_CONTENT`) |
 
 Cosa vede l'utente: abilitata da Impostazioni → Generale → Integrazioni e con il
 pacchetto installato (**Installa**) per una 2.x rilevata, una scheda “OpenCode”, l'avvio

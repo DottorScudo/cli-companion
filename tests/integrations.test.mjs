@@ -37,6 +37,7 @@ const info = (id, over = {}) => ({
   is_default: false,
   capabilities: [],
   models: [],
+  effort_levels: [],
   default_model: null,
   envs: [],
   ...over,
@@ -44,7 +45,7 @@ const info = (id, over = {}) => ({
 
 describe("integrazioni: capability", () => {
   it("ogni contratto ha un'etichetta in italiano", () => {
-    assert.equal(Object.keys(CAPABILITY_LABELS).length, 11);
+    assert.equal(Object.keys(CAPABILITY_LABELS).length, 12);
     for (const label of Object.values(CAPABILITY_LABELS)) assert.ok(label.trim().length > 0);
   });
 

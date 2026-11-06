@@ -23,6 +23,8 @@ pub enum Flaw {
     SuggestedModelOutsideShape,
     /// L'automazione restituisce una variabile d'ambiente con nome non valido.
     AutomationInvalidEnv,
+    /// Il comando dell'effort contiene un carattere non sicuro per la shell.
+    EffortArgsUnsafe,
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +82,7 @@ impl FakeIntegration {
             Capability::SessionUsage,
             Capability::InputProfile,
             Capability::Models,
+            Capability::Effort,
         ];
         Self { declares, ..Self::bare(id, "fake --yes") }
     }
@@ -88,6 +91,12 @@ impl FakeIntegration {
     pub fn detected(mut self, found: bool, installed: bool) -> Self {
         self.found = found;
         self.installed = installed;
+        self
+    }
+
+    /// Toglie un contratto fra quelli dichiarati.
+    pub fn without(mut self, capability: Capability) -> Self {
+        self.declares.retain(|c| *c != capability);
         self
     }
 
@@ -128,6 +137,7 @@ impl AgentIntegration for FakeIntegration {
             session_usage: on(Capability::SessionUsage).then_some(self as &dyn SessionUsageReader),
             input_profile: on(Capability::InputProfile).then_some(self as &dyn InputProfileSource),
             models: on(Capability::Models).then_some(self as &dyn ModelCatalog),
+            effort: on(Capability::Effort).then_some(self as &dyn EffortLevels),
         }
     }
 }
@@ -221,6 +231,9 @@ impl WorkerAutomation for FakeIntegration {
                 return None;
             }
             cmd.push_str(&format!(" --model {model}"));
+        }
+        if let Some(effort) = req.effort {
+            cmd.push_str(&format!(" {}", EffortLevels::command_args(self, effort)?));
         }
         // Una variabile che dipende dalla richiesta, per provare il percorso fino al PTY.
         let name = if self.flaw == Some(Flaw::AutomationInvalidEnv) { "fake_agent_mode" } else { FAKE_ENV_NAME };
@@ -360,5 +373,19 @@ impl ModelCatalog for FakeIntegration {
             && !model.is_empty()
             && model.len() <= crate::validate::MODEL_MAX
             && model.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || (lenient && c == ' '))
+    }
+}
+
+/// Livelli dell'agente finto: un sottoinsieme, per provare i livelli non supportati.
+pub const FAKE_EFFORT_LEVELS: [Effort; 2] = [Effort::Low, Effort::High];
+
+impl EffortLevels for FakeIntegration {
+    fn levels(&self) -> &'static [Effort] {
+        &FAKE_EFFORT_LEVELS
+    }
+
+    fn command_args(&self, effort: Effort) -> Option<String> {
+        let separator = if self.flaw == Some(Flaw::EffortArgsUnsafe) { "$" } else { " " };
+        Some(format!("--think{separator}{}", effort.as_str()))
     }
 }

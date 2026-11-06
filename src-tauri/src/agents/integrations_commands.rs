@@ -3,7 +3,7 @@
 //! `enablement`, il salvataggio in `integrations_store`.
 
 use super::commands::install_ctx;
-use super::contracts::{AgentIntegration, Capability, InstallCtx, SuggestedModel};
+use super::contracts::{AgentIntegration, Capability, Effort, InstallCtx, SuggestedModel};
 use super::detection::list_targets;
 use super::enablement::{self, IntegrationsState};
 use super::env_status::{probe_pairs, AgentEnvStatus};
@@ -41,6 +41,8 @@ pub struct IntegrationInfo {
     pub models: Vec<SuggestedModel>,
     /// Modello usato quando non se ne sceglie uno; `None` senza `models` o se decide l'agente.
     pub default_model: Option<String>,
+    /// Livelli di effort che l'integrazione sa applicare; vuoti se non dichiara `effort`.
+    pub effort_levels: Vec<Effort>,
     /// Uno per ogni target (Windows + distro WSL).
     pub envs: Vec<IntegrationEnv>,
 }
@@ -74,6 +76,7 @@ fn build_infos(
                 capabilities: i.capabilities().declared(),
                 models: catalog.map(|c| c.suggested().to_vec()).unwrap_or_default(),
                 default_model: catalog.and_then(|c| c.default_model()).map(str::to_string),
+                effort_levels: i.capabilities().effort.map(|e| e.levels().to_vec()).unwrap_or_default(),
                 envs: envs.iter().filter(|(id, _)| id == i.id()).map(|(_, env)| env.clone()).collect(),
             }
         })
@@ -121,7 +124,7 @@ pub async fn set_default_integration(app: AppHandle, id: String) -> Result<Integ
 mod tests {
     use super::*;
     use crate::agents::env_status::status_for;
-    use crate::agents::testing::{FakeIntegration, FAKE_MODEL_LARGE, FAKE_MODEL_SMALL};
+    use crate::agents::testing::{FakeIntegration, FAKE_EFFORT_LEVELS, FAKE_MODEL_LARGE, FAKE_MODEL_SMALL};
 
     fn env(agent: &'static str, key: &str, readiness: Readiness) -> (String, IntegrationEnv) {
         let fake = FakeIntegration::bare(agent, "fake-cli");
@@ -148,14 +151,16 @@ mod tests {
         assert!(!bare_info.enabled && !bare_info.is_default);
         assert!(bare_info.capabilities.is_empty() && bare_info.models.is_empty());
         assert_eq!(bare_info.default_model, None);
+        assert!(bare_info.effort_levels.is_empty());
         let readiness_of = |info: &IntegrationInfo| info.envs.iter().map(|e| e.readiness).collect::<Vec<_>>();
         assert_eq!(readiness_of(bare_info), vec![Readiness::Disabled, Readiness::Disabled]);
 
         assert!(full_info.enabled && full_info.is_default);
-        assert_eq!(full_info.capabilities.len(), 11);
+        assert_eq!(full_info.capabilities.len(), 12);
         let models: Vec<_> = full_info.models.iter().map(|m| m.id).collect();
         assert_eq!(models, vec![FAKE_MODEL_SMALL, FAKE_MODEL_LARGE]);
         assert_eq!(full_info.default_model.as_deref(), Some(FAKE_MODEL_SMALL));
+        assert_eq!(full_info.effort_levels, FAKE_EFFORT_LEVELS);
         let keys: Vec<_> = full_info.envs.iter().map(|e| e.status.env_key.as_str()).collect();
         assert_eq!(keys, vec!["windows", "Ubuntu"]);
         assert_eq!(readiness_of(full_info), vec![Readiness::NotFound, Readiness::Ready]);
@@ -179,6 +184,7 @@ mod tests {
         let v = serde_json::to_value(info).unwrap();
         assert_eq!(v["is_default"], true);
         assert_eq!(v["models"][0]["tier"], "standard");
+        assert_eq!(v["effort_levels"], serde_json::json!(["low", "high"]));
         assert!(v["capabilities"].as_array().unwrap().contains(&serde_json::json!("models")));
         let env = serde_json::to_value(env("full", "windows", Readiness::NotInstalled).1).unwrap();
         assert_eq!(env["readiness"], "not-installed");

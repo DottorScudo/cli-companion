@@ -1,11 +1,11 @@
 //! Contratto `WorkerAutomation` di Claude Code.
 
 use super::{ClaudeCode, MCP_ALLOW_RULE};
-use crate::agents::{AutomationLaunch, AutomationRequest, PermissionMode, WorkerAutomation};
+use crate::agents::{AutomationLaunch, AutomationRequest, EffortLevels, PermissionMode, WorkerAutomation};
 use crate::platform::TargetKind;
 
 impl WorkerAutomation for ClaudeCode {
-    /// `claude "<prompt>" --permission-mode <m> [--settings "<file>"] --allowedTools <regola> [--model <m>]`.
+    /// `claude "<prompt>" --permission-mode <m> [--settings "<file>"] --allowedTools <regola> [--model <m>] [--effort <livello>]`.
     /// Il prompt va PRIMA dei flag (`--allowedTools` e' variadico). La stringa
     /// e' digitata in PowerShell, cmd o bash/zsh: un prompt con caratteri
     /// speciali per una qualunque di queste shell viene rifiutato.
@@ -42,6 +42,11 @@ impl WorkerAutomation for ClaudeCode {
             cmd.push_str(" --model ");
             cmd.push_str(m);
         }
+        // In coda: senza effort la riga resta quella di sempre.
+        if let Some(effort) = req.effort {
+            cmd.push(' ');
+            cmd.push_str(&self.command_args(effort)?);
+        }
         // Claude Code si configura solo con i flag: nessuna variabile.
         Some(AutomationLaunch { command: cmd, env: Vec::new() })
     }
@@ -50,9 +55,16 @@ impl WorkerAutomation for ClaudeCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::Effort;
 
     fn req<'a>(mode: PermissionMode, model: Option<&'a str>, prompt: &'a str) -> AutomationRequest<'a> {
-        AutomationRequest { bootstrap_prompt: prompt, permission_mode: mode, model, permissions_file: None }
+        AutomationRequest {
+            bootstrap_prompt: prompt,
+            permission_mode: mode,
+            model,
+            permissions_file: None,
+            effort: None,
+        }
     }
 
     #[test]
@@ -98,6 +110,40 @@ mod tests {
                     )
                 );
             }
+        }
+    }
+
+    #[test]
+    fn automation_command_without_effort_is_unchanged() {
+        let p = "Sei una sessione automatica. Chiama get_task.";
+        let mut r = req(PermissionMode::Default, Some("opus"), p);
+        r.permissions_file = Some("C:/data/ws-1.json");
+        let c = ClaudeCode.command(TargetKind::Windows, &r).unwrap().command;
+        assert_eq!(
+            c,
+            format!(
+                "claude \"{p}\" --permission-mode default --settings \"C:/data/ws-1.json\" --allowedTools mcp__plugin_cli-companion-notify_cli-companion --model opus"
+            )
+        );
+        assert!(!c.contains("--effort"));
+    }
+
+    #[test]
+    fn automation_command_appends_effort_for_every_level() {
+        for effort in Effort::ALL {
+            let mut r = req(PermissionMode::Plan, Some("opus"), "ciao");
+            r.effort = Some(effort);
+            let c = ClaudeCode.command(TargetKind::Wsl, &r).unwrap().command;
+            assert!(c.ends_with(&format!(" --model opus --effort {}", effort.as_str())), "{c}");
+            r.model = None;
+            let c = ClaudeCode.command(TargetKind::Windows, &r).unwrap().command;
+            assert!(
+                c.ends_with(&format!(
+                    " --allowedTools mcp__plugin_cli-companion-notify_cli-companion --effort {}",
+                    effort.as_str()
+                )),
+                "{c}"
+            );
         }
     }
 

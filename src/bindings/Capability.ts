@@ -3,4 +3,4 @@
 /**
  * Nome di un contratto, come lo vede il frontend (kebab-case).
  */
-export type Capability = "package" | "hook-events" | "session-resume" | "automation" | "worker-permissions" | "presets" | "user-skills" | "usage-limits" | "session-usage" | "input-profile" | "models";
+export type Capability = "package" | "hook-events" | "session-resume" | "automation" | "worker-permissions" | "presets" | "user-skills" | "usage-limits" | "session-usage" | "input-profile" | "models" | "effort";

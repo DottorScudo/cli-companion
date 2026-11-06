@@ -4,7 +4,7 @@
 
 use super::process::CancelFlag;
 use super::*;
-use crate::agents::{AutomationLaunch, AutomationRequest};
+use crate::agents::{AutomationLaunch, AutomationRequest, AutomationStart};
 use crate::platform::TargetKind;
 use crate::schedule::{Schedule, ScheduleState};
 use crate::workspaces::{AgentWorkerSettings, DeliveryMode, MergeMethod, RepoConfig, SettingsPatch};
@@ -273,8 +273,8 @@ impl Host for FakeHost {
         agent: &str,
         env_kind: TargetKind,
         req: &AutomationRequest,
-    ) -> Result<AutomationLaunch, String> {
-        let launch = crate::agents::automation_command(agent, env_kind, req)?;
+    ) -> Result<AutomationStart, String> {
+        let start = crate::agents::automation_command(agent, env_kind, req)?;
         let command = format!(
             "fake {agent} {} {:?} {} model={}",
             env_kind.as_str(),
@@ -283,7 +283,7 @@ impl Host for FakeHost {
             req.model.unwrap_or("-")
         );
         // Le variabili sono quelle vere dell'integrazione.
-        Ok(AutomationLaunch { command, env: launch.env })
+        Ok(AutomationStart { launch: AutomationLaunch { command, env: start.launch.env }, warnings: start.warnings })
     }
     fn stage_env(&self, tab_id: &str, env: Vec<(String, String)>) {
         self.staged.lock().unwrap().push((tab_id.to_string(), env));

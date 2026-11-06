@@ -1,7 +1,7 @@
 //! L'elenco dei contratti dichiarati da un'integrazione.
 
 use super::{
-    HookEvents, InputProfileSource, IntegrationPackage, ModelCatalog, PresetLauncher, SessionResume,
+    EffortLevels, HookEvents, InputProfileSource, IntegrationPackage, ModelCatalog, PresetLauncher, SessionResume,
     SessionUsageReader, UsageLimits, UserSkills, WorkerAutomation, WorkerPermissions,
 };
 use serde::Serialize;
@@ -23,6 +23,7 @@ pub struct Capabilities<'a> {
     pub session_usage: Option<&'a dyn SessionUsageReader>,
     pub input_profile: Option<&'a dyn InputProfileSource>,
     pub models: Option<&'a dyn ModelCatalog>,
+    pub effort: Option<&'a dyn EffortLevels>,
 }
 
 /// Nome di un contratto, come lo vede il frontend (kebab-case).
@@ -41,6 +42,7 @@ pub enum Capability {
     SessionUsage,
     InputProfile,
     Models,
+    Effort,
 }
 
 impl Capabilities<'_> {
@@ -59,6 +61,7 @@ impl Capabilities<'_> {
             session_usage,
             input_profile,
             models,
+            effort,
         } = self;
         [
             (package.is_some(), Capability::Package),
@@ -72,6 +75,7 @@ impl Capabilities<'_> {
             (session_usage.is_some(), Capability::SessionUsage),
             (input_profile.is_some(), Capability::InputProfile),
             (models.is_some(), Capability::Models),
+            (effort.is_some(), Capability::Effort),
         ]
         .into_iter()
         .filter_map(|(on, capability)| on.then_some(capability))
@@ -97,6 +101,7 @@ mod tests {
         assert_eq!(json(Capability::SessionUsage), "session-usage");
         assert_eq!(json(Capability::InputProfile), "input-profile");
         assert_eq!(json(Capability::Models), "models");
+        assert_eq!(json(Capability::Effort), "effort");
     }
 
     #[test]
@@ -113,6 +118,7 @@ mod tests {
             session_usage: None,
             input_profile: None,
             models: None,
+            effort: None,
         };
         assert!(none.declared().is_empty());
     }

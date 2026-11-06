@@ -56,7 +56,13 @@ mod tests {
     const PROMPT: &str = "You are an automated session. Call get_task.";
 
     fn req<'a>(mode: PermissionMode, model: Option<&'a str>, prompt: &'a str) -> AutomationRequest<'a> {
-        AutomationRequest { bootstrap_prompt: prompt, permission_mode: mode, model, permissions_file: None }
+        AutomationRequest {
+            bootstrap_prompt: prompt,
+            permission_mode: mode,
+            model,
+            permissions_file: None,
+            effort: None,
+        }
     }
 
     fn content(launch: &AutomationLaunch) -> Value {

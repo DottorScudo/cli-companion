@@ -2,7 +2,7 @@
 //! lancio e spawn del worker. Gira su un thread dell'host, fuori dal lock.
 
 use super::{git, is_abs, join_path, repo_cfg, repo_dir, task_branch, FetchCache, StartJob, WORKTREES_DIR};
-use crate::agents::{registry, AutomationLaunch, AutomationRequest};
+use crate::agents::{registry, AutomationLaunch, AutomationRequest, AutomationStart};
 use crate::automation::hooks;
 use crate::automation::planner::root::RootPlan;
 use crate::automation::*;
@@ -323,8 +323,11 @@ fn prepare_start<H: Host>(st: &AutomationState, host: &H, job: &StartJob) -> Res
         permission_mode: ws.worker.permission,
         model: effective_model(task, ws, catalog_default_model(&task.agent)),
         permissions_file: permissions_file.as_deref(),
+        effort: None,
     };
-    let AutomationLaunch { command, env: launch_env } = host.launch_command(&task.agent, ws.kind, &req)?;
+    let AutomationStart { launch: AutomationLaunch { command, env: launch_env }, warnings: launch_warnings } =
+        host.launch_command(&task.agent, ws.kind, &req)?;
+    let warnings = [warnings, launch_warnings].concat();
     Ok(Prepared {
         worktree,
         warnings,

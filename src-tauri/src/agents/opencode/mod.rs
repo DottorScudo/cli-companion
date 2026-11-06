@@ -98,6 +98,8 @@ impl AgentIntegration for OpenCode {
             // Incolla immagini non verificato: vale il comportamento predefinito del terminale.
             input_profile: None,
             models: Some(self),
+            // La CLI non ha un flag di effort (solo `--model provider/modello#variante` in `run`).
+            effort: None,
         }
     }
 }
