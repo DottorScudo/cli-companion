@@ -4,8 +4,8 @@ Analisi (nessuna modifica al codice) della **pool predefinita** che cli-companio
 un **utente medio, non tecnico**, che usa l'Agents HUB e i worker per fare sviluppare e gestire un progetto. Copre il
 percorso intero: la richiesta scritta in chat a un segretario, l'instradamento verso un task, la scelta del Bot che
 lo esegue, la skill che il Bot carica, il modello e l'effort. Lo stato attuale è quello del codice al momento
-dell'analisi (branch `main`, commit `fe7acec`); ogni affermazione ha il riferimento al file da cui viene. Quello che
-non si è potuto verificare nel codice è segnato come **non verificato**.
+dell'analisi (branch `main`, commit `fe7acec`); ogni affermazione ha il riferimento al file da cui viene. I punti
+che all'inizio non si erano potuti verificare nel codice sono stati verificati dopo (`pool-verify-unknowns`).
 
 Documenti collegati: [HUB.MD](HUB.MD) (segretari, motore, pianificazione dal thread), [BOARD.MD](BOARD.MD) (task,
 kind, Bot, skill del plugin, review e pianificazione), [DESIGN.MD](DESIGN.MD) (mappa dei moduli).
@@ -418,9 +418,11 @@ identico a General e renderebbe ambigua la scelta.
   richiede `commit` (`board/report.rs`, `parse_report_fields`), il diffstat "no committed changes"
   (`automation/worktrees.rs`) è solo informativo, l'esito è Done e worktree e branch si puliscono alla chiusura. Nelle
   consegne local merge, commit e push il flusso si conclude pulito; in modalità **pr** invece `gh pr create` fallisce
-  ("No commits between ...") perché i passi di consegna (`board/texts.rs`, `delivery_steps` e `GIT_DONE`) non
-  prevedono il caso senza commit. **Prerequisito** per accenderlo di serie (§8, D5): aggiungere ai passi di consegna
-  una riga per il task senza commit (lavoro a parte).
+  ("No commits between ...") se il worker segue alla lettera i passi di consegna (`board/texts.rs`, `delivery_steps`
+  e `GIT_DONE`), che non prevedono il caso senza commit. Per Git Operator il caso è coperto dalla skill `git-ops`
+  (`agents/presets/git-ops.md`): senza un commit proprio il worker salta commit, push, PR e merge e chiude
+  `completed` senza `commit`. Resta aperto per gli altri Bot: una riga per il task senza commit nei passi di
+  consegna generici (miglioramento a parte).
 - Le domande su git in sola lettura (R3) **non** vanno qui ma a `quick-answer`.
 
 **`release` — Release** (R12) — seeded **spento**
@@ -730,9 +732,10 @@ mai scelto dal Planner, i Bot senza prompt aggiornati sono comunque scelti dal p
 - **Attivazione spontanea delle skill da worker** nelle sessioni interattive (§5.1): descrizioni da rivedere con cura
   e da provare in una sessione normale.
 - **Esito Answer abusato** dal Planner per evitare di proporre (T1): regola stretta e test sulle istruzioni.
-- **Task `work` senza commit in modalità pr** (`git-operator`): l'esito è Done e local merge, commit e push si
-  concludono puliti, ma in modalità pr `gh pr create` fallisce perché i passi di consegna non prevedono il caso
-  (§4.3). Va aggiunta la riga di consegna prima di accenderlo di serie.
+- **Task `work` senza commit in modalità pr**: chiuso per `git-operator` (la skill `git-ops` fa saltare commit,
+  push, PR e merge e chiudere `completed` senza `commit`); aperto per i testi di consegna generici in modalità pr
+  (`board/texts.rs`), dove `gh pr create` fallisce se un altro Bot chiude senza commit seguendo i passi alla lettera
+  (§4.3). Local merge, commit e push si concludono puliti.
 - **Costo**: 12 Bot accesi non costano nulla finché non sono scelti, ma `bug-fixer` e `refactorer` sono `strong/high`
   dove prima il pianificatore poteva scegliere `general` con il modello del workspace: il costo medio di un bug sale.
   È voluto (qualità), ma va detto nella documentazione.
