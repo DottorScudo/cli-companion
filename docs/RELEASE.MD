@@ -226,6 +226,20 @@ vanno scritte qui sotto, per versione, prima del tag.
   `bots.json.bak-<timestamp>`.
 - **Skill del plugin.** `git-ops` e `release-prep` sono già nel pacchetto dell'agente.
 
+### v0.22.1: Telegram formattato e pannello HUB più snello
+
+- **Telegram con la formattazione.** Il markdown delle risposte dei modelli arriva su Telegram
+  formattato (grassetto, corsivo, codice, link, citazioni, elenchi, tabelle come blocco di codice)
+  invece che con gli asterischi a vista; il testo semplice dell'app arriva come prima. I messaggi
+  lunghi restano divisi in al più 3 parti, misurate sul testo visibile, e la formattazione
+  prosegue da una parte all'altra. Se Telegram rifiuta una parte per la formattazione, la stessa
+  parte si rimanda una volta in testo semplice. Dettagli in `docs/CONNECTORS.MD`, «Invio».
+- **Pannello del thread più snello.** Nell'Agents HUB la sezione Task del pannello a destra del
+  thread mostra solo i task in corso e in coda; quelli conclusi o falliti non compaiono più
+  (senza task attivi: «Nessun task in corso o in coda»).
+- **CI su Node 24.** Le azioni `checkout`, `setup-node` e `upload-artifact` dei workflow di
+  GitHub passano alla v7, che gira su Node 24. Nulla cambia per chi usa l'app.
+
 ## 6. Checklist release
 
 - [ ] `updater.config.json`: `owner`/`repo` reali
