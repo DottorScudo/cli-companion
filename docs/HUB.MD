@@ -778,7 +778,8 @@ Sui thread del canale del workspace, con tempo e id passati dal chiamante:
   si crea al primo evento. Un task eliminato senza thread non ne crea uno;
 - un evento di un task (non l'eliminazione) **riapre** il suo thread se era chiuso;
 - un task `plan` concluso senza aver fatto una proposta (né sulla board né già riportata nel thread) scrive
-  «Pianificazione conclusa senza proposta: <titolo>» con il riassunto intero, che contiene le domande del
+  «Pianificazione conclusa senza proposta: <titolo>» (o «Risposta: <titolo>» se il report inizia con «Answer:») con
+  il riassunto intero, che contiene le domande o la risposta del
   pianificatore, diviso in parti se supera un messaggio (vedi "Testi lunghi divisi in parti"): la prima parte porta
   `event` e la notifica, le altre solo il testo, e il titolare si sveglia dall'ultima, vedendole tutte;
 - alla fine del passo, un thread toccato e aperto i cui task collegati sono tutti `done` o spariti dalla board si
@@ -793,7 +794,7 @@ Testi (`events/texts.rs`), una riga ciascuno: «Task creato: <titolo>», «Task 
 <titolo>», «Revisione finita: <titolo> (esito: superata | problemi trovati)», «Task fallito: <titolo>» (con
 ` — ` e la prima riga non vuota della nota, o del riassunto se manca, tagliata a 120 caratteri con «…»), «Il task
 richiede attenzione: <titolo>», «Domanda risposta: <titolo>», «Task eliminato: <titolo>». Fa eccezione
-«Pianificazione conclusa senza proposta: <titolo>», che porta sotto le domande del pianificatore (nel thread non si
+«Pianificazione conclusa senza proposta: <titolo>» (o «Risposta: <titolo>»), che porta sotto le domande o la risposta del pianificatore (nel thread non si
 vedono altrove), e la domanda: «Domanda del worker: <titolo>» (o «Domanda del pianificatore: …» per un task `plan`),
 poi il testo, «Opzioni: a · b» se ci sono e «Usa «Rispondi» su questo messaggio: la tua risposta arriva al worker
 così com'è.». Il riassunto del worker

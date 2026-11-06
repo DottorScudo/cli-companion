@@ -1,7 +1,7 @@
 //! I testi in italiano dei messaggi evento e dei titoli dei thread: una riga
 //! (tipo di evento e titolo del task), i dati completi sono nel campo `event`
 //! del messaggio. Fanno eccezione il piano senza proposta, che porta le domande
-//! per l'utente, la domanda di un worker (testo, opzioni e come rispondere) e
+//! per l'utente o la risposta del pianificatore, la domanda di un worker (testo, opzioni e come rispondere) e
 //! il fallimento, che aggiunge la prima riga del motivo.
 
 use super::diff::TaskChange;
@@ -23,6 +23,10 @@ const REASON_SEPARATOR: &str = " — ";
 const OPTIONS_SEPARATOR: &str = " · ";
 /// Come si risponde a una domanda dal thread.
 const QUESTION_HINT: &str = "Usa «Rispondi» su questo messaggio: la tua risposta arriva al worker così com'è.";
+
+/// Come il pianificatore apre il riassunto quando risponde a una domanda
+/// invece di proporre (`board/prompts/planner_instructions.md`).
+const ANSWER_MARKER: &str = "Answer:";
 
 pub const PROPOSAL_REJECTED: &str = "Proposta scartata.";
 pub const THREAD_CONCLUDED: &str = "Tutti i task sono conclusi: thread chiuso.";
@@ -82,16 +86,23 @@ fn question_asked(task: &TaskSnap) -> String {
 }
 
 /// Un task `plan` concluso senza proposta: il riassunto intero porta le
-/// domande del pianificatore per l'utente, che nel thread non si vedono
-/// altrove. Un testo piu' lungo di un messaggio si divide in parti
-/// (`text::parts`), nell'ordine.
+/// domande del pianificatore per l'utente o la sua risposta (se apre con
+/// `ANSWER_MARKER`), che nel thread non si vedono altrove. Un testo piu' lungo
+/// di un messaggio si divide in parti (`text::parts`), nell'ordine.
 pub fn plan_without_proposal(task: &TaskSnap) -> Vec<String> {
-    let headline = format!("Pianificazione conclusa senza proposta: {}", task.title);
-    let text = match task.plan_report.as_deref().or(task.summary.as_deref()) {
-        Some(questions) => format!("{headline}\n{questions}"),
+    let report = task.plan_report.as_deref().or(task.summary.as_deref());
+    let kind = if report.is_some_and(is_answer) { "Risposta" } else { "Pianificazione conclusa senza proposta" };
+    let headline = format!("{kind}: {}", task.title);
+    let text = match report {
+        Some(report) => format!("{headline}\n{report}"),
         None => headline,
     };
     parts::split(&text, Remainder::InTask)
+}
+
+/// Il report apre con `ANSWER_MARKER` (maiuscole ignorate, spazi iniziali ammessi).
+fn is_answer(report: &str) -> bool {
+    report.trim_start().get(..ANSWER_MARKER.len()).is_some_and(|head| head.eq_ignore_ascii_case(ANSWER_MARKER))
 }
 
 fn done_headline(task: &TaskSnap) -> String {
@@ -198,6 +209,27 @@ mod tests {
             plan_without_proposal(&t),
             ["Pianificazione conclusa senza proposta: Task a\nQuestions for the user:\n1. Quale database?"]
         );
+    }
+
+    #[test]
+    fn a_plan_that_answers_is_titled_as_an_answer_with_the_whole_report() {
+        let mut t = task("a", crate::board::TaskStatus::Done);
+        t.summary = Some("  answer: il tema e' in src/theme.ts.\nVedi anche App.tsx.".to_string());
+        assert_eq!(
+            plan_without_proposal(&t),
+            ["Risposta: Task a\n  answer: il tema e' in src/theme.ts.\nVedi anche App.tsx."]
+        );
+        // Il report intero vince sul riassunto tagliato.
+        t.plan_report = Some("Answer: tutto il testo".to_string());
+        assert_eq!(plan_without_proposal(&t), ["Risposta: Task a\nAnswer: tutto il testo"]);
+        // "Answer" senza i due punti, o non in testa, non e' una risposta.
+        for report in ["Answers below", "Questions for the user:\n1. Answer: quale?", "Ans"] {
+            t.plan_report = Some(report.to_string());
+            assert!(plan_without_proposal(&t)[0].starts_with("Pianificazione conclusa senza proposta"), "{report}");
+        }
+        // Un report che inizia con un carattere multibyte non manda in panico il taglio.
+        t.plan_report = Some("èèèèèèèè".to_string());
+        assert!(plan_without_proposal(&t)[0].starts_with("Pianificazione conclusa senza proposta"));
     }
 
     #[test]

@@ -188,6 +188,20 @@ fn get_task_of_a_plan_has_planner_instructions_and_no_delivery() {
 }
 
 #[test]
+fn the_planner_instructions_allow_an_answer_only_for_a_question_that_asks_for_no_change() {
+    let answer = PLANNER_INSTRUCTIONS
+        .lines()
+        .find(|l| l.contains("starts with \"Answer:\""))
+        .expect("the Answer outcome is described");
+    assert!(answer.contains("asks for no change") && answer.contains("do not propose anything"), "{answer}");
+    assert!(answer.contains("Never use this outcome to avoid proposing"), "{answer}");
+    // Gli altri due esiti restano.
+    assert!(PLANNER_INSTRUCTIONS.contains("starts with \"Questions for the user:\""));
+    assert!(PLANNER_INSTRUCTIONS.contains("after the proposal: status \"completed\""));
+    assert!(PLANNER_INSTRUCTIONS.is_ascii());
+}
+
+#[test]
 fn a_completed_plan_reports_no_delivery() {
     let (st, h, id, p) = planner(DeliveryMode::Pr, true);
     call(&st, &h, &p, "get_task", json!({})).unwrap();

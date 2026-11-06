@@ -1024,9 +1024,11 @@ consegna codice: niente branch da integrare, niente istruzioni di consegna. Rego
   repository ha una suite. Differenze dall'Intake: nessun utente nel terminale, nessuna modifica né
   commit, al massimo **una** proposta e poi `complete_task`; se la richiesta è troppo ambigua non
   propone e chiude `completed` con un `summary` che inizia con "Questions for the user:" e le domande
-  numerate.
+  numerate. Se la richiesta è solo una domanda e non chiede modifiche (o lo chiede la skill del Bot) non
+  propone e chiude `completed` con un `summary` che inizia con "Answer:" e la risposta: mai per evitare di proporre.
 - **Interfaccia**: badge «Pianificazione» (`PlanBadge`, `lib/plan.ts`) su schede, righe, nodi, pannello Task e dettaglio; nel
-  dettaglio un `plan` concluso con «Questions for the user:» mostra le domande in evidenza («Domande del pianificatore»).
+  dettaglio un `plan` concluso con «Questions for the user:» mostra le domande in evidenza («Domande del pianificatore»),
+  uno concluso con «Answer:» il badge «Risposta» (`PlanAnswerBadge`) e la risposta.
   Le azioni disponibili sono quelle di `allowed_actions`, come per ogni task.
 - **Esito**: `complete_task` senza `commit`, `pr_url`, `verdict`, `findings` (vedi "Tool MCP");
   `done` → tab chiuso → worktree rimosso e branch cancellato (`-D` in `pr`, `-d` altrimenti), mai

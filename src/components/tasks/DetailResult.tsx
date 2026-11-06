@@ -5,7 +5,8 @@ import type { Task, TaskReport, TaskTestResult } from "../../lib/board";
 import { openExternal } from "../../lib/openExternal";
 import { reviewFindings } from "../../lib/review";
 import type { FindingsList } from "../../lib/review";
-import { PLAN_QUESTIONS_TITLE, planQuestions } from "../../lib/plan";
+import { PLAN_QUESTIONS_TITLE, planAnswer, planQuestions } from "../../lib/plan";
+import { PlanAnswerBadge } from "./PlanBadge";
 import Collapsible from "./Collapsible";
 import Markdown from "./Markdown";
 
@@ -47,6 +48,7 @@ function Body({ report, task }: { report: TaskReport; task: Task }) {
   const { tests, files_changed: files, follow_ups: followUps } = report;
   const findings = reviewFindings(task);
   const questions = planQuestions(task);
+  const answer = planAnswer(task);
   return (
     <>
       {findings && (
@@ -69,7 +71,13 @@ function Body({ report, task }: { report: TaskReport; task: Task }) {
           <Markdown source={questions} />
         </div>
       )}
-      {report.summary && questions === null && (
+      {answer !== null && (
+        <div className="flex flex-col gap-1.5 text-xs">
+          <PlanAnswerBadge className="self-start" />
+          <Markdown source={answer} />
+        </div>
+      )}
+      {report.summary && questions === null && answer === null && (
         <p className="whitespace-pre-line break-words leading-relaxed text-text-secondary">{report.summary}</p>
       )}
       {(report.commit || pr) && (
