@@ -18,7 +18,7 @@ import { automationTooltip, isIntakeLaunch } from "../../lib/automation";
 import { GLOBAL_ID } from "../../lib/layout";
 import { usageText, usageTooltip } from "../../lib/usage";
 import { botImageResolver, configStore, shownBot } from "../../stores/config";
-import { layoutStore, paneLayoutsOf, samePaneLayout } from "../../stores/layout";
+import { layoutStore, samePaneLayout, shownPaneLayouts } from "../../stores/layout";
 import { paneDragStore } from "../../stores/paneDrag";
 import { tabLabel } from "../../stores/selectors";
 import { runtimeStore } from "../../stores/tabRuntime";
@@ -40,7 +40,7 @@ interface Props {
 function TerminalPane({ tabId }: Props) {
   const tab = useStore(tabsStore, (s) => findTab(s, tabId));
   const rt = useStore(runtimeStore, (s) => s[tabId]);
-  const pane = useStore(layoutStore, (s) => paneLayoutsOf(s.layout)[tabId], samePaneLayout);
+  const pane = useStore(layoutStore, (s) => shownPaneLayouts(s)[tabId], samePaneLayout);
   const workspace = useStore(workspacesStore, (s) => (tab ? workspaceById(s, tab.workspaceId) : undefined));
   const dropTarget = useStore(paneDragStore, (s) => s.over === tabId);
   const overlayShown = useOverlayShown();

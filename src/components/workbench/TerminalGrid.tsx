@@ -2,7 +2,7 @@ import { memo } from "react";
 import { useStore } from "../../hooks/useStore";
 import { useOverlayShown } from "../../hooks/useView";
 import { shallowEqual } from "../../lib/store";
-import { layoutStore, paneLayoutsOf } from "../../stores/layout";
+import { layoutStore, shownPaneLayouts } from "../../stores/layout";
 import { tabsStore } from "../../stores/tabs";
 import Logo from "../Logo";
 import TerminalPane from "./TerminalPane";
@@ -11,7 +11,7 @@ import { useInertRef } from "./useInertRef";
 const tabKeys = (tabs: ReturnType<typeof tabsStore.getState>) => tabs.map((t) => t.key);
 
 const anyPaneVisible = (s: ReturnType<typeof layoutStore.getState>) =>
-  Object.values(paneLayoutsOf(s.layout)).some((p) => p.visible);
+  Object.values(shownPaneLayouts(s)).some((p) => p.visible);
 
 /**
  * Area dei pannelli. TUTTI i TerminalView di TUTTI i gruppi sono figli

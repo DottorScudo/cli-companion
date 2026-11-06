@@ -1,6 +1,8 @@
 // Layout della griglia (gruppi, vista globale) più il workspace "a fuoco senza
 // gruppo": un workspace senza terminali non ha un gruppo nel layout, ma lo si
-// mostra comunque (es. per aprirne il Tasks Manager).
+// mostra comunque (es. per aprirne il Tasks Manager). Pannelli e barra del
+// titolo seguono il layout *mostrato* (`shownLayout`): mai i terminali di un
+// altro workspace.
 
 import { createStore } from "../lib/store.ts";
 import { EMPTY_LAYOUT, computePaneLayouts } from "../lib/layout.ts";
@@ -8,23 +10,41 @@ import type { LayoutState, PaneLayout } from "../lib/layout.ts";
 
 export interface LayoutStoreState {
   layout: LayoutState;
-  /** Workspace mostrato senza avere un gruppo: decade appena il layout cambia selezione. */
+  /**
+   * Workspace mostrato senza avere un gruppo (o con un gruppo nato in secondo
+   * piano): decade quando la selezione del layout cambia per una scelta.
+   */
   focusedWorkspaceId: string | null;
 }
 
 export const INITIAL_LAYOUT_STATE: LayoutStoreState = { layout: EMPTY_LAYOUT, focusedWorkspaceId: null };
 
 /**
- * Applica una transizione del layout. Stesso layout: stesso stato. Se cambia
- * il gruppo selezionato o la vista (gruppo/globale) il focus "senza gruppo"
- * decade; un cambio che non tocca la selezione (es. riordino) lo lascia.
+ * La selezione (gruppo/vista) cambia per una scelta, non da sé. Da sé: il
+ * gruppo attivo sparisce chiudendone l'ultimo tab, un gruppo si attiva perché
+ * non ce n'era nessuno (tab in secondo piano), la vista globale rimasta vuota
+ * torna ai gruppi.
+ */
+function selectionChosen(prev: LayoutState, next: LayoutState): boolean {
+  const viewChosen =
+    next.activeView !== prev.activeView && !(prev.activeView === "global" && next.global.order.length === 0);
+  const workspaceChosen =
+    next.activeWorkspaceId !== prev.activeWorkspaceId &&
+    prev.activeWorkspaceId !== null &&
+    hasGroup(next, prev.activeWorkspaceId);
+  return viewChosen || workspaceChosen;
+}
+
+/**
+ * Applica una transizione del layout. Stesso layout: stesso stato. Se la
+ * selezione cambia per una scelta il focus "senza gruppo" decade; un cambio
+ * che non la tocca (es. riordino) o che la sposta da sé (chiusure e aperture
+ * in secondo piano) lo lascia, così la vista non salta a un altro workspace.
  */
 export function applyLayout(s: LayoutStoreState, fn: (l: LayoutState) => LayoutState): LayoutStoreState {
   const layout = fn(s.layout);
   if (layout === s.layout) return s;
-  const selectionChanged =
-    layout.activeWorkspaceId !== s.layout.activeWorkspaceId || layout.activeView !== s.layout.activeView;
-  return { layout, focusedWorkspaceId: selectionChanged ? null : s.focusedWorkspaceId };
+  return { layout, focusedWorkspaceId: selectionChosen(s.layout, layout) ? null : s.focusedWorkspaceId };
 }
 
 export function focusWorkspace(s: LayoutStoreState, id: string | null): LayoutStoreState {
@@ -40,6 +60,24 @@ export function hasGroup(layout: LayoutState, workspaceId: string): boolean {
   return layout.groups.some((g) => g.workspaceId === workspaceId);
 }
 
+const shownLayoutCache = new WeakMap<LayoutState, { focusedWorkspaceId: string; layout: LayoutState }>();
+
+/**
+ * Layout mostrato: con un workspace a fuoco, il layout in cui il suo gruppo è
+ * quello attivo (nessun gruppo: nessun pannello visibile; gruppo nato in
+ * secondo piano: i suoi pannelli). Memoizzato: stesso stato, stessa istanza.
+ */
+export function shownLayout(s: LayoutStoreState): LayoutState {
+  const { layout, focusedWorkspaceId } = s;
+  if (focusedWorkspaceId === null) return layout;
+  if (layout.activeView === "workspace" && layout.activeWorkspaceId === focusedWorkspaceId) return layout;
+  const cached = shownLayoutCache.get(layout);
+  if (cached?.focusedWorkspaceId === focusedWorkspaceId) return cached.layout;
+  const shown: LayoutState = { ...layout, activeWorkspaceId: focusedWorkspaceId, activeView: "workspace" };
+  shownLayoutCache.set(layout, { focusedWorkspaceId, layout: shown });
+  return shown;
+}
+
 const paneLayoutsCache = new WeakMap<LayoutState, Record<string, PaneLayout>>();
 
 /** `computePaneLayouts` memoizzato per oggetto layout: più lettori condividono lo stesso risultato. */
@@ -50,6 +88,11 @@ export function paneLayoutsOf(layout: LayoutState): Record<string, PaneLayout> {
     paneLayoutsCache.set(layout, panes);
   }
   return panes;
+}
+
+/** Layout dei pannelli della vista mostrata (vedi `shownLayout`), memoizzato. */
+export function shownPaneLayouts(s: LayoutStoreState): Record<string, PaneLayout> {
+  return paneLayoutsOf(shownLayout(s));
 }
 
 /** Stesso pannello disposto allo stesso modo? (per ridisegnare un pannello solo se cambia il suo layout) */

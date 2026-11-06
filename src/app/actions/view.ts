@@ -10,7 +10,7 @@ import {
   toggleMaximize,
 } from "../../lib/layout";
 import { configStore } from "../../stores/config";
-import { hasGroup, layoutStore, viewWorkspaceId } from "../../stores/layout";
+import { hasGroup, layoutStore, shownLayout, viewWorkspaceId } from "../../stores/layout";
 import { tabsStore } from "../../stores/tabs";
 import { uiStore } from "../../stores/ui";
 import type { TasksManagerIntent } from "../../components/tasks/TasksManager";
@@ -66,8 +66,13 @@ export function selectWorkspace(id: string): void {
   layoutStore.apply((l) => selectGroup(l, id));
 }
 
-/** Passa alla vista Globale (se ha tab fissati). */
+/**
+ * Passa alla vista Globale (se ha tab fissati). Il focus "senza gruppo" decade
+ * anche se il layout era già sulla vista globale, nascosta dal focus.
+ */
 export function selectGlobal(): void {
+  if (layoutStore.getState().layout.global.order.length === 0) return;
+  layoutStore.focusWorkspace(null);
   layoutStore.apply(selectGlobalView);
 }
 
@@ -150,10 +155,11 @@ export function showWorkspaceTerminals(id: string): void {
   selectWorkspace(id);
 }
 
-/** Ctrl+Maiusc+M: massimizza/ripristina il pannello attivo della vista mostrata. */
+/**
+ * Ctrl+Maiusc+M: massimizza/ripristina il pannello attivo della vista
+ * mostrata. Workspace mostrato senza terminali: nessun pannello.
+ */
 export function toggleMaximizeActivePane(): void {
-  layoutStore.apply((l) => {
-    const id = activePaneId(l);
-    return id ? toggleMaximize(l, id) : l;
-  });
+  const id = activePaneId(shownLayout(layoutStore.getState()));
+  if (id) layoutStore.apply((l) => toggleMaximize(l, id));
 }

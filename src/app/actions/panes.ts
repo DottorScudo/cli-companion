@@ -2,7 +2,7 @@
 // trascinamento delle intestazioni (riordino nel gruppo).
 
 import { reorderTabs, setActivePane, toggleMaximize, togglePin } from "../../lib/layout";
-import { layoutStore, paneLayoutsOf } from "../../stores/layout";
+import { layoutStore, shownPaneLayouts } from "../../stores/layout";
 import { paneDragStore } from "../../stores/paneDrag";
 
 export function activatePane(key: string): void {
@@ -23,7 +23,7 @@ export function paneDragStart(id: string): void {
 
 /** Il puntatore è sopra `id`: bersaglio solo se è un altro pannello dello stesso gruppo. */
 export function paneDragOver(id: string): void {
-  paneDragStore.dragOver(id, paneLayoutsOf(layoutStore.getState().layout));
+  paneDragStore.dragOver(id, shownPaneLayouts(layoutStore.getState()));
 }
 
 export function paneDragLeave(id: string): void {

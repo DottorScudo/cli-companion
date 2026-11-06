@@ -3,12 +3,18 @@ import assert from "node:assert/strict";
 import {
   EMPTY_LAYOUT,
   GLOBAL_ID,
+  activePaneId,
+  closeTabIn,
   computePaneLayouts,
+  focusTab,
   openTab,
+  openTabBackground,
   pinTab,
   selectGlobal,
   selectGroup,
+  setActivePane,
   toggleMaximize,
+  unpinTab,
 } from "../src/lib/layout.ts";
 import {
   INITIAL_LAYOUT_STATE,
@@ -18,6 +24,8 @@ import {
   hasGroup,
   paneLayoutsOf,
   samePaneLayout,
+  shownLayout,
+  shownPaneLayouts,
   viewWorkspaceId,
 } from "../src/stores/layout.ts";
 
@@ -39,7 +47,7 @@ describe("layout store: applyLayout", () => {
     );
   });
 
-  it("il focus senza gruppo decade solo se cambia il gruppo selezionato", () => {
+  it("il focus senza gruppo decade se si sceglie un altro gruppo", () => {
     const s = stateWith(layout(), "w9");
     const next = applyLayout(s, (l) => selectGroup(l, "w1"));
     assert.equal(next.layout.activeWorkspaceId, "w1");
@@ -60,6 +68,88 @@ describe("layout store: applyLayout", () => {
     assert.notEqual(next.layout, s.layout);
     assert.equal(next.layout.groups[1].maximizedTabId, "c");
     assert.equal(next.focusedWorkspaceId, "w9");
+  });
+
+  it("il focus decade se si sceglie un pannello di un altro gruppo", () => {
+    for (const fn of [(l) => setActivePane(l, "a"), (l) => focusTab(l, "a"), (l) => toggleMaximize(l, "a")]) {
+      const next = applyLayout(stateWith(layout(), "w9"), fn);
+      assert.equal(next.layout.activeWorkspaceId, "w1");
+      assert.equal(next.focusedWorkspaceId, null);
+    }
+  });
+
+  it("il gruppo attivo che sparisce (tab chiuso) non fa decadere il focus", () => {
+    const next = applyLayout(stateWith(layout(), "w9"), (l) => closeTabIn(l, "c"));
+    assert.equal(next.layout.activeWorkspaceId, "w1", "il layout passa al gruppo vicino");
+    assert.equal(next.focusedWorkspaceId, "w9");
+    assert.equal(viewWorkspaceId(next), "w9");
+  });
+
+  it("un tab in secondo piano non fa decadere il focus", () => {
+    const fromEmpty = applyLayout(stateWith(EMPTY_LAYOUT, "w9"), (l) => openTabBackground(l, "w1", "a"));
+    assert.equal(fromEmpty.layout.activeWorkspaceId, "w1", "primo gruppo: diventa l'attivo");
+    assert.equal(fromEmpty.focusedWorkspaceId, "w9");
+    const other = applyLayout(stateWith(layout(), "w9"), (l) => openTabBackground(l, "w3", "d"));
+    assert.equal(other.focusedWorkspaceId, "w9");
+  });
+
+  it("la vista globale rimasta vuota non fa decadere il focus", () => {
+    const s = stateWith(selectGlobal(pinTab(layout(), "c")), "w9");
+    const next = applyLayout(s, (l) => unpinTab(l, "c"));
+    assert.equal(next.layout.activeView, "workspace");
+    assert.equal(next.focusedWorkspaceId, "w9");
+  });
+});
+
+describe("layout store: layout mostrato", () => {
+  it("senza focus (o con il focus sul gruppo attivo) è il layout stesso", () => {
+    const l = layout();
+    assert.equal(shownLayout(stateWith(l)), l);
+    assert.equal(shownLayout(stateWith(l, "w2")), l);
+    assert.equal(shownPaneLayouts(stateWith(l)), paneLayoutsOf(l));
+  });
+
+  it("focus senza gruppo: nessun pannello visibile o a fuoco, nessun pannello attivo", () => {
+    const s = stateWith(layout(), "w9");
+    const panes = shownPaneLayouts(s);
+    assert.deepEqual(Object.keys(panes).sort(), ["a", "b", "c"], "i pannelli restano disposti (montati)");
+    assert.ok(Object.values(panes).every((p) => !p.visible && !p.focused));
+    assert.equal(shownLayout(s).activeWorkspaceId, "w9");
+    assert.equal(activePaneId(shownLayout(s)), null);
+  });
+
+  it("focus senza gruppo vince anche sulla vista globale", () => {
+    const s = stateWith(selectGlobal(pinTab(layout(), "c")), "w9");
+    assert.equal(shownLayout(s).activeView, "workspace");
+    assert.ok(Object.values(shownPaneLayouts(s)).every((p) => !p.visible));
+  });
+
+  it("gruppo nato in secondo piano nel workspace a fuoco: si vedono i suoi pannelli", () => {
+    const s = applyLayout(stateWith(layout(), "w9"), (l) => openTabBackground(l, "w9", "d"));
+    assert.equal(s.layout.activeWorkspaceId, "w2");
+    const panes = shownPaneLayouts(s);
+    assert.ok(panes.d.visible && panes.d.focused);
+    assert.ok(!panes.a.visible && !panes.b.visible && !panes.c.visible);
+    assert.equal(activePaneId(shownLayout(s)), "d");
+  });
+
+  it("è memoizzato per stato: stesso layout e focus, stessa istanza", () => {
+    const l = layout();
+    const shown = shownLayout(stateWith(l, "w9"));
+    assert.equal(shownLayout(stateWith(l, "w9")), shown);
+    assert.equal(shownPaneLayouts(stateWith(l, "w9")), shownPaneLayouts(stateWith(l, "w9")));
+    assert.notEqual(shownLayout(stateWith(l, "w8")), shown);
+    assert.equal(shownLayout(stateWith(l, "w8")).activeWorkspaceId, "w8");
+  });
+
+  it("tornando al gruppo di prima i pannelli ricompaiono come erano", () => {
+    const l = toggleMaximize(layout(), "a");
+    const before = paneLayoutsOf(l);
+    const focused = stateWith(l, "w9");
+    assert.ok(Object.values(shownPaneLayouts(focused)).every((p) => !p.visible));
+    const back = applyLayout(focusWorkspace(focused, null), (x) => selectGroup(x, "w1"));
+    assert.equal(back.layout, l, "il layout non è cambiato");
+    assert.deepEqual(shownPaneLayouts(back), before);
   });
 });
 
