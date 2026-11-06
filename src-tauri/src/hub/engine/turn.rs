@@ -57,7 +57,8 @@ pub trait TurnHost: Send + Sync {
     /// Scrive un messaggio del segretario nel thread.
     fn post_message(&self, body: String) -> impl Future<Output = Result<(), String>> + Send;
     /// Apre un task di pianificazione collegato al thread (vedi `planning::open_plan`).
-    fn open_plan_task(&self, goal: String) -> impl Future<Output = Result<Value, String>> + Send;
+    /// `bot` e' l'id scelto dal segretario, ancora da verificare.
+    fn open_plan_task(&self, goal: String, bot: String) -> impl Future<Output = Result<Value, String>> + Send;
     /// Decide la proposta a cui risponde il messaggio del turno (vedi `planning::decide`).
     fn decide_proposal(&self, accept: bool) -> impl Future<Output = Result<Value, String>> + Send;
     /// Consegna la risposta alla domanda in attesa scelta dal selettore (vedi `relay::relay`).
@@ -196,7 +197,7 @@ async fn invoke<H: TurnHost>(host: &H, invocation: Invocation) -> Result<Value, 
         Invocation::TaskDetails { workspace, task_id, page } => host.task_details(workspace, task_id, page).await,
         Invocation::ThreadRead { page } => host.thread_read(page).await,
         Invocation::PostMessage { body } => host.post_message(body).await.map(|()| json!({ "posted": true })),
-        Invocation::OpenPlanTask { goal } => host.open_plan_task(goal).await,
+        Invocation::OpenPlanTask { goal, bot } => host.open_plan_task(goal, bot).await,
         Invocation::DecideProposal { accept } => host.decide_proposal(accept).await,
         Invocation::RelayAnswer { body, selector } => host.relay_answer(selector, body).await,
         Invocation::TaskAction { workspace, task_id, op } => host.task_action(workspace, task_id, op).await,

@@ -216,6 +216,25 @@ fn a_null_model_means_the_default_model_and_an_absent_one_means_unchanged() {
 }
 
 #[test]
+fn request_task_update_changes_the_bot_but_never_removes_it() {
+    let bot = r#"{"task_id":"t-1","bot":" intake ","reason":"x"}"#;
+    assert_eq!(parsed("request_task_update", bot), Ok(update("t-1", json!({ "bot": "intake" }), "x")));
+    let with_model = r#"{"task_id":"t-1","bot":"intake","model":"opus","reason":"x"}"#;
+    assert_eq!(
+        parsed("request_task_update", with_model),
+        Ok(update("t-1", json!({ "model": "opus", "bot": "intake" }), "x"))
+    );
+    let null = r#"{"task_id":"t-1","bot":null,"reason":"x"}"#;
+    assert!(reason(parsed("request_task_update", null)).starts_with("`bot` cannot be null"));
+    for bad in [
+        r#"{"task_id":"t-1","bot":"  ","reason":"x"}"#,
+        &format!(r#"{{"task_id":"t-1","bot":"{}","reason":"x"}}"#, "b".repeat(BOT_ID_MAX + 1)),
+    ] {
+        assert!(reason(parsed("request_task_update", bad)).starts_with("`bot` must be 1 to"), "{bad}");
+    }
+}
+
+#[test]
 fn request_task_update_rejects_bad_arguments() {
     let long = "x".repeat(REASON_MAX + 1);
     let too_long = format!(r#"{{"task_id":"t-1","title":"T","reason":"{long}"}}"#);

@@ -1,6 +1,6 @@
 use super::*;
 use crate::board::Task;
-use crate::hub::model::TaskField::{DependsOn, Model, Task as Spec, Title};
+use crate::hub::model::TaskField::{Bot, DependsOn, Model, Task as Spec, Title};
 
 fn task() -> Task {
     let spec = TaskSpec {
@@ -88,4 +88,23 @@ fn the_base_matches_until_a_changed_field_is_edited_elsewhere() {
     let mut unrelated = task();
     unrelated.task = "Something else".into();
     assert!(base_matches(&update, &unrelated), "a field the request does not touch does not matter");
+}
+
+#[test]
+fn a_bot_change_is_a_change_of_its_own_with_the_ids_before_and_after() {
+    let with_bot = Task::from_spec(TaskSpec { bot: Some("general".into()), ..TaskSpec::from_task(&task()) }, 0);
+    let update = build(&with_bot, &json!({ "bot": "intake" })).unwrap();
+    assert_eq!(fields(&update), [Bot]);
+    assert_eq!(
+        (update.changes[0].before.as_deref(), update.changes[0].after.as_deref()),
+        (Some("general"), Some("intake"))
+    );
+    assert_eq!((update.patch.clone(), update.base.clone()), (json!({ "bot": "intake" }), json!({ "bot": "general" })));
+    assert!(base_matches(&update, &with_bot));
+    let changed = Task::from_spec(TaskSpec { bot: Some("setup".into()), ..TaskSpec::from_task(&task()) }, 0);
+    assert!(!base_matches(&update, &changed), "the bot changed meanwhile");
+    let same = build(&with_bot, &json!({ "bot": "general" })).unwrap_err();
+    assert!(same.contains("nothing to change"), "{same}");
+    let bad = build(&with_bot, &json!({ "bot": "Not A Bot" })).unwrap_err();
+    assert!(bad.contains("invalid bot id"), "{bad}");
 }

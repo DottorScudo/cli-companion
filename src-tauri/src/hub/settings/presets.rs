@@ -195,6 +195,15 @@ mod tests {
     }
 
     #[test]
+    fn presets_that_open_or_change_work_say_how_to_choose_the_bot() {
+        for p in PRESETS.iter().filter(|p| {
+            p.tools.iter().any(|t| matches!(t, SecretaryTool::OpenPlanTask | SecretaryTool::RequestTaskUpdate))
+        }) {
+            assert!(p.prompt_text().contains("the bots you are given"), "{}", p.id);
+        }
+    }
+
+    #[test]
     fn each_preset_has_the_tools_of_its_job() {
         use SecretaryTool::*;
         assert_eq!(

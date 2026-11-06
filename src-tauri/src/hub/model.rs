@@ -204,11 +204,13 @@ pub enum TaskField {
     Task,
     DependsOn,
     Model,
+    /// L'id del Bot: con il Bot cambiano anche agente, modello, effort e skill del task.
+    Bot,
 }
 
 /// Prima e dopo di un campo, per la scheda: i testi lunghi sono troncati (la
 /// conferma applica quelli completi di `TaskUpdate::patch`). `None` = nessun
-/// valore (modello predefinito, nessuna dipendenza).
+/// valore (modello predefinito, nessuna dipendenza, nessun Bot).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export, rename = "HubFieldChange")]
 pub struct FieldChange {

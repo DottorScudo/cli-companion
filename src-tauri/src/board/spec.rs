@@ -16,7 +16,7 @@ use ts_rs::TS;
 pub const ID_MAX: usize = 40;
 /// Lunghezza massima dell'id di un Bot: copre `custom-<slug di 32>` con il
 /// suffisso numerico dei doppioni e i derivati `<bot>-<agente>`.
-const BOT_ID_MAX: usize = 64;
+pub const BOT_ID_MAX: usize = 64;
 pub const MAX_TASKS_PER_PROPOSAL: usize = 20;
 pub const MAX_DEPENDS: usize = 50;
 

@@ -28,6 +28,7 @@
 mod audit;
 mod board_ops;
 mod board_query;
+mod bot_choice;
 mod chat;
 pub mod confirm;
 mod context;

@@ -172,7 +172,7 @@ fn an_e2e_task_whose_folder_lost_git_fails_to_start_clearly() {
 fn a_plan_of_a_root_without_git_or_repositories_runs_in_place() {
     for (mode, parallel) in MODES {
         let (st, h) = (AutomationState::default(), free_host(mode, parallel));
-        let id = create_hub_plan_task(&st, &h, "ws-1", "Plan", "Plan the work").unwrap();
+        let id = create_hub_plan_task(&st, &h, "ws-1", "Plan", "Plan the work", "general").unwrap();
         let t = task(&st, &h, &id);
         assert_eq!((t["status"].as_str(), t["no_git"].as_bool()), (Some("running"), Some(true)), "{t}");
         assert!(t["worktree"].is_null(), "{t}");
@@ -206,6 +206,7 @@ fn a_plan_of_a_subfolder_without_git_runs_in_place_and_one_of_a_git_subfolder_in
         task: "Plan it".into(),
         model: None,
         repo: Some(repo.into()),
+        bot: None,
     };
     let docs = create_plan_task(&st, &h, "ws-1", &req("docs")).unwrap();
     let p = session_of(&st, &h, &docs);

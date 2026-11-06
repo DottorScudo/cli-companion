@@ -58,6 +58,7 @@ fn field_name(field: TaskField) -> &'static str {
         TaskField::Task => "specifica",
         TaskField::DependsOn => "dipendenze",
         TaskField::Model => "modello",
+        TaskField::Bot => "Bot",
     }
 }
 

@@ -9,7 +9,6 @@ use super::boards::{list_tasks, propose_tasks, task_details, workspace_of};
 use super::rpc::misrouted;
 use super::worktrees::ensure_repos;
 use super::*;
-use crate::agents::AgentUse;
 use crate::board::texts::{self, EnvInfo};
 use crate::board::{parse_spec, SpecContext, TaskSpec};
 use serde_json::json;
@@ -28,17 +27,27 @@ pub struct PlanRequest {
     pub title: String,
     /// La richiesta da pianificare, completa: il pianificatore non vede altro.
     pub task: String,
-    /// Modello del pianificatore; `None` = quello dei worker del workspace.
+    /// Modello del pianificatore; `None` = quello del Bot o, senza Bot, quello
+    /// dei worker del workspace.
     pub model: Option<String>,
     /// Repository (cartella relativa alla root); `None` = la root.
     pub repo: Option<String>,
+    /// Bot che pianifica: agente, modello, effort e skill si copiano dal Bot
+    /// alla creazione (vedi `board::resolve_spec`).
+    pub bot: Option<String>,
 }
 
 impl PlanRequest {
     /// Specifica validata come quella di ogni task (`parse_spec`), con il tipo
     /// `plan` che dall'esterno non si puo' chiedere. Senza id: lo assegna la coda.
     fn to_spec(&self) -> Result<TaskSpec, String> {
-        let input = json!({ "title": self.title, "task": self.task, "model": self.model, "repo": self.repo });
+        let input = json!({
+            "title": self.title,
+            "task": self.task,
+            "model": self.model,
+            "repo": self.repo,
+            "bot": self.bot,
+        });
         Ok(TaskSpec { kind: TaskKind::Plan, ..parse_spec(&input, None)? })
     }
 }
@@ -56,41 +65,35 @@ pub fn create_plan_task<H: Host>(
     let ws = workspace_of(host, ws_id)?;
     let mut spec = req.to_spec()?;
     let kinds = ensure_repos(host, &ws, [spec.repo.as_deref()])?;
+    let bots = host.agent_bots();
+    let ctx = SpecContext { workspace_agent: ws.agent.as_deref(), bots: &bots };
     let now = now_millis();
     st.run(host, |r| {
         spec.id = r.free_id(ws_id, &spec.title);
-        let id = r.create_task(ws_id, spec, SpecContext::workspace(ws.agent.as_deref()), now)?;
+        let id = r.create_task(ws_id, spec, ctx, now)?;
         r.note_no_git(ws_id, &kinds);
         Ok(id)
     })
 }
 
-/// Il modello del pianificatore di un task chiesto dall'HUB: il primo della
-/// fascia `strong` dell'agente del workspace (per Claude Code `opus`). Pianificare
-/// e' il lavoro di ragionamento piu' difficile e si fa una volta per obiettivo:
-/// vale il modello forte. `None` (= il modello dei worker del workspace) se
-/// l'agente non e' utilizzabile o non dichiara le fasce: il core non nomina
-/// nessun modello.
-pub fn hub_planner_model(workspace_agent: Option<&str>) -> Option<String> {
-    let agent = crate::agents::registry::resolve_agent(None, workspace_agent, AgentUse::Worker).ok()?;
-    crate::agents::tier_models(agent).map(|tiers| tiers.strong.to_string())
-}
-
-/// Crea il task `plan` chiesto dall'Agents HUB: repository radice e modello
-/// del pianificatore scelto da `hub_planner_model`.
+/// Crea il task `plan` chiesto dall'Agents HUB: repository radice e il Bot
+/// `bot` scelto dal segretario, senza ripieghi (un Bot sconosciuto o
+/// disabilitato e' un errore). Il modello e' quello del Bot: `general` lascia
+/// il predefinito dell'agente.
 pub fn create_hub_plan_task<H: Host>(
     st: &AutomationState,
     host: &H,
     ws_id: &str,
     title: &str,
     task: &str,
+    bot: &str,
 ) -> Result<String, String> {
-    let ws = workspace_of(host, ws_id)?;
     let req = PlanRequest {
         title: title.to_string(),
         task: task.to_string(),
-        model: hub_planner_model(ws.agent.as_deref()),
+        model: None,
         repo: None,
+        bot: Some(bot.to_string()),
     };
     create_plan_task(st, host, ws_id, &req)
 }

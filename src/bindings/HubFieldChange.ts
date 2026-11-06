@@ -4,6 +4,6 @@ import type { HubTaskField } from "./HubTaskField";
 /**
  * Prima e dopo di un campo, per la scheda: i testi lunghi sono troncati (la
  * conferma applica quelli completi di `TaskUpdate::patch`). `None` = nessun
- * valore (modello predefinito, nessuna dipendenza).
+ * valore (modello predefinito, nessuna dipendenza, nessun Bot).
  */
 export type HubFieldChange = { field: HubTaskField, before: string | null, after: string | null, };

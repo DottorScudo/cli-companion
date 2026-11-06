@@ -24,7 +24,7 @@ fn root_host() -> FakeHost {
 /// Pianificazione aperta dall'HUB e partita: (stato, host, id, sessione).
 fn root_planner() -> (AutomationState, FakeHost, String, String) {
     let (st, h) = (AutomationState::default(), root_host());
-    let id = create_hub_plan_task(&st, &h, "ws-1", "Plan login", "Add a login to both apps").unwrap();
+    let id = create_hub_plan_task(&st, &h, "ws-1", "Plan login", "Add a login to both apps", "general").unwrap();
     let session = session_of(&st, &h, &id);
     (st, h, id, session)
 }
@@ -178,7 +178,7 @@ fn a_root_without_any_repository_is_planned_in_place_too() {
     let (st, h) = (AutomationState::default(), root_host());
     // Un repository "." non conta: e' la root, che non risponde come repository git.
     *h.repos.lock().unwrap() = vec![".".to_string()];
-    let id = create_hub_plan_task(&st, &h, "ws-1", "Plan", "Plan it").unwrap();
+    let id = create_hub_plan_task(&st, &h, "ws-1", "Plan", "Plan it", "general").unwrap();
     let p = session_of(&st, &h, &id);
     let t = call(&st, &h, &p, "get_task", json!({})).unwrap();
     assert!(t["instructions"].as_str().unwrap().contains("directly inside it (folders relative to the root): none."));
@@ -193,7 +193,7 @@ fn a_root_without_any_repository_is_planned_in_place_too() {
 fn repositories_that_cannot_be_listed_at_the_start_fail_the_plan_clearly() {
     let (st, h) = (AutomationState::default(), root_host());
     h.hold_defers();
-    let id = create_hub_plan_task(&st, &h, "ws-1", "Plan", "Plan it").unwrap();
+    let id = create_hub_plan_task(&st, &h, "ws-1", "Plan", "Plan it", "general").unwrap();
     *h.repos_err.lock().unwrap() = Some("wsl unavailable".to_string());
     h.run_held();
     let t = task(&st, &h, &id);
@@ -205,7 +205,7 @@ fn a_git_root_keeps_planning_in_its_worktree() {
     let h = FakeHost::with_delivery(DeliveryMode::Commit, false);
     *h.repos.lock().unwrap() = vec![".".to_string(), "backend".to_string()];
     let st = AutomationState::default();
-    let id = create_hub_plan_task(&st, &h, "ws-1", "Plan", "Plan it").unwrap();
+    let id = create_hub_plan_task(&st, &h, "ws-1", "Plan", "Plan it", "general").unwrap();
     let p = session_of(&st, &h, &id);
     assert_eq!(task(&st, &h, &id)["worktree"]["path"], "C:\\p\\.worktrees\\plan");
     let t = call(&st, &h, &p, "get_task", json!({})).unwrap();

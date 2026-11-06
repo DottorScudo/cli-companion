@@ -250,17 +250,17 @@ fn a_task_for_a_real_second_agent_is_validated_with_its_catalog_and_gets_its_con
 }
 
 #[test]
-fn a_plan_of_the_hub_takes_the_strong_model_of_the_workspace_agent() {
+fn a_plan_of_the_hub_takes_the_model_of_its_bot_on_the_workspace_agent() {
     let _second = second();
     let (st, h) = host(Some(FAKE_ID));
     boards::board_set(&st, &h, "ws-1", None, Some(true)).unwrap();
-    let id = planner::create_hub_plan_task(&st, &h, "ws-1", "Plan dark theme", "Add a dark theme").unwrap();
+    // Il Bot `intake` chiede la fascia forte: quella dell'agente del workspace.
+    let id = planner::create_hub_plan_task(&st, &h, "ws-1", "Plan dark theme", "Add a dark theme", "intake").unwrap();
     let t = task(&st, &h, &id);
     assert_eq!((t["kind"].as_str(), t["model"].as_str()), (Some("plan"), Some(FAKE_MODEL_LARGE)));
     assert_eq!(agent_of(&st, &h, &id), FAKE_ID);
-    // L'agente reale (Claude Code) ha la sua fascia forte; un agente sconosciuto
-    // lascia il modello dei worker del workspace.
-    let real = crate::agents::tier_models(registry::default_agent()).map(|t| t.strong.to_string());
-    assert_eq!(planner::hub_planner_model(Some(real_id())), real);
-    assert_eq!(planner::hub_planner_model(Some("no-such-agent")), None);
+    // Il Bot `general` lascia il modello predefinito dell'agente.
+    let general = planner::create_hub_plan_task(&st, &h, "ws-1", "Plan theme", "Add a theme", "general").unwrap();
+    assert!(task(&st, &h, &general)["model"].is_null());
+    assert_eq!(agent_of(&st, &h, &general), FAKE_ID);
 }

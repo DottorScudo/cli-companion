@@ -87,7 +87,13 @@ async fn reply(app: &AppHandle, key: &ThreadKey, name: &str, mut trigger: Trigge
     let max_steps = settings.session.max_steps;
     let spec = TurnSpec {
         secretary,
-        system: context::system_prompt(secretary, settings.language, &key.channel, &names),
+        system: context::system_prompt(
+            secretary,
+            settings.language,
+            &key.channel,
+            &names,
+            &crate::bots::agent_bots(app),
+        ),
         max_steps,
     };
     let host = AppTurnHost {

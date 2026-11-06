@@ -29,7 +29,8 @@ struct FakeHost {
     overviews: Mutex<usize>,
     details: Mutex<Vec<DetailsCall>>,
     pages: Mutex<Vec<ThreadPage>>,
-    plans: Mutex<Vec<String>>,
+    /// Goal e Bot di ogni `open_plan_task`.
+    plans: Mutex<Vec<(String, String)>>,
     proposal: Option<ProposalRef>,
     board: FakeBoard,
     /// Le domande a cui il turno puo' rispondere (`relay::relay_candidates`).
@@ -90,8 +91,8 @@ impl TurnHost for FakeHost {
         Ok(())
     }
 
-    async fn open_plan_task(&self, goal: String) -> Result<Value, String> {
-        self.plans.lock().unwrap().push(goal);
+    async fn open_plan_task(&self, goal: String, bot: String) -> Result<Value, String> {
+        self.plans.lock().unwrap().push((goal, bot));
         Ok(json!({ "task_id": "plan-login", "status": "queued" }))
     }
 
@@ -315,7 +316,7 @@ fn a_secretary_without_the_planning_tools_cannot_use_them() {
     let model = FakeModel::new(vec![
         calls(vec![
             call("c1", "decide_proposal", r#"{"accept":true}"#),
-            call("c2", "open_plan_task", r#"{"goal":"Add a login page"}"#),
+            call("c2", "open_plan_task", r#"{"goal":"Add a login page","bot":"general"}"#),
         ]),
         text("Non posso."),
     ]);
@@ -435,14 +436,19 @@ fn a_secretary_without_relay_answer_cannot_use_it() {
 }
 
 #[test]
-fn open_plan_task_hands_the_goal_to_the_host() {
+fn open_plan_task_hands_the_goal_and_the_bot_to_the_host() {
     let model = FakeModel::new(vec![
-        calls(vec![call("c1", "open_plan_task", r#"{"goal":"Add a login page with email and password"}"#)]),
+        calls(vec![call(
+            "c1",
+            "open_plan_task",
+            r#"{"goal":"Add a login page with email and password","bot":"intake"}"#,
+        )]),
         text("Ho aperto la pianificazione: ti scrivo quando c'è la proposta."),
     ]);
     let host = FakeHost::default();
     run(&model, &host, &secretary("giorgio"), 8);
-    assert_eq!(*host.plans.lock().unwrap(), ["Add a login page with email and password"]);
+    let plan = ("Add a login page with email and password".to_string(), "intake".to_string());
+    assert_eq!(*host.plans.lock().unwrap(), [plan]);
     assert!(tool_result(&model, 1).contains("plan-login"));
 }
 
@@ -451,7 +457,7 @@ fn changes_already_visible_in_the_thread_leave_no_audit_notice() {
     let model = FakeModel::new(vec![
         calls(vec![
             call("c1", "post_message", r#"{"body":"Apro la pianificazione."}"#),
-            call("c2", "open_plan_task", r#"{"goal":"Add a login page"}"#),
+            call("c2", "open_plan_task", r#"{"goal":"Add a login page","bot":"general"}"#),
             call("c3", "decide_proposal", r#"{"accept":true}"#),
         ]),
         text("Fatto."),
@@ -539,7 +545,7 @@ fn closing_the_thread_reaches_the_host_and_leaves_a_notice_only_when_it_changed(
 
 #[test]
 fn the_change_past_the_turn_limit_is_refused_with_a_notice() {
-    let plan = |id: &str| call(id, "open_plan_task", r#"{"goal":"Add a login page"}"#);
+    let plan = |id: &str| call(id, "open_plan_task", r#"{"goal":"Add a login page","bot":"general"}"#);
     let model = FakeModel::new(vec![
         // Una modifica fallita (nessuna proposta per il turno) non consuma il limite.
         calls(vec![call("c0", "decide_proposal", r#"{"accept":true}"#), plan("c1"), plan("c2")]),
@@ -630,7 +636,8 @@ fn the_summary_comes_from_the_model_or_is_kept() {
 
 #[test]
 fn the_read_tools_reach_the_host_without_notices_and_without_using_the_change_limit() {
-    let plans = (0..MAX_MUTATIONS_PER_TURN).map(|i| call(&format!("p{i}"), "open_plan_task", r#"{"goal":"Add X"}"#));
+    let plans = (0..MAX_MUTATIONS_PER_TURN)
+        .map(|i| call(&format!("p{i}"), "open_plan_task", r#"{"goal":"Add X","bot":"general"}"#));
     let reads = vec![
         call("r1", "board_overview", ""),
         call("r2", "task_details", r#"{"task_id":"t-1","workspace":"Sito Web"}"#),

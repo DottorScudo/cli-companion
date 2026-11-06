@@ -106,7 +106,7 @@ mod tests {
             Invocation::TaskDetails { workspace: None, task_id: "t-1".into(), page: None },
             Invocation::ThreadRead { page: Default::default() },
             Invocation::PostMessage { body: "Controllo.".into() },
-            Invocation::OpenPlanTask { goal: "Add a login page".into() },
+            Invocation::OpenPlanTask { goal: "Add a login page".into(), bot: "general".into() },
             Invocation::DecideProposal { accept: true },
             Invocation::RelayAnswer { body: "Use Postgres.".into(), selector: QuestionSelector::default() },
             Invocation::TaskAction { workspace: None, task_id: "t-7".into(), op: TaskOp::Retry },

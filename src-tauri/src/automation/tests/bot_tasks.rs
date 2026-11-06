@@ -199,3 +199,51 @@ fn tasks_created_from_the_ui_do_not_need_a_bot() {
     let err = boards::task_create(&st, &h, "ws-1", &json!({"title": "Bad", "task": "x", "bot": "nope"})).unwrap_err();
     assert!(err.contains("unknown bot: nope"), "{err}");
 }
+
+#[test]
+fn a_plan_of_the_hub_copies_its_bot_without_the_strong_tier_of_old() {
+    let (st, h) = paused();
+    let id = planner::create_hub_plan_task(&st, &h, "ws-1", "Plan login", "Add a login", "intake").unwrap();
+    let t = task(&st, &h, &id);
+    assert_eq!(
+        (t["kind"].as_str(), t["bot"].as_str(), t["agent"].as_str()),
+        (Some("plan"), Some("intake"), Some(real_id()))
+    );
+    assert_eq!(t["model"], json!(strong_model()));
+    assert_eq!(t["effort"], "high");
+    assert_eq!(t["skill"], json!({"kind": "plugin", "id": "task-intake"}));
+
+    let general = planner::create_hub_plan_task(&st, &h, "ws-1", "Plan theme", "Add a theme", "general").unwrap();
+    let g = task(&st, &h, &general);
+    assert_eq!((g["bot"].as_str(), g["agent"].as_str()), (Some("general"), Some(real_id())));
+    assert!(g["model"].is_null(), "General: the default model of the agent");
+    assert!(g.get("effort").is_none() && g.get("skill").is_none(), "{g}");
+}
+
+#[test]
+fn a_plan_of_the_hub_with_an_unknown_or_disabled_bot_is_not_created() {
+    let (st, h) = paused();
+    let err = planner::create_hub_plan_task(&st, &h, "ws-1", "Plan", "Plan it", "nope").unwrap_err();
+    assert!(err.contains("unknown bot: nope"), "{err}");
+    edit_bot(&h, "setup", |b| b.enabled = false);
+    let err = planner::create_hub_plan_task(&st, &h, "ws-1", "Plan", "Plan it", "setup").unwrap_err();
+    assert!(err.ends_with("Setup is disabled: enable it in the bots settings"), "{err}");
+    assert!(view(&st, &h).tasks.is_empty());
+}
+
+#[test]
+fn the_bot_change_confirmed_in_the_hub_is_checked_then_copied_into_the_plan_task() {
+    let (st, h) = paused();
+    let id = planner::create_hub_plan_task(&st, &h, "ws-1", "Plan", "Plan it", "general").unwrap();
+    let unknown = boards::task_update_check(&st, &h, "ws-1", &id, &json!({"bot": "nope"})).unwrap_err();
+    assert!(unknown.contains("unknown bot: nope"), "{unknown}");
+
+    let patch = json!({"bot": "intake"});
+    boards::task_update_check(&st, &h, "ws-1", &id, &patch).unwrap();
+    assert_eq!(task(&st, &h, &id)["bot"], "general", "the check changes nothing");
+    boards::task_update(&st, &h, "ws-1", &id, &patch).unwrap();
+    let t = task(&st, &h, &id);
+    assert_eq!((t["bot"].as_str(), t["effort"].as_str()), (Some("intake"), Some("high")));
+    assert_eq!(t["model"], json!(strong_model()));
+    assert_eq!(t["skill"], json!({"kind": "plugin", "id": "task-intake"}));
+}

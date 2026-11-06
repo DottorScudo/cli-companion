@@ -112,8 +112,13 @@ fn get_task_of_a_review_task_names_the_skill_too() {
 fn get_task_of_a_plan_task_names_the_skill_too() {
     let (st, h) = (AutomationState::default(), FakeHost::with_delivery(DeliveryMode::Commit, false));
     boards::board_set(&st, &h, "ws-1", None, Some(true)).unwrap();
-    let request =
-        PlanRequest { title: "Plan dark theme".into(), task: "Add a dark theme".into(), model: None, repo: None };
+    let request = PlanRequest {
+        title: "Plan dark theme".into(),
+        task: "Add a dark theme".into(),
+        model: None,
+        repo: None,
+        bot: None,
+    };
     let id = create_plan_task(&st, &h, "ws-1", &request).unwrap();
     // I task di pianificazione nascono senza Bot: la skill la mette l'utente scegliendone uno.
     st.run(&h, |r| {

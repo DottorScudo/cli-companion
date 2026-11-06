@@ -14,6 +14,7 @@ use super::relay::QuestionSelector;
 use super::task_page::TaskPage;
 use super::thread_page::ThreadPage;
 use super::workspace_names::REFERENCE_MAX;
+use crate::board::BOT_ID_MAX;
 use crate::hub::channel::Channel;
 use crate::hub::model::{RequestedAction, ThreadState};
 use crate::hub::settings::{Secretary, SecretaryTool};
@@ -49,6 +50,8 @@ pub enum Invocation {
     },
     OpenPlanTask {
         goal: String,
+        /// Id del Bot che pianifica (se esiste e si puo' usare lo verifica l'esecuzione).
+        bot: String,
     },
     DecideProposal {
         accept: bool,
@@ -174,7 +177,8 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
                 You become the owner of this thread: the proposal, the questions of the planner and of the workers, failed tasks, tasks that \
                 need attention and the end of all tasks will wake you up. It fails in the General channel: ask the \
                 user which project the work is for. If a previous plan ended with questions, put the original goal, \
-                the questions and the user's answers in `goal`.",
+                the questions and the user's answers in `goal`. In `bot` choose who plans: the bot whose task fits \
+                the work, from the bots listed in your instructions.",
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -184,9 +188,10 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
                             also receives the user's message verbatim, the thread summary and the latest messages.",
                         "minLength": 1,
                         "maxLength": GOAL_MAX
-                    }
+                    },
+                    "bot": bot_parameter()
                 },
-                "required": ["goal"],
+                "required": ["goal", "bot"],
                 "additionalProperties": false
             }),
         },
@@ -231,6 +236,7 @@ struct PostMessageArgs {
 #[serde(deny_unknown_fields)]
 struct OpenPlanTaskArgs {
     goal: String,
+    bot: String,
 }
 
 #[derive(Deserialize)]
@@ -277,7 +283,8 @@ pub fn parse(call: &ToolCall, secretary: &Secretary) -> Result<Invocation, ToolR
             if goal.is_empty() || goal.chars().count() > GOAL_MAX {
                 return Err(invalid(format!("`goal` must be 1 to {GOAL_MAX} characters of plain text")));
             }
-            Ok(Invocation::OpenPlanTask { goal })
+            let bot = bot_reference(&args.bot).map_err(invalid)?;
+            Ok(Invocation::OpenPlanTask { goal, bot })
         }
         SecretaryTool::DecideProposal => {
             let args: DecideProposalArgs = arguments(&call.arguments).map_err(invalid)?;
@@ -360,6 +367,27 @@ fn workspace_reference(raw: Option<&str>) -> Result<Option<String>, String> {
         }
         Some(reference) => Ok(Some(reference.to_string())),
     }
+}
+
+/// Lo schema del parametro `bot` (di `open_plan_task` e `request_task_update`).
+fn bot_parameter() -> Value {
+    json!({
+        "type": "string",
+        "description": "Id of the bot whose task fits the work, from the bots listed in your instructions; \
+            `general` when no bot is specific.",
+        "minLength": 1,
+        "maxLength": BOT_ID_MAX
+    })
+}
+
+/// L'id di un Bot in un tool, senza spazi ai bordi; se il Bot esiste e si puo'
+/// usare lo verifica l'esecuzione (`bot_choice::check`). L'errore e' in inglese.
+fn bot_reference(raw: &str) -> Result<String, String> {
+    let bot = raw.trim();
+    if bot.is_empty() || bot.chars().count() > BOT_ID_MAX {
+        return Err(format!("`bot` must be 1 to {BOT_ID_MAX} characters: the id of one of the bots you were given"));
+    }
+    Ok(bot.to_string())
 }
 
 /// Argomenti vuoti valgono `{}` (alcuni endpoint mandano "" per un tool senza

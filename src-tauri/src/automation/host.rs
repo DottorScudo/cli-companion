@@ -428,7 +428,7 @@ impl Host for TauriHost {
     }
 
     fn agent_bots(&self) -> Vec<AgentBot> {
-        self.0.state::<crate::bots::BotSettingsStore>().read(|s| s.agents.clone())
+        crate::bots::agent_bots(&self.0)
     }
 
     fn agent_readiness(&self, ws: &Workspace, agent: &str) -> Option<Readiness> {

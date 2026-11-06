@@ -3,4 +3,4 @@
 /**
  * Un campo di un task che un segretario puo' chiedere di cambiare.
  */
-export type HubTaskField = "title" | "task" | "depends_on" | "model";
+export type HubTaskField = "title" | "task" | "depends_on" | "model" | "bot";

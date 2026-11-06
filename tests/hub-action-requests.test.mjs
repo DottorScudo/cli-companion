@@ -76,16 +76,18 @@ describe("etichette", () => {
     assert.equal(requestHeading(request({ action: "update" })), "@ugo chiede: Modifica");
   });
   it("ogni campo modificabile ha la sua etichetta", () => {
-    assert.deepEqual(["title", "task", "depends_on", "model"].map(fieldLabel), [
+    assert.deepEqual(["title", "task", "depends_on", "model", "bot"].map(fieldLabel), [
       "Titolo",
       "Specifica",
       "Dipendenze",
       "Modello",
+      "Bot",
     ]);
   });
   it("un campo senza valore si legge con una parola, non vuoto", () => {
     assert.equal(changeValue({ field: "model" }, null), "predefinito");
     assert.equal(changeValue({ field: "depends_on" }, null), "nessuna");
+    assert.equal(changeValue({ field: "bot" }, null), "nessuno");
     assert.equal(changeValue({ field: "title" }, null), "—");
     assert.equal(changeValue({ field: "title" }, "Login"), "Login");
   });

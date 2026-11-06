@@ -117,8 +117,8 @@ impl ThreadIo {
     }
 
     /// `open_plan_task`: crea il task `plan` e lo collega al thread, con
-    /// `secretary` titolare (vedi `planning::open_plan`), poi `hub-update`.
-    pub async fn open_plan(&self, trigger: &str, secretary: &str, goal: String) -> Result<Value, String> {
+    /// `secretary` titolare e il Bot `bot` (vedi `planning::open_plan`), poi `hub-update`.
+    pub async fn open_plan(&self, trigger: &str, secretary: &str, goal: String, bot: String) -> Result<Value, String> {
         let (app, key, epoch) = (self.app.clone(), self.key.clone(), self.epoch);
         let (trigger, secretary) = (trigger.to_string(), secretary.to_string());
         crate::blocking(move || {
@@ -128,12 +128,15 @@ impl ThreadIo {
             let actions = app.state::<HubBoardActions>().get()?;
             let dirs = hub_dirs_of(&app)?;
             let now = chrono::Utc::now().timestamp_millis();
+            let bots = crate::bots::agent_bots(&app);
             let ticket = PlanTicket {
                 channel: &key.channel,
                 thread_id: &key.thread_id,
                 trigger_id: &trigger,
                 secretary: &secretary,
                 goal: &goal,
+                bot: &bot,
+                bots: &bots,
                 attachments: agent_paths(&app, &dirs.attachments, &key.channel),
             };
             let (value, touched) = app.state::<HubState>().update(&dirs, &key.channel, |list| {
@@ -320,8 +323,8 @@ impl TurnHost for AppTurnHost<'_> {
         })
     }
 
-    async fn open_plan_task(&self, goal: String) -> Result<Value, String> {
-        self.io.open_plan(self.trigger, &self.secretary.name, goal).await
+    async fn open_plan_task(&self, goal: String, bot: String) -> Result<Value, String> {
+        self.io.open_plan(self.trigger, &self.secretary.name, goal, bot).await
     }
 
     async fn decide_proposal(&self, accept: bool) -> Result<Value, String> {

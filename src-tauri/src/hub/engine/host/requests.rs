@@ -5,6 +5,7 @@
 //! `confirm`).
 
 use super::super::board_ops;
+use super::super::bot_choice;
 use super::super::confirm::{self, RequestParams, NOT_A_WORKSPACE_THREAD};
 use super::{AppTurnHost, ThreadIo, STALE, WORKSPACE_NOT_FOUND};
 use crate::hub::actions::HubBoardActions;
@@ -93,9 +94,12 @@ impl ThreadIo {
     }
 }
 
-/// La modifica e' accettabile adesso (stato del task, grafo, modello): un
+/// La modifica e' accettabile adesso (Bot, stato del task, grafo, modello): un
 /// grafo non valido si rifiuta gia' alla richiesta, non al clic.
 fn check_update(app: &tauri::AppHandle, workspace: &str, task_id: &str, patch: &Value) -> Result<(), String> {
+    if let Some(bot) = patch.get("bot").and_then(Value::as_str) {
+        bot_choice::check(&crate::bots::agent_bots(app), bot)?;
+    }
     let actions = app.state::<HubBoardActions>().get()?;
     (actions.check_task_update)(app, workspace, task_id, patch).map_err(board_ops::refused)
 }

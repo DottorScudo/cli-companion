@@ -146,6 +146,11 @@ pub fn enabled_launch_ids(app: &AppHandle) -> Vec<String> {
     app.state::<BotSettingsStore>().read(|s| launches::enabled_launch_ids(&s.agents))
 }
 
+/// I Bot-agente salvati, anche i disabilitati: chi li usa sceglie e verifica.
+pub fn agent_bots(app: &AppHandle) -> Vec<AgentBot> {
+    app.state::<BotSettingsStore>().read(|s| s.agents.clone())
+}
+
 #[tauri::command]
 pub fn get_bot_settings(state: State<BotSettingsStore>) -> BotSettings {
     state.get()

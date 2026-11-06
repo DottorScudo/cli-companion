@@ -13,6 +13,7 @@ fn request(title: &str) -> PlanRequest {
         task: "Add a dark theme to the settings page".to_string(),
         model: Some("opus".to_string()),
         repo: None,
+        bot: None,
     }
 }
 

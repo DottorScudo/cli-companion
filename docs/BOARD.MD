@@ -182,7 +182,8 @@ Limiti: 200 task per board, 20 task per proposta, 20 proposte pendenti per board
   copiano nel task: uno snapshot, quindi cambiare o cancellare il Bot non tocca i task in coda. `model` della
   specifica, se c'è, scavalca quello del Bot; `agent`, se c'è, deve coincidere con quello del Bot (errore
   altrimenti). Un Bot sconosciuto o disabilitato, o la cui skill l'agente non può caricare, è rifiutato. Le
-  creazioni dall'UI (`task_create`, `task_update`) e il `plan` dell'app non richiedono il Bot; i task senza `bot`
+  creazioni dall'UI (`task_create`, `task_update`) non richiedono il Bot; il `plan` dell'Agents HUB sì (lo sceglie il
+  segretario, vedi "Task di pianificazione"), quello di `create_plan_task` no. I task senza `bot`
   (anche quelli già nei file) si comportano esattamente come prima, senza migrazione.
 - **Avvio con effort e skill.** `AutomationRequest.effort` riceve l'effort del task; se l'agente non lo supporta
   `automation_command` lo scarta e l'avviso finisce nella nota del task. Con una skill l'invocazione viene
@@ -952,15 +953,16 @@ consegna codice: niente branch da integrare, niente istruzioni di consegna. Rego
 `board/plan.rs`, lato automazione `automation/planner.rs`.
 
 - **Chi lo crea**: solo l'app, con l'API interna `automation::create_plan_task(st, host, ws_id,
-  &PlanRequest { title, task, model?, repo? })`. L'Agents HUB passa da
-  `planner::create_hub_plan_task` (dall'app reale `automation::queue_hub_plan_task(app, ws_id, title, task)`,
-  che fa git: fuori dal main thread), con il repository radice e il modello di `hub_planner_model`: il
-  primo della fascia `strong` dell'agente del workspace (per Claude Code `opus`; pianificare è il
-  ragionamento più difficile e si fa una volta per obiettivo), oppure quello dei worker del workspace se
-  l'agente non dichiara le fasce. Le proposte l'HUB le decide con `automation::decide_hub_proposal`, lo
+  &PlanRequest { title, task, model?, repo?, bot? })`. L'Agents HUB passa da
+  `planner::create_hub_plan_task` (dall'app reale `automation::queue_hub_plan_task(app, ws_id, title, task, bot)`,
+  che fa git: fuori dal main thread), con il repository radice e il **Bot scelto dal segretario**, obbligatorio:
+  agente, modello, effort e skill del task sono la copia di quelli del Bot (come per i task proposti, vedi il punto
+  "Bot." più sopra; il Bot `general` lascia il modello predefinito dell'agente). Un Bot sconosciuto o disabilitato
+  è un errore, senza ripieghi; non c'è più un modello scelto dall'app per il pianificatore. Le proposte l'HUB le
+  decide con `automation::decide_hub_proposal`, lo
   stesso `proposal_decide` dei pulsanti del pannello Task. Il task entra **direttamente in coda** (niente proposta), con
-  l'id generato dal titolo come `task_create` e l'agente del workspace; `model` assente = quello dei
-  worker del workspace. Titolo, testo, modello e repo si validano come ogni task; il workspace non deve
+  l'id generato dal titolo come `task_create` e, senza Bot, l'agente del workspace; `model` assente = quello del Bot
+  o, senza Bot, quello dei worker del workspace. Titolo, testo, modello e repo si validano come ogni task; il workspace non deve
   essere archiviato e la cartella del piano può
   essere un repository git (worktree, come sempre) oppure no (gira sul posto in sola lettura, vedi
   "Pianificazione in una cartella senza git"). Il repository, se indicato, deve esistere.

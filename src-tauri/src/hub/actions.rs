@@ -17,11 +17,14 @@ use tauri::{AppHandle, Manager};
 const ACTIONS_MISSING: &str = "le azioni sulla board non sono disponibili.";
 
 /// Un task di pianificazione da mettere in coda: titolo e testo completo, in
-/// inglese (lo legge il pianificatore, che non vede altro).
+/// inglese (lo legge il pianificatore, che non vede altro), e il Bot che lo
+/// esegue (agente, modello, effort e skill vengono da lui).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlanOrder {
     pub title: String,
     pub task: String,
+    /// Id di un Bot-agente.
+    pub bot: String,
 }
 
 /// Crea un task `plan` in coda nel workspace e ritorna il suo id.

@@ -13,7 +13,9 @@
 //!
 //! Gli errori sono in inglese: tornano al modello.
 
+use super::bot_choice;
 use super::sessions::WakeCause;
+use crate::bots::AgentBot;
 use crate::hub::actions::PlanOrder;
 use crate::hub::attachments::listing::AttachmentPaths;
 use crate::hub::channel::Channel;
@@ -97,13 +99,17 @@ pub fn decide(board: &impl ProposalBoard, target: Option<&ProposalRef>, accept: 
 }
 
 /// Una chiamata a `open_plan_task`: il thread del turno, il messaggio che lo
-/// ha svegliato, il segretario e il goal validato.
+/// ha svegliato, il segretario, il goal validato e il Bot scelto.
 pub struct PlanTicket<'a> {
     pub channel: &'a Channel,
     pub thread_id: &'a str,
     pub trigger_id: &'a str,
     pub secretary: &'a str,
     pub goal: &'a str,
+    /// L'id scelto dal segretario, da verificare fra `bots`.
+    pub bot: &'a str,
+    /// I Bot-agente dell'app (anche i disabilitati).
+    pub bots: &'a [AgentBot],
     /// Gli allegati (`HubDirs::attachments`) e l'ambiente del workspace del piano,
     /// da cui ricavare i percorsi che legge il pianificatore.
     pub attachments: AttachmentPaths<'a>,
@@ -111,7 +117,8 @@ pub struct PlanTicket<'a> {
 
 /// `open_plan_task` sui thread del canale: crea il task `plan` con `create`
 /// (workspace, ordine), lo collega al thread e rende il segretario titolare.
-/// Nel Generale, o con il thread pieno, non crea nulla.
+/// Nel Generale, con il thread pieno o con un Bot sconosciuto o disabilitato
+/// non crea nulla.
 pub fn open_plan(
     list: &mut ChannelThreads,
     ticket: &PlanTicket<'_>,
@@ -125,7 +132,8 @@ pub fn open_plan(
     if thread.task_ids.len() >= TASKS_PER_THREAD_MAX {
         return Err(THREAD_FULL.to_string());
     }
-    let order = plan_order(ticket.goal, thread, ticket.trigger_id, ticket.secretary, ticket.attachments);
+    bot_choice::check(ticket.bots, ticket.bot)?;
+    let order = plan_order(ticket.goal, thread, ticket.trigger_id, ticket.secretary, ticket.bot, ticket.attachments);
     let task_id = create(workspace, &order).map_err(|e| format!("The planning task could not be created: {e}"))?;
     let attached = list
         .link_tasks(ticket.thread_id, std::slice::from_ref(&task_id), now)
@@ -147,7 +155,7 @@ pub fn open_plan(
     }))
 }
 
-/// Titolo e testo del task `plan`. Il testo e' in inglese (lo legge il
+/// Titolo, testo e Bot del task `plan`. Il testo e' in inglese (lo legge il
 /// pianificatore) e cita la richiesta dell'utente cosi' com'e'; gli allegati
 /// della richiesta e dei messaggi recenti hanno la loro sezione, con i percorsi
 /// di `attachments`.
@@ -156,6 +164,7 @@ pub fn plan_order(
     thread: &Thread,
     trigger_id: &str,
     secretary: &str,
+    bot: &str,
     attachments: AttachmentPaths<'_>,
 ) -> PlanOrder {
     let first_line = goal.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
@@ -175,7 +184,7 @@ secretary @{secretary} handed it over to you.\n\n## User request (verbatim)\n\n{
 {goal}\n\n## Thread summary\n\n{summary}\n\n## Recent messages of the thread (oldest first)\n\n{recent}\n",
         summary = thread.summary.as_deref().unwrap_or("(none)"),
     );
-    PlanOrder { title, task }
+    PlanOrder { title, task, bot: bot.to_string() }
 }
 
 /// Il messaggio dell'utente che ha chiesto il lavoro: quello del turno se e'

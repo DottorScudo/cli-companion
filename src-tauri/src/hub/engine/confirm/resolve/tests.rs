@@ -5,7 +5,7 @@ use super::*;
 use crate::board::{AgentGate, Board, Task, TaskSpec, TaskStatus};
 use crate::hub::engine::confirm::{open_request, RequestParams, REQUEST_TTL_MS};
 use crate::hub::engine::fixtures::{thread, WS};
-use crate::hub::model::{HubEventKind, Message, RequestedAction, Thread};
+use crate::hub::model::{FieldChange, HubEventKind, Message, RequestedAction, TaskField, Thread};
 use crate::hub::threads::NewMessage;
 use std::sync::Mutex;
 
@@ -73,6 +73,9 @@ impl ActionBoard for FakeBoard {
         let mut board = self.board.lock().unwrap();
         let task = board.tasks.iter_mut().find(|t| t.id == task_id).ok_or("task not found")?;
         task.title = patch["title"].as_str().unwrap_or(&task.title).to_string();
+        if let Some(bot) = patch["bot"].as_str() {
+            task.bot = Some(bot.to_string());
+        }
         self.acted.lock().unwrap().push(format!("{workspace} {task_id} update"));
         Ok(())
     }
@@ -277,4 +280,21 @@ fn cancelling_an_update_changes_nothing() {
     let resolved = click(&mut list, &board, false, NOW + 1).unwrap();
     assert_eq!(resolved.request.state, ActionRequestState::Cancelled);
     assert!(board.acted().is_empty());
+}
+
+#[test]
+fn a_bot_change_shows_the_bot_before_and_after_and_is_applied_only_on_confirm() {
+    let board = FakeBoard::new();
+    let mut list = list_with_update(&board, serde_json::json!({ "bot": "intake" }));
+    let card = &messages(&list)[0];
+    assert_eq!(card.body, "@ugo chiede di modificare «Title f-1» (Bot): Obsoleto");
+    let update = card.event.as_ref().and_then(|e| e.request.as_ref()).and_then(|r| r.update.clone()).unwrap();
+    let change = FieldChange { field: TaskField::Bot, before: None, after: Some("intake".into()) };
+    assert_eq!(update.changes, [change]);
+    assert!(board.acted().is_empty(), "nothing changes before the click");
+
+    let resolved = click(&mut list, &board, true, NOW + 1).unwrap();
+    assert_eq!(resolved.request.state, ActionRequestState::Confirmed);
+    assert_eq!(board.acted(), ["ws-1 f-1 update"]);
+    assert_eq!(board.view().tasks[0].task.bot.as_deref(), Some("intake"));
 }

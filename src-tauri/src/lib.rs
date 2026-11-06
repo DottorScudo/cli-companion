@@ -90,7 +90,7 @@ pub fn run() {
                 app.handle(),
                 hub::BoardActions {
                     create_plan: |app, ws_id, plan| {
-                        automation::queue_hub_plan_task(app, ws_id, &plan.title, &plan.task)
+                        automation::queue_hub_plan_task(app, ws_id, &plan.title, &plan.task, &plan.bot)
                     },
                     decide_proposal: automation::decide_hub_proposal,
                     answer_question: automation::answer_question,

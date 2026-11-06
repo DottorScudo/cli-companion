@@ -11,7 +11,8 @@ use serde_json::{json, Map, Value};
 /// Caratteri di un valore nel diff della scheda; il resto sta nel patch.
 pub const PREVIEW_KEPT: usize = 600;
 /// I campi che un segretario puo' cambiare, nell'ordine della scheda.
-const FIELDS: [TaskField; 4] = [TaskField::Title, TaskField::Task, TaskField::DependsOn, TaskField::Model];
+const FIELDS: [TaskField; 5] =
+    [TaskField::Title, TaskField::Task, TaskField::DependsOn, TaskField::Model, TaskField::Bot];
 const NOTHING_TO_CHANGE: &str = "The task already has these values: there is nothing to change.";
 
 /// La chiave del campo in `TaskSpec` (e nel patch di `update_task`).
@@ -21,6 +22,7 @@ pub fn key_of(field: TaskField) -> &'static str {
         TaskField::Task => "task",
         TaskField::DependsOn => "depends_on",
         TaskField::Model => "model",
+        TaskField::Bot => "bot",
     }
 }
 
@@ -31,10 +33,11 @@ fn value_of(field: TaskField, spec: &TaskSpec) -> Value {
         TaskField::Task => json!(spec.task),
         TaskField::DependsOn => json!(spec.depends_on),
         TaskField::Model => json!(spec.model),
+        TaskField::Bot => json!(spec.bot),
     }
 }
 
-/// Il valore per la scheda: troncato, `None` se vuoto (nessun modello, nessuna dipendenza).
+/// Il valore per la scheda: troncato, `None` se vuoto (nessun modello, nessuna dipendenza, nessun Bot).
 fn preview(value: &Value) -> Option<String> {
     let text = match value {
         Value::String(s) => s.clone(),
@@ -45,12 +48,12 @@ fn preview(value: &Value) -> Option<String> {
 }
 
 /// Cosa cambia in `task` applicando `patch` (i campi di `TaskSpec`: titolo,
-/// specifica, dipendenze, modello). Gli altri campi si rifiutano. L'errore e'
+/// specifica, dipendenze, modello, Bot). Gli altri campi si rifiutano. L'errore e'
 /// in inglese, per il modello; senza differenze non c'e' nulla da chiedere.
 pub fn build(task: &Task, patch: &Value) -> Result<TaskUpdate, String> {
     let allowed_only = patch.as_object().is_some_and(|o| o.keys().all(|k| FIELDS.iter().any(|f| key_of(*f) == k)));
     if !allowed_only {
-        return Err("Only `title`, `task`, `depends_on` and `model` can be changed.".to_string());
+        return Err("Only `title`, `task`, `depends_on`, `model` and `bot` can be changed.".to_string());
     }
     let current = TaskSpec::from_task(task);
     let wanted = parse_spec(patch, Some(&current))?;

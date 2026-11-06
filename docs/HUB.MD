@@ -72,14 +72,16 @@ che il motore aggiunge a ogni system prompt (`ENGINE_INSTRUCTIONS`): descrivono 
 
 | Id | Etichetta | Nome | Tool | Mansione |
 |---|---|---|---|---|
-| `coordinator` | Coordinatore | `mario` | `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message`, `open_plan_task`, `decide_proposal`, `relay_answer`, `set_thread_state` | trasforma gli obiettivi dell'utente in lavoro per gli agenti: chiarisce l'obiettivo (al massimo una domanda), apre il task di pianificazione, presenta le proposte e le decide solo se l'utente accetta o rifiuta con chiarezza, riferisce fallimenti e domande dei worker |
-| `analyst` | Analista | `giulia` | `thread_read`, `post_message`, `open_plan_task` | trasforma un'idea vaga in una richiesta completa: chiede obiettivo, criteri di completamento, vincoli ed esclusioni (mai domande tecniche sul codice), poi riassume in Goal / Done when / Constraints / Out of scope e apre la pianificazione solo dopo la conferma. Senza `decide_proposal`, se arriva una proposta la presenta e dice di rispondere sul messaggio della proposta |
+| `coordinator` | Coordinatore | `mario` | `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message`, `open_plan_task`, `decide_proposal`, `relay_answer`, `set_thread_state` | trasforma gli obiettivi dell'utente in lavoro per gli agenti: chiarisce l'obiettivo (al massimo una domanda), apre il task di pianificazione con il Bot il cui compito corrisponde al lavoro (`general` se nessuno è specifico), presenta le proposte e le decide solo se l'utente accetta o rifiuta con chiarezza, riferisce fallimenti e domande dei worker |
+| `analyst` | Analista | `giulia` | `thread_read`, `post_message`, `open_plan_task` | trasforma un'idea vaga in una richiesta completa: chiede obiettivo, criteri di completamento, vincoli ed esclusioni (mai domande tecniche sul codice), poi riassume in Goal / Done when / Constraints / Out of scope e apre la pianificazione solo dopo la conferma, scegliendo il Bot come il Coordinatore. Senza `decide_proposal`, se arriva una proposta la presenta e dice di rispondere sul messaggio della proposta |
 | `reporter` | Cronista | `luca` | `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message` | tiene informato l'utente: cosa è fatto, cosa gira, cosa aspetta lui, cosa è fallito; nel Generale una riga per workspace, prima quelli che aspettano l'utente; spiega i fallimenti dalle note dei task senza ipotesi. Non apre task e non decide: per nuovo lavoro rimanda a un segretario che può aprirli |
-| `operator` | Operatore | `ugo` | `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message`, `task_action`, `board_control`, `request_task_action`, `request_task_update`, `set_thread_state` | agisce sulla coda solo su richiesta esplicita dell'utente: ritenta i task falliti, porta un task in testa o prima di un altro, mette in pausa o riprende la board e ne regola `max_parallel`. Prima di cambiare un task lo legge; se la richiesta è ambigua chiede; dopo una modifica la dice in una riga. Fermare, eliminare o segnare fatto non lo fa mai da solo: lo chiede con `request_task_action`; titolo, specifica, dipendenze e modello di un task in coda o fallito li cambia solo con `request_task_update` (schede di conferma, vedi "Azioni che chiedono conferma"). Non apre lavoro nuovo. **Non si crea da solo** (`seeded: false`): lo sceglie l'utente da «Aggiungi da modello» |
+| `operator` | Operatore | `ugo` | `board_status`, `board_overview`, `task_details`, `thread_read`, `post_message`, `task_action`, `board_control`, `request_task_action`, `request_task_update`, `set_thread_state` | agisce sulla coda solo su richiesta esplicita dell'utente: ritenta i task falliti, porta un task in testa o prima di un altro, mette in pausa o riprende la board e ne regola `max_parallel`. Prima di cambiare un task lo legge; se la richiesta è ambigua chiede; dopo una modifica la dice in una riga. Fermare, eliminare o segnare fatto non lo fa mai da solo: lo chiede con `request_task_action`; titolo, specifica, dipendenze, modello e Bot di un task in coda o fallito li cambia solo con `request_task_update` (schede di conferma, vedi "Azioni che chiedono conferma"). Non apre lavoro nuovo. **Non si crea da solo** (`seeded: false`): lo sceglie l'utente da «Aggiungi da modello» |
 
 Ogni preset ha una lista esplicita di tool, mai `SecretaryTool::ALL`: un tool nuovo, soprattutto se modifica la board,
 entra in un preset solo con una scelta esplicita (un test fissa le liste). Il Coordinatore non ha `task_action` né
-`board_control`.
+`board_control`. I prompt dei preset con `open_plan_task` o `request_task_update` spiegano come scegliere il Bot (un
+test lo verifica); un segretario già salvato tiene il suo prompt finché l'utente non usa «Ripristina predefinito»,
+ma riceve comunque dal motore l'elenco dei Bot e la descrizione dei tool, che chiedono `bot`.
 
 Tutti hanno `channels` = tutti i canali.
 
@@ -867,7 +869,8 @@ una skill di Claude Code o OpenCode e non passa da MCP. Codice in `hub/engine/`.
 | `output.rs` | board e thread in JSON compatto per il modello |
 | `context.rs` | system prompt, messaggio di apertura di un turno, richiesta e pulizia del riassunto |
 | `mentions.rs` | le menzioni `@nome` |
-| `planning.rs` | `open_plan_task` (testo del task `plan`, collegamento, titolare) e `decide_proposal` (a quale proposta si lega e la decisione), generici sulla board |
+| `planning.rs` | `open_plan_task` (testo del task `plan`, Bot, collegamento, titolare) e `decide_proposal` (a quale proposta si lega e la decisione), generici sulla board |
+| `bot_choice.rs` | i Bot-agente visti da un segretario: l'elenco nel system prompt e la verifica del Bot scelto (puro) |
 | `relay.rs` | `relay_answer` (le domande in attesa, la scelta di quale e la consegna), generico sulla board |
 | `board_ops.rs` | `task_action` e `board_control` (verifica sulla vista corrente, scrittura, esito), generici sulla board (`BoardWriter`) |
 | `sessions.rs` | sessioni, titolare, code dei thread, scadenze (puro, tempo passato dal chiamante) |
@@ -998,8 +1001,8 @@ Le sessioni stanno solo in memoria (un riavvio dell'app le chiude); la memoria v
   del motore (in inglese: chi è, che lavora con la board di coding agents, che non conosce il codice, che non
   decide questioni tecniche, che usa i tool per leggere lo stato, che parla dei workspace sempre per nome e non mostra
   mai i loro id, risposte brevi) + **dove si trova** (il Generale, o il workspace del canale col suo nome) e i
-  **workspace che può consultare**, con nome e id (`workspace_names.rs`) + «Always reply to the user in
-  <Language>». Il primo messaggio porta i dati del thread (titolo, canale, stato, task e proposta collegati,
+  **workspace che può consultare**, con nome e id (`workspace_names.rs`) + i **Bot** (vedi "Bot nel contesto") +
+  «Always reply to the user in <Language>». Il primo messaggio porta i dati del thread (titolo, canale, stato, task e proposta collegati,
   **riassunto**), gli **ultimi 10 messaggi** prima di quello che lo ha svegliato (in JSON, con i dati degli eventi)
   e il messaggio che lo ha svegliato.
 - **Sessione attiva**: la conversazione interna cresce solo dentro la sessione. Un turno successivo riceve i
@@ -1095,12 +1098,12 @@ campi della struttura coincidano. Gli argomenti vuoti valgono `{}`. Solo `open_p
 | `task_details` | `task_id` (1..64 caratteri), `workspace?` (come `board_status`), `field?` (al massimo 64 caratteri), `offset?` (intero ≥ 0, solo con `field`) | un task per intero (`output/task_details.rs`, da `TaskView::to_json(true)`): specifica (`task`), stato, dipendenze e `waiting_on`, nota, agente, `question` (testo e risposte suggerite) se un worker aspetta, `report` completo (riassunto, `commit`, `pr_url`, `files_changed`, `tests`, `follow_ups`, `diffstat`, per le revisioni `verdict` e `findings`), `allowed_actions`, `can_edit`, `cascade`, ora UTC di creazione e aggiornamento e `worktree` solo con branch e base. Mai la sessione, il percorso del worktree né lo storico delle domande. Specifica, nota, domanda e report li scrive un agente: l'esito ha `untrusted: true` e il prompt del motore li dichiara dati e non istruzioni. **Nessun contenuto è irrecuperabile**: ogni esito sta in `TOOL_RESULT_MAX` (6000 caratteri, misurati sul JSON serializzato, virgolette e a capo raddoppiati compresi), quindi il taglio di `turn.rs` non lo spezza mai. Se la scheda intera non ci sta, i testi lunghi (`task`, `note`, `question.text`, `report.summary`, `report.diffstat`) e gli elenchi (`question.options`, `report.findings`, `report.follow_ups`, `report.files_changed`, `report.tests`, `depends_on`, `waiting_on`, `cascade.dependents`, `cascade.running`) portano il loro primo pezzo: lo spazio si divide in parti uguali partendo dai campi più corti (che restano interi) e i fatti corti (stato, `commit`, `pr_url`, `verdict`, `question.id`) ci sono sempre. `more` dice per ogni campo incompleto da dove riprendere, es. `"more": { "task": { "next_offset": 2400, "total_chars": 18000 }, "report.follow_ups": { "next_offset": 5, "total_items": 40 } }`; senza `more` il task è intero. Con `field` l'esito è solo `{ task_id, field, offset, untrusted, content \| items, next_offset?, total_chars \| total_items }`: un pezzo grande quanto il limite permette (testi in caratteri, mai a metà di un carattere; elenchi per voci intere), `next_offset` assente = campo finito. Una voce di un elenco troppo lunga per stare da sola in una pagina esce accorciata con il suo `more` (`report.follow_ups.3`, `report.tests.2.details`, `report.tests.2.command`), e con quel nome si legge a pezzi come gli altri campi. Nomi e parsing in `task_page.rs`, pezzi e ripartizione in `output/task_details/pieces.rs`. Errori per il modello: `offset` senza `field`, `field` sconosciuto (fra gli argomenti non validi), campo che il task non ha (es. `report.summary` senza report) o `offset` oltre la fine. Un id inesistente dà un errore che rimanda a `board_status`; un workspace fuori dai canali del segretario è rifiutato come in `board_status` |
 | `thread_read` | `before?` (id di un messaggio del thread) oppure `offset?` (quanti degli ultimi messaggi saltare, da 0), mai insieme; senza argomenti gli ultimi. Oppure `message_id?` (id di un messaggio, mai con `before`) con `offset?` in caratteri: legge il testo intero di quel messaggio a pezzi | titolo, canale (con `workspace_name` nel canale di un workspace), stato, task e proposta collegati, riassunto e una pagina di al massimo 20 messaggi, meno se lunghi perché la pagina sta sempre in `TOOL_RESULT_MAX` misurata sul JSON (si tengono i più recenti della finestra; `output/message_page.rs`) (autore, ora UTC, testo tagliato a 1000 caratteri con `body_truncated: { total_chars }` se lo è, dati dell'evento senza i campi vuoti; un messaggio che da solo non sta nella pagina ha il testo accorciato, sempre con `body_truncated`, e se non basta dell'evento restano solo gli id (`kind`, `workspace`, `task_id`, `proposal_id`, `status`, `question.id`, `request.id`) con `event_truncated: true`: mai una pagina vuota, e per ogni messaggio con allegati `attachments`: solo nome, tipo e dimensione, mai percorso né contenuto), più, se la pagina non parte dall'inizio, `older_messages` e `next_before` (l'id del primo messaggio escluso, da passare a `before` per leggere il resto senza buchi né ripetizioni) e, se non arriva alla fine, `newer_messages`. Con `message_id` l'esito è invece `{ message_id, offset, content, next_offset?, total_chars, untrusted? }`: un pezzo del testo entro `TOOL_RESULT_MAX`, con `next_offset` finché continua (stesse convenzioni di `task_details`; `output/message_body.rs`). I dati dei task negli eventi restano i riassunti tagliati alla creazione: il dettaglio completo è `task_details`. Un `before` o `message_id` sconosciuto, un `offset` oltre la fine o `before` insieme a `message_id` è un errore per il modello; la finestra è calcolata in `thread_page.rs` |
 | `post_message` | `body` (1..8000 caratteri) | un messaggio intermedio del segretario nel thread; la risposta finale è comunque il testo del modello |
-| `open_plan_task` | `goal` (1..4000 caratteri, ripulito dai caratteri di controllo) | crea un task `plan` in coda nel workspace del canale, collegato al thread, e rende il segretario titolare; esito `{ task_id, title, status }`. Nel Generale è un errore per il modello: deve chiedere all'utente il progetto |
+| `open_plan_task` | `goal` (1..4000 caratteri, ripulito dai caratteri di controllo), `bot` (obbligatorio, 1..64 caratteri: l'id di un Bot-agente abilitato, `general` se nessuno è specifico) | crea un task `plan` in coda nel workspace del canale, eseguito dal Bot scelto, collegato al thread, e rende il segretario titolare; esito `{ task_id, title, status }`. Nel Generale è un errore per il modello: deve chiedere all'utente il progetto. Un Bot sconosciuto o disabilitato è un errore per il modello, senza ripieghi e senza task creato |
 | `decide_proposal` | `accept` (bool), **nessun id** | accetta o scarta la proposta dell'evento a cui risponde il messaggio dell'utente; esito `{ proposal, decision, tasks_queued }` |
 | `relay_answer` | `body` (1..4000 caratteri, il limite delle risposte della board), `question_id?` e `task_id?` (al massimo 64 caratteri; vuoto vale assente) | consegna `body` al worker come risposta a una domanda in attesa del thread, solo in un turno svegliato da un messaggio dell'utente; senza id vale l'unica domanda in attesa, con più domande si passano `question_id` e `task_id` letti da `thread_read` (`event.question.id`, `event.task_id`) o da `task_details` (`question.id`); esito `{ task_id, question_id, delivered }` e nel thread «@mario ha inviato al worker del task t-7 questa risposta: …» |
 | `task_action` | `task_id` (1..64 caratteri), `action` (`retry`, `to_top`, `move_before`), `before_task_id?` (1..64 caratteri, obbligatorio con `move_before` e vietato con le altre; vuoto vale assente), `workspace?` (come `board_status`) | ritenta un task fallito, porta un task in coda in testa alla coda o prima di un altro task in coda, della board del canale del thread; esito `{ workspace, task_id, title, status }` (più `before_task_id`, `before_title` per `move_before`) e un avviso nel thread. Vedi "Azioni sulla coda" |
 | `request_task_action` | `task_id` (1..64 caratteri), `action` (`stop`, `delete`, `delete_cascade`, `mark_done`), `reason` (1..300 caratteri) | chiede all'utente di fermare, eliminare (anche con i task che ne dipendono) o segnare fatto un task: **non esegue nulla**, scrive nel thread una scheda con «Conferma» e «Annulla»; esito `{ request_id, task_id, title, action, status: "awaiting_confirmation", expires_in_minutes, note }`. Vedi "Azioni che chiedono conferma" |
-| `request_task_update` | `task_id` (1..64 caratteri), almeno uno fra `title` (1..80), `task` (la specifica completa, fino a 100000), `depends_on` (l'elenco completo di id, fino a 50) e `model` (stringa, o `null` per il modello predefinito dell'agente), `reason` (1..300 caratteri) | chiede all'utente di cambiare quei campi di un task `queued` o `failed`: **non cambia nulla**, scrive nel thread una scheda col diff (prima e dopo) e «Conferma» e «Annulla»; esito `{ request_id, task_id, title, action: "update", status: "awaiting_confirmation", expires_in_minutes, note }`. Un campo assente resta com'è. La validazione è quella del pannello Task e si fa **già alla richiesta** (un ciclo, un modello che non è dell'agente del task o un task non modificabile sono rifiutati subito, senza scheda). Vedi "Azioni che chiedono conferma" |
+| `request_task_update` | `task_id` (1..64 caratteri), almeno uno fra `title` (1..80), `task` (la specifica completa, fino a 100000), `depends_on` (l'elenco completo di id, fino a 50), `model` (stringa, o `null` per il modello predefinito dell'agente) e `bot` (l'id di un Bot abilitato, 1..64 caratteri; `null` è rifiutato: il Bot si cambia, non si toglie), `reason` (1..300 caratteri) | chiede all'utente di cambiare quei campi di un task `queued` o `failed`: **non cambia nulla**, scrive nel thread una scheda col diff (prima e dopo) e «Conferma» e «Annulla»; esito `{ request_id, task_id, title, action: "update", status: "awaiting_confirmation", expires_in_minutes, note }`. Un campo assente resta com'è. Un nuovo `bot` porta nel task agente, modello, effort e skill del Bot (un `model` passato insieme scavalca solo il modello). La validazione è quella del pannello Task e si fa **già alla richiesta** (un ciclo, un modello che non è dell'agente del task, un Bot sconosciuto o disabilitato o un task non modificabile sono rifiutati subito, senza scheda). Vedi "Azioni che chiedono conferma" |
 | `board_control` | `paused?` (bool), `max_parallel?` (intero da 1 a 16, i limiti di `board_set`), almeno uno dei due; `workspace?` (come `board_status`) | mette in pausa o riprende la board del canale del thread e/o ne imposta `max_parallel`; esito `{ workspace, paused, max_parallel, changed }` con in `changed` solo le parti cambiate davvero (vuoto, con `note`, se la board era già così: nessuna scrittura) |
 | `set_thread_state` | `state` (`closed` o `open`), **nessun id**: vale solo il thread del turno | chiude o riapre il thread in cui lavora il segretario, solo in un turno svegliato da un messaggio dell'utente (mai da un evento della board o da un elemento esterno); esito `{ state, changed }`. Riaprire non sveglia nessuno. Classe `Write`; l'avviso di audit compare solo se lo stato è cambiato. Opt-in: è nei preset Coordinatore e Operatore, non entra nei segretari esistenti |
 
@@ -1110,6 +1113,12 @@ workspace col nome. `WorkspaceNames` (`workspace_names.rs`, puro) è l'istantane
 nei file dei thread. Risolve il riferimento di `board_status` (prima l'id esatto, poi il nome) e aggiunge
 `workspace_name` accanto all'id nei dati degli eventi (`event.workspace_name`) e nell'intestazione del thread.
 Gli id dei task restano visibili all'utente; quelli dei workspace no.
+
+**Bot nel contesto**: un segretario con `open_plan_task` o `request_task_update` trova nel system prompt, a ogni
+turno, l'elenco dei Bot-agente **abilitati** (`bots::agent_bots`, letto dallo store dei Bot: un Bot modificato si
+vede dal turno dopo), una riga per Bot `- <id>: <nome> - <compito>`, con l'indicazione di scegliere quello il cui
+compito corrisponde al lavoro e `general` se nessuno è specifico (`engine/bot_choice.rs::describe`). Gli altri
+segretari non lo ricevono. Nessun tool nuovo: è la soluzione più piccola, come i nomi dei workspace.
 
 Il segretario non vede mai la API key né file del disco: i tool leggono solo board (dalla sorgente delle viste che
 `lib.rs` registra con `automation::board_views`) e thread, e agiscono sulla board solo con le azioni che `lib.rs`
@@ -1131,9 +1140,14 @@ stessa validazione) e `automation::answer_question` (la risposta a una domanda d
 worker"). Senza registrazione i tool rispondono al modello «The board cannot be changed right now.» e la risposta
 diretta «… le azioni sulla board non sono disponibili.».
 
-**`open_plan_task { goal }`.**
+**`open_plan_task { goal, bot }`.**
 
 - Solo nel canale di un workspace; nel Generale l'errore chiede al modello di domandare all'utente il progetto.
+- Il Bot è obbligatorio: il segretario lo sceglie dall'elenco dei Bot del suo system prompt (vedi "Bot nel
+  contesto"). Prima di creare qualcosa `planning::open_plan` lo verifica fra i Bot-agente salvati
+  (`engine/bot_choice.rs::check`): sconosciuto → «Unknown bot "…": use the id of one of the bots listed in your
+  instructions (`general` when no bot is specific).», disabilitato → «The bot "…" is disabled: …». Nessun ripiego
+  su un altro Bot.
 - Titolo: la prima riga del goal, al massimo 72 caratteri (la board ne ammette 80), «Plan» se non resta nulla.
 - Testo (inglese, lo legge il pianificatore, che non vede altro): la richiesta dell'utente **citata testualmente**
   (il messaggio del turno; in un risveglio da evento, l'ultimo messaggio dell'utente), il goal, il riassunto del thread
@@ -1146,10 +1160,10 @@ diretta «… le azioni sulla board non sono disponibili.».
   i worker vedono solo la specifica. Ogni allegato compare una volta; nelle righe dei messaggi recenti resta
   ` [attached: nome, ...]`. Mai il contenuto dei file. Senza allegati il testo è identico a prima; la sezione sta
   nei limiti di testo del task (al più 5 allegati per messaggio e 11 messaggi).
-- Modello del pianificatore: la fascia `strong` dell'agente del workspace, cioè `opus` con Claude Code (vedi
-  [BOARD.MD](BOARD.MD), "Task di pianificazione"): pianificare è il ragionamento più difficile e si fa una volta per
-  obiettivo, mentre il core non nomina modelli. Se l'agente non dichiara le fasce vale il modello dei worker del
-  workspace. Repository: la radice. Se la radice non è un repository git il pianificatore lavora nella cartella del workspace,
+- Chi pianifica: esattamente il Bot scelto. `PlanOrder.bot` arriva a `automation::queue_hub_plan_task` e il task
+  `plan` ne copia agente, modello, effort e skill alla creazione, come ogni task con Bot (snapshot: cambiare il Bot
+  dopo non tocca il task; vedi [BOARD.MD](BOARD.MD), "Task di pianificazione"). Il Bot `general` lascia il modello
+  predefinito dell'agente; l'app non sceglie più un modello per il pianificatore. Repository: la radice. Se la radice non è un repository git il pianificatore lavora nella cartella del workspace,
   senza worktree e in sola lettura, e propone un task per cartella (i repository git rilevati e le cartelle senza git,
   che girano in modalità libera; vedi [BOARD.MD](BOARD.MD), "Pianificazione in una cartella senza git" e
   "Cartelle senza git"); senza nessun repository non c'è più un errore.
@@ -1241,12 +1255,15 @@ solo il clic dell'utente su «Conferma».
   all'utente come è andata (il preset gli chiede di non dire «fatto» prima). Poi `hub-update`.
 - **Modificare un task** (`request_task_update`, `confirm/update.rs`). Stessa scheda, stessi stati, scadenza,
   invalidazione e risveglio, con `action = update` e `HubActionRequest.update` (`HubTaskUpdate`): `changes` è il diff
-  per la scheda, un elemento per campo che cambia davvero (`title`, `task`, `depends_on`, `model`; `before` e `after`,
-  `null` = nessun valore, testi tagliati a 600 caratteri), mentre `patch` (i valori nuovi **completi**) e `base` (gli
+  per la scheda, un elemento per campo che cambia davvero (`title`, `task`, `depends_on`, `model`, `bot`; `before` e
+  `after`, `null` = nessun valore, testi tagliati a 600 caratteri; per il Bot gli id di prima e di dopo, etichetta
+  «Bot», «nessuno» per un task senza Bot), mentre `patch` (i valori nuovi **completi**) e `base` (gli
   stessi campi com'erano alla richiesta) restano nel dato salvato e non arrivano ai bindings (`#[ts(skip)]`). Altri
-  campi del task (repository, agente, tipo, E2E) non si possono chiedere.
+  campi del task (repository, agente, tipo, E2E) non si possono chiedere. Con il Bot cambiano anche agente, modello,
+  effort e skill del task (la copia la rifà `Board::update_task` alla conferma); la scheda mostra solo il Bot.
   - *Alla richiesta*: il task deve essere collegato al thread e `can_edit` (`queued` o `failed`: un task in corso o
-    concluso è rifiutato), il patch deve cambiare qualcosa, e la modifica si prova sulla board con
+    concluso è rifiutato), il patch deve cambiare qualcosa, un nuovo Bot deve esistere ed essere abilitato
+    (`bot_choice::check`, lo stesso errore di `open_plan_task`), e la modifica si prova sulla board con
     `BoardActions::check_task_update` (`automation::hub_task_update_check`: `Board::update_task` su una copia, con la
     stessa validazione del pannello Task, cioè grafo senza cicli, dipendenze esistenti, modello fra quelli dell'agente
     del task). Un errore torna al modello e non scrive nessuna scheda.

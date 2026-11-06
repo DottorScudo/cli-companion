@@ -8,10 +8,12 @@
 //! messaggi comparsi nel thread dall'ultimo turno (non quelli del segretario,
 //! che li ha gia' nella conversazione) e il nuovo messaggio dell'utente.
 
+use super::bot_choice;
 use super::chat::ChatMessage;
 use super::output;
 use super::sessions::WakeCause;
 use super::workspace_names::WorkspaceNames;
+use crate::bots::AgentBot;
 use crate::hub::attachments::listing;
 use crate::hub::channel::Channel;
 use crate::hub::model::{Author, Message, Thread};
@@ -91,10 +93,18 @@ pub struct Trigger<'a> {
     pub proposal: Option<&'a str>,
 }
 
-/// System prompt del segretario + istruzione fissa del motore + lingua.
-pub fn system_prompt(secretary: &Secretary, language: Language, channel: &Channel, names: &WorkspaceNames) -> String {
+/// System prompt del segretario + istruzione fissa del motore + workspace, Bot
+/// (solo se i suoi tool li chiedono, vedi `bot_choice::describe`) e lingua.
+pub fn system_prompt(
+    secretary: &Secretary,
+    language: Language,
+    channel: &Channel,
+    names: &WorkspaceNames,
+    bots: &[AgentBot],
+) -> String {
+    let bots = bot_choice::describe(secretary, bots).map(|text| format!("{text}\n\n")).unwrap_or_default();
     format!(
-        "{}\n\n{}\n\n{}\n\nAlways reply to the user in {}.",
+        "{}\n\n{}\n\n{}\n\n{bots}Always reply to the user in {}.",
         secretary.system_prompt,
         ENGINE_INSTRUCTIONS.replace("{name}", &secretary.name),
         names.describe(channel, secretary),

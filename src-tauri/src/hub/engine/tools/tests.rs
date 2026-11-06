@@ -55,7 +55,7 @@ fn schema_properties_match_the_argument_structs() {
         ("board_overview", json!({})),
         ("task_details", json!({"task_id": "t-1", "workspace": "ws-1", "field": "task", "offset": 0})),
         ("post_message", json!({"body": "x"})),
-        ("open_plan_task", json!({"goal": "Add a dark theme"})),
+        ("open_plan_task", json!({"goal": "Add a dark theme", "bot": "general"})),
         ("decide_proposal", json!({"accept": true})),
         ("relay_answer", json!({"body": "Use the second option.", "question_id": "q-1-1", "task_id": "t-1"})),
         (
@@ -127,8 +127,8 @@ fn arguments_are_validated_against_the_schema() {
 fn the_planning_tools_validate_their_arguments() {
     let s = secretary(&SecretaryTool::ALL);
     assert_eq!(
-        parse(&call("open_plan_task", r#"{"goal":"  Add X to the app\u0007 "}"#), &s),
-        Ok(Invocation::OpenPlanTask { goal: "Add X to the app".into() })
+        parse(&call("open_plan_task", r#"{"goal":"  Add X to the app\u0007 ","bot":" intake "}"#), &s),
+        Ok(Invocation::OpenPlanTask { goal: "Add X to the app".into(), bot: "intake".into() })
     );
     assert_eq!(
         parse(&call("decide_proposal", r#"{"accept":false}"#), &s),
@@ -136,8 +136,11 @@ fn the_planning_tools_validate_their_arguments() {
     );
     for (name, args) in [
         ("open_plan_task", "{}"),
-        ("open_plan_task", r#"{"goal":"   "}"#),
-        ("open_plan_task", r#"{"goal":"x","workspace":"ws-1"}"#),
+        ("open_plan_task", r#"{"goal":"   ","bot":"general"}"#),
+        ("open_plan_task", r#"{"goal":"Add X"}"#),
+        ("open_plan_task", r#"{"goal":"Add X","bot":"   "}"#),
+        ("open_plan_task", r#"{"goal":"Add X","bot":null}"#),
+        ("open_plan_task", r#"{"goal":"x","bot":"general","workspace":"ws-1"}"#),
         ("decide_proposal", "{}"),
         ("decide_proposal", r#"{"accept":"yes"}"#),
         ("decide_proposal", r#"{"accept":true,"proposal_id":"p-1"}"#),
@@ -145,9 +148,12 @@ fn the_planning_tools_validate_their_arguments() {
         let err = parse(&call(name, args), &s).unwrap_err();
         assert!(matches!(err, ToolRejection::InvalidArguments { .. }), "{name} {args}");
     }
-    let long = json!({ "goal": "é".repeat(GOAL_MAX + 1) }).to_string();
+    let long = json!({ "goal": "é".repeat(GOAL_MAX + 1), "bot": "general" }).to_string();
     assert!(parse(&call("open_plan_task", &long), &s).is_err());
-    assert!(parse(&call("open_plan_task", &json!({ "goal": "é".repeat(GOAL_MAX) }).to_string()), &s).is_ok());
+    assert!(parse(&call("open_plan_task", &json!({ "goal": "é".repeat(GOAL_MAX), "bot": "general" }).to_string()), &s)
+        .is_ok());
+    let long_bot = json!({ "goal": "x", "bot": "b".repeat(BOT_ID_MAX + 1) }).to_string();
+    assert!(parse(&call("open_plan_task", &long_bot), &s).is_err());
     // Un segretario senza i tool nuovi (salvato prima) non li ha.
     let old = secretary(&[SecretaryTool::BoardStatus]);
     assert_eq!(

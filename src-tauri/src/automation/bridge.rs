@@ -97,9 +97,10 @@ pub fn board_views(app: &AppHandle) -> Vec<BoardView> {
 
 /// Crea un task `plan` in coda nel workspace `ws_id` (vedi
 /// `planner::create_hub_plan_task`): l'API con cui l'Agents HUB delega la
-/// pianificazione. Ritorna l'id del task. Fa git: da chiamare fuori dal main thread.
-pub fn queue_hub_plan_task(app: &AppHandle, ws_id: &str, title: &str, task: &str) -> Result<String, String> {
-    planner::create_hub_plan_task(&app.state::<AutomationState>(), &TauriHost(app.clone()), ws_id, title, task)
+/// pianificazione, con il Bot scelto dal segretario. Ritorna l'id del task. Fa
+/// git: da chiamare fuori dal main thread.
+pub fn queue_hub_plan_task(app: &AppHandle, ws_id: &str, title: &str, task: &str, bot: &str) -> Result<String, String> {
+    planner::create_hub_plan_task(&app.state::<AutomationState>(), &TauriHost(app.clone()), ws_id, title, task, bot)
 }
 
 /// Consegna la risposta dell'utente a una domanda di un worker (`ask_user`): la segna

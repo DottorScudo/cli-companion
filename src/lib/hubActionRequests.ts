@@ -49,6 +49,7 @@ const FIELD_LABELS: Readonly<Record<HubTaskField, string>> = {
   task: "Specifica",
   depends_on: "Dipendenze",
   model: "Modello",
+  bot: "Bot",
 };
 
 /** Cosa si legge quando un campo non ha valore. */
@@ -57,6 +58,7 @@ const EMPTY_VALUES: Readonly<Record<HubTaskField, string>> = {
   task: "—",
   depends_on: "nessuna",
   model: "predefinito",
+  bot: "nessuno",
 };
 
 /** Etichetta di un campo del task. */
