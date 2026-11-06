@@ -180,7 +180,7 @@ vanno scritte qui sotto, per versione, prima del tag.
   versione aggiornata: Ripristina predefinito». Il ripristino riporta prompt e tool al preset e
   perde eventuali modifiche fatte a mano.
 - **Skill del plugin.** `code-answer` e `bug-fix`, e le skill da worker per i Bot che verranno
-  (`code-research`, `test-qa`, `docs-writer`, `safe-refactor`), arrivano con l'aggiornamento del
+  (`code-research`, `test-qa`, `docs-writer`, `safe-refactor`, `git-ops`, `release-prep`), arrivano con l'aggiornamento del
   pacchetto dell'agente, Claude Code e OpenCode (prontezza «da aggiornare» finché non lo si
   aggiorna).
 

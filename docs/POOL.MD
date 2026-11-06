@@ -22,8 +22,8 @@ Convenzione: i testi che leggerà il modello (prompt dei segretari, `task` dei B
 > `quick-answer`, `bug-fixer`, migrazione v4), T4 (`task` esclusivi, migrazione v5), T5 (Coordinatore e Analista,
 > avviso «versione aggiornata»), T11 (documentazione: [BOARD.MD](BOARD.MD), "Skill del plugin e Bot" e
 > "Agente e modello di un task"; [HUB.MD](HUB.MD), "Segretari predefiniti" e "Pianificazione dal thread"). Restano da
-> fare i task should/could (T6–T10), i Bot `git-operator` e `release` e le skill `git-ops` e `release-prep`: la
-> seconda tappa di T2 ha consegnato `code-research`, `test-qa`, `docs-writer` e `safe-refactor`, la seconda tappa di
+> fare i task should/could (T6–T10), i Bot `git-operator` e `release`: la seconda tappa di T2 ha consegnato `code-research`, `test-qa`,
+> `docs-writer` e `safe-refactor`, la terza `git-ops` e `release-prep` (senza Bot), la seconda tappa di
 > T3 i Bot `researcher`, `test-writer`, `docs-writer` e `refactorer` (accesi, migrazione v6 di `bots.json`). Le sezioni 1–8 restano l'analisi originale: dove il
 > codice è cambiato fa fede la documentazione collegata.
 

@@ -1149,7 +1149,8 @@ come **Bot** (`bot:<id>`, `bots/launches.rs`), che porta agente, modello, effort
 (`bots.json`); i Bot predefiniti `intake`, `setup` e `skill-wizard` usano le skill `task-intake`, `project-setup` e
 `skill-wizard`; `code-answer` e `bug-fix` sono skill da worker dei Bot `quick-answer` e `bug-fixer` (vedi sotto e
 "Bot predefiniti"); `code-research`, `test-qa`, `docs-writer` e `safe-refactor` sono le skill da worker dei Bot
-`researcher`, `test-writer`, `docs-writer` e `refactorer`. Un Bot con una skill del plugin richiede un agente che dichiara `plugin-skills`. Una skill non
+`researcher`, `test-writer`, `docs-writer` e `refactorer`; `git-ops` e `release-prep` sono skill da worker già spedite
+per i Bot `git-operator` e `release` di POOL.MD, non ancora creati (un Bot dell'utente può già nominarle). Un Bot con una skill del plugin richiede un agente che dichiara `plugin-skills`. Una skill non
 nomina mai un agente o un modello: li legge da `get_workspace_settings.agents`.
 - Migrazione: un `default_launch` salvato come `builtin:orchestrator` o `builtin:preset:task-intake` diventa `bot:intake`
   (`builtin:preset:project-setup` → `bot:setup`, `builtin:preset:skill-wizard` → `bot:skill-wizard`,
@@ -1197,7 +1198,8 @@ nomina mai un agente o un modello: li legge da `get_workspace_settings.agents`.
   solo con le modalità parallele. Parla con l'utente nella sua lingua; regole e testi per i
   worker in inglese, salvo diversa richiesta.
 - **Skill da worker** (`code-answer` "Code Answer", `bug-fix` "Bug Fix", `code-research` "Code Research", `test-qa`
-  "Test QA", `docs-writer` "Docs Writer", `safe-refactor` "Safe Refactor"): le carica un worker il cui Bot le nomina
+  "Test QA", `docs-writer` "Docs Writer", `safe-refactor` "Safe Refactor", `git-ops` "Git Ops",
+  `release-prep` "Release Prep"): le carica un worker il cui Bot le nomina
   (vedi `get_task.skill`); la `description` limita l'attivazione a un task di cli-companion il cui Bot nomina la
   skill, perché le skill del plugin compaiono anche nelle sessioni interattive. Sezioni `When this applies`, `Rules`,
   `Workflow`, `Report`; non ripetono lo standard dei worker né le istruzioni di consegna (vedi POOL.MD §5).
@@ -1213,7 +1215,16 @@ nomina mai un agente o un modello: li legge da `get_workspace_settings.agents`.
   (default la lingua della richiesta), niente gergo e passi numerati per un lettore non tecnico, ogni comando o
   percorso citato verificato nel repository, codice toccato solo nei commenti. `safe-refactor` (task `work`): test
   verdi prima (scritti prima se mancano), passi piccoli verificati, nessun cambio di comportamento, API o formati;
-  report con i passi e la prova dell'equivalenza.
+  report con i passi e la prova dell'equivalenza. `git-ops` (task `work`, regole bloccanti): mai push forzato su
+  branch condivisi né storia riscritta di main o del branch base; `reset --hard`, `clean -fd`, `branch -D`,
+  `stash drop` ed eliminazione di branch remoti solo dopo un `ask_user` che elenca cosa si perde; prima di ogni
+  operazione distruttiva un riferimento `backup/<data>` (tag o branch); git nel worktree del task salvo richiesta;
+  mai `stash` sullo stack condiviso senza messaggio unico; un task senza commit propri salta commit, push, PR e
+  merge della consegna e chiude `completed` senza `commit` (in modalità PR `gh pr create` fallirebbe); report con
+  comandi, stato prima/dopo e come tornare indietro. `release-prep` (task `work`): senza istruzioni di rilascio nel
+  repository chiude `failed` chiedendo di documentarle; version bump e changelog dai commit integrati; solo i
+  comandi di build e pubblicazione documentati; pubblicazione, tag remoti e deploy solo dopo un `ask_user` con il
+  riepilogo.
 - **Skill nuove e pacchetto.** La versione del pacchetto di entrambe le integrazioni dipende dal testo di tutte le
   skill (`plugin_version` in `agents/claude_code/plugin.rs`, `version_of` in `agents/opencode/plugin.rs`): una skill
   nuova o cambiata rende la prontezza `outdated` finché l'utente non aggiorna il pacchetto, e solo dopo

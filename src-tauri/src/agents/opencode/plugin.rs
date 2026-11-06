@@ -102,7 +102,7 @@ mod tests {
         assert!(index.contains(r#"const MCP_SERVER = "cli-companion""#));
         let ids: Vec<String> = PRESETS.iter().map(|p| format!("\"{}\"", p.id)).collect();
         assert!(index.contains(&format!("const SKILL_IDS: string[] = [{}]", ids.join(","))));
-        assert!(index.contains(r#""code-answer","bug-fix","code-research","test-qa","docs-writer","safe-refactor"]"#));
+        assert!(index.contains(r#""code-answer","bug-fix","code-research","test-qa","docs-writer","safe-refactor","git-ops","release-prep"]"#));
         assert!(index.contains(r#"id: "cli-companion-notify","#));
         assert!(!index.contains("__"), "segnaposto rimasto");
         assert!(!index.contains('\r'));
