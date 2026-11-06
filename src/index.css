@@ -117,8 +117,20 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* L'app è sempre scura: i controlli nativi (popup delle select, scrollbar
+     delle liste) devono usare lo schema scuro del motore di rendering. */
+  :root {
+    color-scheme: dark;
+  }
   body {
     @apply bg-background text-foreground;
+  }
+  /* Elenco aperto delle select: il variant [&>option] di Tailwind colpiva solo
+     le option figlie dirette, lasciando bianchi optgroup e option annidate. */
+  select option,
+  select optgroup {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
   }
 }
 
