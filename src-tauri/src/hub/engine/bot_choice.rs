@@ -207,6 +207,23 @@ mod tests {
         assert!(disabled.starts_with("The bot \"planner\" is disabled"), "{disabled}");
     }
 
+    /// Git Operator e Release nascono spenti: il segretario non li vede e non li
+    /// sceglie finche' l'utente non li accende.
+    #[test]
+    fn the_preset_bots_that_start_disabled_are_hidden_and_refused_until_enabled() {
+        let mut list = bots();
+        let both = with_tools(vec![SecretaryTool::OpenPlanTask, SecretaryTool::RequestTaskUpdate]);
+        let text = describe(&both, &list).unwrap();
+        for id in ["git-operator", "release"] {
+            assert!(!text.contains(&format!("- {id}:")), "{id}: {text}");
+            let refused = check(&list, id, TaskKind::Work).unwrap_err();
+            assert!(refused.starts_with(&format!("The bot \"{id}\" is disabled")), "{refused}");
+        }
+        by_id(&mut list, "git-operator").enabled = true;
+        assert!(describe(&both, &list).unwrap().contains("\n- git-operator: Git Operator - Performs git maintenance"));
+        assert_eq!(check(&list, "git-operator", TaskKind::Work), Ok(()));
+    }
+
     #[test]
     fn a_bot_that_cannot_run_the_kind_is_refused() {
         let err = check(&bots(), "general", TaskKind::Plan).unwrap_err();

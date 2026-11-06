@@ -203,6 +203,29 @@ vanno scritte qui sotto, per versione, prima del tag.
 - **Skill del plugin.** Le quattro skill sono già nel pacchetto dell'agente: se la prontezza è
   «da aggiornare», l'aggiornamento del pacchetto le rende disponibili.
 
+### Prossima versione: Bot Git Operator e Release, spenti
+
+- **Due Bot nuovi, spenti di serie.** **Git Operator** (`strong`/`medium`, skill `git-ops`) fa la
+  manutenzione git chiesta dall'utente (pulizia dei branch, conflitti, annullare un cambiamento)
+  senza mai riscrivere la storia condivisa né fare push forzati; **Release** (`strong`/`high`,
+  `release-prep`) prepara version bump, changelog e note di rilascio e non pubblica, non crea tag
+  remoti e non fa deploy senza la conferma esplicita dell'utente.
+- **Perché spenti.** Sono gli unici Bot con effetti fuori dal flusso di consegna: Git Operator
+  tocca il repository condiviso (branch, storia), Release porta a pubblicazioni e deploy
+  irreversibili che dipendono dal progetto. Spenti, il segretario non li vede e la board li
+  rifiuta; se una richiesta ne ha bisogno, il pianificatore non propone nulla e chiede di
+  accendere il Bot che nomina.
+- **Come accenderli.** Impostazioni › Generale › Bot, editor del Bot, casella «Attivo». Per
+  Release conviene prima documentare nel repository i comandi di rilascio (senza, la skill chiude
+  il task come fallito chiedendo di scriverli) o dargli una skill utente con quei comandi.
+- **Chi ha già i file.** `bots.json` passa alla versione 7: i due Bot si creano **una volta sola**,
+  spenti, in fondo all'elenco (un Bot cancellato non ricompare, un nome già preso diventa «Git
+  Operator 2»; un segretario chiamato `release` fa diventare il Bot «Release 2»). «Ripristina i
+  predefiniti mancanti» li ricrea spenti; «Ripristina predefinito» non cambia l'accensione di un
+  Bot esistente. Una versione precedente dell'app mette da parte il file come
+  `bots.json.bak-<timestamp>`.
+- **Skill del plugin.** `git-ops` e `release-prep` sono già nel pacchetto dell'agente.
+
 ## 6. Checklist release
 
 - [ ] `updater.config.json`: `owner`/`repo` reali

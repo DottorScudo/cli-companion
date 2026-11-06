@@ -47,6 +47,7 @@ fn the_system_prompt_lists_the_bots_before_the_language() {
         ),
         "{p}"
     );
+    assert!(!p.contains("- git-operator:") && !p.contains("- release:"), "the bots that start disabled: {p}");
 }
 
 #[test]

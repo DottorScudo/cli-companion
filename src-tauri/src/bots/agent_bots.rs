@@ -89,7 +89,8 @@ pub fn restore_preset(list: &mut [AgentBot], id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Ricrea in fondo i preset che mancano; quelli presenti non cambiano. Se il
+/// Ricrea in fondo i preset che mancano, come li crea il preset (spenti quelli
+/// con `enabled_by_default` falso); quelli presenti non cambiano. Se il
 /// nome del preset e' gia' preso, prende il primo libero fra "Nome 2", "Nome 3"...
 pub fn restore_presets(list: &mut Vec<AgentBot>, taken: &[String]) {
     for preset in &PRESETS {
@@ -291,7 +292,9 @@ mod tests {
                 "researcher",
                 "test-writer",
                 "docs-writer",
-                "refactorer"
+                "refactorer",
+                "git-operator",
+                "release"
             ]
         );
         assert_eq!(delete(&mut list, "setup").unwrap_err(), NOT_FOUND);
@@ -354,6 +357,8 @@ mod tests {
                 "test-writer",
                 "docs-writer",
                 "refactorer",
+                "git-operator",
+                "release",
                 "setup",
                 "skill-wizard"
             ]
@@ -363,6 +368,24 @@ mod tests {
         let again = list.clone();
         restore_presets(&mut list, &[]);
         assert_eq!(list, again);
+    }
+
+    #[test]
+    fn a_risky_preset_is_recreated_disabled_and_restoring_it_keeps_its_enabled() {
+        let mut list = default_bots();
+        delete(&mut list, "git-operator").unwrap();
+        restore_presets(&mut list, &[]);
+        assert_eq!(by_id(&list, "git-operator"), &presets::find("git-operator").unwrap().bot());
+        assert!(!by_id(&list, "git-operator").enabled, "recreated disabled");
+
+        let at = list.iter().position(|b| b.id == "git-operator").unwrap();
+        list[at].enabled = true;
+        list[at].task = "Mine.".into();
+        restore_preset(&mut list, "git-operator").unwrap();
+        assert_eq!(by_id(&list, "git-operator").task, presets::find("git-operator").unwrap().task);
+        assert!(by_id(&list, "git-operator").enabled, "the choice of the user stays");
+        restore_preset(&mut list, "release").unwrap();
+        assert!(!by_id(&list, "release").enabled, "a disabled bot stays disabled");
     }
 
     #[test]

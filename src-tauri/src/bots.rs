@@ -106,14 +106,15 @@ impl Default for BotSettings {
 
 /// v1: la busta; v2: i Bot-agente predefiniti; v3: i tipi di task dei Bot, Reviewer e Planner;
 /// v4: Quick Answer e Bug Fixer; v5: i `task` esclusivi di General e Planner;
-/// v6: Researcher, Test Writer, Docs Writer e Refactorer.
-const MIGRATIONS: [crate::store::Migration; 6] = [
+/// v6: Researcher, Test Writer, Docs Writer e Refactorer; v7: Git Operator e Release, spenti.
+const MIGRATIONS: [crate::store::Migration; 7] = [
     adopt_envelope,
     migrations::add_agent_bots,
     migrations::add_task_kinds,
     migrations::add_answer_and_fix_bots,
     migrations::exclusive_general_and_planner_tasks,
     migrations::add_research_and_work_bots,
+    migrations::add_git_and_release_bots,
 ];
 
 static SETTINGS_FILE: JsonFile<BotSettings> = JsonFile::new("bots.json", &MIGRATIONS).decoded_with(decode_settings);

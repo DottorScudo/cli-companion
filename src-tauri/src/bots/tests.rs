@@ -235,7 +235,7 @@ fn update_writes_the_envelope_and_roundtrips() {
         })
         .unwrap();
     let raw: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join(FILE_NAME)).unwrap()).unwrap();
-    assert_eq!(raw["schema_version"], 6);
+    assert_eq!(raw["schema_version"], 7);
     assert_eq!(raw["data"]["agents"][0]["id"], "general");
     assert_eq!(raw["data"]["enabled"], false);
     assert_eq!(raw["data"]["images"]["Ada"]["color"], "#445566");
@@ -275,7 +275,7 @@ fn agent<'a>(s: &'a BotSettings, id: &str) -> &'a AgentBot {
     s.agents.iter().find(|b| b.id == id).unwrap()
 }
 
-const ALL_PRESET_IDS: [&str; 12] = [
+const ALL_PRESET_IDS: [&str; 14] = [
     "general",
     "intake",
     "setup",
@@ -288,14 +288,24 @@ const ALL_PRESET_IDS: [&str; 12] = [
     "test-writer",
     "docs-writer",
     "refactorer",
+    "git-operator",
+    "release",
 ];
 
 /// I Bot che il passo v6 aggiunge in fondo all'elenco.
 const V6_PRESET_IDS: [&str; 4] = ["researcher", "test-writer", "docs-writer", "refactorer"];
 
-/// Gli id `before`, seguiti da quelli aggiunti dal passo v6.
+/// I Bot, spenti, che il passo v7 aggiunge in fondo all'elenco.
+const V7_PRESET_IDS: [&str; 2] = ["git-operator", "release"];
+
+/// Gli id `before`, seguiti da quelli aggiunti dai passi v6 e v7.
 fn with_v6<'a>(before: &[&'a str]) -> Vec<&'a str> {
-    [before, &V6_PRESET_IDS[..]].concat()
+    with_v7(&[before, &V6_PRESET_IDS[..]].concat())
+}
+
+/// Gli id `before`, seguiti da quelli aggiunti dal passo v7.
+fn with_v7<'a>(before: &[&'a str]) -> Vec<&'a str> {
+    [before, &V7_PRESET_IDS[..]].concat()
 }
 
 #[test]
@@ -415,7 +425,10 @@ fn v5_file_gets_the_four_new_bots_once() {
     let (dir, store) = load_fixture("v5-domain-bots", V5_FILE);
     let s = store.get();
     assert!(backups(&dir).is_empty());
-    assert_eq!(agent_ids(&s), ["general", "custom-tests", "refactorer", "researcher", "test-writer", "docs-writer"]);
+    assert_eq!(
+        agent_ids(&s),
+        with_v7(&["general", "custom-tests", "refactorer", "researcher", "test-writer", "docs-writer"])
+    );
     assert_eq!((agent(&s, "general").task.as_str(), agent(&s, "general").kinds.len()), ("Mine.", 2));
     assert_eq!((agent(&s, "custom-tests").name.as_str(), agent(&s, "custom-tests").enabled), ("Test Writer", false));
     assert_eq!(agent(&s, "refactorer").name, "Cleaner", "a present id is untouched");
@@ -424,6 +437,40 @@ fn v5_file_gets_the_four_new_bots_once() {
     for id in ["researcher", "docs-writer"] {
         assert_eq!(agent(&s, id), &presets::find(id).unwrap().bot(), "{id}");
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Un file v6 com'era su disco: un Bot dell'utente acceso ha gia' il nome "Git
+/// Operator", il Release non c'e' mai stato e il Refactorer e' spento.
+const V6_FILE: &str = r#"{"schema_version":6,"data":{"enabled":true,"names":["Ada"],"agents":[
+{"id":"general","name":"General","task":"Mine.","agent":null,"model":{"kind":"default"},"effort":null,"skill":null,"kinds":["work"],"enabled":true,"image":null,"preset":"general"},
+{"id":"custom-git","name":"Git Operator","task":"My git chores.","agent":null,"model":{"kind":"default"},"effort":null,"skill":null,"kinds":["work"],"enabled":true,"image":null,"preset":null},
+{"id":"refactorer","name":"Refactorer","task":"Cleans up.","agent":null,"model":{"kind":"default"},"effort":null,"skill":null,"kinds":["work"],"enabled":false,"image":null,"preset":"refactorer"}
+]}}"#;
+
+#[test]
+fn v6_file_gets_git_operator_and_release_once_and_disabled() {
+    let (dir, store) = load_fixture("v6-risky-bots", V6_FILE);
+    let s = store.get();
+    assert!(backups(&dir).is_empty());
+    assert_eq!(agent_ids(&s), with_v7(&["general", "custom-git", "refactorer"]));
+    assert_eq!((agent(&s, "custom-git").name.as_str(), agent(&s, "custom-git").enabled), ("Git Operator", true));
+    assert!(!agent(&s, "refactorer").enabled && agent(&s, GENERAL_ID).enabled, "the existing bots are untouched");
+    let git_operator = presets::find("git-operator").unwrap().bot();
+    assert_eq!(agent(&s, "git-operator"), &AgentBot { name: "Git Operator 2".into(), ..git_operator });
+    assert_eq!(agent(&s, "release"), &presets::find("release").unwrap().bot());
+    for id in V7_PRESET_IDS {
+        assert!(!agent(&s, id).enabled, "{id} starts disabled");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_new_file_has_the_risky_bots_disabled_and_the_others_enabled() {
+    let (dir, store) = load_fixture("v0-risky-bots", "{}");
+    let s = store.get();
+    let off: Vec<&str> = s.agents.iter().filter(|b| !b.enabled).map(|b| b.id.as_str()).collect();
+    assert_eq!(off, V7_PRESET_IDS);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -452,7 +499,7 @@ fn a_missing_file_starts_with_the_preset_bots() {
 
 #[test]
 fn the_migrations_run_once_so_a_deleted_preset_stays_deleted() {
-    for deleted in ["intake", "reviewer", "quick-answer", "bug-fixer", "researcher", "refactorer"] {
+    for deleted in ["intake", "reviewer", "quick-answer", "bug-fixer", "researcher", "refactorer", "git-operator"] {
         let dir = temp_dir(&format!("deleted-preset-{deleted}"));
         std::fs::write(dir.join(FILE_NAME), r#"{"schema_version":1,"data":{}}"#).unwrap();
         let store = new_store();
@@ -484,7 +531,7 @@ fn a_v4_file_without_general_gets_it_back_enabled() {
 
 #[test]
 fn a_newer_schema_is_set_aside() {
-    let (dir, store) = load_fixture("newer", r#"{"schema_version":7,"data":{}}"#);
+    let (dir, store) = load_fixture("newer", r#"{"schema_version":8,"data":{}}"#);
     assert_eq!(store.get(), BotSettings::default());
     assert_eq!(backups(&dir).len(), 1);
     let _ = std::fs::remove_dir_all(&dir);

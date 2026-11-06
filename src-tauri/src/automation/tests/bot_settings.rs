@@ -33,7 +33,9 @@ fn every_bot_is_listed_in_order_with_the_documented_fields() {
             "researcher",
             "test-writer",
             "docs-writer",
-            "refactorer"
+            "refactorer",
+            "git-operator",
+            "release"
         ]
     );
 
@@ -71,6 +73,23 @@ fn disabled_bots_are_listed_too() {
     let (st, h) = (AutomationState::default(), FakeHost::default());
     h.edit_bots(|bots| bots.iter_mut().find(|b| b.id == "setup").unwrap().enabled = false);
     assert_eq!(bot(&bots(&st, &h), "setup")["enabled"], false);
+}
+
+/// Git Operator e Release nascono spenti: il pianificatore li vede spenti (per
+/// nominarli quando chiede all'utente di accenderli) e le sue istruzioni gli
+/// vietano di proporli finche' restano spenti.
+#[test]
+fn the_preset_bots_that_start_disabled_are_listed_disabled_for_the_planner() {
+    let (st, h) = (AutomationState::default(), FakeHost::default());
+    h.edit_bots(|bots| *bots = crate::bots::default_agent_bots());
+    let list = bots(&st, &h);
+    let off: Vec<_> = list.iter().filter(|b| b["enabled"] == false).map(|b| b["id"].as_str().unwrap()).collect();
+    assert_eq!(off, ["git-operator", "release"]);
+    assert_eq!(bot(&list, "git-operator")["skill"], json!({"kind": "plugin", "id": "git-ops"}));
+    assert_eq!(bot(&list, "release")["skill"], json!({"kind": "plugin", "id": "release-prep"}));
+    let rule = "If the Bot you would need is disabled or not ready, do not propose: complete with the question for \
+                the user, naming the Bot";
+    assert!(crate::board::texts::PLANNER_INSTRUCTIONS.contains(rule));
 }
 
 #[test]

@@ -178,6 +178,17 @@ fn a_disabled_bot_is_an_error() {
 }
 
 #[test]
+fn the_preset_bots_that_start_disabled_cannot_be_proposed_until_enabled() {
+    let mut list = bots();
+    for (id, name) in [("git-operator", "Git Operator"), ("release", "Release")] {
+        let err = resolve_bot_spec(&bot_spec(id), &list, Some(SECOND));
+        assert_eq!(err, Err(format!("task 't1': {name} is disabled: enable it in the bots settings")), "{id}");
+    }
+    bot_mut(&mut list, "git-operator").enabled = true;
+    assert!(resolve_bot_spec(&bot_spec("git-operator"), &list, Some(SECOND)).is_ok());
+}
+
+#[test]
 fn a_bot_runs_only_the_task_kinds_it_allows() {
     let presets = crate::bots::default_agent_bots();
     let refused = |name: &str, kind: &str| {

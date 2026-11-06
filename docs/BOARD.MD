@@ -192,11 +192,11 @@ Limiti: 200 task per board, 20 task per proposta, 20 proposte pendenti per board
   `strong`, effort `high`, nessuna skill), `quick-answer` "Quick Answer" `[plan]` (fascia `standard`, effort `low`,
   skill `code-answer`), `bug-fixer` "Bug Fixer" `[work]` (fascia `strong`, effort `high`, skill `bug-fix`),
   `researcher` "Researcher" `[plan]`, `test-writer` "Test Writer", `docs-writer` "Docs Writer" e `refactorer`
-  "Refactorer" `[work]`, `intake`, `setup`, `skill-wizard` `[]` (tabella completa in "Skill del plugin e Bot"); il ripristino di un predefinito rimette
+  "Refactorer" `[work]`, `git-operator` "Git Operator" e `release` "Release" `[work]` (spenti di serie), `intake`, `setup`, `skill-wizard` `[]` (tabella completa in "Skill del plugin e Bot"); il ripristino di un predefinito rimette
   anche i suoi `kinds`, e l'utente può allargare quelli di General. La migrazione 2→3 dà `[work, review, plan]` ai Bot
   derivati e a quelli dell'utente (`custom-*`), aggiunge Reviewer e Planner una volta sola (un Bot cancellato non
   ricompare, un nome già preso diventa "Reviewer 2"...); le migrazioni 3→4 e 4→5 aggiungono Quick Answer e Bug Fixer e
-  rendono esclusivi i `task` di General e Planner, la 5→6 aggiunge Researcher, Test Writer, Docs Writer e Refactorer. Il controllo, senza ripieghi, vale in
+  rendono esclusivi i `task` di General e Planner, la 5→6 aggiunge Researcher, Test Writer, Docs Writer e Refactorer, la 6→7 Git Operator e Release, spenti. Il controllo, senza ripieghi, vale in
   `Board::check_specs` (proposte, accettazione, task dall'UI con Bot, `plan` dell'HUB), in `update_task` quando il
   patch cambia il Bot o il `kind` (con solo `kind` lo snapshot resta, si verifica il Bot del task) e quindi anche nella
   verifica di `request_task_update` prima della card: "task '<id>': bot <nome> cannot run <kind> tasks: choose a bot
@@ -1149,8 +1149,8 @@ come **Bot** (`bot:<id>`, `bots/launches.rs`), che porta agente, modello, effort
 (`bots.json`); i Bot predefiniti `intake`, `setup` e `skill-wizard` usano le skill `task-intake`, `project-setup` e
 `skill-wizard`; `code-answer` e `bug-fix` sono skill da worker dei Bot `quick-answer` e `bug-fixer` (vedi sotto e
 "Bot predefiniti"); `code-research`, `test-qa`, `docs-writer` e `safe-refactor` sono le skill da worker dei Bot
-`researcher`, `test-writer`, `docs-writer` e `refactorer`; `git-ops` e `release-prep` sono skill da worker già spedite
-per i Bot `git-operator` e `release` di POOL.MD, non ancora creati (un Bot dell'utente può già nominarle). Un Bot con una skill del plugin richiede un agente che dichiara `plugin-skills`. Una skill non
+`researcher`, `test-writer`, `docs-writer` e `refactorer`; `git-ops` e `release-prep` sono
+le skill da worker dei Bot `git-operator` e `release`, spenti di serie (vedi "Bot predefiniti"). Un Bot con una skill del plugin richiede un agente che dichiara `plugin-skills`. Una skill non
 nomina mai un agente o un modello: li legge da `get_workspace_settings.agents`.
 - Migrazione: un `default_launch` salvato come `builtin:orchestrator` o `builtin:preset:task-intake` diventa `bot:intake`
   (`builtin:preset:project-setup` → `bot:setup`, `builtin:preset:skill-wizard` → `bot:skill-wizard`,
@@ -1232,7 +1232,7 @@ nomina mai un agente o un modello: li legge da `get_workspace_settings.agents`.
 
 ### Bot predefiniti
 
-`PRESETS` in `bots/presets.rs`, 12 voci, tutte con l'agente del workspace (`agent: None`) e il modello per fascia, mai
+`PRESETS` in `bots/presets.rs`, 14 voci (12 accese e 2 spente alla creazione, campo `enabled_by_default`), tutte con l'agente del workspace (`agent: None`) e il modello per fascia, mai
 per nome: valgono con ogni agente. Il `task` (inglese) è ciò che leggono pianificatore, Intake e segretari per
 scegliere il Bot; i testi sono **esclusivi**, così ogni richiesta ha un solo Bot adatto: fra i Bot di uno stesso
 `kind` il verbo iniziale non si ripete (test `the_tasks_of_the_bots_of_a_kind_start_with_different_verbs`).
@@ -1251,6 +1251,8 @@ scegliere il Bot; i testi sono **esclusivi**, così ogni richiesta ha un solo Bo
 | `test-writer` | Test Writer | Adds or improves automated tests for existing behaviour, following the project's test conventions; changes production code only to make it testable. | `standard` | medium | `test-qa` | `[work]` |
 | `docs-writer` | Docs Writer | Writes or updates documentation (README, guides, comments) for the stated audience and language; does not change behaviour. | `standard` | medium | `docs-writer` | `[work]` |
 | `refactorer` | Refactorer | Restructures existing code without changing its behaviour, in small verified steps, with tests run before and after. | `strong` | high | `safe-refactor` | `[work]` |
+| `git-operator` | Git Operator | Performs git maintenance asked by the user (branch cleanup, conflict resolution, reverting a change) safely: never rewrites shared history or force-pushes. | `strong` | medium | `git-ops` | `[work]`, spento |
+| `release` | Release | Prepares a release: version bump, changelog and release notes from the merged work; never publishes, tags remotely or deploys without the user's explicit confirmation. | `strong` | high | `release-prep` | `[work]`, spento |
 
 - **Quick Answer** è un Bot `plan` perché il `plan` gira in sola lettura (worktree isolato) e il suo report torna
   intero nel thread dell'HUB: chiude con l'esito "Answer:" (vedi "Task di pianificazione"), senza proposte. Fascia
@@ -1262,13 +1264,26 @@ scegliere il Bot; i testi sono **esclusivi**, così ogni richiesta ha un solo Bo
 - **Researcher e Quick Answer** sono entrambi `plan`: Quick Answer per una domanda puntuale (poche righe, `standard`/`low`),
   Researcher per un'analisi (opzioni, fattibilità, rischi, effort; `strong`/`high`) che chiude con un report "Answer:"
   o, solo se l'utente l'ha chiesto, con una proposta di task come il Planner.
-- **Migrazioni** (`bots.rs`, passi congelati in `bots/migrations.rs`; `bots.json` alla `schema_version` 6):
+- **Git Operator e Release nascono spenti** (`enabled_by_default: false` in `BotPreset`; file nuovo, migrazione 6→7 e
+  «Ripristina i predefiniti mancanti» li creano con `enabled: false`; «Ripristina predefinito» su un Bot esistente non ne cambia
+  l'accensione). Perché: sono gli unici Bot con effetti fuori dal flusso di consegna. Git Operator usa comandi git
+  che toccano il repository condiviso (eliminare branch, annullare un cambiamento) e spesso chiude senza commit;
+  Release prepara versione, changelog e note e, solo dopo un `ask_user` di conferma, pubblica, crea tag remoti o fa il
+  deploy: effetti esterni e irreversibili che dipendono dal progetto. Spenti, il segretario non li elenca
+  (`hub/engine/bot_choice.rs`) e la board li rifiuta ("task '<id>': Git Operator is disabled: enable it in the bots
+  settings"); `get_workspace_settings.bots` li mostra con `enabled: false`, così il pianificatore, invece di proporre,
+  chiude con una domanda che nomina il Bot da accendere (`board/prompts/planner_instructions.md`). **Come accenderli:**
+  Impostazioni › Generale › Bot, editor del Bot, casella «Attivo»; per Release conviene prima documentare nel repository
+  i comandi di rilascio (la skill `release-prep`, senza istruzioni, chiude `failed` chiedendo di scriverle) o dargli
+  una skill utente con quei comandi.
+- **Migrazioni** (`bots.rs`, passi congelati in `bots/migrations.rs`; `bots.json` alla `schema_version` 7):
   `add_answer_and_fix_bots` (3→4) aggiunge in fondo Quick Answer e Bug Fixer se l'id manca, una volta sola (un Bot
   cancellato non ricompare, un nome già preso fra i Bot diventa "Quick Answer 2");
   `exclusive_general_and_planner_tasks` (4→5) dà a `general` e `planner` il `task` nuovo **solo se è ancora il
   vecchio testo del preset** ("General-purpose coding agent.", "Explores the repository read-only and proposes queue
   tasks."): un testo personalizzato resta; `add_research_and_work_bots` (5→6) aggiunge in fondo Researcher, Test
-  Writer, Docs Writer e Refactorer, accesi, con le stesse regole del 3→4. I passi non leggono i segretari (`bots.json` si carica prima di
+  Writer, Docs Writer e Refactorer, accesi, con le stesse regole del 3→4; `add_git_and_release_bots` (6→7) aggiunge in
+  fondo Git Operator e Release, **spenti**, con le stesse regole (un nome già preso diventa "Git Operator 2"). I passi non leggono i segretari (`bots.json` si carica prima di
   `hub_settings.json`): all'avvio, caricati entrambi, `bots::rename_bots_named_like_secretaries`
   (`bots/secretary_names.rs`) dà il primo nome libero a un Bot che porta il nome di un segretario e salva solo se ne
   ha rinominato uno (un segretario `researcher` fa diventare il Bot "Researcher 2").
