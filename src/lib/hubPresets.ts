@@ -17,6 +17,22 @@ export function presetOf(secretary: HubSecretary, presets: readonly HubSecretary
   return presets.find((p) => p.id === secretary.preset) ?? null;
 }
 
+/** Avviso per un segretario il cui preset ha un prompt diverso da quello salvato. */
+export const PRESET_UPDATE_NOTICE = "È disponibile una versione aggiornata: Ripristina predefinito";
+
+/**
+ * Il preset da cui nasce il segretario, se il suo prompt ha ora un testo diverso
+ * da quello salvato: c'è una versione aggiornata da ripristinare. Il confronto è
+ * testuale, quindi anche un prompt personalizzato a mano la segnala.
+ */
+export function updatedPresetOf(
+  secretary: HubSecretary,
+  presets: readonly HubSecretaryPreset[],
+): HubSecretaryPreset | null {
+  const preset = presetOf(secretary, presets);
+  return preset !== null && preset.system_prompt !== secretary.system_prompt ? preset : null;
+}
+
 /** Perché il nome suggerito dal preset non si può usare (già preso), `null` se è libero. */
 export function presetNameError(preset: HubSecretaryPreset, taken: readonly string[]): string | null {
   const checked = checkSecretaryName(preset.name, taken);

@@ -207,6 +207,18 @@ mod tests {
     }
 
     #[test]
+    fn the_planning_presets_route_questions_and_changes_by_the_category_of_the_bot() {
+        for id in ["coordinator", "analyst"] {
+            let text = find(id).unwrap().prompt_text();
+            assert!(text.contains("the bot whose task says it answers questions"), "{id}");
+        }
+        let coordinator = find("coordinator").unwrap().prompt_text();
+        assert!(coordinator.contains("Sort each request"));
+        assert!(coordinator.contains("the bot whose task says it plans changes"));
+        assert!(coordinator.contains("ask a secretary that operates the queue"));
+    }
+
+    #[test]
     fn each_preset_has_the_tools_of_its_job() {
         use SecretaryTool::*;
         assert_eq!(

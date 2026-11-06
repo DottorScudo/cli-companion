@@ -4,6 +4,7 @@ import { deleteSecretary, saveLanguage } from "../../../app/actions/hubSettings"
 import { useHubChannels } from "../../../hooks/useHubChannels";
 import { useSecretaryPresets } from "../../../hooks/useSecretaryPresets";
 import { errorMessage } from "../../../lib/errors";
+import { updatedPresetOf } from "../../../lib/hubPresets";
 import { LANGUAGES, SECRETARIES_MAX, secretariesSummary } from "../../../lib/hubSettings";
 import type { HubLanguage, HubSecretaryPreset, HubSettingsView } from "../../../lib/tauri";
 import { Button } from "../../ui/button";
@@ -108,6 +109,7 @@ export default function SecretariesSection({ settings }: { settings: HubSettings
               key={s.name}
               secretary={s}
               channels={channels}
+              updated={updatedPresetOf(s, presets) !== null}
               disabled={busy}
               onEdit={() => setEditing(s.name)}
               onDelete={() => void remove(s.name)}

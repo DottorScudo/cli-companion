@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { allowsChannel, isConfigured, promptFirstLine } from "../../../lib/hubSecretaries";
+import { PRESET_UPDATE_NOTICE } from "../../../lib/hubPresets";
 import { SECRETARY_TOOLS } from "../../../lib/hubSettings";
 import type { HubChannel } from "../../../lib/hub";
 import type { HubSecretary } from "../../../lib/tauri";
@@ -19,13 +20,15 @@ function channelsText(secretary: HubSecretary, channels: readonly HubChannel[]):
 interface Props {
   secretary: HubSecretary;
   channels: readonly HubChannel[];
+  /** Il modello da cui nasce ha ora un prompt diverso da quello salvato. */
+  updated: boolean;
   disabled: boolean;
   onEdit: () => void;
   onDelete: () => void;
 }
 
-/** Riga chiusa di un segretario: avatar, `@nome`, prima riga del prompt, tool e canali. */
-export default function SecretaryRow({ secretary, channels, disabled, onEdit, onDelete }: Props) {
+/** Riga chiusa di un segretario: avatar, `@nome`, prima riga del prompt, tool, canali e l'avviso di un modello aggiornato. */
+export default function SecretaryRow({ secretary, channels, updated, disabled, onEdit, onDelete }: Props) {
   const [confirming, setConfirming] = useState(false);
   const configured = isConfigured(secretary);
   const tools = SECRETARY_TOOLS.filter((t) => secretary.tools.includes(t.id));
@@ -59,6 +62,7 @@ export default function SecretaryRow({ secretary, channels, disabled, onEdit, on
             {channelsText(secretary, channels)}
           </span>
         </div>
+        {updated && <span className="text-[11px] text-primary">{PRESET_UPDATE_NOTICE}</span>}
       </div>
       {confirming ? (
         <div className="flex flex-shrink-0 items-center gap-2">

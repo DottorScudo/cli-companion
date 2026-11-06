@@ -7,7 +7,7 @@ import type { HubChannel } from "../../../lib/hub";
 import { SECRETARY_NAME_MAX } from "../../../lib/hubSecretaries";
 import { EMPTY_DRAFT, SYSTEM_PROMPT_MAX, checkDraft, draftOf } from "../../../lib/hubSettings";
 import type { SecretaryDraft } from "../../../lib/hubSettings";
-import { draftOfPreset, presetNameError, presetOf } from "../../../lib/hubPresets";
+import { draftOfPreset, presetNameError, presetOf, updatedPresetOf } from "../../../lib/hubPresets";
 import type { HubSecretary, HubSecretaryPreset } from "../../../lib/tauri";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -52,6 +52,7 @@ export default function SecretaryEditor({
     initial === null && fromPreset !== null ? presetNameError(fromPreset, taken) : null,
   );
   const restorable = initial === null ? null : presetOf(initial, presets);
+  const updated = initial !== null && updatedPresetOf(initial, presets) !== null;
   const patch = (changes: Partial<SecretaryDraft>) => setDraft((d) => ({ ...d, ...changes }));
 
   const shownImage =
@@ -133,6 +134,7 @@ export default function SecretaryEditor({
         <PresetRestore
           name={initial.name}
           preset={restorable}
+          updated={updated}
           disabled={saving}
           onRestored={onRestored}
           onError={setError}

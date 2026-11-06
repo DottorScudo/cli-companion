@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { draftOfPreset, presetNameError, presetOf } from "../src/lib/hubPresets.ts";
+import { draftOfPreset, presetNameError, presetOf, updatedPresetOf } from "../src/lib/hubPresets.ts";
 
 const preset = (id, name, extra = {}) => ({
   id,
@@ -87,5 +87,23 @@ describe("presetNameError", () => {
 
   it("reports a name already taken, whatever its case", () => {
     assert.match(presetNameError(PRESETS[0], ["Mario"]), /già/);
+  });
+});
+
+describe("updatedPresetOf", () => {
+  it("finds the preset when its prompt differs from the saved one", () => {
+    const outdated = secretary("mario", { preset: "coordinator", system_prompt: "Your job is the old one." });
+    assert.equal(updatedPresetOf(outdated, PRESETS), PRESETS[0]);
+  });
+
+  it("is null once the prompt matches the preset again, as after a restore", () => {
+    const restored = secretary("mario", { preset: "coordinator", system_prompt: PRESETS[0].system_prompt });
+    assert.equal(updatedPresetOf(restored, PRESETS), null);
+  });
+
+  it("is null for a secretary made from scratch or from an unknown preset", () => {
+    assert.equal(updatedPresetOf(secretary("mario"), PRESETS), null);
+    assert.equal(updatedPresetOf(secretary("mario", { preset: "from-the-future" }), PRESETS), null);
+    assert.equal(updatedPresetOf(secretary("mario", { preset: "coordinator" }), []), null);
   });
 });
