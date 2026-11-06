@@ -17,7 +17,7 @@ mod validate;
 #[cfg(test)]
 mod tests;
 
-pub use validate::validate;
+pub use validate::{validate, validate_name};
 
 use serde::{Deserialize, Serialize};
 use std::fs;

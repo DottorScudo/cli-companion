@@ -31,6 +31,7 @@ function rustCommands() {
     "automation/auto.rs",
     "launch_settings.rs",
     "bots.rs",
+    "bots/commands.rs",
     "hub/settings/commands.rs",
     "hub/commands.rs",
     "hub/action_requests.rs",

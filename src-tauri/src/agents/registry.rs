@@ -2,10 +2,10 @@
 //! agenti.
 
 use super::claude_code;
-use super::contracts::{first_invalid_env_name, AgentIntegration, AutomationRequest, AutomationStart, Effort};
+use super::contracts::{first_invalid_env_name, AgentIntegration, AutomationRequest, AutomationStart};
 use super::enablement;
 use super::integrations_store;
-use super::models::model_is_valid;
+use super::models::{effort_is_supported, model_is_valid, unsupported_effort_warning};
 use super::opencode;
 use super::resolve::{self, AgentUnavailable, AgentUse};
 use crate::platform::TargetKind;
@@ -103,15 +103,9 @@ fn supported_effort<'a>(
     integration: &dyn AgentIntegration,
     req: &AutomationRequest<'a>,
 ) -> (AutomationRequest<'a>, Vec<String>) {
-    let supported =
-        |effort: Effort| integration.capabilities().effort.is_some_and(|levels| levels.levels().contains(&effort));
     match req.effort {
-        Some(effort) if !supported(effort) => {
-            let warning = format!(
-                "{} does not support the effort level \"{}\": ignored",
-                integration.display_name(),
-                effort.as_str()
-            );
+        Some(effort) if !effort_is_supported(integration, effort) => {
+            let warning = unsupported_effort_warning(integration, effort);
             log::warn!("{warning}");
             (AutomationRequest { effort: None, ..*req }, vec![warning])
         }

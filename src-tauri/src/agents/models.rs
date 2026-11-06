@@ -1,7 +1,8 @@
-//! Modelli nel vocabolario del core: validita' e fasce, senza nominare nessun
-//! modello. I nomi vengono dal contratto `ModelCatalog` dell'integrazione.
+//! Modelli nel vocabolario del core: validita', fasce ed effort ammessi, senza
+//! nominare nessun modello. I nomi vengono dal contratto `ModelCatalog`
+//! dell'integrazione, i livelli da `EffortLevels`.
 
-use super::contracts::{AgentIntegration, ModelTier, SuggestedModel};
+use super::contracts::{AgentIntegration, Effort, ModelTier, SuggestedModel};
 
 /// Il modello consigliato per ciascuna fascia.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,6 +18,17 @@ pub fn model_is_valid(integration: &dyn AgentIntegration, model: &str) -> bool {
         Some(catalog) => catalog.is_valid(model),
         None => crate::validate::valid_model(model),
     }
+}
+
+/// L'agente sa applicare il livello `effort` (lo dichiara `EffortLevels`).
+pub fn effort_is_supported(integration: &dyn AgentIntegration, effort: Effort) -> bool {
+    integration.capabilities().effort.is_some_and(|levels| levels.levels().contains(&effort))
+}
+
+/// L'avviso per un effort che l'agente non sa applicare e che quindi si toglie
+/// (in inglese: arriva anche al modello).
+pub fn unsupported_effort_warning(integration: &dyn AgentIntegration, effort: Effort) -> String {
+    format!("{} does not support the effort level \"{}\": ignored", integration.display_name(), effort.as_str())
 }
 
 /// Il primo modello consigliato di ogni fascia; `None` se l'agente non

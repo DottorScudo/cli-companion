@@ -5,7 +5,10 @@ import type { AgentProfile } from "../bindings/AgentProfile.ts";
 import type { TabEvent as AutomationClose } from "../bindings/TabEvent.ts";
 import type { SpawnEvent as AutomationSpawn } from "../bindings/SpawnEvent.ts";
 import type { AutomationTabInfo } from "../bindings/AutomationTabInfo.ts";
+import type { AgentBot } from "../bindings/AgentBot.ts";
+import type { AgentBotDraft } from "../bindings/AgentBotDraft.ts";
 import type { BotSettings } from "../bindings/BotSettings.ts";
+import type { BotSkillOption } from "../bindings/BotSkillOption.ts";
 import type { BuiltinLaunch } from "../bindings/BuiltinLaunch.ts";
 import type { ConnectorActionId } from "../bindings/ConnectorActionId.ts";
 import type { ConnectorActionOutcome } from "../bindings/ConnectorActionOutcome.ts";
@@ -59,6 +62,8 @@ import type { BoardView, E2eRun, NewTaskSpec, TaskAction, TaskNotifyEvent, TaskP
 // I tipi dei dati scambiati con il backend sono generati dal Rust (src/bindings):
 // qui prendono i nomi usati dall'interfaccia.
 export type {
+  AgentBot,
+  AgentBotDraft,
   AgentEnvStatus,
   AgentEvent,
   AgentProfile,
@@ -66,6 +71,7 @@ export type {
   AutomationSpawn,
   AutomationTabInfo,
   BotSettings,
+  BotSkillOption,
   BuiltinLaunch,
   ConnectorActionId,
   ConnectorActionOutcome,
@@ -230,6 +236,26 @@ export const api = {
   setBotImage: (name: string, png: string, color: string) => invoke<BotSettings>("set_bot_image", { name, png, color }),
 
   removeBotImage: (name: string) => invoke<BotSettings>("remove_bot_image", { name }),
+
+  // Bot-agente (backend: src-tauri/src/bots/commands.rs): globali, salvati in bots.json.
+  // Le modifiche restituiscono le impostazioni dei bot salvate.
+  listAgentBots: () => invoke<AgentBot[]>("list_agent_bots"),
+
+  createAgentBot: (draft: AgentBotDraft) => invoke<BotSettings>("create_agent_bot", { draft }),
+
+  updateAgentBot: (id: string, draft: AgentBotDraft) => invoke<BotSettings>("update_agent_bot", { id, draft }),
+
+  /** Rifiutato per il Bot `general`. */
+  deleteAgentBot: (id: string) => invoke<BotSettings>("delete_agent_bot", { id }),
+
+  /** Compito, modello, effort e skill tornano quelli del predefinito; nome e immagine restano. */
+  restoreAgentBotPreset: (id: string) => invoke<BotSettings>("restore_agent_bot_preset", { id }),
+
+  /** Ricrea i Bot predefiniti che mancano. */
+  restoreAgentBotPresets: () => invoke<BotSettings>("restore_agent_bot_presets"),
+
+  /** Skill selezionabili per un Bot: del plugin, poi dell'utente. */
+  listBotSkills: () => invoke<BotSkillOption[]>("list_bot_skills"),
 
   // Agents HUB (backend: src-tauri/src/hub). `channel` = "general" o l'id di un workspace.
   // Le impostazioni si leggono e scrivono anche con l'HUB spento; ogni comando

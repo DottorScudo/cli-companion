@@ -1,11 +1,11 @@
 //! Contratto dei modelli: quelli che l'agente consiglia e la regola per
 //! riconoscerne il nome.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 /// Fascia di un modello: il core sceglie per fascia, non per nome.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "kebab-case")]
 #[ts(export)]
 pub enum ModelTier {

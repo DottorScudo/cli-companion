@@ -1021,6 +1021,29 @@ il nome deve essere nella pool (senza maiuscole; si salva con l'ortografia della
 formato `#rrggbb`. Le immagini dei nomi che escono dalla pool sono eliminate da
 `set_bot_settings` e `reset_bot_names`.
 
+**Bot-agente** (`agents`, schema v2). Nello stesso file stanno i Bot come agenti specializzati e
+globali: `AgentBot { id, name, task, agent, model, effort, skill, enabled, image, preset }`
+(`bots/agent.rs`). `agent: null` = l'agente del workspace; `model` è `ModelChoice` (`default`: decide
+la CLI; `tier`: `standard|strong`, risolto sull'agente effettivo con `tier_models`; `id`: un modello
+concreto, ammesso solo con l'agente fissato); `skill` è `SkillRef` (`plugin`: id di
+`agents::presets::PRESETS`; `user`: nome di una skill globale, la cui esistenza si verifica al
+lancio). I predefiniti (`bots/presets.rs`: `general`, `intake`, `setup`, `skill-wizard`, tutti con
+l'agente del workspace) arrivano con passi di migrazione additivi e congelati (`bots/migrations.rs`,
+v1→v2): saltano gli id presenti e girano una volta sola, quindi un Bot cancellato non ricompare. Il
+Bot `general` è configurabile ma non si può eliminare né disattivare; se manca da un file scritto a
+mano lo rimette la lettura (`decode_settings`). Gli id dei Bot dell'utente cominciano con `custom-`.
+Validazione al salvataggio (`bots/validate.rs`, pura, con gli agenti da `AgentCatalog`): nome come
+la pool e unico fra i Bot e i nomi dei segretari dell'HUB, compito di 1-300 caratteri su una riga,
+agente fissato registrato e abilitato, modello `id` valido per l'agente fissato, effort supportato
+dall'agente fissato (con l'agente del workspace si ammette), skill del plugin esistente e nome di
+skill utente valido. `bots/resolve.rs::resolve_bot` (pura) traduce un Bot in agente, modello,
+effort e skill di un lancio: ciò che l'agente effettivo non sa applicare si toglie con un avviso
+in inglese. Comandi (`bots/commands.rs`): `list_agent_bots`, `create_agent_bot(draft)`,
+`update_agent_bot(id, draft)`, `delete_agent_bot(id)`, `restore_agent_bot_preset(id)` (compito,
+modello, effort e skill tornano quelli del predefinito), `restore_agent_bot_presets` (ricrea i
+mancanti) e `list_bot_skills` (skill del plugin e dell'utente). Una versione precedente dell'app
+vede un `bots.json` v2 come più recente e lo mette da parte.
+
 ### `hub/` — Agents HUB
 
 Modalità opzionale, spenta di default (`hub_settings.json`: `enabled`, `provider`, `language`, `session`,

@@ -19,6 +19,13 @@ impl Preset {
         self.skill.replace("\r\n", "\n")
     }
 
+    /// La `description` del frontmatter (vuota se manca: lo esclude un test).
+    pub fn description(&self) -> String {
+        let text = self.skill_text();
+        let front = text.strip_prefix("---\n").and_then(|s| s.split_once("\n---\n")).map_or("", |(front, _)| front);
+        front.lines().find_map(|l| l.strip_prefix("description:")).map_or_else(String::new, |d| d.trim().to_string())
+    }
+
     /// Id della voce rapida integrata, che parte con l'agente del workspace.
     pub fn launch_id(&self) -> String {
         format!("{PRESET_LAUNCH_PREFIX}{}", self.id)
@@ -99,6 +106,7 @@ mod tests {
             let field = |k: &str| front.lines().find_map(|l| l.strip_prefix(k)).map(str::trim);
             assert_eq!(field("name:"), Some(p.id));
             assert!(field("description:").is_some_and(|d| !d.is_empty() && d.len() <= 1024));
+            assert_eq!(field("description:").map(str::to_string), Some(p.description()));
         }
     }
 

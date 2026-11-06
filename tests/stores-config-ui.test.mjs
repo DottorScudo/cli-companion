@@ -36,7 +36,7 @@ const IMAGE = { png: "AAAA", color: "#aabbcc" };
 describe("config: patchConfig", () => {
   it("stato iniziale", () => {
     assert.equal(INITIAL_CONFIG.botSettings, DEFAULT_BOT_SETTINGS);
-    assert.deepEqual(DEFAULT_BOT_SETTINGS, { enabled: true, names: [], images: {} });
+    assert.deepEqual(DEFAULT_BOT_SETTINGS, { enabled: true, names: [], images: {}, agents: [] });
     assert.equal(INITIAL_CONFIG.profilesReady, false);
     assert.equal(INITIAL_CONFIG.showUsage, true);
   });

@@ -26,7 +26,7 @@ export interface ConfigState {
   appVersion: string | null;
 }
 
-export const DEFAULT_BOT_SETTINGS: BotSettings = { enabled: true, names: [], images: {} };
+export const DEFAULT_BOT_SETTINGS: BotSettings = { enabled: true, names: [], images: {}, agents: [] };
 
 export const INITIAL_CONFIG: ConfigState = {
   agentProfiles: [],

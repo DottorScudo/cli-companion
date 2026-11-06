@@ -4,18 +4,42 @@
 //! La pool predefinita (`DEFAULT_NAMES`) e' l'unica fonte: il frontend la riceve
 //! da `get_bot_settings`. Ogni nome della pool puo' avere un'immagine pixel-art
 //! (PNG base64 + colore dominante), validata in `image` e salvata nello stesso file.
+//!
+//! Nello stesso file stanno i Bot-agente (`agents`): agenti specializzati e
+//! globali, ciascuno con agente, modello, effort e skill. La pool dei nomi resta
+//! per i terminali generici. Un file per responsabilita':
+//! - `agent`: i tipi del Bot-agente;
+//! - `presets`: i Bot predefiniti, `migrations`: i passi che li portano nei file esistenti;
+//! - `validate`: la validazione dei campi, `catalog`: gli agenti che si possono usare;
+//! - `agent_bots`: le operazioni pure sull'elenco, `commands`: i comandi Tauri;
+//! - `resolve`: da un Bot ad agente, modello, effort e skill di un lancio;
+//! - `skills`: le skill selezionabili per l'interfaccia.
 
+mod agent;
+mod agent_bots;
+mod catalog;
+pub mod commands;
 mod image;
+mod migrations;
+mod presets;
+/// La risoluzione la usano i lanci dei Bot, che arrivano dopo il modello dati:
+/// fino ad allora la chiamano solo i test.
+#[cfg_attr(not(test), allow(dead_code))]
+pub mod resolve;
+mod skills;
+mod validate;
 
+pub use agent::AgentBot;
 pub(crate) use image::validate_image;
 
-use crate::store::{adopt_envelope, data_dir, JsonFile, JsonStore};
+use crate::store::{adopt_envelope, data_dir, Decoded, JsonFile, JsonStore};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use tauri::{AppHandle, Manager, State};
 use ts_rs::TS;
+use validate::normalize_name;
 
-const NAME_MAX_CHARS: usize = 24;
 const NAMES_MAX: usize = 200;
 
 const DEFAULT_NAMES: [&str; 40] = [
@@ -39,6 +63,10 @@ pub struct BotSettings {
     /// hanno immagini; le chiavi che non sono nella pool vengono eliminate.
     #[serde(default)]
     pub images: BTreeMap<String, BotImage>,
+    /// I Bot-agente: i predefiniti arrivano con le migrazioni; `general` c'e'
+    /// sempre (lo rimette `decode_settings`).
+    #[serde(default = "presets::default_bots")]
+    pub agents: Vec<AgentBot>,
 }
 
 /// Immagine di un bot, gia' validata dal backend.
@@ -61,11 +89,21 @@ fn default_names() -> Vec<String> {
 
 impl Default for BotSettings {
     fn default() -> Self {
-        Self { enabled: true, names: default_names(), images: BTreeMap::new() }
+        Self { enabled: true, names: default_names(), images: BTreeMap::new(), agents: presets::default_bots() }
     }
 }
 
-static SETTINGS_FILE: JsonFile<BotSettings> = JsonFile::new("bots.json", &[adopt_envelope]);
+/// v1: la busta; v2: i Bot-agente predefiniti.
+const MIGRATIONS: [crate::store::Migration; 2] = [adopt_envelope, migrations::add_agent_bots];
+
+static SETTINGS_FILE: JsonFile<BotSettings> = JsonFile::new("bots.json", &MIGRATIONS).decoded_with(decode_settings);
+
+/// Lettura intera, poi il Bot `general` rimesso se un file scritto a mano lo ha tolto.
+fn decode_settings(data: Value) -> Result<Decoded<BotSettings>, String> {
+    let mut value: BotSettings = serde_json::from_value(data).map_err(|e| format!("dati non validi: {e}"))?;
+    presets::ensure_general(&mut value.agents);
+    Ok(Decoded { value, dropped: Vec::new() })
+}
 
 pub type BotSettingsStore = JsonStore<BotSettings>;
 
@@ -81,18 +119,11 @@ fn validate_names(names: Vec<String>) -> Result<Vec<String>, String> {
     }
     let mut clean: Vec<String> = Vec::with_capacity(names.len());
     for raw in names {
-        let name = raw.trim();
-        let chars = name.chars().count();
-        if chars == 0 || chars > NAME_MAX_CHARS {
-            return Err(format!("il nome deve avere da 1 a {NAME_MAX_CHARS} caratteri"));
-        }
-        if name.chars().any(char::is_control) {
-            return Err(format!("il nome “{name}” contiene caratteri non validi"));
-        }
+        let name = normalize_name(&raw)?;
         if clean.iter().any(|n| n.to_lowercase() == name.to_lowercase()) {
             return Err(format!("il nome “{name}” è già nell'elenco"));
         }
-        clean.push(name.to_string());
+        clean.push(name);
     }
     Ok(clean)
 }
@@ -194,264 +225,4 @@ fn update(app: &AppHandle, f: impl FnOnce(&mut BotSettings) -> Result<(), String
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn names(list: &[&str]) -> Vec<String> {
-        list.iter().map(|n| n.to_string()).collect()
-    }
-
-    #[test]
-    fn default_is_enabled_with_the_builtin_pool() {
-        let s = BotSettings::default();
-        assert!(s.enabled);
-        assert_eq!(s.names.len(), DEFAULT_NAMES.len());
-        assert_eq!(s.names[0], "Bolt");
-        assert_eq!(s.names.last().map(String::as_str), Some("Zed"));
-        assert_eq!(new_store().get(), s);
-    }
-
-    #[test]
-    fn restoring_names_keeps_enabled() {
-        for enabled in [true, false] {
-            let mut s = BotSettings { enabled, names: names(&["Ada"]), images: BTreeMap::new() };
-            restore_default_names(&mut s);
-            assert_eq!(s, BotSettings { enabled, names: default_names(), images: BTreeMap::new() });
-        }
-    }
-
-    fn img(color: &str) -> BotImage {
-        BotImage { png: "AAAA".into(), color: color.into() }
-    }
-
-    fn with_images(list: &[&str], images: &[(&str, &str)]) -> BotSettings {
-        BotSettings {
-            enabled: true,
-            names: names(list),
-            images: images.iter().map(|(n, c)| (n.to_string(), img(c))).collect(),
-        }
-    }
-
-    #[test]
-    fn old_files_without_images_load_empty() {
-        let a: BotSettings = serde_json::from_str("{}").unwrap();
-        assert!(a.images.is_empty());
-        let b: BotSettings = serde_json::from_str(r#"{"enabled":true,"names":["Ada"]}"#).unwrap();
-        assert!(b.images.is_empty());
-        assert_eq!(b.names, names(&["Ada"]));
-    }
-
-    #[test]
-    fn serde_roundtrip_keeps_images() {
-        let s = with_images(&["Ada", "Bob"], &[("Ada", "#112233"), ("Bob", "#445566")]);
-        let back: BotSettings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
-        assert_eq!(back, s);
-    }
-
-    #[test]
-    fn pool_name_ignores_case_and_returns_pool_spelling() {
-        let pool = names(&["Ada", "Bob"]);
-        assert_eq!(pool_name(&pool, "aDA").map(String::as_str), Some("Ada"));
-        assert_eq!(pool_name(&pool, "Bob").map(String::as_str), Some("Bob"));
-        assert!(pool_name(&pool, "Eve").is_none());
-    }
-
-    #[test]
-    fn pruning_drops_removed_names_and_rekeys_to_pool_spelling() {
-        let mut s = with_images(&["Ada", "Bob"], &[("Ada", "#111111"), ("bob", "#222222"), ("Eve", "#333333")]);
-        prune_images(&mut s);
-        assert_eq!(s.images.len(), 2);
-        assert_eq!(s.images["Ada"], img("#111111"));
-        assert_eq!(s.images["Bob"], img("#222222"));
-    }
-
-    #[test]
-    fn restoring_names_keeps_images_of_default_names_only() {
-        let mut s = with_images(&["Ada", "Bolt"], &[("Ada", "#111111"), ("Bolt", "#222222")]);
-        restore_default_names(&mut s);
-        assert_eq!(s.images.len(), 1);
-        assert_eq!(s.images["Bolt"], img("#222222"));
-    }
-
-    #[test]
-    fn default_pool_passes_its_own_validation() {
-        assert_eq!(validate_names(default_names()).unwrap(), default_names());
-    }
-
-    #[test]
-    fn old_and_partial_files_fall_back_to_defaults() {
-        let s: BotSettings = serde_json::from_str("{}").unwrap();
-        assert_eq!(s, BotSettings::default());
-        let off: BotSettings = serde_json::from_str(r#"{"enabled":false}"#).unwrap();
-        assert!(!off.enabled);
-        assert_eq!(off.names, default_names());
-        let custom: BotSettings = serde_json::from_str(r#"{"names":["Ada"]}"#).unwrap();
-        assert!(custom.enabled);
-        assert_eq!(custom.names, names(&["Ada"]));
-        assert!(serde_json::from_str::<BotSettings>("non json").is_err());
-    }
-
-    #[test]
-    fn serde_roundtrip_keeps_an_empty_pool() {
-        let s = BotSettings { enabled: false, names: vec![], images: BTreeMap::new() };
-        let back: BotSettings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
-        assert_eq!(back, s);
-    }
-
-    #[test]
-    fn validation_trims_and_accepts_an_empty_list() {
-        assert_eq!(validate_names(names(&["  Ada ", "Bob"])).unwrap(), names(&["Ada", "Bob"]));
-        assert_eq!(validate_names(vec![]).unwrap(), Vec::<String>::new());
-    }
-
-    #[test]
-    fn validation_rejects_bad_lengths() {
-        assert!(validate_names(names(&[""])).is_err());
-        assert!(validate_names(names(&["   "])).is_err());
-        assert!(validate_names(vec!["a".repeat(NAME_MAX_CHARS)]).is_ok());
-        assert!(validate_names(vec!["a".repeat(NAME_MAX_CHARS + 1)]).is_err());
-        // Il limite conta i caratteri, non i byte.
-        assert!(validate_names(vec!["é".repeat(NAME_MAX_CHARS)]).is_ok());
-    }
-
-    #[test]
-    fn validation_rejects_control_characters() {
-        assert!(validate_names(names(&["a\nb"])).is_err());
-        assert!(validate_names(names(&["a\u{0}b"])).is_err());
-        assert!(validate_names(names(&["a\tb"])).is_err());
-    }
-
-    #[test]
-    fn validation_rejects_duplicates_ignoring_case() {
-        assert!(validate_names(names(&["Bolt", "bolt"])).is_err());
-        assert!(validate_names(names(&["Bolt", " BOLT "])).is_err());
-        assert!(validate_names(names(&["Bolt", "Bolt 2"])).is_ok());
-    }
-
-    #[test]
-    fn validation_caps_the_pool_size() {
-        let at_cap: Vec<String> = (0..NAMES_MAX).map(|i| format!("Bot{i}")).collect();
-        assert!(validate_names(at_cap.clone()).is_ok());
-        let mut over = at_cap;
-        over.push("Extra".into());
-        assert!(validate_names(over).is_err());
-    }
-
-    // --- File reali delle versioni precedenti, caricati con la static vera ---
-
-    const FILE_NAME: &str = "bots.json";
-
-    fn temp_dir(name: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("cc-bots-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        d
-    }
-
-    fn load_fixture(name: &str, raw: &str) -> (std::path::PathBuf, BotSettingsStore) {
-        let dir = temp_dir(name);
-        std::fs::write(dir.join(FILE_NAME), raw).unwrap();
-        let store = new_store();
-        store.load(&dir);
-        (dir, store)
-    }
-
-    fn backups(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
-        std::fs::read_dir(dir)
-            .unwrap()
-            .map(|e| e.unwrap().path())
-            .filter(|p| p.file_name().unwrap().to_string_lossy().starts_with("bots.json.bak-"))
-            .collect()
-    }
-
-    #[test]
-    fn v0_empty_object_loads_defaults() {
-        let (dir, store) = load_fixture("v0-empty", "{}");
-        assert_eq!(store.get(), BotSettings::default());
-        assert!(backups(&dir).is_empty());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn v0_disabled_keeps_the_default_pool() {
-        let (dir, store) = load_fixture("v0-disabled", r#"{"enabled":false}"#);
-        assert!(!store.get().enabled);
-        assert_eq!(store.get().names, default_names());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn v0_custom_names_stay_enabled() {
-        let (dir, store) = load_fixture("v0-names", r#"{"names":["Ada"]}"#);
-        assert!(store.get().enabled);
-        assert_eq!(store.get().names, names(&["Ada"]));
-        assert!(store.get().images.is_empty());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn v0_with_images_keeps_them() {
-        let raw = r##"{"enabled":true,"names":["Ada","Bob"],"images":{"Ada":{"png":"AAAA","color":"#112233"}}}"##;
-        let (dir, store) = load_fixture("v0-images", raw);
-        let s = store.get();
-        assert_eq!(s.names, names(&["Ada", "Bob"]));
-        assert_eq!(s.images.len(), 1);
-        assert_eq!(s.images["Ada"], img("#112233"));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn corrupt_file_is_backed_up_and_not_overwritten() {
-        let garbage = "{\"names\": [\"Ada\"";
-        let (dir, store) = load_fixture("corrupt", garbage);
-        assert_eq!(store.get(), BotSettings::default());
-        let found = backups(&dir);
-        assert_eq!(found.len(), 1);
-        assert_eq!(std::fs::read(&found[0]).unwrap(), garbage.as_bytes());
-        assert!(!dir.join(FILE_NAME).exists());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn update_writes_the_envelope_and_roundtrips() {
-        let dir = temp_dir("roundtrip");
-        let store = new_store();
-        let next = store
-            .update(&dir, |s| {
-                s.enabled = false;
-                s.names = names(&["Ada"]);
-                s.images.insert("Ada".into(), img("#445566"));
-                Ok(())
-            })
-            .unwrap();
-        let raw: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(dir.join(FILE_NAME)).unwrap()).unwrap();
-        assert_eq!(raw["schema_version"], 1);
-        assert_eq!(raw["data"]["enabled"], false);
-        assert_eq!(raw["data"]["images"]["Ada"]["color"], "#445566");
-        let reloaded = new_store();
-        reloaded.load(&dir);
-        assert_eq!(reloaded.get(), next);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn unreadable_file_keeps_defaults_and_refuses_updates() {
-        // Istanza locale: il blocco delle scritture e' appiccicoso per istanza.
-        static LOCAL_FILE: JsonFile<BotSettings> = JsonFile::new("bots.json", &[adopt_envelope]);
-        let dir = temp_dir("unreadable");
-        std::fs::create_dir_all(dir.join(FILE_NAME)).unwrap();
-        let store = JsonStore::new(&LOCAL_FILE);
-        store.load(&dir);
-        assert_eq!(store.get(), BotSettings::default());
-        let r = store.update(&dir, |s| {
-            s.enabled = false;
-            Ok(())
-        });
-        assert!(r.is_err());
-        assert_eq!(store.get(), BotSettings::default());
-        assert!(dir.join(FILE_NAME).is_dir());
-        assert!(backups(&dir).is_empty());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
+mod tests;
