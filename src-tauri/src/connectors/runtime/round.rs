@@ -1,10 +1,12 @@
 //! Un giro di una fonte (docs/CONNECTORS.MD §5/§7): `poll` con il cursore, al piu'
 //! `ITEMS_PER_ROUND` elementi nuovi, consegna uno per uno nell'HUB, e SOLO a
-//! consegne riuscite il cursore nuovo entra nello stato (il supervisore poi lo
-//! salva su disco). Garanzia "almeno una volta" con dedupe: un elemento gia'
-//! consegnato (`seen`, per regola + id) si salta, e anche se il processo muore
-//! prima del salvataggio l'HUB scarta il duplicato (stessa origine). Qualunque
-//! errore di consegna ferma il giro: il cursore resta quello vecchio.
+//! consegne riuscite il cursore nuovo entra nello stato. Garanzia "almeno una
+//! volta" con dedupe: ogni consegna riuscita marca l'elemento visto (`seen`, per
+//! regola + id) e un elemento visto si salta; il supervisore salva lo stato dopo
+//! ogni giro, anche fallito o scaduto. Se il processo muore prima del salvataggio
+//! l'HUB scarta il duplicato (stessa origine nel thread di destinazione o, per un
+//! thread nuovo, nel canale). Qualunque errore di consegna ferma il giro: il
+//! cursore resta quello vecchio.
 //!
 //! Il thread di destinazione: esistente (se sparito la regola si disabilita con
 //! `THREAD_GONE` e il giro riparte subito senza perdere gli altri elementi),

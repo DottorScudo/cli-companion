@@ -333,8 +333,8 @@ thread) e senza dipendere da `connectors`:
 
 | Porta | Funzione |
 |---|---|
-| Messaggio dell'utente | `hub::send::send_user_message(app, UserMessage { channel, thread_id, body, reply_to, attachment_ids, origin })`: la stessa strada di `hub_send` (`append_user_message`, poi risposta diretta a un worker o `SecretaryEngine::on_message`); controlla da sé l'HUB acceso. Con `origin` il messaggio non notifica, come quelli dell'app |
-| Messaggio dell'utente con allegati come byte | `hub::send::send_user_files(app, message, files)`: mette i file nello staging con gli stessi limiti dell'app, aggiunge al testo la nota `Allegati non importati: a.pdf (troppo grande), b.exe (nome non valido)` (nomi ripuliti e tagliati; il testo si accorcia per farle posto) e invia; se l'invio fallisce cancella i file dallo staging. I file oltre 5, oltre 10 MB o con un nome inutilizzabile si saltano senza fermare il messaggio |
+| Messaggio dell'utente | `hub::send::send_user_message(app, UserMessage { channel, thread_id, body, reply_to, attachment_ids, origin })`: la stessa strada di `hub_send` (`append_user_message`, poi risposta diretta a un worker o `SecretaryEngine::on_message`); controlla da sé l'HUB acceso. Con `origin` il messaggio non notifica, come quelli dell'app; se il thread ha già un messaggio con la stessa origine (`instance`, `external_id`) non scrive, non emette `hub-update`, non sveglia nessuno e restituisce quello già salvato (gli allegati tornano nello staging) |
+| Messaggio dell'utente con allegati come byte | `hub::send::send_user_files(app, message, files)`: mette i file nello staging con gli stessi limiti dell'app, aggiunge al testo la nota `Allegati non importati: a.pdf (troppo grande), b.exe (nome non valido)` (nomi ripuliti e tagliati; il testo si accorcia per farle posto) e invia; se l'invio fallisce o il messaggio è un doppione cancella i file dallo staging. I file oltre 5, oltre 10 MB o con un nome inutilizzabile si saltano senza fermare il messaggio |
 | Messaggio di un mittente esterno | `hub::ingress::deliver_external(app, ExternalDelivery { channel, target, author, body, files, origin, wake }) -> DeliveryOutcome { thread_id, message_id, duplicate }` |
 | Destinatario delle notifiche | `hub::set_notice_sink(app, sink)` con un `NoticeSink` (vedi "Notifiche") |
 
@@ -344,8 +344,9 @@ thread) e senza dipendere da `connectors`:
   di un altro connettore o istanza, un testo vuoto senza allegati;
 - `target`: `Existing(thread_id)` (un thread chiuso si **riapre**, come fanno gli eventi della board) oppure
   `New { title }` (thread creato nello stesso salvataggio; titolo ripulito su una riga, «Senza titolo» se vuoto);
-- **dedupe**: se il thread di destinazione ha già un messaggio con lo stesso `(instance, external_id)` non scrive
-  nulla, non notifica e non sveglia nessuno e ritorna `duplicate: true` con l'id di quel messaggio. Lo controlla
+- **dedupe**: se il thread di destinazione (per `New`, un thread qualunque del canale) ha già un messaggio con lo
+  stesso `(instance, external_id)` non scrive nulla (nemmeno il thread nuovo), non notifica e non sveglia nessuno e
+  ritorna `duplicate: true` con il thread e l'id di quel messaggio. Lo controlla
   una lettura prima di preparare gli allegati e di nuovo dentro il salvataggio (corsa tra due consegne): in quel caso
   gli allegati preparati si cancellano;
 - **testo**: ripulito dai caratteri di controllo e tagliato a 8000 caratteri totali con il suffisso «… (troncato)»,

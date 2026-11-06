@@ -1,6 +1,7 @@
 //! La porta d'ingresso dell'HUB per i messaggi che arrivano da fuori dell'app
 //! (un'email, una chat): `deliver_external` scrive il messaggio di un mittente
-//! esterno in un thread esistente o in uno nuovo, senza dedupe doppi, e poi
+//! esterno in un thread esistente o in uno nuovo, senza doppioni (stessa origine
+//! nel thread indicato o, per un thread nuovo, in tutto il canale), e poi
 //! notifica e, se richiesto, sveglia un segretario. Il testo di un mittente
 //! esterno e' un dato non fidato: non passa mai da `send` ne' dalle menzioni;
 //! solo `SecretaryEngine::on_external` lo porta al segretario, come dato.
@@ -27,7 +28,7 @@ use super::engine::SecretaryEngine;
 use super::model::{Author, MessageOrigin};
 use super::notify::{HubNotifier, NoticeKind};
 use super::state::{HubState, MESSAGE_ID_PREFIX, THREAD_ID_PREFIX};
-use apply::{apply, destination, precheck, Applied, Stored, Write};
+use apply::{apply, destination, precheck, Applied, Delivered, Stored, Write};
 use tauri::{AppHandle, Manager};
 
 /// Dove va il messaggio.
@@ -71,6 +72,12 @@ pub struct DeliveryOutcome {
     pub duplicate: bool,
 }
 
+impl DeliveryOutcome {
+    fn duplicate(delivered: Delivered) -> Self {
+        Self { thread_id: delivered.thread_id, message_id: delivered.message_id, duplicate: true }
+    }
+}
+
 /// Consegna il messaggio. Errore con l'HUB spento, il canale o il thread
 /// mancanti, un autore o un'origine non validi, un testo vuoto senza allegati.
 pub fn deliver_external(app: &AppHandle, delivery: ExternalDelivery) -> Result<DeliveryOutcome, String> {
@@ -81,12 +88,10 @@ pub fn deliver_external(app: &AppHandle, delivery: ExternalDelivery) -> Result<D
     let state = app.state::<HubState>();
     let now = chrono::Utc::now().timestamp_millis();
     let ExternalDelivery { channel, target, author, body, files, origin, wake } = delivery;
-    let (thread_id, new_title) = destination(&target, &state.next_id(THREAD_ID_PREFIX, now));
-    if new_title.is_none() {
-        let seen = state.read(&dirs, &channel, |list| precheck(list, &thread_id, &origin))?;
-        if let Some(message_id) = seen {
-            return Ok(DeliveryOutcome { thread_id, message_id, duplicate: true });
-        }
+    let destination = destination(&target, &state.next_id(THREAD_ID_PREFIX, now));
+    let seen = state.read(&dirs, &channel, |list| precheck(list, &destination, &origin))?;
+    if let Some(delivered) = seen {
+        return Ok(DeliveryOutcome::duplicate(delivered));
     }
     if files.is_empty() {
         body::compose(&body, None, false)?;
@@ -95,7 +100,7 @@ pub fn deliver_external(app: &AppHandle, delivery: ExternalDelivery) -> Result<D
     let note = skipped_note(&staged.skipped);
     let body = body::compose(&body, note.as_deref(), !staged.ids.is_empty())
         .inspect_err(|_| discard_staged_ids(app, &staged.ids))?;
-    let claimed = Claimed::take(&dirs.attachments, &channel, &thread_id, &staged.ids)
+    let claimed = Claimed::take(&dirs.attachments, &channel, &destination.thread_id, &staged.ids)
         .inspect_err(|_| discard_staged_ids(app, &staged.ids))?;
     let message_id = state.next_id(MESSAGE_ID_PREFIX, now);
     let applied = state.update_when(
@@ -106,8 +111,7 @@ pub fn deliver_external(app: &AppHandle, delivery: ExternalDelivery) -> Result<D
             ensure_channel(app, &channel)?;
             let write = Write {
                 channel: &channel,
-                thread_id: &thread_id,
-                new_title: new_title.as_deref(),
+                destination: &destination,
                 author,
                 origin,
                 body,
@@ -123,11 +127,11 @@ pub fn deliver_external(app: &AppHandle, delivery: ExternalDelivery) -> Result<D
     match applied {
         Ok(Applied::Stored(stored)) => {
             after_store(app, &channel, &message_id, &wake, stored);
-            Ok(DeliveryOutcome { thread_id, message_id, duplicate: false })
+            Ok(DeliveryOutcome { thread_id: destination.thread_id, message_id, duplicate: false })
         }
-        Ok(Applied::Duplicate { message_id }) => {
+        Ok(Applied::Duplicate(delivered)) => {
             abandon(app, claimed, &staged.ids);
-            Ok(DeliveryOutcome { thread_id, message_id, duplicate: true })
+            Ok(DeliveryOutcome::duplicate(delivered))
         }
         Err(e) => {
             abandon(app, claimed, &staged.ids);

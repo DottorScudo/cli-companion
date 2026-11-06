@@ -137,3 +137,18 @@ fn external_authors_and_origins_roundtrip_in_json() {
     assert!(json.contains(r#""origin":{"connector":"email","instance":"casa-1","external_id":"<id@x>"}"#), "{json}");
     assert_eq!(serde_json::from_str::<ChannelThreads>(&json).unwrap(), list);
 }
+
+#[test]
+fn a_message_is_found_by_instance_and_external_id() {
+    let mut list = with_thread();
+    let user = |id: &str, o: Option<MessageOrigin>| NewMessage { author: Author::User, ..external(id, "x", o) };
+    list.add_message("t1", user("m1", None), 1).unwrap();
+    list.add_message("t1", user("m2", Some(origin("42"))), 1).unwrap();
+    let thread = list.thread("t1").unwrap();
+    assert_eq!(message_from(thread, &origin("42")).map(|m| m.id.as_str()), Some("m2"));
+    // Il connettore non conta: la chiave e' istanza + id esterno.
+    let same_key = MessageOrigin { connector: "chat".to_string(), ..origin("42") };
+    assert_eq!(message_from(thread, &same_key).map(|m| m.id.as_str()), Some("m2"));
+    assert!(message_from(thread, &origin("43")).is_none());
+    assert!(message_from(thread, &MessageOrigin { instance: "altra".to_string(), ..origin("42") }).is_none());
+}

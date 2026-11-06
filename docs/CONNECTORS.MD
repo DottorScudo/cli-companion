@@ -131,7 +131,9 @@ e chi svegliano.
 | `enabled` | `true` alla creazione |
 
 Un elemento che soddisfa più regole della stessa istanza si consegna **una volta per regola** (thread diversi sono
-destinazioni diverse); due regole che puntano allo stesso thread lo ricevono una volta sola (dedupe per thread, §7).
+destinazioni diverse); due regole che puntano allo stesso thread lo ricevono una volta sola (dedupe per thread, §7), e
+due regole che aprono un thread nuovo nello stesso canale anche (dedupe nel canale, §7): l'elemento resta nel thread
+aperto dalla prima.
 
 **Collegamento** (`ContactLink`, solo canali di contatto). Lega un account esterno all'utente dell'app.
 
@@ -395,12 +397,23 @@ default, cioè da *adesso*: si perdono al più gli elementi del periodo, mai si 
 **Almeno una volta + dedupe = effettivamente una volta.** Il supervisore, a ogni giro:
 
 1. chiede gli elementi (`poll` / `receive`);
-2. li consegna uno alla volta (`deliver_external` / `send_user_message` / `send_user_files`); la consegna salva il thread;
-3. solo dopo salva il cursore e aggiunge gli id all'insieme dei visti.
+2. li consegna uno alla volta (`deliver_external` / `send_user_message` / `send_user_files`); la consegna salva il
+   thread, e solo allora l'id entra nell'insieme dei visti (e, per una regola `per_conversation`, la conversazione
+   nella mappa) dello stato in memoria;
+3. se tutto il lotto è consegnato, il cursore nuovo entra nello stato;
+4. lo stato si salva su disco **dopo ogni giro**, anche fallito (errore di consegna o di poll, giro scaduto per
+   `ROUND_TIMEOUT`, regola disabilitata per `THREAD_GONE`) e dopo un lotto di un canale di contatto fallito a metà:
+   il cursore resta il vecchio, ma i visti e le mappe delle consegne già riuscite sono su disco.
 
-Se l'app si chiude tra 2 e 3, al giro successivo gli stessi elementi tornano: la dedupe per `(istanza,
-external_id)` (e per regola) li scarta. `deliver_external` controlla anche nel thread di destinazione (un
-messaggio con la stessa `origin`, cioè `instance` ed `external_id`), così la dedupe regge anche se il file di stato è stato perso.
+Così un'uscita dall'app durante il backoff non fa ripetere nulla: al riavvio il vecchio cursore ripresenta gli
+elementi, e la dedupe per `(regola, external_id)` scarta quelli già consegnati. Se l'app muore tra 2 e 4 (o il file
+di stato è stato perso) regge la dedupe dell'HUB per origine, cioè `(instance, external_id)` di `Message.origin`:
+`deliver_external` cerca un messaggio con la stessa origine nel thread di destinazione o, per un thread nuovo
+(`new_per_item`, il primo elemento di una conversazione), in tutto il canale, e lo restituisce con `duplicate: true`
+senza creare thread né svegliare nessuno; `send_user_message` / `send_user_files` (canali di contatto) non
+riscrivono né svegliano per un messaggio con un'origine già presente nel thread e restituiscono quello salvato. È
+una rete di sicurezza, non una garanzia assoluta: un messaggio potato (`MESSAGES_MAX`, thread chiusi oltre il
+tetto) non si trova più.
 
 **Backoff** (`connectors/runtime/backoff.rs`, puro, casualità iniettata): esponenziale con jitter, da 5 s a 10 min,
 azzerato dal primo giro riuscito.
@@ -622,7 +635,8 @@ scaricabili si saltano con un avviso nella chat. Sticker, vocali, video e simili
 log). **In uscita** v1 non manda file.
 
 **Dedupe**: per id esterno del messaggio (`<chat>:<message_id>` per Telegram) nell'insieme dei visti, oltre al
-cursore (`offset` = ultimo `update_id` + 1) salvato dopo l'elaborazione del lotto.
+cursore (`offset` = ultimo `update_id` + 1), che avanza solo dopo l'elaborazione di tutto il lotto; i visti si salvano
+anche dopo un lotto fallito a metà, e l'HUB scarta un messaggio con un'origine già presente nel thread (§7).
 
 **Limite in entrata**: al più 20 messaggi al minuto per account collegato; gli altri si scartano, con un solo avviso
 per finestra.

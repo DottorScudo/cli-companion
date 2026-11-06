@@ -240,6 +240,9 @@ async fn source_loop(
                 disable: Vec::new(),
             },
         };
+        // Dopo ogni giro, anche fallito o scaduto: i visti e le conversazioni delle
+        // consegne riuscite sono validi; il cursore nuovo c'e' solo a giro completo.
+        save_state(env, &instance.id, state).await;
         if !disable.is_empty() {
             if let Err(e) = disable_routes(env, disable).await {
                 let error = ConnectorError::Transient(e);
@@ -252,7 +255,6 @@ async fn source_loop(
         match end {
             RoundEnd::Retry => {}
             RoundEnd::Done { more } => {
-                save_state(env, &instance.id, state).await;
                 pace.success();
                 if !more && !pace.wait(interval).await {
                     return;

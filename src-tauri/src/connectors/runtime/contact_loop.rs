@@ -2,8 +2,9 @@
 //! fermare il task ferma tutto. La ricezione continua (`receive` con cursore, a
 //! lungo polling, con il tetto `RECEIVE_TIMEOUT`) porta i messaggi in entrata; l'uscita legge la coda delle
 //! notifiche dell'HUB (`notices`, limitata) e le manda ai collegamenti. Il
-//! cursore si salva solo dopo aver trattato tutto il lotto (almeno una volta, con
-//! dedupe per id esterno).
+//! cursore avanza solo dopo aver trattato tutto il lotto (almeno una volta, con
+//! dedupe per id esterno); lo stato si salva anche dopo un lotto fallito a meta',
+//! cosi' i messaggi gia' trattati restano visti dopo un riavvio.
 
 use crate::connectors::contracts::{ConnectorError, ReceiveBatch};
 use crate::connectors::limits::{RECEIVE_TIMEOUT, ROUND_TIMEOUT};
@@ -75,17 +76,27 @@ async fn handle_batch(cc: &ContactCtx<'_>, batch: &ReceiveBatch) -> Result<(), C
 async fn receive_loop(env: &Env, instance: &str, cc: &ContactCtx<'_>, pace: &mut Pace<'_>) {
     loop {
         let cursor = cc.state.lock().cursor(MAIN_CURSOR).cloned();
-        let received = with_timeout(RECEIVE_TIMEOUT, cc.connector.receive(cc.ctx, cursor)).await;
-        let handled = match received {
-            Ok(batch) => handle_batch(cc, &batch).await.map(|()| batch),
-            Err(e) => Err(e),
+        let batch = match with_timeout(RECEIVE_TIMEOUT, cc.connector.receive(cc.ctx, cursor)).await {
+            Ok(batch) => batch,
+            Err(error) => {
+                if !pace.failure(&error).await {
+                    return;
+                }
+                continue;
+            }
         };
+        let handled = handle_batch(cc, &batch).await;
+        let idle = batch.messages.is_empty();
+        if handled.is_ok() {
+            cc.state.lock().set_cursor(MAIN_CURSOR, batch.cursor);
+        }
+        // Anche dopo un lotto fallito a meta': il cursore resta il vecchio, i
+        // messaggi gia' trattati restano visti.
+        save_state(env, instance, cc.state).await;
         match handled {
-            Ok(batch) => {
-                cc.state.lock().set_cursor(MAIN_CURSOR, batch.cursor);
-                save_state(env, instance, cc.state).await;
+            Ok(()) => {
                 pace.success();
-                if batch.messages.is_empty() && !pace.wait(IDLE_PAUSE).await {
+                if idle && !pace.wait(IDLE_PAUSE).await {
                     return;
                 }
             }

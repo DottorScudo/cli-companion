@@ -168,6 +168,14 @@ impl ChannelThreads {
     }
 }
 
+/// Il messaggio del thread che viene dallo stesso elemento esterno: stessa
+/// istanza e stesso `external_id`, la chiave di dedupe di cio' che arriva da fuori.
+pub fn message_from<'a>(thread: &'a Thread, origin: &MessageOrigin) -> Option<&'a Message> {
+    thread.messages.iter().find(|m| {
+        m.origin.as_ref().is_some_and(|o| o.instance == origin.instance && o.external_id == origin.external_id)
+    })
+}
+
 pub fn summary(t: &Thread) -> ThreadSummary {
     ThreadSummary {
         id: t.id.clone(),

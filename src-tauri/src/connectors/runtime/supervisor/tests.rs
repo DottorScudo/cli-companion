@@ -3,7 +3,7 @@ use crate::connectors::contracts::{ConnectorImpl, ReceiveBatch};
 use crate::connectors::descriptor::DescriptorLimits;
 use crate::connectors::model::{ConnectorsFile, RouteThread, RouteWake, THREAD_GONE};
 use crate::connectors::runtime::health::ConnectorStatus;
-use crate::connectors::state::MAIN_CURSOR;
+use crate::connectors::state::{conversation_key, MAIN_CURSOR};
 use crate::connectors::testing::{
     batch, contact_notice, inbound, instance, item, link, new_contact, new_source, route, FakeClock, FakeContact,
     FakeHub, FakeSource, HubCall, InstantSleeper, MemoryStates, RecordingEmitter, FAKE_CONTACT, FAKE_SOURCE, INSTANCE,
@@ -309,17 +309,62 @@ fn a_vanished_thread_disables_the_route_in_the_file_and_the_other_route_still_de
     let file = rig.env.store.snapshot();
     assert!(!file.routes[0].enabled && file.routes[0].error.as_deref() == Some(THREAD_GONE));
     assert!(file.routes[1].enabled);
-    let delivered: Vec<String> = rig
-        .hub
+    assert_eq!(delivered_ids(&rig), vec!["y"]);
+    assert_eq!(rig.states.get(INSTANCE).cursor(MAIN_CURSOR), Some(&json!(5)));
+}
+
+/// Gli id esterni consegnati all'HUB, in ordine (anche quelli rifiutati).
+fn delivered_ids(rig: &Rig) -> Vec<String> {
+    rig.hub
         .calls()
         .into_iter()
         .filter_map(|c| match c {
             HubCall::Deliver(d) => Some(d.origin.external_id),
             _ => None,
         })
-        .collect();
-    assert_eq!(delivered, vec!["y"]);
+        .collect()
+}
+
+#[test]
+fn a_round_failed_midway_saves_what_was_delivered_and_a_restart_does_not_repeat_it() {
+    let conversations = route("rte-1-1", RouteThread::PerConversation, RouteWake::None);
+    let rig = Rig::source(0, vec![conversations]);
+    // La terza consegna fallisce: le prime due sono gia' nell'HUB.
+    *rig.hub.fail_from.lock().unwrap() = Some(3);
+    let source = new_source();
+    let items = vec![item("rte-1-1", "a", Some("k1")), item("rte-1-1", "b", Some("k2")), item("rte-1-1", "c", None)];
+    source.push(Ok(batch(items.clone(), json!(5), false)));
+    rig.run_source(source, json!({}));
+    assert_eq!(rig.status().state, HealthState::Backoff);
+    let saved = rig.states.get(INSTANCE);
+    assert!(saved.is_seen("rte-1-1", "a") && saved.is_seen("rte-1-1", "b"));
+    assert!(!saved.is_seen("rte-1-1", "c"));
+    let mapped = |key: &str| saved.conversations.get(&conversation_key("rte-1-1", key)).map(str::to_string);
+    assert_eq!((mapped("k1"), mapped("k2")), (Some("thr-fake-1".to_string()), Some("thr-fake-2".to_string())));
+    assert_eq!(saved.cursor(MAIN_CURSOR), None, "il cursore resta il vecchio");
+
+    // Uscita dall'app durante il backoff e riavvio: il vecchio cursore ripresenta tutto.
+    *rig.hub.fail_from.lock().unwrap() = None;
+    source.push(Ok(batch(items, json!(5), false)));
+    rig.run_source(source, json!({}));
+    assert_eq!(delivered_ids(&rig), vec!["a", "b", "c", "c"], "a e b non si consegnano di nuovo");
     assert_eq!(rig.states.get(INSTANCE).cursor(MAIN_CURSOR), Some(&json!(5)));
+}
+
+#[test]
+fn a_round_that_disables_a_route_saves_what_was_delivered_before() {
+    let gone = route("rte-1-2", RouteThread::Existing { thread_id: "thr-sparito".to_string() }, RouteWake::None);
+    let rig = Rig::source(0, vec![per_item("rte-1-1"), gone]);
+    let source = new_source();
+    source.push(Ok(batch(vec![item("rte-1-1", "a", None), item("rte-1-2", "x", None)], json!(5), false)));
+    // Il secondo giro (subito, dopo `Retry`) fallisce: resta solo lo stato del primo.
+    source.push(transient());
+    rig.run_source(source, json!({}));
+    let saved = rig.states.get(INSTANCE);
+    assert!(saved.is_seen("rte-1-1", "a"));
+    assert_eq!(saved.cursor(MAIN_CURSOR), None);
+    assert_eq!(delivered_ids(&rig), vec!["a"]);
+    assert_eq!(rig.states.saves(), 2, "uno per giro, anche per quello rifatto e quello fallito");
 }
 
 fn contact_rig(budget: usize) -> Rig {
@@ -373,6 +418,30 @@ fn an_auth_error_while_replying_keeps_the_old_cursor_and_ends_the_loop() {
     rig.run_contact(contact);
     assert_eq!(rig.states.get(INSTANCE).cursor(MAIN_CURSOR), None);
     assert_eq!(rig.status().state, HealthState::NeedsAuth);
+}
+
+#[test]
+fn a_batch_failed_midway_saves_the_handled_messages_and_a_restart_does_not_repeat_them() {
+    let rig = contact_rig(1);
+    let contact = new_contact();
+    // Il primo messaggio va nell'HUB, la risposta al comando che segue fallisce e ferma il lotto.
+    *contact.send_error.lock().unwrap() = Some(ConnectorError::Auth("x".to_string()));
+    let help = crate::connectors::testing::command("c1", "u1", crate::connectors::contracts::ContactCommand::Help);
+    let messages = vec![inbound("m1", "u1", "ciao"), help];
+    contact.push(Ok(ReceiveBatch { messages: messages.clone(), cursor: json!(10) }));
+    rig.run_contact(contact);
+    assert_eq!(rig.status().state, HealthState::NeedsAuth);
+    assert_eq!(rig.states.get(INSTANCE).cursor(MAIN_CURSOR), None, "il cursore resta il vecchio");
+    assert!(rig.states.saves() >= 1, "lo stato del lotto fallito e' su disco");
+
+    // Riavvio con le credenziali sistemate: il vecchio cursore ripresenta il lotto.
+    *contact.send_error.lock().unwrap() = None;
+    contact.push(Ok(ReceiveBatch { messages, cursor: json!(10) }));
+    rig.run_contact(contact);
+    let written = rig.hub.calls().into_iter().filter(|c| matches!(c, HubCall::SendUser(_))).count();
+    assert_eq!(written, 1, "m1 non si scrive di nuovo");
+    assert_eq!(rig.states.get(INSTANCE).cursor(MAIN_CURSOR), Some(&json!(10)));
+    assert_eq!(contact.sent_texts().len(), 1, "solo la risposta al comando");
 }
 
 #[test]
