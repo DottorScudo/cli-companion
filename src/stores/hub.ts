@@ -12,6 +12,7 @@ import { baselineSeen, markSeen, pruneSeen, readSeen } from "../lib/hubUnread.ts
 import type { SeenMap } from "../lib/hubUnread.ts";
 import { DEFAULT_HUB_VIEW_MODE, readViewMode } from "../lib/hubViewMode.ts";
 import type { HubViewMode } from "../lib/hubViewMode.ts";
+import { DEFAULT_THREAD_PANEL_SHOWN, readThreadPanelShown } from "../lib/hubThreadPanelPref.ts";
 import type { ThreadFilter } from "../lib/hub.ts";
 import { createStore } from "../lib/store.ts";
 import type { StorageLike } from "../lib/taskPanelPrefs.ts";
@@ -41,6 +42,8 @@ export interface HubState {
   replyTo: string | null;
   /** Come si mostrano i thread: per canale o come messenger. Preferenza globale, salvata in localStorage. */
   viewMode: HubViewMode;
+  /** Pannello task e terminali a destra del thread mostrato. Preferenza globale, salvata in localStorage. */
+  threadPanelShown: boolean;
   /** Anteprima dell'ultimo messaggio per thread (solo vista messenger), calcolata nel client. */
   previews: Readonly<Record<string, ThreadPreview>>;
   /** Messaggi visti per thread (solo client, salvato in localStorage): una chat è non letta se ne ha di più. */
@@ -60,6 +63,7 @@ export const INITIAL_HUB: HubState = {
   thread: null,
   replyTo: null,
   viewMode: DEFAULT_HUB_VIEW_MODE,
+  threadPanelShown: DEFAULT_THREAD_PANEL_SHOWN,
   previews: {},
   lastSeen: {},
   seenBaseline: false,
@@ -68,7 +72,14 @@ export const INITIAL_HUB: HubState = {
 /** Impostazioni lette o salvate. Spegnere l'HUB scarta thread, anteprime e stato dei segretari, non le impostazioni né le preferenze. */
 export function settingsLoaded(s: HubState, settings: HubSettingsView): HubState {
   if (!settings.enabled) {
-    return { ...INITIAL_HUB, settings, viewMode: s.viewMode, lastSeen: s.lastSeen, seenBaseline: s.seenBaseline };
+    return {
+      ...INITIAL_HUB,
+      settings,
+      viewMode: s.viewMode,
+      threadPanelShown: s.threadPanelShown,
+      lastSeen: s.lastSeen,
+      seenBaseline: s.seenBaseline,
+    };
   }
   return { ...s, enabled: true, settings };
 }
@@ -137,6 +148,11 @@ export function viewModeSet(s: HubState, viewMode: HubViewMode): HubState {
   return s.viewMode === viewMode ? s : { ...s, viewMode };
 }
 
+/** Mostra o nasconde il pannello task e terminali del thread. */
+export function threadPanelShownSet(s: HubState, shown: boolean): HubState {
+  return s.threadPanelShown === shown ? s : { ...s, threadPanelShown: shown };
+}
+
 /** L'anteprima di un thread letto per la vista messenger; con l'HUB spento si ignora. */
 export function previewLoaded(s: HubState, threadId: string, preview: ThreadPreview): HubState {
   if (!s.enabled) return s;
@@ -168,6 +184,7 @@ export function createHubStore(storage: StorageLike | null = browserStorage()) {
   const store = createStore<HubState>({
     ...INITIAL_HUB,
     viewMode: readViewMode(storage),
+    threadPanelShown: readThreadPanelShown(storage),
     lastSeen: seen ?? {},
     seenBaseline: seen === null,
   });
@@ -175,6 +192,7 @@ export function createHubStore(storage: StorageLike | null = browserStorage()) {
   return {
     ...store,
     viewModeSet: (viewMode: HubViewMode) => store.update((s) => viewModeSet(s, viewMode)),
+    threadPanelShownSet: (shown: boolean) => store.update((s) => threadPanelShownSet(s, shown)),
     previewLoaded: (threadId: string, preview: ThreadPreview) =>
       store.update((s) => previewLoaded(s, threadId, preview)),
     threadSeen: (threadId: string, count: number) => store.update((s) => threadSeen(s, threadId, count)),

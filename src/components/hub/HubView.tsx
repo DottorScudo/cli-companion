@@ -6,6 +6,7 @@ import { GENERAL_CHANNEL, channelName } from "../../lib/hub";
 import { hubStore } from "../../stores/hub";
 import HubConversation from "./HubConversation";
 import HubThreadList from "./HubThreadList";
+import HubThreadSidePanel from "./HubThreadSidePanel";
 
 /**
  * Centro del mondo Agents HUB: thread del canale e conversazione (la colonna
@@ -18,6 +19,8 @@ export default function HubView() {
   const { channels, current } = useHubChannels();
   const channel = useStore(hubStore, (s) => s.channel);
   const messenger = useStore(hubStore, (s) => s.viewMode === "messenger");
+  const panelShown = useStore(hubStore, (s) => s.threadPanelShown);
+  const thread = useStore(hubStore, (s) => s.thread);
 
   useEffect(() => {
     const { channel: openChannel, threadId } = hubStore.getState();
@@ -33,6 +36,7 @@ export default function HubView() {
     <div className="flex h-full min-h-0">
       {!messenger && <HubThreadList channel={current} channelName={channelName(channels, current)} />}
       <HubConversation channel={current} channelName={channelName(channels, current)} messenger={messenger} />
+      {panelShown && thread !== null && <HubThreadSidePanel thread={thread} />}
     </div>
   );
 }

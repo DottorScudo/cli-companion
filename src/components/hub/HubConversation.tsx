@@ -13,6 +13,7 @@ import { Button } from "../ui/button";
 import HubComposer from "./HubComposer";
 import HubMessageItem from "./HubMessageItem";
 import ThreadOwner from "./ThreadOwner";
+import ThreadPanelToggle from "./ThreadPanelToggle";
 import LinkedSourcesButton from "./LinkedSourcesButton";
 import ThreadSession from "./ThreadSession";
 import ThreadStateButton from "./ThreadStateButton";
@@ -91,6 +92,7 @@ export default function HubConversation({ channel, channelName, messenger }: Pro
         <LinkedSourcesButton channel={channel} threadId={thread.id} />
         <ThreadOwner owner={thread.owner} />
         <ThreadSession channel={channel} threadId={thread.id} now={now} />
+        <ThreadPanelToggle />
         <ThreadStateButton thread={thread} />
         <span className="rounded border px-1.5 py-px text-[10px] text-muted-foreground">
           {thread.state === "open" ? "Aperto" : "Chiuso"}

@@ -133,21 +133,53 @@ export function sidebarTerminals(
   const tabByKey = new Map(tabs.map((t) => [t.key, t]));
   return group.order.flatMap((key) => {
     const tab = tabByKey.get(key);
-    if (!tab) return [];
-    const rt = runtime[key];
-    const ws = workspaces.find((w) => w.id === tab.workspaceId);
-    return [
-      {
-        key,
-        label: tabLabel(tab, rt, ws, builtins),
-        bot: shownBot(bots, tab.bot),
-        botImage: bots.enabled ? botImageOf(tab.bot) : undefined,
-        status: statusOf(rt),
-        pinned: layout.global.order.includes(key),
-        active: group.activeTabId === key,
-      },
-    ];
+    return tab
+      ? [terminalOf(tab, group.activeTabId === key, layout, runtime, workspaces, builtins, bots, botImageOf)]
+      : [];
   });
+}
+
+/** Terminali con le chiavi date (nell'ordine delle chiavi); una chiave senza tab aperto è saltata. */
+export function terminalsByKey(
+  keys: readonly string[],
+  layout: LayoutState,
+  tabs: TabsState,
+  runtime: RuntimeState,
+  workspaces: readonly Workspace[],
+  builtins: BuiltinLaunch[],
+  bots: BotSettings,
+  botImageOf: (name: string) => BotImage | undefined,
+): SidebarTerminal[] {
+  const tabByKey = new Map(tabs.map((t) => [t.key, t]));
+  return keys.flatMap((key) => {
+    const tab = tabByKey.get(key);
+    if (!tab) return [];
+    const active = layout.groups.find((g) => g.workspaceId === tab.workspaceId)?.activeTabId === key;
+    return [terminalOf(tab, active, layout, runtime, workspaces, builtins, bots, botImageOf)];
+  });
+}
+
+function terminalOf(
+  tab: TabEntry,
+  active: boolean,
+  layout: LayoutState,
+  runtime: RuntimeState,
+  workspaces: readonly Workspace[],
+  builtins: BuiltinLaunch[],
+  bots: BotSettings,
+  botImageOf: (name: string) => BotImage | undefined,
+): SidebarTerminal {
+  const rt = runtime[tab.key];
+  const ws = workspaces.find((w) => w.id === tab.workspaceId);
+  return {
+    key: tab.key,
+    label: tabLabel(tab, rt, ws, builtins),
+    bot: shownBot(bots, tab.bot),
+    botImage: bots.enabled ? botImageOf(tab.bot) : undefined,
+    status: statusOf(rt),
+    pinned: layout.global.order.includes(tab.key),
+    active,
+  };
 }
 
 /** Stessi terminali della sidebar? (per non ridisegnare la card se non cambia nulla di visibile) */
