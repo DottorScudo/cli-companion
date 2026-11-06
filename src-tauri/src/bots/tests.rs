@@ -235,7 +235,7 @@ fn update_writes_the_envelope_and_roundtrips() {
         })
         .unwrap();
     let raw: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join(FILE_NAME)).unwrap()).unwrap();
-    assert_eq!(raw["schema_version"], 5);
+    assert_eq!(raw["schema_version"], 6);
     assert_eq!(raw["data"]["agents"][0]["id"], "general");
     assert_eq!(raw["data"]["enabled"], false);
     assert_eq!(raw["data"]["images"]["Ada"]["color"], "#445566");
@@ -275,8 +275,28 @@ fn agent<'a>(s: &'a BotSettings, id: &str) -> &'a AgentBot {
     s.agents.iter().find(|b| b.id == id).unwrap()
 }
 
-const ALL_PRESET_IDS: [&str; 8] =
-    ["general", "intake", "setup", "skill-wizard", "reviewer", "planner", "quick-answer", "bug-fixer"];
+const ALL_PRESET_IDS: [&str; 12] = [
+    "general",
+    "intake",
+    "setup",
+    "skill-wizard",
+    "reviewer",
+    "planner",
+    "quick-answer",
+    "bug-fixer",
+    "researcher",
+    "test-writer",
+    "docs-writer",
+    "refactorer",
+];
+
+/// I Bot che il passo v6 aggiunge in fondo all'elenco.
+const V6_PRESET_IDS: [&str; 4] = ["researcher", "test-writer", "docs-writer", "refactorer"];
+
+/// Gli id `before`, seguiti da quelli aggiunti dal passo v6.
+fn with_v6<'a>(before: &[&'a str]) -> Vec<&'a str> {
+    [before, &V6_PRESET_IDS[..]].concat()
+}
 
 #[test]
 fn v1_file_gets_the_preset_bots_and_keeps_names_and_images() {
@@ -309,7 +329,16 @@ fn v2_file_gets_task_kinds_and_the_new_presets_once() {
     assert!(backups(&dir).is_empty());
     assert_eq!(
         agent_ids(&s),
-        ["general", "setup", "intake-other", "custom-planner", "reviewer", "planner", "quick-answer", "bug-fixer"]
+        with_v6(&[
+            "general",
+            "setup",
+            "intake-other",
+            "custom-planner",
+            "reviewer",
+            "planner",
+            "quick-answer",
+            "bug-fixer"
+        ])
     );
     assert_eq!(
         (agent(&s, "general").name.as_str(), agent(&s, "general").kinds.as_slice()),
@@ -339,7 +368,7 @@ fn v3_file_gets_quick_answer_and_bug_fixer_once() {
     let (dir, store) = load_fixture("v3-answer-fix", V3_FILE);
     let s = store.get();
     assert!(backups(&dir).is_empty());
-    assert_eq!(agent_ids(&s), ["general", "planner", "custom-quick-answer", "quick-answer", "bug-fixer"]);
+    assert_eq!(agent_ids(&s), with_v6(&["general", "planner", "custom-quick-answer", "quick-answer", "bug-fixer"]));
     assert!(!agent(&s, "planner").enabled, "the existing bots are untouched");
     assert_eq!(agent(&s, "custom-quick-answer").name, "Quick Answer");
     let quick_answer = presets::find("quick-answer").unwrap().bot();
@@ -360,7 +389,7 @@ fn v4_file_gets_the_new_task_only_where_it_was_the_old_preset_text() {
     let (dir, store) = load_fixture("v4-tasks", V4_FILE);
     let s = store.get();
     assert!(backups(&dir).is_empty());
-    assert_eq!(agent_ids(&s), ["general", "planner"]);
+    assert_eq!(agent_ids(&s), with_v6(&["general", "planner"]));
     let preset = presets::find(GENERAL_ID).unwrap().bot();
     assert_eq!(agent(&s, "general"), &AgentBot { name: "Generic".into(), ..preset });
     let planner = agent(&s, "planner");
@@ -370,6 +399,31 @@ fn v4_file_gets_the_new_task_only_where_it_was_the_old_preset_text() {
         (Some("other"), Some(crate::agents::Effort::Low), false)
     );
     assert_eq!(planner.kinds, [TaskKind::Plan, TaskKind::Work]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Un file v5 com'era su disco: il Refactorer non c'e' mai stato, un Bot
+/// dell'utente ha gia' il nome "Test Writer" e `general` e' personalizzato.
+const V5_FILE: &str = r#"{"schema_version":5,"data":{"enabled":true,"names":["Ada"],"agents":[
+{"id":"general","name":"Generic","task":"Mine.","agent":null,"model":{"kind":"default"},"effort":null,"skill":null,"kinds":["work","plan"],"enabled":true,"image":null,"preset":"general"},
+{"id":"custom-tests","name":"Test Writer","task":"My tests.","agent":null,"model":{"kind":"default"},"effort":null,"skill":null,"kinds":["work"],"enabled":false,"image":null,"preset":null},
+{"id":"refactorer","name":"Cleaner","task":"Cleans up.","agent":null,"model":{"kind":"default"},"effort":null,"skill":null,"kinds":["work"],"enabled":false,"image":null,"preset":"refactorer"}
+]}}"#;
+
+#[test]
+fn v5_file_gets_the_four_new_bots_once() {
+    let (dir, store) = load_fixture("v5-domain-bots", V5_FILE);
+    let s = store.get();
+    assert!(backups(&dir).is_empty());
+    assert_eq!(agent_ids(&s), ["general", "custom-tests", "refactorer", "researcher", "test-writer", "docs-writer"]);
+    assert_eq!((agent(&s, "general").task.as_str(), agent(&s, "general").kinds.len()), ("Mine.", 2));
+    assert_eq!((agent(&s, "custom-tests").name.as_str(), agent(&s, "custom-tests").enabled), ("Test Writer", false));
+    assert_eq!(agent(&s, "refactorer").name, "Cleaner", "a present id is untouched");
+    let test_writer = presets::find("test-writer").unwrap().bot();
+    assert_eq!(agent(&s, "test-writer"), &AgentBot { name: "Test Writer 2".into(), ..test_writer });
+    for id in ["researcher", "docs-writer"] {
+        assert_eq!(agent(&s, id), &presets::find(id).unwrap().bot(), "{id}");
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -398,7 +452,7 @@ fn a_missing_file_starts_with_the_preset_bots() {
 
 #[test]
 fn the_migrations_run_once_so_a_deleted_preset_stays_deleted() {
-    for deleted in ["intake", "reviewer", "quick-answer", "bug-fixer"] {
+    for deleted in ["intake", "reviewer", "quick-answer", "bug-fixer", "researcher", "refactorer"] {
         let dir = temp_dir(&format!("deleted-preset-{deleted}"));
         std::fs::write(dir.join(FILE_NAME), r#"{"schema_version":1,"data":{}}"#).unwrap();
         let store = new_store();
@@ -430,7 +484,7 @@ fn a_v4_file_without_general_gets_it_back_enabled() {
 
 #[test]
 fn a_newer_schema_is_set_aside() {
-    let (dir, store) = load_fixture("newer", r#"{"schema_version":6,"data":{}}"#);
+    let (dir, store) = load_fixture("newer", r#"{"schema_version":7,"data":{}}"#);
     assert_eq!(store.get(), BotSettings::default());
     assert_eq!(backups(&dir).len(), 1);
     let _ = std::fs::remove_dir_all(&dir);

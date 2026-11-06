@@ -184,6 +184,25 @@ vanno scritte qui sotto, per versione, prima del tag.
   pacchetto dell'agente, Claude Code e OpenCode (prontezza «da aggiornare» finché non lo si
   aggiorna).
 
+### Prossima versione: Bot per ricerca, test, documentazione e refactoring
+
+- **Quattro Bot nuovi, accesi.** **Researcher** (pianificazione, `strong`/`high`, skill
+  `code-research`) risponde a una domanda tecnica con un report su opzioni, fattibilità, rischi
+  ed effort, e propone task solo se richiesto; **Test Writer** (`standard`/`medium`, `test-qa`)
+  aggiunge o migliora i test; **Docs Writer** (`standard`/`medium`, `docs-writer`) scrive la
+  documentazione per il lettore indicato; **Refactorer** (`strong`/`high`, `safe-refactor`)
+  ristruttura il codice senza cambiarne il comportamento. Il segretario vede Researcher fra i Bot
+  che pianificano; il pianificatore e Intake scelgono gli altri dal loro compito.
+- **Costo.** Researcher e Refactorer sono `strong`/`high`: una ricerca costa più di una domanda a
+  Quick Answer e un refactoring più di `General` con il modello del workspace. Si regolano o si
+  spengono in Impostazioni › Generale › Bot.
+- **Chi ha già i file.** `bots.json` passa alla versione 6: i quattro Bot si creano **una volta
+  sola** in fondo all'elenco (un Bot cancellato non ricompare, un nome già preso diventa «Test
+  Writer 2»; un segretario chiamato `researcher` fa diventare il Bot «Researcher 2»). Una versione
+  precedente dell'app mette da parte il file come `bots.json.bak-<timestamp>`.
+- **Skill del plugin.** Le quattro skill sono già nel pacchetto dell'agente: se la prontezza è
+  «da aggiornare», l'aggiornamento del pacchetto le rende disponibili.
+
 ## 6. Checklist release
 
 - [ ] `updater.config.json`: `owner`/`repo` reali

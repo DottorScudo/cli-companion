@@ -137,7 +137,9 @@ mod tests {
                  change no specialized bot covers.\n- planner: Planner - Plans changes to the project: explores the \
                  repository read-only and proposes queue tasks.\n- quick-answer: Quick Answer - Answers \
                  a quick question about the code or its git history, read-only, in a few lines. Changes nothing and \
-                 proposes nothing."
+                 proposes nothing.\n- researcher: Researcher - Researches a technical question in depth, read-only: \
+                 options, feasibility, risks and effort, in a structured report. May propose tasks only if the user \
+                 asked for them."
             )
         );
     }
@@ -184,6 +186,7 @@ mod tests {
         let mut list = bots();
         by_id(&mut list, "planner").enabled = false;
         by_id(&mut list, "quick-answer").enabled = false;
+        by_id(&mut list, "researcher").enabled = false;
         let both = with_tools(vec![SecretaryTool::OpenPlanTask, SecretaryTool::RequestTaskUpdate]);
         let text = describe(&both, &list).unwrap();
         assert!(text.contains(NO_PLAN_BOTS) && text.contains(UPDATE_INTRO), "{text}");

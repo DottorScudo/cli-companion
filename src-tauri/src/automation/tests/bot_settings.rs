@@ -19,7 +19,23 @@ fn every_bot_is_listed_in_order_with_the_documented_fields() {
     h.edit_bots(|bots| *bots = crate::bots::default_agent_bots());
     let list = bots(&st, &h);
     let ids: Vec<_> = list.iter().map(|b| b["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, ["general", "intake", "setup", "skill-wizard", "reviewer", "planner", "quick-answer", "bug-fixer"]);
+    assert_eq!(
+        ids,
+        [
+            "general",
+            "intake",
+            "setup",
+            "skill-wizard",
+            "reviewer",
+            "planner",
+            "quick-answer",
+            "bug-fixer",
+            "researcher",
+            "test-writer",
+            "docs-writer",
+            "refactorer"
+        ]
+    );
 
     let agent = registry::default_agent().id();
     let strong = crate::agents::tier_models(registry::default_agent()).unwrap().strong;

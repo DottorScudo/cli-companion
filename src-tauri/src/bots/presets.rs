@@ -53,7 +53,7 @@ impl BotPreset {
 }
 
 /// I preset, nell'ordine in cui compaiono.
-pub static PRESETS: [BotPreset; 8] = [
+pub static PRESETS: [BotPreset; 12] = [
     BotPreset {
         id: GENERAL_ID,
         name: "General",
@@ -127,6 +127,46 @@ pub static PRESETS: [BotPreset; 8] = [
         skill: Some("bug-fix"),
         kinds: &[TaskKind::Work],
     },
+    BotPreset {
+        id: "researcher",
+        name: "Researcher",
+        task: "Researches a technical question in depth, read-only: options, feasibility, risks and effort, in a \
+               structured report. May propose tasks only if the user asked for them.",
+        model: ModelChoice::Tier(ModelTier::Strong),
+        effort: Some(Effort::High),
+        skill: Some("code-research"),
+        kinds: &[TaskKind::Plan],
+    },
+    BotPreset {
+        id: "test-writer",
+        name: "Test Writer",
+        task: "Adds or improves automated tests for existing behaviour, following the project's test conventions; \
+               changes production code only to make it testable.",
+        model: ModelChoice::Tier(ModelTier::Standard),
+        effort: Some(Effort::Medium),
+        skill: Some("test-qa"),
+        kinds: &[TaskKind::Work],
+    },
+    BotPreset {
+        id: "docs-writer",
+        name: "Docs Writer",
+        task: "Writes or updates documentation (README, guides, comments) for the stated audience and language; does \
+               not change behaviour.",
+        model: ModelChoice::Tier(ModelTier::Standard),
+        effort: Some(Effort::Medium),
+        skill: Some("docs-writer"),
+        kinds: &[TaskKind::Work],
+    },
+    BotPreset {
+        id: "refactorer",
+        name: "Refactorer",
+        task: "Restructures existing code without changing its behaviour, in small verified steps, with tests run \
+               before and after.",
+        model: ModelChoice::Tier(ModelTier::Strong),
+        effort: Some(Effort::High),
+        skill: Some("safe-refactor"),
+        kinds: &[TaskKind::Work],
+    },
 ];
 
 /// Il preset con quell'id.
@@ -169,6 +209,10 @@ mod tests {
                 ("planner", "Planner"),
                 ("quick-answer", "Quick Answer"),
                 ("bug-fixer", "Bug Fixer"),
+                ("researcher", "Researcher"),
+                ("test-writer", "Test Writer"),
+                ("docs-writer", "Docs Writer"),
+                ("refactorer", "Refactorer"),
             ]
         );
         assert_eq!(PRESETS[0].id, GENERAL_ID);
@@ -198,6 +242,22 @@ mod tests {
             (ModelChoice::Tier(ModelTier::Standard), Some(Effort::Low), Some("code-answer"))
         );
         assert_eq!(fields("bug-fixer"), (ModelChoice::Tier(ModelTier::Strong), Some(Effort::High), Some("bug-fix")));
+        assert_eq!(
+            fields("researcher"),
+            (ModelChoice::Tier(ModelTier::Strong), Some(Effort::High), Some("code-research"))
+        );
+        assert_eq!(
+            fields("test-writer"),
+            (ModelChoice::Tier(ModelTier::Standard), Some(Effort::Medium), Some("test-qa"))
+        );
+        assert_eq!(
+            fields("docs-writer"),
+            (ModelChoice::Tier(ModelTier::Standard), Some(Effort::Medium), Some("docs-writer"))
+        );
+        assert_eq!(
+            fields("refactorer"),
+            (ModelChoice::Tier(ModelTier::Strong), Some(Effort::High), Some("safe-refactor"))
+        );
         assert!(find("nope").is_none());
     }
 
@@ -207,9 +267,12 @@ mod tests {
         assert_eq!(kinds("general"), [TaskKind::Work]);
         assert_eq!(kinds("reviewer"), [TaskKind::Review]);
         assert_eq!(kinds("planner"), [TaskKind::Plan]);
-        // Le skill di questi due guidano un task automatico, non un terminale.
+        // Le skill da worker guidano un task automatico, non un terminale.
         assert_eq!(kinds("quick-answer"), [TaskKind::Plan]);
-        assert_eq!(kinds("bug-fixer"), [TaskKind::Work]);
+        assert_eq!(kinds("researcher"), [TaskKind::Plan]);
+        for id in ["bug-fixer", "test-writer", "docs-writer", "refactorer"] {
+            assert_eq!(kinds(id), [TaskKind::Work], "{id}");
+        }
         // Le skill dei preset sono pensate per un terminale interattivo.
         for id in ["intake", "setup", "skill-wizard"] {
             assert!(kinds(id).is_empty(), "{id}");
@@ -233,6 +296,18 @@ mod tests {
                 assert!(PLUGIN_SKILLS.iter().any(|s| s.id == skill), "{skill}");
             }
             assert_eq!(super::super::validate::normalize_kinds(p.kinds.to_vec()), p.kinds, "{}", p.id);
+        }
+    }
+
+    /// Segretari e pianificatore scelgono il Bot dal `task`: fra i Bot di uno
+    /// stesso tipo di task il verbo iniziale non si ripete.
+    #[test]
+    fn the_tasks_of_the_bots_of_a_kind_start_with_different_verbs() {
+        for kind in TaskKind::ALL {
+            let verbs: Vec<_> =
+                PRESETS.iter().filter(|p| p.kinds.contains(&kind)).filter_map(|p| p.task.split(' ').next()).collect();
+            let unique: HashSet<_> = verbs.iter().collect();
+            assert_eq!(unique.len(), verbs.len(), "{kind:?}: {verbs:?}");
         }
     }
 

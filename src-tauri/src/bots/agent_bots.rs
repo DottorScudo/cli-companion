@@ -280,7 +280,19 @@ mod tests {
         delete(&mut list, "setup").unwrap();
         assert_eq!(
             ids(&list),
-            ["general", "intake", "skill-wizard", "reviewer", "planner", "quick-answer", "bug-fixer"]
+            [
+                "general",
+                "intake",
+                "skill-wizard",
+                "reviewer",
+                "planner",
+                "quick-answer",
+                "bug-fixer",
+                "researcher",
+                "test-writer",
+                "docs-writer",
+                "refactorer"
+            ]
         );
         assert_eq!(delete(&mut list, "setup").unwrap_err(), NOT_FOUND);
     }
@@ -331,7 +343,20 @@ mod tests {
         restore_presets(&mut list, &[]);
         assert_eq!(
             ids(&list),
-            ["general", "intake", "reviewer", "planner", "quick-answer", "bug-fixer", "setup", "skill-wizard"]
+            [
+                "general",
+                "intake",
+                "reviewer",
+                "planner",
+                "quick-answer",
+                "bug-fixer",
+                "researcher",
+                "test-writer",
+                "docs-writer",
+                "refactorer",
+                "setup",
+                "skill-wizard"
+            ]
         );
         assert_eq!(by_id(&list, "intake").name, "Organizer");
         assert_eq!(by_id(&list, "setup"), &presets::find("setup").unwrap().bot());

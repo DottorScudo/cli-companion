@@ -167,6 +167,65 @@ pub fn exclusive_general_and_planner_tasks(mut value: Value) -> Result<Value, St
     Ok(value)
 }
 
+/// Passo 5 -> 6: i Bot Researcher (ricerca tecnica, task `plan`), Test Writer,
+/// Docs Writer e Refactorer (task `work`), con le skill `code-research`,
+/// `test-qa`, `docs-writer` e `safe-refactor`. Nomi liberi come nel passo 3 -> 4;
+/// un nome di segretario lo libera `secretary_names` dopo il caricamento.
+pub fn add_research_and_work_bots(mut value: Value) -> Result<Value, String> {
+    let names = bot_names(agents_mut(&mut value)?);
+    let tier = |tier: &str| json!({"kind": "tier", "value": tier});
+    let bot = |id: &str, name: &str, task: &str, model: Value, effort: &str, skill: &str, kind: &str| {
+        json!({
+            "id": id, "name": free_name(&names, name), "task": task, "agent": null, "model": model,
+            "effort": effort, "skill": {"kind": "plugin", "id": skill}, "kinds": [kind],
+            "enabled": true, "image": null, "preset": id,
+        })
+    };
+    let added = vec![
+        bot(
+            "researcher",
+            "Researcher",
+            "Researches a technical question in depth, read-only: options, feasibility, risks and effort, in a \
+             structured report. May propose tasks only if the user asked for them.",
+            tier("strong"),
+            "high",
+            "code-research",
+            "plan",
+        ),
+        bot(
+            "test-writer",
+            "Test Writer",
+            "Adds or improves automated tests for existing behaviour, following the project's test conventions; \
+             changes production code only to make it testable.",
+            tier("standard"),
+            "medium",
+            "test-qa",
+            "work",
+        ),
+        bot(
+            "docs-writer",
+            "Docs Writer",
+            "Writes or updates documentation (README, guides, comments) for the stated audience and language; does \
+             not change behaviour.",
+            tier("standard"),
+            "medium",
+            "docs-writer",
+            "work",
+        ),
+        bot(
+            "refactorer",
+            "Refactorer",
+            "Restructures existing code without changing its behaviour, in small verified steps, with tests run \
+             before and after.",
+            tier("strong"),
+            "high",
+            "safe-refactor",
+            "work",
+        ),
+    ];
+    add_missing(value, added)
+}
+
 /// I nomi dei Bot dell'elenco, in minuscolo.
 fn bot_names(list: &[Value]) -> Vec<String> {
     list.iter().filter_map(|b| b.get("name").and_then(Value::as_str)).map(str::to_lowercase).collect()
@@ -182,7 +241,7 @@ fn v3_kinds(id: Option<&str>) -> &'static [&'static str] {
 }
 
 /// `base`, o `base N` col primo N libero fra `taken` (in minuscolo). I nomi
-/// dei preset della v3 e della v4 restano entro i 24 caratteri anche col suffisso.
+/// dei preset della v3, della v4 e della v6 restano entro i 24 caratteri anche col suffisso.
 fn free_name(taken: &[String], base: &str) -> String {
     let free = |name: &String| !taken.contains(&name.to_lowercase());
     std::iter::once(base.to_string())
@@ -235,7 +294,13 @@ mod tests {
     /// un passo nuovo in coda.
     #[test]
     fn the_steps_match_the_presets_of_the_current_release() {
-        let steps = [add_agent_bots, add_task_kinds, add_answer_and_fix_bots, exclusive_general_and_planner_tasks];
+        let steps = [
+            add_agent_bots,
+            add_task_kinds,
+            add_answer_and_fix_bots,
+            exclusive_general_and_planner_tasks,
+            add_research_and_work_bots,
+        ];
         let current = steps.iter().try_fold(json!({}), |value, step| step(value)).unwrap();
         let bots: Vec<AgentBot> = serde_json::from_value(current[AGENTS_KEY].clone()).unwrap();
         assert_eq!(bots, default_bots());
@@ -253,7 +318,13 @@ mod tests {
 
     #[test]
     fn malformed_data_is_an_error() {
-        for step in [add_agent_bots, add_task_kinds, add_answer_and_fix_bots, exclusive_general_and_planner_tasks] {
+        for step in [
+            add_agent_bots,
+            add_task_kinds,
+            add_answer_and_fix_bots,
+            exclusive_general_and_planner_tasks,
+            add_research_and_work_bots,
+        ] {
             assert!(step(json!([1, 2])).is_err());
             assert!(step(json!({"agents": "nope"})).is_err());
         }
@@ -337,5 +408,30 @@ mod tests {
         expected[TASK_KEY] = json!(crate::bots::presets::find(GENERAL).unwrap().task);
         assert_eq!(v5[AGENTS_KEY], json!([expected, derived]), "only the task of the general id changes");
         assert_eq!((&v5["enabled"], &v5["names"]), (&v4["enabled"], &v4["names"]));
+    }
+
+    #[test]
+    fn the_v6_step_adds_the_four_bots_at_the_end_and_keeps_the_rest() {
+        let mine = json!({"id": "custom-mine", "name": "Mine", "kinds": ["work"]});
+        let v5 = json!({"enabled": false, "names": ["Ada"], "agents": [{"id": "general", "name": "General"}, mine]});
+        let v6 = add_research_and_work_bots(v5.clone()).unwrap();
+        assert_eq!(ids(&v6), ["general", "custom-mine", "researcher", "test-writer", "docs-writer", "refactorer"]);
+        assert_eq!(v6[AGENTS_KEY].as_array().unwrap()[..2], v5[AGENTS_KEY].as_array().unwrap()[..]);
+        assert_eq!((&v6["enabled"], &v6["names"]), (&v5["enabled"], &v5["names"]));
+        assert_eq!(kinds_of(&v6, "researcher"), &json!(["plan"]));
+        for id in ["test-writer", "docs-writer", "refactorer"] {
+            assert_eq!(kinds_of(&v6, id), &json!(["work"]), "{id}");
+        }
+    }
+
+    #[test]
+    fn the_v6_step_skips_present_ids_frees_taken_names_and_is_idempotent() {
+        let mine = json!({"id": "refactorer", "name": "Mine"});
+        let v5 = json!({"agents": [mine.clone(), {"id": "custom-r", "name": "researcher"}]});
+        let v6 = add_research_and_work_bots(v5).unwrap();
+        assert_eq!(ids(&v6), ["refactorer", "custom-r", "researcher", "test-writer", "docs-writer"]);
+        assert_eq!(v6[AGENTS_KEY][0], mine);
+        assert_eq!(v6[AGENTS_KEY][2]["name"], "Researcher 2");
+        assert_eq!(add_research_and_work_bots(v6.clone()).unwrap(), v6);
     }
 }

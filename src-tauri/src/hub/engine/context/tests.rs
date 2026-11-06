@@ -34,9 +34,16 @@ fn the_system_prompt_lists_the_bots_before_the_language() {
          proposes queue tasks. [plan]\n"
     ));
     assert!(
+        p.contains(
+            "\n- bug-fixer: Bug Fixer - Fixes a reported bug: reproduces it, adds a failing regression test, fixes \
+             the root cause and verifies. [work]\n"
+        ),
+        "{p}"
+    );
+    assert!(
         p.ends_with(
-            "- bug-fixer: Bug Fixer - Fixes a reported bug: reproduces it, adds a failing regression test, fixes the \
-             root cause and verifies. [work]\n\nAlways reply to the user in Italian."
+            "- refactorer: Refactorer - Restructures existing code without changing its behaviour, in small verified \
+             steps, with tests run before and after. [work]\n\nAlways reply to the user in Italian."
         ),
         "{p}"
     );
