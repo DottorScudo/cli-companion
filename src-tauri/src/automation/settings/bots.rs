@@ -1,5 +1,6 @@
 //! I Bot-agente in `get_workspace_settings.bots`: ogni Bot (anche disabilitato)
-//! con cio' che il modello deve sapere per sceglierlo e proporlo nei task.
+//! con cio' che il modello deve sapere per sceglierlo e proporlo nei task,
+//! compresi i tipi di task che puo' eseguire (`kinds`).
 
 use crate::agents::{registry, AgentIntegration, Readiness};
 use crate::bots::resolve::resolve_bot;
@@ -38,5 +39,6 @@ fn bot_json(bot: &AgentBot, workspace_agent: &str, catalog: &AgentCatalog, probe
         "model_choice": bot.model,
         "effort": bot.effort,
         "skill": bot.skill,
+        "kinds": bot.kinds,
     })
 }

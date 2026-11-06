@@ -143,7 +143,7 @@ fn windows_root() -> AttachmentPaths<'static> {
 }
 
 /// Il Bot scelto nei ticket di prova.
-const BOT: &str = "general";
+const BOT: &str = "planner";
 
 /// I Bot predefiniti, tutti abilitati.
 fn bots() -> &'static [AgentBot] {
@@ -370,13 +370,26 @@ fn an_external_message_is_never_quoted_as_the_request_of_the_user() {
 #[test]
 fn the_plan_order_carries_the_chosen_bot() {
     let mut list = channel_with(vec![user("m1", "@giorgio aggiungi il login")]);
+    let mut planners = bots().to_vec();
+    planners.iter_mut().filter(|b| b.id == "general").for_each(|b| b.kinds.push(TaskKind::Plan));
     let order = RefCell::new(None);
-    open_plan(&mut list, &PlanTicket { bot: "intake", ..ticket(&ws(), "m1") }, 1, |_, o| {
+    open_plan(&mut list, &PlanTicket { bot: "general", bots: &planners, ..ticket(&ws(), "m1") }, 1, |_, o| {
         *order.borrow_mut() = Some(o.clone());
         Ok("plan-a".into())
     })
     .unwrap();
-    assert_eq!(order.into_inner().unwrap().bot, "intake");
+    assert_eq!(order.into_inner().unwrap().bot, "general");
+}
+
+#[test]
+fn a_bot_that_cannot_plan_creates_nothing() {
+    let mut list = channel_with(vec![user("m1", "@giorgio aggiungi il login")]);
+    let channel = ws();
+    let general = PlanTicket { bot: "general", ..ticket(&channel, "m1") };
+    let err = open_plan(&mut list, &general, 1, |_, _| panic!("nessuna creazione")).unwrap_err();
+    assert!(err.starts_with("The bot \"general\" cannot run plan tasks"), "{err}");
+    let t = list.thread("t1").unwrap();
+    assert!(t.task_ids.is_empty() && t.owner.is_none());
 }
 
 #[test]

@@ -15,6 +15,7 @@ mod agent_ready;
 mod archive;
 mod auth;
 mod board_flow;
+mod bot_kinds;
 mod bot_settings;
 mod bot_tasks;
 mod bot_worker;
@@ -148,13 +149,17 @@ struct FakeHost {
     bots: FakeBots,
 }
 
-/// I Bot dell'host finto: parte dai predefiniti, i test li modificano.
+/// I Bot dell'host finto: parte dai predefiniti, ognuno abilitato a ogni tipo
+/// di task (cosi' i test scelgono il Bot per agente, modello, effort e skill);
+/// i test li modificano. I tipi dei predefiniti veri li prova `bot_kinds`.
 #[derive(Clone)]
 struct FakeBots(Arc<Mutex<Vec<AgentBot>>>);
 
 impl Default for FakeBots {
     fn default() -> Self {
-        FakeBots(Arc::new(Mutex::new(crate::bots::default_agent_bots())))
+        let mut bots = crate::bots::default_agent_bots();
+        bots.iter_mut().for_each(|b| b.kinds = TaskKind::ALL.to_vec());
+        FakeBots(Arc::new(Mutex::new(bots)))
     }
 }
 

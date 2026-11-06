@@ -1,6 +1,7 @@
-use super::presets::{default_bots, GENERAL_ID};
+use super::presets::{self, default_bots, GENERAL_ID};
 use super::validate::NAME_MAX_CHARS;
 use super::*;
+use crate::board::TaskKind;
 
 fn names(list: &[&str]) -> Vec<String> {
     list.iter().map(|n| n.to_string()).collect()
@@ -234,7 +235,7 @@ fn update_writes_the_envelope_and_roundtrips() {
         })
         .unwrap();
     let raw: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join(FILE_NAME)).unwrap()).unwrap();
-    assert_eq!(raw["schema_version"], 2);
+    assert_eq!(raw["schema_version"], 3);
     assert_eq!(raw["data"]["agents"][0]["id"], "general");
     assert_eq!(raw["data"]["enabled"], false);
     assert_eq!(raw["data"]["images"]["Ada"]["color"], "#445566");
@@ -264,11 +265,17 @@ fn unreadable_file_keeps_defaults_and_refuses_updates() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// --- v1 -> v2: i Bot-agente predefiniti ---
+// --- v1 -> v2 -> v3: i Bot-agente predefiniti e i loro tipi di task ---
 
 fn agent_ids(s: &BotSettings) -> Vec<&str> {
     s.agents.iter().map(|b| b.id.as_str()).collect()
 }
+
+fn agent<'a>(s: &'a BotSettings, id: &str) -> &'a AgentBot {
+    s.agents.iter().find(|b| b.id == id).unwrap()
+}
+
+const ALL_PRESET_IDS: [&str; 6] = ["general", "intake", "setup", "skill-wizard", "reviewer", "planner"];
 
 #[test]
 fn v1_file_gets_the_preset_bots_and_keeps_names_and_images() {
@@ -280,8 +287,38 @@ fn v1_file_gets_the_preset_bots_and_keeps_names_and_images() {
     assert_eq!(s.images.len(), 1);
     assert_eq!(s.images["Ada"], img("#112233"));
     assert_eq!(s.agents, default_bots());
-    assert_eq!(agent_ids(&s), ["general", "intake", "setup", "skill-wizard"]);
+    assert_eq!(agent_ids(&s), ALL_PRESET_IDS);
     assert!(backups(&dir).is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Un file v2 com'era su disco: Bot senza `kinds`, un preset cancellato, uno
+/// rinominato, un derivato e un Bot dell'utente che ha gia' il nome "Planner".
+const V2_FILE: &str = r#"{"schema_version":2,"data":{"enabled":true,"names":["Ada"],"agents":[
+{"id":"general","name":"Generic","task":"General-purpose coding agent.","agent":null,"model":{"kind":"default"},"effort":null,"skill":null,"enabled":true,"image":null,"preset":"general"},
+{"id":"setup","name":"Setup","task":"Configures the workspace and the worker rules.","agent":null,"model":{"kind":"tier","value":"standard"},"effort":"medium","skill":{"kind":"plugin","id":"project-setup"},"enabled":false,"image":null,"preset":"setup"},
+{"id":"intake-other","name":"Intake (Other)","task":"Turns requests into queue tasks.","agent":"other","model":{"kind":"tier","value":"strong"},"effort":"high","skill":{"kind":"plugin","id":"task-intake"},"enabled":true,"image":null,"preset":"intake"},
+{"id":"custom-planner","name":"Planner","task":"My planner.","agent":null,"model":{"kind":"default"},"effort":null,"skill":null,"enabled":true,"image":null,"preset":null}
+]}}"#;
+
+#[test]
+fn v2_file_gets_task_kinds_and_the_new_presets_once() {
+    let (dir, store) = load_fixture("v2-kinds", V2_FILE);
+    let s = store.get();
+    assert!(backups(&dir).is_empty());
+    assert_eq!(agent_ids(&s), ["general", "setup", "intake-other", "custom-planner", "reviewer", "planner"]);
+    assert_eq!(
+        (agent(&s, "general").name.as_str(), agent(&s, "general").kinds.as_slice()),
+        ("Generic", &[TaskKind::Work][..])
+    );
+    assert!(agent(&s, "setup").kinds.is_empty() && !agent(&s, "setup").enabled);
+    for id in ["intake-other", "custom-planner"] {
+        assert_eq!(agent(&s, id).kinds, TaskKind::ALL, "{id}");
+    }
+    let reviewer = presets::find("reviewer").unwrap().bot();
+    assert_eq!(agent(&s, "reviewer"), &reviewer);
+    let planner = agent(&s, "planner");
+    assert_eq!((planner.name.as_str(), planner.kinds.as_slice()), ("Planner 2", &[TaskKind::Plan][..]));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -297,36 +334,40 @@ fn a_missing_file_starts_with_the_preset_bots() {
 }
 
 #[test]
-fn the_migration_runs_once_so_a_deleted_preset_stays_deleted() {
-    let dir = temp_dir("deleted-preset");
-    std::fs::write(dir.join(FILE_NAME), r#"{"schema_version":1,"data":{}}"#).unwrap();
-    let store = new_store();
-    store.load(&dir);
-    store.update(&dir, |s| agent_bots::delete(&mut s.agents, "intake")).unwrap();
-    let reloaded = new_store();
-    reloaded.load(&dir);
-    assert_eq!(agent_ids(&reloaded.get()), ["general", "setup", "skill-wizard"]);
-    let _ = std::fs::remove_dir_all(&dir);
+fn the_migrations_run_once_so_a_deleted_preset_stays_deleted() {
+    for deleted in ["intake", "reviewer"] {
+        let dir = temp_dir(&format!("deleted-preset-{deleted}"));
+        std::fs::write(dir.join(FILE_NAME), r#"{"schema_version":1,"data":{}}"#).unwrap();
+        let store = new_store();
+        store.load(&dir);
+        store.update(&dir, |s| agent_bots::delete(&mut s.agents, deleted)).unwrap();
+        let reloaded = new_store();
+        reloaded.load(&dir);
+        let expected: Vec<&str> = ALL_PRESET_IDS.into_iter().filter(|id| *id != deleted).collect();
+        assert_eq!(agent_ids(&reloaded.get()), expected, "{deleted}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[test]
-fn a_v2_file_without_general_gets_it_back_enabled() {
+fn a_v3_file_without_general_gets_it_back_enabled() {
     let mut bots = default_bots();
     bots.retain(|b| b.id != GENERAL_ID);
     bots[0].enabled = false;
     let data = serde_json::json!({"enabled": true, "names": [], "agents": bots});
-    let raw = serde_json::json!({"schema_version": 2, "data": data}).to_string();
+    let raw = serde_json::json!({"schema_version": 3, "data": data}).to_string();
     let (dir, store) = load_fixture("no-general", &raw);
     let s = store.get();
-    assert_eq!(agent_ids(&s), ["general", "intake", "setup", "skill-wizard"]);
+    assert_eq!(agent_ids(&s), ALL_PRESET_IDS);
     assert!(s.agents[0].enabled);
+    assert_eq!(s.agents[0].kinds, [TaskKind::Work]);
     assert!(!s.agents[1].enabled, "the other bots keep their state");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn a_newer_schema_is_set_aside() {
-    let (dir, store) = load_fixture("newer", r#"{"schema_version":3,"data":{}}"#);
+    let (dir, store) = load_fixture("newer", r#"{"schema_version":4,"data":{}}"#);
     assert_eq!(store.get(), BotSettings::default());
     assert_eq!(backups(&dir).len(), 1);
     let _ = std::fs::remove_dir_all(&dir);

@@ -16,9 +16,10 @@ fn bot<'a>(list: &'a [Value], id: &str) -> &'a Value {
 #[test]
 fn every_bot_is_listed_in_order_with_the_documented_fields() {
     let (st, h) = (AutomationState::default(), FakeHost::default());
+    h.edit_bots(|bots| *bots = crate::bots::default_agent_bots());
     let list = bots(&st, &h);
     let ids: Vec<_> = list.iter().map(|b| b["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, ["general", "intake", "setup", "skill-wizard"]);
+    assert_eq!(ids, ["general", "intake", "setup", "skill-wizard", "reviewer", "planner"]);
 
     let agent = registry::default_agent().id();
     let strong = crate::agents::tier_models(registry::default_agent()).unwrap().strong;
@@ -36,11 +37,17 @@ fn every_bot_is_listed_in_order_with_the_documented_fields() {
             "model_choice": {"kind": "tier", "value": "strong"},
             "effort": "high",
             "skill": {"kind": "plugin", "id": "task-intake"},
+            "kinds": [],
         })
     );
     let general = bot(&list, "general");
     assert_eq!((&general["model"], &general["effort"], &general["skill"]), (&json!(null), &json!(null), &json!(null)));
     assert_eq!(general["model_choice"], json!({"kind": "default"}));
+    assert_eq!(general["kinds"], json!(["work"]));
+    assert_eq!(
+        (&bot(&list, "reviewer")["kinds"], &bot(&list, "planner")["kinds"]),
+        (&json!(["review"]), &json!(["plan"]))
+    );
 }
 
 #[test]

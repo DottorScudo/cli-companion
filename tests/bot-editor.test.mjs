@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   EFFORT_IGNORED_NOTE,
   FOLLOW_WORKSPACE,
+  NEW_BOT_KINDS,
   agentChoices,
   botAgents,
   botSummary,
@@ -50,6 +51,7 @@ const bot = (over = {}) => ({
   model: { kind: "default" },
   effort: null,
   skill: null,
+  kinds: ["review"],
   enabled: true,
   image: null,
   preset: null,
@@ -72,6 +74,7 @@ describe("botEditor: Bot e modulo", () => {
       model: { kind: "tier", value: "strong" },
       effort: "high",
       skill: { kind: "user", id: "mine" },
+      kinds: ["review"],
       enabled: true,
       image: null,
     });
@@ -85,6 +88,7 @@ describe("botEditor: Bot e modulo", () => {
     assert.equal(draft.name, "A");
     assert.deepEqual(draftFromForm(emptyBotForm()).model, { kind: "default" });
     assert.equal(draftFromForm(emptyBotForm()).agent, null);
+    assert.deepEqual(draftFromForm(emptyBotForm()).kinds, NEW_BOT_KINDS, "a new bot runs every kind, as before");
   });
 
   it("segue il workspace: agente vuoto nel modulo, null nella bozza", () => {
@@ -101,6 +105,8 @@ describe("botEditor: Bot e modulo", () => {
     assert.equal(isFormDirty({ ...saved, image: { png: "AAAA", color: "#000000" } }, saved), false);
     assert.equal(isFormDirty({ ...saved, image: null }, saved), true);
     assert.equal(isFormDirty({ ...saved, task: "altro" }, saved), true);
+    assert.equal(isFormDirty({ ...saved, kinds: ["review"] }, saved), false, "kinds compared by content");
+    assert.equal(isFormDirty({ ...saved, kinds: ["work", "review"] }, saved), true);
   });
 });
 

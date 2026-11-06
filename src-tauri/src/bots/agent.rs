@@ -4,6 +4,7 @@
 
 use super::BotImage;
 use crate::agents::{Effort, LaunchSkill, ModelTier};
+use crate::board::TaskKind;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -65,10 +66,20 @@ pub struct AgentBot {
     pub model: ModelChoice,
     pub effort: Option<Effort>,
     pub skill: Option<SkillRef>,
+    /// I tipi di task automatici che il Bot puo' eseguire, nell'ordine di
+    /// `TaskKind::ALL`; vuoto = Bot solo interattivo (tab e avvii), mai per un task.
+    pub kinds: Vec<TaskKind>,
     pub enabled: bool,
     pub image: Option<BotImage>,
     /// Il Bot predefinito da cui nasce: permette di ripristinarlo.
     pub preset: Option<String>,
+}
+
+impl AgentBot {
+    /// Il Bot puo' eseguire un task di quel tipo.
+    pub fn runs(&self, kind: TaskKind) -> bool {
+        self.kinds.contains(&kind)
+    }
 }
 
 /// I campi di un Bot che l'utente sceglie, alla creazione e alla modifica.
@@ -81,6 +92,8 @@ pub struct AgentBotDraft {
     pub model: ModelChoice,
     pub effort: Option<Effort>,
     pub skill: Option<SkillRef>,
+    /// I tipi di task automatici ammessi (vedi `AgentBot::kinds`).
+    pub kinds: Vec<TaskKind>,
     pub enabled: bool,
     /// L'immagine voluta (`None` la toglie); il backend la convalida.
     pub image: Option<BotImage>,

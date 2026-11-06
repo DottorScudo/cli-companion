@@ -7,6 +7,7 @@ use super::catalog::AgentCatalog;
 use super::image::validate_image;
 use crate::agents::presets::PRESETS as PLUGIN_SKILLS;
 use crate::agents::{effort_is_supported, model_is_valid, AgentIntegration, AgentUnavailable};
+use crate::board::TaskKind;
 
 pub const NAME_MAX_CHARS: usize = 24;
 pub const TASK_MAX_CHARS: usize = 300;
@@ -41,9 +42,15 @@ pub fn validate_draft(draft: AgentBotDraft, catalog: &AgentCatalog) -> Result<Ag
         model,
         effort: draft.effort,
         skill: draft.skill.map(validate_skill).transpose()?,
+        kinds: normalize_kinds(draft.kinds),
         enabled: draft.enabled,
         image,
     })
+}
+
+/// I tipi di task senza doppioni, nell'ordine di `TaskKind::ALL`.
+pub fn normalize_kinds(kinds: Vec<TaskKind>) -> Vec<TaskKind> {
+    TaskKind::ALL.into_iter().filter(|k| kinds.contains(k)).collect()
 }
 
 fn unavailable(reason: AgentUnavailable) -> String {
@@ -121,6 +128,7 @@ mod tests {
             model: ModelChoice::Default,
             effort: None,
             skill: None,
+            kinds: vec![TaskKind::Work],
             enabled: true,
             image: None,
         }
@@ -212,6 +220,16 @@ mod tests {
         for bad in ["My Skill", "../x", "", "task-intake"] {
             assert!(check(skill(SkillRef::User(bad.into()))).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn kinds_are_deduplicated_in_canonical_order() {
+        let kinds = |k: Vec<TaskKind>| check(AgentBotDraft { kinds: k, ..draft() }).unwrap().kinds;
+        let all = TaskKind::ALL.to_vec();
+        assert_eq!(kinds(vec![TaskKind::Plan, TaskKind::Work, TaskKind::Plan, TaskKind::Review]), all);
+        assert_eq!(kinds(vec![TaskKind::Review, TaskKind::Review]), [TaskKind::Review]);
+        // Nessun tipo = Bot solo interattivo: ammesso.
+        assert!(kinds(Vec::new()).is_empty());
     }
 
     #[test]

@@ -15,6 +15,7 @@
 
 use super::bot_choice;
 use super::sessions::WakeCause;
+use crate::board::TaskKind;
 use crate::bots::AgentBot;
 use crate::hub::actions::PlanOrder;
 use crate::hub::attachments::listing::AttachmentPaths;
@@ -117,8 +118,8 @@ pub struct PlanTicket<'a> {
 
 /// `open_plan_task` sui thread del canale: crea il task `plan` con `create`
 /// (workspace, ordine), lo collega al thread e rende il segretario titolare.
-/// Nel Generale, con il thread pieno o con un Bot sconosciuto o disabilitato
-/// non crea nulla.
+/// Nel Generale, con il thread pieno o con un Bot sconosciuto, disabilitato o
+/// che non pianifica (`plan` non e' fra i suoi tipi di task) non crea nulla.
 pub fn open_plan(
     list: &mut ChannelThreads,
     ticket: &PlanTicket<'_>,
@@ -132,7 +133,7 @@ pub fn open_plan(
     if thread.task_ids.len() >= TASKS_PER_THREAD_MAX {
         return Err(THREAD_FULL.to_string());
     }
-    bot_choice::check(ticket.bots, ticket.bot)?;
+    bot_choice::check(ticket.bots, ticket.bot, TaskKind::Plan)?;
     let order = plan_order(ticket.goal, thread, ticket.trigger_id, ticket.secretary, ticket.bot, ticket.attachments);
     let task_id = create(workspace, &order).map_err(|e| format!("The planning task could not be created: {e}"))?;
     let attached = list

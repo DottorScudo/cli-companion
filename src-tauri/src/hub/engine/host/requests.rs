@@ -98,7 +98,7 @@ impl ThreadIo {
 /// grafo non valido si rifiuta gia' alla richiesta, non al clic.
 fn check_update(app: &tauri::AppHandle, workspace: &str, task_id: &str, patch: &Value) -> Result<(), String> {
     if let Some(bot) = patch.get("bot").and_then(Value::as_str) {
-        bot_choice::check(&crate::bots::agent_bots(app), bot)?;
+        bot_choice::check_available(&crate::bots::agent_bots(app), bot)?;
     }
     let actions = app.state::<HubBoardActions>().get()?;
     (actions.check_task_update)(app, workspace, task_id, patch).map_err(board_ops::refused)

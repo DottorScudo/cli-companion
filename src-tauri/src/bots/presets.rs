@@ -7,6 +7,7 @@
 
 use super::agent::{AgentBot, ModelChoice, SkillRef};
 use crate::agents::{Effort, ModelTier};
+use crate::board::TaskKind;
 
 /// Il Bot generico, obbligatorio: configurabile ma non cancellabile ne' disattivabile.
 pub const GENERAL_ID: &str = "general";
@@ -24,6 +25,8 @@ pub struct BotPreset {
     pub effort: Option<Effort>,
     /// Id di una skill del plugin (`agents::presets::PRESETS`).
     pub skill: Option<&'static str>,
+    /// I tipi di task automatici che esegue; vuoto = solo interattivo.
+    pub kinds: &'static [TaskKind],
 }
 
 impl BotPreset {
@@ -37,6 +40,7 @@ impl BotPreset {
             model: self.model.clone(),
             effort: self.effort,
             skill: self.skill(),
+            kinds: self.kinds.to_vec(),
             enabled: true,
             image: None,
             preset: Some(self.id.to_string()),
@@ -49,7 +53,7 @@ impl BotPreset {
 }
 
 /// I preset, nell'ordine in cui compaiono.
-pub static PRESETS: [BotPreset; 4] = [
+pub static PRESETS: [BotPreset; 6] = [
     BotPreset {
         id: GENERAL_ID,
         name: "General",
@@ -57,6 +61,7 @@ pub static PRESETS: [BotPreset; 4] = [
         model: ModelChoice::Default,
         effort: None,
         skill: None,
+        kinds: &[TaskKind::Work],
     },
     BotPreset {
         id: "intake",
@@ -65,6 +70,7 @@ pub static PRESETS: [BotPreset; 4] = [
         model: ModelChoice::Tier(ModelTier::Strong),
         effort: Some(Effort::High),
         skill: Some("task-intake"),
+        kinds: &[],
     },
     BotPreset {
         id: "setup",
@@ -73,6 +79,7 @@ pub static PRESETS: [BotPreset; 4] = [
         model: ModelChoice::Tier(ModelTier::Standard),
         effort: Some(Effort::Medium),
         skill: Some("project-setup"),
+        kinds: &[],
     },
     BotPreset {
         id: "skill-wizard",
@@ -81,6 +88,25 @@ pub static PRESETS: [BotPreset; 4] = [
         model: ModelChoice::Tier(ModelTier::Standard),
         effort: Some(Effort::Medium),
         skill: Some("skill-wizard"),
+        kinds: &[],
+    },
+    BotPreset {
+        id: "reviewer",
+        name: "Reviewer",
+        task: "Verifies the integrated result of finished tasks and proposes fixes.",
+        model: ModelChoice::Tier(ModelTier::Strong),
+        effort: Some(Effort::High),
+        skill: None,
+        kinds: &[TaskKind::Review],
+    },
+    BotPreset {
+        id: "planner",
+        name: "Planner",
+        task: "Explores the repository read-only and proposes queue tasks.",
+        model: ModelChoice::Tier(ModelTier::Strong),
+        effort: Some(Effort::High),
+        skill: None,
+        kinds: &[TaskKind::Plan],
     },
 ];
 
@@ -114,7 +140,14 @@ mod tests {
         let ids: Vec<_> = PRESETS.iter().map(|p| (p.id, p.name)).collect();
         assert_eq!(
             ids,
-            [("general", "General"), ("intake", "Intake"), ("setup", "Setup"), ("skill-wizard", "Skill Wizard")]
+            [
+                ("general", "General"),
+                ("intake", "Intake"),
+                ("setup", "Setup"),
+                ("skill-wizard", "Skill Wizard"),
+                ("reviewer", "Reviewer"),
+                ("planner", "Planner"),
+            ]
         );
         assert_eq!(PRESETS[0].id, GENERAL_ID);
     }
@@ -135,7 +168,23 @@ mod tests {
             fields("skill-wizard"),
             (ModelChoice::Tier(ModelTier::Standard), Some(Effort::Medium), Some("skill-wizard"))
         );
+        for id in ["reviewer", "planner"] {
+            assert_eq!(fields(id), (ModelChoice::Tier(ModelTier::Strong), Some(Effort::High), None), "{id}");
+        }
         assert!(find("nope").is_none());
+    }
+
+    #[test]
+    fn each_preset_runs_only_the_task_kinds_of_its_job() {
+        let kinds = |id| find(id).unwrap().kinds;
+        assert_eq!(kinds("general"), [TaskKind::Work]);
+        assert_eq!(kinds("reviewer"), [TaskKind::Review]);
+        assert_eq!(kinds("planner"), [TaskKind::Plan]);
+        // Le skill dei preset sono pensate per un terminale interattivo.
+        for id in ["intake", "setup", "skill-wizard"] {
+            assert!(kinds(id).is_empty(), "{id}");
+        }
+        assert_eq!(find("reviewer").unwrap().bot().kinds, [TaskKind::Review]);
     }
 
     #[test]
@@ -152,6 +201,7 @@ mod tests {
             if let Some(skill) = p.skill {
                 assert!(PLUGIN_SKILLS.iter().any(|s| s.id == skill), "{skill}");
             }
+            assert_eq!(super::super::validate::normalize_kinds(p.kinds.to_vec()), p.kinds, "{}", p.id);
         }
     }
 

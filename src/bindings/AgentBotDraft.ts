@@ -3,11 +3,16 @@ import type { BotImage } from "./BotImage";
 import type { Effort } from "./Effort";
 import type { ModelChoice } from "./ModelChoice";
 import type { SkillRef } from "./SkillRef";
+import type { TaskKind } from "./TaskKind";
 
 /**
  * I campi di un Bot che l'utente sceglie, alla creazione e alla modifica.
  */
-export type AgentBotDraft = { name: string, task: string, agent: string | null, model: ModelChoice, effort: Effort | null, skill: SkillRef | null, enabled: boolean, 
+export type AgentBotDraft = { name: string, task: string, agent: string | null, model: ModelChoice, effort: Effort | null, skill: SkillRef | null, 
+/**
+ * I tipi di task automatici ammessi (vedi `AgentBot::kinds`).
+ */
+kinds: Array<TaskKind>, enabled: boolean, 
 /**
  * L'immagine voluta (`None` la toglie); il backend la convalida.
  */

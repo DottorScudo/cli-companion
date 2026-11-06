@@ -8,7 +8,7 @@ use super::presets;
 use super::validate::NAME_MAX_CHARS;
 
 /// Il Bot `id` copiato dal predefinito `base` con l'agente `agent`: compito,
-/// modello, effort e skill del Bot `base` dell'elenco, o del preset se l'utente
+/// modello, effort, skill e tipi di task del Bot `base` dell'elenco, o del preset se l'utente
 /// lo ha cancellato. Il nome dice l'agente (`Intake (Nome agente)`) ed e' libero
 /// fra i Bot e `taken`. `None` se `base` non e' un Bot predefinito.
 pub fn derived_bot(
@@ -34,6 +34,7 @@ pub fn derived_bot(
         model,
         effort: source.effort,
         skill: source.skill,
+        kinds: source.kinds,
         enabled: true,
         image: None,
         preset: Some(preset.id.to_string()),

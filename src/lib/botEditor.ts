@@ -11,6 +11,7 @@ import type { Effort } from "../bindings/Effort.ts";
 import type { IntegrationInfo } from "../bindings/IntegrationInfo.ts";
 import type { ModelChoice } from "../bindings/ModelChoice.ts";
 import type { SkillRef } from "../bindings/SkillRef.ts";
+import type { TaskKind } from "../bindings/TaskKind.ts";
 import { BOT_NAME_MAX } from "./bots.ts";
 import { modelError } from "./model.ts";
 
@@ -18,6 +19,11 @@ import { modelError } from "./model.ts";
 export const GENERAL_BOT_ID = "general";
 /** Lunghezza massima del compito (come `TASK_MAX_CHARS` di `validate.rs`). */
 export const BOT_TASK_MAX = 300;
+/**
+ * Tipi di task di un Bot nuovo: tutti, come i Bot dell'utente prima dei tipi (il
+ * backend li normalizza; la scelta nell'editor arriva con la sua interfaccia).
+ */
+export const NEW_BOT_KINDS: readonly TaskKind[] = ["work", "review", "plan"];
 
 /** Valore del selettore dell'agente per «segue il workspace». */
 export const FOLLOW_WORKSPACE = "";
@@ -62,6 +68,8 @@ export interface BotForm {
   effort: Effort | "";
   /** `""` = nessuna skill, altrimenti `skillValue`. */
   skill: string;
+  /** I tipi di task automatici del Bot, conservati così come sono. */
+  kinds: TaskKind[];
   enabled: boolean;
   image: BotImage | null;
 }
@@ -78,6 +86,7 @@ export function emptyBotForm(): BotForm {
     modelId: "",
     effort: "",
     skill: "",
+    kinds: [...NEW_BOT_KINDS],
     enabled: true,
     image: null,
   };
@@ -126,6 +135,7 @@ export function formFromBot(bot: AgentBot): BotForm {
     ...modelParts(bot.model),
     effort: bot.effort ?? "",
     skill: skillValue(bot.skill),
+    kinds: [...bot.kinds],
     enabled: bot.enabled,
     image: bot.image,
   };
@@ -151,6 +161,7 @@ export function draftFromForm(form: BotForm): AgentBotDraft {
     model: modelChoice(form),
     effort: form.effort === "" ? null : form.effort,
     skill: skillFromValue(form.skill),
+    kinds: [...form.kinds],
     enabled: form.enabled,
     image: form.image,
   };
@@ -161,7 +172,11 @@ export const draftFromBot = (bot: AgentBot): AgentBotDraft => draftFromForm(form
 /** Il modulo è diverso dal Bot salvato (o da un modulo vuoto, per un Bot nuovo). */
 export function isFormDirty(form: BotForm, saved: BotForm): boolean {
   return (Object.keys(form) as (keyof BotForm)[]).some((key) =>
-    key === "image" ? form.image?.png !== saved.image?.png : form[key] !== saved[key],
+    key === "image"
+      ? form.image?.png !== saved.image?.png
+      : key === "kinds"
+        ? form.kinds.join() !== saved.kinds.join()
+        : form[key] !== saved[key],
   );
 }
 

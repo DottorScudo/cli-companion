@@ -101,8 +101,9 @@ impl Default for BotSettings {
     }
 }
 
-/// v1: la busta; v2: i Bot-agente predefiniti.
-const MIGRATIONS: [crate::store::Migration; 2] = [adopt_envelope, migrations::add_agent_bots];
+/// v1: la busta; v2: i Bot-agente predefiniti; v3: i tipi di task dei Bot, Reviewer e Planner.
+const MIGRATIONS: [crate::store::Migration; 3] =
+    [adopt_envelope, migrations::add_agent_bots, migrations::add_task_kinds];
 
 static SETTINGS_FILE: JsonFile<BotSettings> = JsonFile::new("bots.json", &MIGRATIONS).decoded_with(decode_settings);
 

@@ -98,14 +98,11 @@ fn resolve_with_bot(
     ctx: SpecContext<'_>,
 ) -> Result<TaskSpec, String> {
     let task = &spec.id;
-    let bot = ctx
-        .bots
-        .iter()
-        .find(|b| b.id == bot_id)
-        .ok_or_else(|| format!("task '{task}': unknown bot: {bot_id} (see get_workspace_settings.bots)"))?;
+    let bot = find_bot(spec, bot_id, ctx.bots)?;
     if !bot.enabled {
         return Err(format!("task '{task}': {} is disabled: enable it in the bots settings", bot.name));
     }
+    ensure_runs_kind(spec, bot)?;
     let workspace_agent = ctx.workspace_agent.unwrap_or(env.default_agent);
     let resolved = resolve_bot(bot, workspace_agent, env.catalog)
         .map_err(|unavailable| format!("task '{task}': {unavailable}"))?;
@@ -132,6 +129,35 @@ fn resolve_with_bot(
         skill: resolved.skill,
         ..spec.clone()
     })
+}
+
+/// Il Bot della specifica, gia' risolta, puo' eseguire il suo tipo di task: per
+/// un task che cambia tipo senza rifare la copia del Bot. Senza Bot non c'e'
+/// nulla da verificare.
+pub fn check_bot_kind(spec: &TaskSpec, bots: &[AgentBot]) -> Result<(), String> {
+    match spec.bot.as_deref() {
+        Some(bot_id) => ensure_runs_kind(spec, find_bot(spec, bot_id, bots)?),
+        None => Ok(()),
+    }
+}
+
+fn find_bot<'b>(spec: &TaskSpec, bot_id: &str, bots: &'b [AgentBot]) -> Result<&'b AgentBot, String> {
+    bots.iter()
+        .find(|b| b.id == bot_id)
+        .ok_or_else(|| format!("task '{}': unknown bot: {bot_id} (see get_workspace_settings.bots)", spec.id))
+}
+
+/// Il Bot esegue i task del tipo della specifica, senza ripieghi su un altro Bot.
+fn ensure_runs_kind(spec: &TaskSpec, bot: &AgentBot) -> Result<(), String> {
+    if bot.runs(spec.kind) {
+        return Ok(());
+    }
+    let kind = spec.kind.as_str();
+    Err(format!(
+        "task '{}': bot {} cannot run {kind} tasks: choose a bot whose kinds include {kind} (see \
+         get_workspace_settings.bots)",
+        spec.id, bot.name
+    ))
 }
 
 #[cfg(test)]

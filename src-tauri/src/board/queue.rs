@@ -2,7 +2,7 @@
 //! riordino. Ogni operazione verifica lo stato del task e non tocca il suo
 //! ciclo di vita (vedi `lifecycle`).
 
-use super::agent::{resolve_spec, SpecContext};
+use super::agent::{check_bot_kind, resolve_spec, SpecContext};
 use super::{
     check_plan_spec, check_review_deps, parse_spec, permits, valid_id, validate_graph, Board, LifecycleError, Op,
     Proposal, Task, TaskAction, TaskSpec, TaskStatus, MAX_PENDING_PROPOSALS, MAX_TASKS_PER_BOARD,
@@ -14,6 +14,8 @@ use std::collections::HashSet;
 /// Campi del patch che obbligano a ricontrollare chi esegue il task: l'agente
 /// stesso, un modello (che deve appartenergli) o il Bot.
 const AGENT_PATCH_KEYS: [&str; 3] = ["agent", "model", "bot"];
+/// Campo del patch che cambia il tipo del task: il suo Bot deve poterlo eseguire.
+const KIND_KEY: &str = "kind";
 
 fn patch_has(patch: &Value, key: &str) -> bool {
     patch.as_object().is_some_and(|o| o.contains_key(key))
@@ -161,7 +163,8 @@ impl Board {
     /// cosi' il titolo di un task il cui agente e' stato poi disabilitato si
     /// modifica comunque. Con un Bot, agente e modello vengono dal Bot salvo
     /// quelli scritti dal patch, e la copia di effort e skill si rifa; `bot:
-    /// null` toglie il Bot e la sua copia.
+    /// null` toglie il Bot e la sua copia. Un `kind` nuovo senza quei campi
+    /// tiene la copia del Bot ma verifica che il Bot esegua quel tipo di task.
     pub fn update_task(&mut self, id: &str, patch: &Value, ctx: SpecContext<'_>, now: i64) -> Result<(), String> {
         let t = self.require(id, Op::Edit)?;
         let mut spec = parse_spec(patch, Some(&TaskSpec::from_task(t)))?;
@@ -179,6 +182,8 @@ impl Board {
                 spec.model = spec.model.filter(|_| patch_has(patch, "model"));
             }
             spec = resolve_spec(&spec, ctx)?;
+        } else if patch_has(patch, KIND_KEY) {
+            check_bot_kind(&spec, ctx.bots)?;
         }
         let mut all = self.tasks.clone();
         if let Some(slot) = all.iter_mut().find(|x| x.id == id) {

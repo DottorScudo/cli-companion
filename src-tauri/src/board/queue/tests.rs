@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::agents::registry;
+use crate::board::{parse_proposal, TaskKind};
 use serde_json::json;
 
 /// Id che nessun agente registrato ha.
@@ -140,8 +141,14 @@ fn a_model_in_an_update_is_checked_against_the_agent_of_the_task() {
 
 // --- Bot ---
 
+/// I Bot predefiniti, con Intake e Setup abilitati anche ai task `work` (come puo'
+/// configurarli l'utente): sono i Bot di prova con effort e skill.
 fn bots() -> Vec<crate::bots::AgentBot> {
-    crate::bots::default_agent_bots()
+    let mut list = crate::bots::default_agent_bots();
+    list.iter_mut()
+        .filter(|b| ["intake", "setup"].contains(&b.id.as_str()))
+        .for_each(|b| b.kinds = vec![TaskKind::Work]);
+    list
 }
 
 fn with_bot(id: &str, bot: &str) -> TaskSpec {
@@ -193,4 +200,65 @@ fn a_task_without_a_bot_edits_exactly_as_before() {
     b.update_task("a", &json!({"model": "opus"}), ctx, 2).unwrap();
     let t = b.task("a").unwrap();
     assert_eq!((t.model.as_deref(), &t.bot, &t.effort, &t.skill), (Some("opus"), &None, &None, &None));
+}
+
+// --- Tipi di task dei Bot ---
+
+fn proposal(kind: &str, bot: &str) -> Vec<TaskSpec> {
+    parse_proposal(&json!({"tasks": [
+        {"id": "p", "title": "T", "task": "x", "bot": bot, "kind": kind, "depends_on": ["a"]}
+    ]}))
+    .unwrap()
+}
+
+/// Una board con il task `a` (Bot `general`) da cui le proposte dipendono.
+fn board_with_a(ctx: SpecContext<'_>) -> Board {
+    let mut b = Board::new("ws-1");
+    b.create_task(with_bot("a", "general"), ctx, 1).unwrap();
+    b
+}
+
+#[test]
+fn a_proposal_needs_a_bot_that_runs_the_kind_of_each_task() {
+    let list = crate::bots::default_agent_bots();
+    let ctx = SpecContext { workspace_agent: None, bots: &list };
+    let b = board_with_a(ctx);
+    let refused = |kind: &str, bot: &str| b.check_specs(&proposal(kind, bot), &HashSet::new(), ctx).unwrap_err();
+    assert_eq!(
+        refused("review", "general"),
+        "task 'p': bot General cannot run review tasks: choose a bot whose kinds include review (see \
+         get_workspace_settings.bots)"
+    );
+    assert!(refused("work", "intake").starts_with("task 'p': bot Intake cannot run work tasks"));
+    assert!(b.check_specs(&proposal("review", "reviewer"), &HashSet::new(), ctx).is_ok());
+    assert!(b.check_specs(&proposal("work", "general"), &HashSet::new(), ctx).is_ok());
+}
+
+#[test]
+fn changing_the_kind_of_a_task_checks_its_bot_again() {
+    let list = crate::bots::default_agent_bots();
+    let ctx = SpecContext { workspace_agent: None, bots: &list };
+    let mut b = board_with_a(ctx);
+    b.create_task(TaskSpec { depends_on: vec!["a".into()], ..with_bot("b", "general") }, ctx, 2).unwrap();
+    let err = b.update_task("b", &json!({"kind": "review"}), ctx, 3).unwrap_err();
+    assert!(err.starts_with("task 'b': bot General cannot run review tasks"), "{err}");
+    assert_eq!(b.task("b").unwrap().kind, TaskKind::Work, "a refused change changes nothing");
+    // Il Bot nuovo nello stesso patch si verifica con il tipo nuovo.
+    b.update_task("b", &json!({"kind": "review", "bot": "reviewer"}), ctx, 4).unwrap();
+    assert_eq!((b.task("b").unwrap().kind, b.task("b").unwrap().bot.as_deref()), (TaskKind::Review, Some("reviewer")));
+    assert!(b.update_task("b", &json!({"bot": "general"}), ctx, 5).unwrap_err().contains("cannot run review"));
+}
+
+#[test]
+fn a_task_without_a_bot_changes_kind_freely_and_other_edits_skip_the_kind_check() {
+    let list = crate::bots::default_agent_bots();
+    let ctx = SpecContext { workspace_agent: None, bots: &list };
+    let mut b = board_with_a(ctx);
+    b.create_task(TaskSpec { depends_on: vec!["a".into()], ..spec("b", None) }, ctx, 2).unwrap();
+    b.update_task("b", &json!({"kind": "review"}), ctx, 3).unwrap();
+    // Un task gia' in coda con un Bot che oggi non puo' eseguirlo si modifica comunque.
+    let mut narrowed = list.clone();
+    narrowed.iter_mut().filter(|bot| bot.id == "general").for_each(|bot| bot.kinds.clear());
+    let ctx = SpecContext { workspace_agent: None, bots: &narrowed };
+    b.update_task("a", &json!({"title": "Renamed"}), ctx, 4).unwrap();
 }

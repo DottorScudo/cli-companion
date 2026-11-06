@@ -2,6 +2,7 @@ use super::*;
 use crate::agents::registry;
 use crate::agents::testing::{FakeIntegration, FAKE_MODEL_LARGE, FAKE_MODEL_SMALL};
 use crate::agents::{resolve_in, Capability, Effort, IntegrationsState};
+use crate::board::TaskKind;
 use crate::bots::SkillRef;
 
 const SECOND: &str = "fake-second";
@@ -99,8 +100,16 @@ fn the_registered_agents_resolve_through_the_current_state() {
 
 // --- Bot ---
 
+/// I Bot predefiniti, con Intake abilitato anche ai task `work` (come puo'
+/// configurarlo l'utente): e' il Bot di prova con modello, effort e skill.
 fn bots() -> Vec<AgentBot> {
-    crate::bots::default_agent_bots()
+    let mut list = crate::bots::default_agent_bots();
+    bot_mut(&mut list, "intake").kinds = vec![TaskKind::Work];
+    list
+}
+
+fn kind_spec(bot: &str, kind: TaskKind) -> TaskSpec {
+    TaskSpec { kind, ..bot_spec(bot) }
 }
 
 fn bot_spec(bot: &str) -> TaskSpec {
@@ -166,6 +175,48 @@ fn a_disabled_bot_is_an_error() {
     bot_mut(&mut list, "intake").enabled = false;
     let err = resolve_bot_spec(&bot_spec("intake"), &list, None);
     assert_eq!(err, Err("task 't1': Intake is disabled: enable it in the bots settings".to_string()));
+}
+
+#[test]
+fn a_bot_runs_only_the_task_kinds_it_allows() {
+    let presets = crate::bots::default_agent_bots();
+    let refused = |name: &str, kind: &str| {
+        format!(
+            "task 't1': bot {name} cannot run {kind} tasks: choose a bot whose kinds include {kind} (see \
+             get_workspace_settings.bots)"
+        )
+    };
+    let run = |bot: &str, kind| resolve_bot_spec(&kind_spec(bot, kind), &presets, Some(SECOND)).map(drop);
+    assert_eq!(run("general", TaskKind::Review), Err(refused("General", "review")));
+    assert_eq!(run("general", TaskKind::Plan), Err(refused("General", "plan")));
+    assert_eq!(run("intake", TaskKind::Work), Err(refused("Intake", "work")));
+    assert_eq!(run("planner", TaskKind::Review), Err(refused("Planner", "review")));
+    for (bot, kind) in [("general", TaskKind::Work), ("reviewer", TaskKind::Review), ("planner", TaskKind::Plan)] {
+        assert_eq!(run(bot, kind), Ok(()), "{bot}");
+    }
+}
+
+#[test]
+fn a_general_bot_given_more_kinds_runs_them() {
+    let mut list = bots();
+    bot_mut(&mut list, "general").kinds = TaskKind::ALL.to_vec();
+    for kind in TaskKind::ALL {
+        assert!(resolve_bot_spec(&kind_spec("general", kind), &list, Some(SECOND)).is_ok(), "{kind:?}");
+    }
+}
+
+#[test]
+fn the_kind_is_checked_against_the_bot_without_resolving_it_again() {
+    let presets = crate::bots::default_agent_bots();
+    assert_eq!(check_bot_kind(&kind_spec("reviewer", TaskKind::Review), &presets), Ok(()));
+    let err = check_bot_kind(&kind_spec("general", TaskKind::Review), &presets).unwrap_err();
+    assert!(err.starts_with("task 't1': bot General cannot run review tasks"), "{err}");
+    assert!(check_bot_kind(&kind_spec("gone", TaskKind::Work), &presets).unwrap_err().contains("unknown bot: gone"));
+    assert_eq!(check_bot_kind(&TaskSpec { kind: TaskKind::Review, ..spec(None, None) }, &presets), Ok(()));
+    // Un Bot disabilitato dopo la copia non blocca il cambio di tipo.
+    let mut off = presets.clone();
+    bot_mut(&mut off, "reviewer").enabled = false;
+    assert_eq!(check_bot_kind(&kind_spec("reviewer", TaskKind::Review), &off), Ok(()));
 }
 
 #[test]

@@ -3,6 +3,7 @@ import type { BotImage } from "./BotImage";
 import type { Effort } from "./Effort";
 import type { ModelChoice } from "./ModelChoice";
 import type { SkillRef } from "./SkillRef";
+import type { TaskKind } from "./TaskKind";
 
 /**
  * Un Bot-agente, globale (non per workspace).
@@ -23,7 +24,12 @@ task: string,
 /**
  * `None` = l'agente del workspace.
  */
-agent: string | null, model: ModelChoice, effort: Effort | null, skill: SkillRef | null, enabled: boolean, image: BotImage | null, 
+agent: string | null, model: ModelChoice, effort: Effort | null, skill: SkillRef | null, 
+/**
+ * I tipi di task automatici che il Bot puo' eseguire, nell'ordine di
+ * `TaskKind::ALL`; vuoto = Bot solo interattivo (tab e avvii), mai per un task.
+ */
+kinds: Array<TaskKind>, enabled: boolean, image: BotImage | null, 
 /**
  * Il Bot predefinito da cui nasce: permette di ripristinarlo.
  */

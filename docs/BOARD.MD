@@ -185,6 +185,18 @@ Limiti: 200 task per board, 20 task per proposta, 20 proposte pendenti per board
   creazioni dall'UI (`task_create`, `task_update`) non richiedono il Bot; il `plan` dell'Agents HUB sì (lo sceglie il
   segretario, vedi "Task di pianificazione"), quello di `create_plan_task` no. I task senza `bot`
   (anche quelli già nei file) si comportano esattamente come prima, senza migrazione.
+- **Tipi di task dei Bot.** `AgentBot.kinds: TaskKind[]` (`bots.json` v3, ordine `work`, `review`, `plan`, senza
+  doppioni) sono i tipi di task automatici che il Bot può eseguire; `[]` = Bot solo interattivo (tab e avvii), mai per
+  un task. Il comportamento del ruolo viene sempre e solo da `kind`: `kinds` decide soltanto quali Bot si possono
+  scegliere. Predefiniti: `general` `[work]`, `reviewer` "Reviewer" `[review]`, `planner` "Planner" `[plan]` (fascia
+  `strong`, effort `high`, nessuna skill), `intake`, `setup`, `skill-wizard` `[]`; il ripristino di un predefinito
+  rimette anche i suoi `kinds`, e l'utente può allargare quelli di General. La migrazione 2→3 dà `[work, review,
+  plan]` ai Bot derivati e a quelli dell'utente (`custom-*`), aggiunge Reviewer e Planner una volta sola (un Bot
+  cancellato non ricompare, un nome già preso diventa "Reviewer 2"...). Il controllo, senza ripieghi, vale in
+  `Board::check_specs` (proposte, accettazione, task dall'UI con Bot, `plan` dell'HUB), in `update_task` quando il
+  patch cambia il Bot o il `kind` (con solo `kind` lo snapshot resta, si verifica il Bot del task) e quindi anche nella
+  verifica di `request_task_update` prima della card: "task '<id>': bot <nome> cannot run <kind> tasks: choose a bot
+  whose kinds include <kind> (see get_workspace_settings.bots)". I task già in coda o finiti non si rivalidano.
 - **Avvio con effort e skill.** `AutomationRequest.effort` riceve l'effort del task; se l'agente non lo supporta
   `automation_command` lo scarta e l'avviso finisce nella nota del task. Con una skill l'invocazione viene
   dal contratto dell'agente (`PluginSkills`/`UserSkills::skill_name`); se l'agente non può fornirla l'avvio fallisce
@@ -757,12 +769,14 @@ Sessione (workspace = quello del tab):
   solo se il patch contiene `agent`, `model` o `bot` (`agent: null` = quello del workspace o il
   predefinito globale, risolto adesso). Se il task ha un Bot, `agent` e `model` si azzerano salvo che il patch li
   contenga e il Bot si risolve di nuovo (nuovo snapshot); `bot: null` torna al comportamento senza Bot e azzera
-  effort e skill. Un patch senza queste chiavi lascia lo snapshot com'è. Il titolo di un task il cui agente è stato disabilitato
+  effort e skill. Un patch senza queste chiavi lascia lo snapshot com'è; con `kind` il Bot del task deve poter
+  eseguire il nuovo tipo (vedi "Tipi di task dei Bot"). Il titolo di un task il cui agente è stato disabilitato
   si modifica comunque.
 - `delete_task { id }` — solo `queued`/`failed` e senza dipendenti non `done`.
 - `get_workspace_settings {}` → `{ settings, agents, bots, repos, allowed, limits, pending_settings_proposals }`:
   `bots` elenca **tutti** i Bot (abilitati o no), nell'ordine della lista, ognuno con `{ id, name, task, enabled,
-  agent, agent_error, readiness, model, model_choice, effort, skill }`: `task` è a cosa serve il Bot (inglese),
+  agent, agent_error, readiness, model, model_choice, effort, skill, kinds }`: `task` è a cosa serve il Bot (inglese),
+  `kinds` i tipi di task che può eseguire (`[]` = solo interattivo),
   `agent` l'agente risolto nel workspace (`null` se non risolvibile, con `agent_error`), `readiness` quella di
   quell'agente nel workspace (`ready` = usabile), `model` il modello concreto risolto (`null` = predefinito della CLI).
   Le impostazioni che `propose_settings` può cambiare (`settings`, con `agent` e `worker_agents`), i
@@ -961,8 +975,8 @@ consegna codice: niente branch da integrare, niente istruzioni di consegna. Rego
   `planner::create_hub_plan_task` (dall'app reale `automation::queue_hub_plan_task(app, ws_id, title, task, bot)`,
   che fa git: fuori dal main thread), con il repository radice e il **Bot scelto dal segretario**, obbligatorio:
   agente, modello, effort e skill del task sono la copia di quelli del Bot (come per i task proposti, vedi il punto
-  "Bot." più sopra; il Bot `general` lascia il modello predefinito dell'agente). Un Bot sconosciuto o disabilitato
-  è un errore, senza ripieghi; non c'è più un modello scelto dall'app per il pianificatore. Le proposte l'HUB le
+  "Bot." più sopra). Un Bot sconosciuto, disabilitato o senza `plan` fra i suoi `kinds`
+  è un errore, senza ripieghi (il segretario vede nel system prompt solo i Bot abilitati che pianificano); non c'è più un modello scelto dall'app per il pianificatore. Le proposte l'HUB le
   decide con `automation::decide_hub_proposal`, lo
   stesso `proposal_decide` dei pulsanti del pannello Task. Il task entra **direttamente in coda** (niente proposta), con
   l'id generato dal titolo come `task_create` e, senza Bot, l'agente del workspace; `model` assente = quello del Bot

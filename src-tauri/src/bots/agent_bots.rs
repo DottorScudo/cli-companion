@@ -37,6 +37,7 @@ pub fn create(list: &mut Vec<AgentBot>, draft: AgentBotDraft, taken: &[String]) 
         model: draft.model,
         effort: draft.effort,
         skill: draft.skill,
+        kinds: draft.kinds,
         enabled: draft.enabled,
         image: draft.image,
         preset: None,
@@ -58,6 +59,7 @@ pub fn update(list: &mut [AgentBot], id: &str, draft: AgentBotDraft, taken: &[St
     bot.model = draft.model;
     bot.effort = draft.effort;
     bot.skill = draft.skill;
+    bot.kinds = draft.kinds;
     bot.enabled = draft.enabled;
     bot.image = draft.image;
     Ok(())
@@ -72,8 +74,8 @@ pub fn delete(list: &mut Vec<AgentBot>, id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Riporta compito, modello, effort e skill del Bot `id` a quelli del suo
-/// preset; nome, immagine, agente e accensione restano.
+/// Riporta compito, modello, effort, skill e tipi di task del Bot `id` a quelli
+/// del suo preset; nome, immagine, agente e accensione restano.
 pub fn restore_preset(list: &mut [AgentBot], id: &str) -> Result<(), String> {
     let at = position(list, id)?;
     let preset_id = list[at].preset.as_deref().ok_or(NOT_FROM_PRESET)?;
@@ -83,6 +85,7 @@ pub fn restore_preset(list: &mut [AgentBot], id: &str) -> Result<(), String> {
     bot.model = preset.model.clone();
     bot.effort = preset.effort;
     bot.skill = preset.skill();
+    bot.kinds = preset.kinds.to_vec();
     Ok(())
 }
 
@@ -167,6 +170,7 @@ fn slug(name: &str) -> String {
 mod tests {
     use super::*;
     use crate::agents::{Effort, ModelTier};
+    use crate::board::TaskKind;
     use crate::bots::agent::{ModelChoice, SkillRef};
     use crate::bots::presets::default_bots;
     use crate::bots::BotImage;
@@ -179,6 +183,7 @@ mod tests {
             model: ModelChoice::Default,
             effort: None,
             skill: None,
+            kinds: vec![TaskKind::Work],
             enabled: true,
             image: None,
         }
@@ -248,12 +253,13 @@ mod tests {
             skill: Some(SkillRef::User("mine".into())),
             enabled: false,
             image: Some(image.clone()),
-            ..draft("Planner")
+            ..draft("Organizer")
         };
         update(&mut list, "intake", next, &[]).unwrap();
         let bot = by_id(&list, "intake");
-        assert_eq!((bot.name.as_str(), bot.preset.as_deref(), bot.enabled), ("Planner", Some("intake"), false));
+        assert_eq!((bot.name.as_str(), bot.preset.as_deref(), bot.enabled), ("Organizer", Some("intake"), false));
         assert_eq!((bot.model.clone(), bot.image.clone()), (ModelChoice::Id("m".into()), Some(image)));
+        assert_eq!(bot.kinds, [TaskKind::Work], "the kinds come from the draft");
         assert_eq!(update(&mut list, "nope", draft("X"), &[]).unwrap_err(), NOT_FOUND);
     }
 
@@ -272,7 +278,7 @@ mod tests {
     fn delete_removes_only_that_bot() {
         let mut list = default_bots();
         delete(&mut list, "setup").unwrap();
-        assert_eq!(ids(&list), ["general", "intake", "skill-wizard"]);
+        assert_eq!(ids(&list), ["general", "intake", "skill-wizard", "reviewer", "planner"]);
         assert_eq!(delete(&mut list, "setup").unwrap_err(), NOT_FOUND);
     }
 
@@ -288,7 +294,7 @@ mod tests {
             skill: None,
             enabled: false,
             image: Some(image.clone()),
-            ..draft("Planner")
+            ..draft("Organizer")
         };
         update(&mut list, "intake", changed, &[]).unwrap();
         restore_preset(&mut list, "intake").unwrap();
@@ -297,8 +303,9 @@ mod tests {
         assert_eq!(bot.model, ModelChoice::Tier(ModelTier::Strong));
         assert_eq!(bot.effort, Some(Effort::High));
         assert_eq!(bot.skill, Some(SkillRef::Plugin("task-intake".into())));
-        assert_eq!((bot.name.as_str(), bot.image.clone()), ("Planner", Some(image)));
+        assert_eq!((bot.name.as_str(), bot.image.clone()), ("Organizer", Some(image)));
         assert_eq!((bot.agent.as_deref(), bot.enabled), (Some("fake"), false));
+        assert!(bot.kinds.is_empty(), "the kinds of the preset come back");
     }
 
     #[test]
@@ -315,12 +322,12 @@ mod tests {
     #[test]
     fn restoring_all_presets_recreates_only_the_missing_ones() {
         let mut list = default_bots();
-        update(&mut list, "intake", draft("Planner"), &[]).unwrap();
+        update(&mut list, "intake", draft("Organizer"), &[]).unwrap();
         delete(&mut list, "setup").unwrap();
         delete(&mut list, "skill-wizard").unwrap();
         restore_presets(&mut list, &[]);
-        assert_eq!(ids(&list), ["general", "intake", "setup", "skill-wizard"]);
-        assert_eq!(by_id(&list, "intake").name, "Planner");
+        assert_eq!(ids(&list), ["general", "intake", "reviewer", "planner", "setup", "skill-wizard"]);
+        assert_eq!(by_id(&list, "intake").name, "Organizer");
         assert_eq!(by_id(&list, "setup"), &presets::find("setup").unwrap().bot());
         let again = list.clone();
         restore_presets(&mut list, &[]);
