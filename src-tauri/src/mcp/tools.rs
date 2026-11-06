@@ -273,7 +273,7 @@ pub(super) fn settings_properties() -> Value {
         "use_schedule": { "type": "boolean" },
         "default_launch": {
             "type": ["string", "null"],
-            "description": "\"shell\", a launch id, a builtin id or a Bot id (bot:<id>), from get_workspace_settings.allowed.default_launch; null = inherit."
+            "description": "\"shell\", a launch id, a builtin id or bot:<id> (see allowed.default_launch); null = inherit."
         },
         "launches": {
             "type": "array",
