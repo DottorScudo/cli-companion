@@ -1228,6 +1228,19 @@ src/
   archivi). Pagina Impostazioni › Generale › Bot
   (`settings/BotsPage.tsx`): interruttore, elenco con rimozione, aggiunta, ripristino
   con conferma; ogni modifica è salvata subito e scritta in `configStore` (`app/actions/settings.ts`).
+  **Impostazioni › Generale › Bot** ospita anche i Bot-agente (`settings/bots/`: `AgentBotsSection` elenco, `AgentBotRow`,
+  `AgentBotEditor` con `BotAgentFields`; la pool dei nomi sta in `BotNamePoolSection`). La logica del form è pura in
+  `lib/botEditor.ts` (`tests/bot-editor.test.mjs`): compito, agente (“Segue il workspace” o un agente fissato), modello
+  (predefinito, fascia o id concreto solo con l'agente fissato), effort (solo i livelli dichiarati dall'agente; con
+  “Segue il workspace” la nota avverte che altrove viene ignorato) e skill (`useBotSkills`: plugin e utente). `general` non
+  si elimina né si disattiva; “Ripristina” riporta un predefinito alla sua configurazione. Gli errori del backend si
+  attribuiscono al campo (`fieldOfBackendError`).
+  **Bot nei task** (`lib/taskBot.ts`, `tests/task-bot.test.mjs`): `BotBadge` (avatar e nome) su `KanbanCard`, `ListRow`,
+  `ProposalCard` e `DetailFacts`; selettore “Bot” in `NewTaskDialog` e `DetailTaskFields` (`botOptions`: solo i Bot
+  abilitati, più il Bot corrente se non è più scegliibile; “Nessun Bot” solo per i task vecchi; `defaultBotChoice`
+  preseleziona `general`). Con un Bot il selettore dell'agente sparisce (l'agente è del Bot), il modello è un override
+  facoltativo per l'agente del Bot e cambiando Bot il modello si svuota (`botChange` in `lib/taskForm.ts`). Agente,
+  modello, effort e skill dello snapshot li risolve il backend al salvataggio, non l'interfaccia.
   **Immagini dei bot**: l'utente associa un'immagine a un nome della pool e il bot con
   quel nome la usa come corpo. `lib/botImage.ts` (zero-dep, `tests/bot-image.test.mjs`) è
   la pipeline di pixelazione, pura: ritaglio dei margini trasparenti, adattamento in
@@ -1388,7 +1401,7 @@ src/
   `automation-close` (stesso percorso di `closeTab`) e `automation-update` (stato e
   ultimo report); alla chiusura di un tab automatico chiama `automation_tab_closed`.
   All'avvio `automation_sessions()` riallinea lo stato. `PaneHeader` mostra il badge AUTO
-  (INTAKE per i tab avviati da un preset) e la parola di stato. I tab automatici sono esclusi dal salvataggio di sessione e
+  (INTAKE per i tab avviati da un Bot con la skill Task Intake) e la parola di stato. I tab automatici sono esclusi dal salvataggio di sessione e
   scrollback e non vengono ripristinati.
 - **Tasks Manager** (`components/tasks/`, `lib/board.ts`, `lib/boardLayout.ts`, `hooks/useBoards.ts`, `stores/boards.ts`):
   `lib/board.ts` (zero-dep, testato) ha i tipi del contratto (`BoardView`, `Task`, `Proposal`,

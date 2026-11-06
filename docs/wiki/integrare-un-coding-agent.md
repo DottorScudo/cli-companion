@@ -403,7 +403,7 @@ quindi `package`.
 
 **Core con il contratto.** Un Bot con una skill del plugin può usare l'agente.
 Gli avvii integrati (`launches.rs`) sono solo `builtin:<agent_id>`, nessuna voce
-per le skill: niente `builtin:preset:<id>` né sottomenu “Avvia con…”. Il comando
+per le skill: nessun avvio per skill né sottomenu “Avvia con…”. Il comando
 di ripristino del tab è quello interattivo (riprende la conversazione invece di
 rieseguire la skill).
 

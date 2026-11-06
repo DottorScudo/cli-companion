@@ -5,7 +5,7 @@ attori che non parlano tra loro.
 
 | Attore | Cosa fa |
 |---|---|
-| **Task Intake** (preset, LLM) | Ci parla l'utente. Esplora il repository, scrive una specifica completa e la **propone** (`propose_tasks`). L'utente accetta o scarta dalla UI. Non riceve eventi e non viene mai svegliato. |
+| **Task Intake** (Bot `intake`, LLM) | Ci parla l'utente. Esplora il repository, scrive una specifica completa e la **propone** (`propose_tasks`). L'utente accetta o scarta dalla UI. Non riceve eventi e non viene mai svegliato. |
 | **App** | Scheduler deterministico: avvia i task "Da fare" in ordine, rispetta dipendenze, slot, fasce orarie e modalità di consegna; prepara e pulisce i worktree; raccoglie l'esito. Non decide mai niente. |
 | **Worker** (LLM) | `get_task`, lavora, **consegna da solo** secondo la modalità del workspace (commit, push, PR, merge), poi `complete_task`. Se ha bisogno dell'utente chiede nel suo terminale. |
 
@@ -19,7 +19,7 @@ stato dei worker, l'esecuzione degli effetti (git, worktree, E2E, salvataggio) e
 
 Riferimento visivo approvato (mockup): artifact "Tasks Manager mockup" (viste terminali + pannello, Kanban, Lista, Globale); i sorgenti del mockup non sono nel repository.
 
-Lingua: tutto ciò che legge il modello (skill dei preset, descrizioni dei tool MCP,
+Lingua: tutto ciò che legge il modello (skill del plugin, descrizioni dei tool MCP,
 errori RPC, istruzioni del worker, promemoria dello Stop hook, prompt di avvio) è
 **in inglese**. Interfaccia e documentazione restano in italiano. Il testo dei task
 (titolo e specifica) è nella lingua della conversazione con l'Intake.
@@ -438,7 +438,7 @@ accodate come al solito. Vedi "Task di review".
 
 **Istruzioni del pianificatore.** Per i task `plan` `get_task` non restituisce `delivery` né lo
 standard di ingegneria: restituisce le istruzioni di `src-tauri/src/board/prompts/planner_instructions.md`
-(inglese, derivate dal preset Task Intake), un `environment` proprio (`planner_environment`: senza
+(inglese, derivate dalla skill Task Intake), un `environment` proprio (`planner_environment`: senza
 modalità di consegna, con il worktree di sola lettura) e le regole del workspace. Vedi "Task di pianificazione"
 (e "Pianificazione in una cartella senza git" per la sezione in più di `planner_root.md`).
 
@@ -785,7 +785,7 @@ Sessione (workspace = quello del tab):
   timeout_min? }` al posto dell'attuale, `null` lo toglie) oppure `null` per toglierne la
   configurazione. Validazione tutto-o-niente; ritorna `{ proposal, status: "pending" }` e non
   aspetta la decisione (vedi "Proposte di impostazioni").
-- `save_skill`, `list_skills`, `delete_skill` — le skill globali dell'utente (preset `skill-wizard`); non
+- `save_skill`, `list_skills`, `delete_skill` — le skill globali dell'utente (skill `skill-wizard`, Bot `skill-wizard`); non
   appartengono a un workspace e sono vietate ai worker (vedi "Autenticazione delle sessioni e ruoli").
 
 ## Test E2E
@@ -827,7 +827,7 @@ registro: la chiamata ritorna subito lo stato `running`.
 - **Ambiente**: le variabili degli hook del repository (`REPO`, `WORKTREE`, `TASK_ID`, `BRANCH`,
   `BASE`, `CONTAINER_WORKTREE`) più `CLI_COMPANION_E2E_PORT`: una porta TCP locale libera
   riservata per l'esecuzione (mai la stessa per due esecuzioni in corso, rilasciata alla fine).
-  È un contratto con i preset dei progetti (il nome non cambia): il comando la usa per il
+  È un contratto con i progetti che la usano (il nome non cambia): il comando la usa per il
   server dell'app sotto test. Con WSL2 la libertà della porta si verifica sul lato Windows;
   il servizio nella distro la riapre da sé.
 - **Report vecchio**: prima di partire l'app cancella il file JUnit configurato (se non ci
@@ -948,7 +948,7 @@ tutti `done` (nessuna modifica allo scheduler).
 
 Contratto del backend (tappa 3 dell'Agents HUB). Un **task di pianificazione** è un task
 `kind: "plan"`: un coding agent esplora il repository in sola lettura, scrive le specifiche e chiude
-con una proposta di task, o con le domande per l'utente. È un `kind` e non un preset perché non
+con una proposta di task, o con le domande per l'utente. È un `kind` e non un Bot perché non
 consegna codice: niente branch da integrare, niente istruzioni di consegna. Regole pure in
 `board/plan.rs`, lato automazione `automation/planner.rs`.
 
@@ -1093,22 +1093,22 @@ Codice in `automation/worktrees/start/free.rs` (avvio) e `board/texts/free.rs` (
 - Comando Tauri `settings_proposal_decide(workspace_id, proposal_id, accept: bool) ->
   { board: BoardView, workspace: Workspace | null }` (`workspace` valorizzato se applicata).
 
-## Preset di agenti
+## Skill del plugin e Bot
 
-Registro nell'app (`agents`): `Preset { id, name, skill }` con lo SKILL.md (inglese)
+Registro nell'app (`agents`): `Preset { id, name, skill }` (le skill del plugin; gli avvii sono i Bot) con lo SKILL.md (inglese)
 incluso con `include_str!`. Il pacchetto di ogni integrazione che dichiara `plugin-skills` (contratto `PluginSkills`,
 solo `skill_path`) contiene la skill di ogni preset (per Claude Code `skills/<id>/SKILL.md` nel plugin; non più
-`orchestrate`/`workflow`: l'installazione rimuove le cartelle obsolete). I preset non hanno più voci rapide proprie
-(niente `builtin:preset:<id>`, niente sottomenu “Avvia con…”): una sessione guidata da una skill del plugin parte solo
+`orchestrate`/`workflow`: l'installazione rimuove le cartelle obsolete). Le skill non hanno voci rapide proprie
+(niente sottomenu “Avvia con…”): una sessione guidata da una skill del plugin parte solo
 come **Bot** (`bot:<id>`, `bots/launches.rs`), che porta agente, modello, effort e skill nella sua configurazione
 (`bots.json`); i Bot predefiniti `intake`, `setup` e `skill-wizard` usano le tre skill. Un Bot con una skill del plugin
 richiede un agente che dichiara `plugin-skills`. Una skill non nomina mai un agente o un modello: li legge da
 `get_workspace_settings.agents`.
-- Un `default_launch` salvato come `builtin:orchestrator` o `builtin:preset:task-intake` diventa `bot:intake`
+- Migrazione: un `default_launch` salvato come `builtin:orchestrator` o `builtin:preset:task-intake` diventa `bot:intake`
   (`builtin:preset:project-setup` → `bot:setup`, `builtin:preset:skill-wizard` → `bot:skill-wizard`,
   `builtin:preset:<preset>@<agente>` → `bot:<bot>-<agente>`, un Bot derivato creato una volta sola all'avvio): vedi
   DESIGN.MD, `launch_migration/`. Una versione precedente dell'app mette da parte i file migrati.
-- Primo preset: **`task-intake`**, nome "Task Intake". Skill (inglese): accogli la richiesta;
+- Prima skill: **`task-intake`**, nome "Task Intake". Skill (inglese): accogli la richiesta;
   fai domande solo se servono; esplora il repository (file, convenzioni, test, comandi di
   verifica, CLAUDE.md); se il lavoro è grande dividilo in pochi task con dipendenze;
   mostra all'utente in chat ogni task (titolo + specifica) prima di proporlo; poi
@@ -1125,8 +1125,8 @@ richiede un agente che dichiara `plugin-skills`. Una skill non nomina mai un age
   (o un solo task rischioso o la correzione di un bug difficile) aggiunge in fondo alla proposta
   una **review** del goal (`kind: "review"`, Bot adatto o `general` con modello della fascia `strong`, se l'utente vuole un controllo
   indipendente anche su un altro agente (un Bot che lo usa), `depends_on` su tutti i task del goal); l'utente può scartarla.
-- Il pannello dei terminali mostra il badge **INTAKE** sull'intestazione dei tab avviati dal
-  preset.
+- Il pannello dei terminali mostra il badge **INTAKE** sull'intestazione dei tab avviati da un
+  Bot con la skill `task-intake`.
 - Task Intake sa dei tool di impostazioni: se la richiesta riguarda la configurazione del
   workspace e non il lavoro sul codice, non crea un task ma usa `get_workspace_settings` /
   `propose_settings`, oppure suggerisce Project Setup.

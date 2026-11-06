@@ -114,7 +114,34 @@ cargo run -p cli-companion -- --check-update   # exit 0 ok / 2 disponibile / 1 e
 cargo run -p cli-companion -- --check-update --json
 ```
 
-## 5. Checklist release
+## 5. Note di rilascio
+
+La CI crea la Release con `--generate-notes` (elenco dei commit/PR); le note a mano si
+aggiungono dopo con `gh release edit vX.Y.Z --notes-file <file>`. Le novità da riportare
+vanno scritte qui sotto, per versione, prima del tag.
+
+### Prossima versione: i Bot-agente
+
+- **Dai preset ai Bot.** Task Intake, Project Setup e Skill Wizard non sono più preset
+  di agenti con voci rapide proprie ma **Bot** (`Intake`, `Setup`, `Skill Wizard`),
+  più il Bot `General` per il lavoro senza specializzazione. Ogni Bot ha compito, agente,
+  modello, effort e skill e si gestisce da Impostazioni › Generale › Bot; ogni task
+  della board nomina un Bot (snapshot preso all'accettazione).
+- **Migrazione automatica.** Gli avvii predefiniti (globale e dei workspace) e le
+  proposte di impostazioni in attesa che puntavano ai vecchi preset passano al Bot
+  corrispondente al primo avvio. Le voci `@agente` diventano **Bot derivati**
+  (es. “Intake (OpenCode)”), creati una volta sola.
+- **Effort solo su Claude Code.** Il livello di sforzo del modello (`low` … `max`) vale
+  solo per gli agenti che lo dichiarano, oggi Claude Code; sugli altri è ignorato con
+  una nota.
+- **Rischio downgrade.** Passando a una versione precedente, `bots.json`,
+  `workspaces.json` e `launch_settings.json` migrati risultano più recenti di quanto
+  quella versione conosce: vengono messi da parte (rinominati `*.bak-<timestamp>`, mai
+  cancellati) e l'app riparte con le impostazioni predefinite. I dati si recuperano
+  rimettendo a posto il file dal backup, ma i Bot creati e gli avvii scelti dopo
+  l'aggiornamento non sono leggibili dalla versione vecchia.
+
+## 6. Checklist release
 
 - [ ] `updater.config.json`: `owner`/`repo` reali
 - [ ] versione aggiornata con `npm run bump -- X.Y.Z` (package.json, Cargo.toml e
