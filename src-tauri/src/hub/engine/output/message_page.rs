@@ -9,6 +9,7 @@
 
 use super::super::turn::TOOL_RESULT_MAX;
 use super::task_details::pieces::{size, Content};
+use super::text_cursor::MARKER_KEYS;
 use super::{header, message, BODY_KEPT};
 use crate::hub::engine::workspace_names::WorkspaceNames;
 use crate::hub::model::{Message, Thread};
@@ -18,7 +19,8 @@ use std::ops::Range;
 /// Il segno di un testo tagliato, come in `clip_with_ellipsis`.
 const ELLIPSIS: &str = "…";
 /// I campi di un evento che restano quando i suoi dati non stanno nella pagina:
-/// gli identificativi (i dati completi del task sono in `task_details`).
+/// gli identificativi (i dati completi del task sono in `task_details`); vi
+/// restano anche i cursori dei testi accorciati (`text_cursor::MARKER_KEYS`).
 const EVENT_ID_FIELDS: [&str; 6] = ["kind", "workspace", "workspace_name", "task_id", "proposal_id", "status"];
 /// Gli oggetti di un evento di cui resta solo l'`id` (per `relay_answer` e le richieste).
 const EVENT_ID_OBJECTS: [&str; 2] = ["question", "request"];
@@ -120,8 +122,11 @@ fn shortened(m: &Message, names: &WorkspaceNames, room: usize) -> Value {
 
 /// Gli identificativi dell'evento `event` (vedi `EVENT_ID_FIELDS` e `EVENT_ID_OBJECTS`).
 fn event_ids(event: &Value) -> Value {
-    let mut ids: Map<String, Value> =
-        EVENT_ID_FIELDS.iter().filter_map(|key| Some((key.to_string(), event.get(key)?.clone()))).collect();
+    let mut ids: Map<String, Value> = EVENT_ID_FIELDS
+        .iter()
+        .chain(&MARKER_KEYS)
+        .filter_map(|key| Some((key.to_string(), event.get(key)?.clone())))
+        .collect();
     for key in EVENT_ID_OBJECTS {
         if let Some(id) = event.get(key).and_then(|object| object.get("id")) {
             ids.insert(key.to_string(), json!({ "id": id }));

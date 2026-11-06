@@ -22,8 +22,10 @@ const DESCRIPTION: &str = "Read one task in full: status, dependencies, note, th
     a long task comes in parts. When `more` is present the task was not returned in full: before answering about a \
     field listed in `more`, read the rest with `field` and `offset` until `next_offset` is absent. With `field` the \
     result is one part of that field only: `content` for a text (`offset` in characters) or `items` for a list \
-    (`offset` in items), with `next_offset` while the field goes on. Results of earlier turns are shortened: call \
-    the tool again to read a task you need.";
+    (`offset` in items), with `next_offset` while the field goes on. A board event whose summary or note is \
+    shortened carries `summary_truncated` or `note_truncated` with `read_with`: call this tool with those \
+    `arguments` to read the whole text. Results of earlier turns are `shortened`: repeat the call in `reread` to \
+    read them again.";
 
 pub fn spec(tool: SecretaryTool) -> ToolSpec {
     let fields = TEXT_FIELDS.iter().chain(&LIST_FIELDS).map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ");

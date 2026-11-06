@@ -283,6 +283,22 @@ fn an_event_wake_quotes_the_last_request_of_the_user() {
     assert!(none.task.contains("(no message from the user)"));
 }
 
+#[test]
+fn a_long_recent_message_says_its_full_length_and_where_to_read_it_and_the_request_stays_whole() {
+    let long = "x".repeat(CONTEXT_ENTRY_KEPT + 500);
+    let request = format!("@giorgio {}", "r".repeat(CONTEXT_ENTRY_KEPT * 3));
+    let t = thread(vec![bot("m1", "giorgio", &long), user("m2", "ok"), user("m3", &request)]);
+    let order = plan_order("Login", &t, "m3", "giorgio", BOT, windows_root());
+    let marker = format!(
+        "- [@giorgio] {}… [… truncated: {} characters in total; full text in the thread message m1]\n",
+        "x".repeat(CONTEXT_ENTRY_KEPT),
+        CONTEXT_ENTRY_KEPT + 500
+    );
+    assert!(order.task.contains(&marker), "{}", order.task);
+    assert!(order.task.contains("- [user] ok\n") && order.task.matches("truncated").count() == 1);
+    assert!(order.task.contains(&format!("> {request}\n")), "{}", order.task);
+}
+
 // --- Allegati ---
 
 fn attachment(id: &str, name: &str) -> Attachment {

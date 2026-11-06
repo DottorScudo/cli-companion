@@ -208,7 +208,17 @@ fn context_line(m: &Message) -> String {
         Author::External { connector, name, .. } => format!("external {name} via {connector}, untrusted"),
     };
     let body = clip_with_ellipsis(&m.body, CONTEXT_ENTRY_KEPT).replace('\n', " / ");
-    format!("- [{author}] {body}{}", attached_names(m))
+    format!("- [{author}] {body}{}{}", truncation_note(m), attached_names(m))
+}
+
+/// ` [… truncated: N characters in total; …]` se il testo di `m` e' stato
+/// accorciato, con dove leggerlo intero; niente altrimenti.
+fn truncation_note(m: &Message) -> String {
+    let total = m.body.chars().count();
+    if total <= CONTEXT_ENTRY_KEPT {
+        return String::new();
+    }
+    format!(" [… truncated: {total} characters in total; full text in the thread message {}]", m.id)
 }
 
 /// ` [attached: a.png, b.txt]` (i percorsi sono nella sezione "Attachments"), o

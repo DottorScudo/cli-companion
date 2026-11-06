@@ -13,6 +13,7 @@ fn the_system_prompt_adds_the_engine_rules_and_the_language() {
     assert!(p.starts_with("You are mario. Report the board status.\n\n"));
     assert!(p.contains("You are mario, a secretary of the Agents HUB"));
     assert!(p.contains("never decide technical questions"));
+    assert!(p.contains("read the rest with that call") && p.contains("never offer to redo work"), "{p}");
     assert!(p.ends_with("Always reply to the user in German."));
     assert!(system_prompt(&secretary("mario"), Language::It, &ws(), &names(), &[]).ends_with("in Italian."));
 }
@@ -181,6 +182,9 @@ fn the_summary_request_has_the_previous_summary_and_the_session() {
     assert!(text.starts_with("Previous summary:\nOld.\n\nConversation of the session:\n[user] stato?\n"));
     assert!(text.contains("[you called board_status] {}") && text.ends_with("[you] t-1 e' in corso."));
     assert!(text.len() < TRANSCRIPT_ENTRY_KEPT * 2);
+    let marker = format!("… [… truncated: {} characters in total]\n", TRANSCRIPT_ENTRY_KEPT * 2);
+    assert!(text.contains(&marker), "{text}");
+    assert_eq!(text.matches("truncated").count(), 1, "{text}");
     assert!(summary_message(None, &[]).contains("(none)"));
 }
 

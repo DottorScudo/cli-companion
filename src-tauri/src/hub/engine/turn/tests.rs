@@ -214,9 +214,14 @@ fn tools_run_and_their_results_go_back_to_the_model() {
     assert!(matches!(&second[1], ChatMessage::Assistant { tool_calls, .. } if tool_calls.len() == 2));
     assert!(matches!(&second[2], ChatMessage::Tool { call_id, content } if call_id == "c1" && content.contains("t-1")));
     assert!(matches!(&second[3], ChatMessage::Tool { content, .. } if content == r#"{"posted":true}"#));
-    // L'esito lungo di thread_read e' tagliato.
+    // L'esito troppo lungo di thread_read diventa un errore esplicito, in JSON valido e nel limite.
     let ChatMessage::Tool { content, .. } = &conversation[5] else { panic!("{conversation:?}") };
-    assert_eq!(content.chars().count(), TOOL_RESULT_MAX + 1);
+    assert!(content.chars().count() <= TOOL_RESULT_MAX, "{}", content.chars().count());
+    let error: Value = serde_json::from_str(content).unwrap();
+    assert!(error["error"].as_str().unwrap().contains("`thread_read` was too long"), "{error}");
+    let whole = json!({ "title": "Login", "big": "x".repeat(TOOL_RESULT_MAX * 2) }).to_string();
+    assert_eq!(error["total_chars"].as_u64(), Some(whole.chars().count() as u64));
+    assert!(whole.starts_with(error["head"].as_str().unwrap()));
 }
 
 #[test]
@@ -612,12 +617,46 @@ fn compaction_shortens_old_tool_results_and_keeps_a_valid_start() {
     assert!(matches!(conversation.last(), Some(ChatMessage::Tool { .. })));
     for m in &conversation {
         if let ChatMessage::Tool { content, .. } = m {
-            assert_eq!(content.chars().count(), TOOL_RESULT_KEPT + 1);
+            assert!(content.chars().count() <= TOOL_RESULT_KEPT, "{content}");
+            let v: Value = serde_json::from_str(content).unwrap();
+            assert_eq!(
+                (v["shortened"].as_bool(), v["total_chars"].as_u64()),
+                (Some(true), Some(TOOL_RESULT_KEPT as u64 * 3))
+            );
         }
     }
     let mut short = vec![ChatMessage::User("x".into())];
     compact(&mut short);
     assert_eq!(short.len(), 1);
+}
+
+#[test]
+fn a_compacted_long_result_repeats_its_call_and_a_short_one_stays_identical() {
+    let details = r#"{"task_id":"t-1","field":"report.summary","offset":0}"#;
+    let long = json!({ "content": "é\"".repeat(TOOL_RESULT_KEPT) }).to_string();
+    let short = json!({ "posted": true }).to_string();
+    let mut conversation = vec![
+        ChatMessage::User("u".into()),
+        ChatMessage::Assistant {
+            text: None,
+            tool_calls: vec![call("c1", "post_message", r#"{"body":"ok"}"#), call("c2", "task_details", details)],
+        },
+        ChatMessage::Tool { call_id: "c1".into(), content: short.clone() },
+        ChatMessage::Tool { call_id: "c2".into(), content: long.clone() },
+    ];
+    compact(&mut conversation);
+    assert!(matches!(&conversation[2], ChatMessage::Tool { content, .. } if *content == short));
+    let ChatMessage::Tool { content, .. } = &conversation[3] else { panic!("{conversation:?}") };
+    assert!(content.chars().count() <= TOOL_RESULT_KEPT);
+    let v: Value = serde_json::from_str(content).unwrap();
+    assert_eq!((v["shortened"].as_bool(), v["total_chars"].as_u64()), (Some(true), Some(long.chars().count() as u64)));
+    let original: Value = serde_json::from_str(details).unwrap();
+    assert_eq!(v["reread"], json!({ "tool": "task_details", "arguments": original }));
+    assert!(long.starts_with(v["head"].as_str().unwrap()));
+    // Una seconda compattazione non cambia nulla.
+    let once = conversation.clone();
+    compact(&mut conversation);
+    assert_eq!(conversation, once);
 }
 
 #[test]

@@ -18,8 +18,10 @@ pub fn spec(tool: SecretaryTool) -> ToolSpec {
             only one of `before` and `offset`. The text of a long message is cut in the page: its \
             `body_truncated.total_chars` gives its full length. To read all of it call the tool with that message's \
             `message_id` and an `offset` in characters (0, then the `next_offset` of each part) until `next_offset` \
-            is absent. The task data of events is shortened too, and when a message is too long for a page alone \
-            only the ids of its event remain (`event_truncated`): read a task in full with `task_details`.",
+            is absent. The task data of events is shortened too: a shortened summary or note has \
+            `summary_truncated` or `note_truncated`, whose `read_with` is the `task_details` call that reads it whole. \
+            When a message is too long for a page alone only the ids and those markers of its event remain \
+            (`event_truncated`): read a task in full with `task_details`.",
         parameters: json!({
             "type": "object",
             "properties": {

@@ -17,11 +17,14 @@ mod message_body;
 mod message_page;
 mod overview;
 mod task_details;
+mod text_cursor;
+mod tool_result;
 
 pub use message_body::message_body;
 use message_page::message_page;
 pub use overview::board_overview;
 pub use task_details::task_details;
+pub use tool_result::{oversized, shortened};
 
 /// Caratteri tenuti del testo di un messaggio.
 const BODY_KEPT: usize = 1000;
@@ -98,8 +101,9 @@ pub fn messages(list: &[Message], names: &WorkspaceNames) -> Value {
 
 /// Un messaggio: autore, ora (UTC), testo tagliato, gli allegati (solo nome,
 /// tipo e dimensione: mai percorso o contenuto) e, per gli eventi, i dati
-/// dell'evento senza i campi vuoti. Un autore esterno ha `untrusted`; un
-/// messaggio dell'utente scritto da un canale di contatto ha `via`.
+/// dell'evento senza i campi vuoti, con i cursori dei suoi testi accorciati
+/// (`text_cursor`). Un autore esterno ha `untrusted`; un messaggio dell'utente
+/// scritto da un canale di contatto ha `via`.
 pub fn message(m: &Message, names: &WorkspaceNames) -> Value {
     let mut out = json!({
         "id": m.id,
@@ -126,6 +130,7 @@ pub fn message(m: &Message, names: &WorkspaceNames) -> Value {
     }
     if let Some(event) = &m.event {
         out["event"] = without_nulls(serde_json::to_value(event).unwrap_or(Value::Null));
+        text_cursor::mark_shortened(event, &mut out["event"]);
         if let Some(name) = event.workspace.as_deref().and_then(|id| names.name_of(id)) {
             out["event"]["workspace_name"] = Value::from(name);
         }

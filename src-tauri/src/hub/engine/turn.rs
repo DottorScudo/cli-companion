@@ -14,6 +14,7 @@ use super::board_ops::{BoardChange, TaskOp};
 use super::board_query::BoardQuery;
 use super::chat::{ChatMessage, ChatModel, ChatRequest, ModelError, ModelReply, ToolCall};
 use super::context;
+use super::output;
 use super::relay::QuestionSelector;
 use super::task_page::TaskPage;
 use super::texts;
@@ -21,8 +22,8 @@ use super::thread_page::ThreadPage;
 use super::tools::{self, Invocation};
 use crate::hub::model::{RequestedAction, ThreadState};
 use crate::hub::settings::Secretary;
-use crate::validate::clip_with_ellipsis;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::future::Future;
 
 /// Caratteri di un esito di tool restituito al modello nel turno in corso.
@@ -148,11 +149,8 @@ pub async fn run_turn<M: ChatModel, H: TurnHost>(
         }
         conversation.push(ChatMessage::Assistant { text, tool_calls: calls.clone() });
         for call in &calls {
-            let content = execute(host, spec.secretary, call, &mut budget).await;
-            conversation.push(ChatMessage::Tool {
-                call_id: call.id.clone(),
-                content: clip_with_ellipsis(&content, TOOL_RESULT_MAX),
-            });
+            let content = within_limit(call, execute(host, spec.secretary, call, &mut budget).await);
+            conversation.push(ChatMessage::Tool { call_id: call.id.clone(), content });
         }
     }
     TurnEnd::StepLimit
@@ -190,6 +188,18 @@ async fn execute<H: TurnHost>(host: &H, secretary: &Secretary, call: &ToolCall, 
     }
 }
 
+/// L'esito `content` di `call` se sta in `TOOL_RESULT_MAX`. Gli esiti sono
+/// fatti per starci: uno che non ci sta e' un difetto, e il modello riceve un
+/// errore esplicito (JSON valido) al posto di un JSON tagliato.
+fn within_limit(call: &ToolCall, content: String) -> String {
+    let total = content.chars().count();
+    if total <= TOOL_RESULT_MAX {
+        return content;
+    }
+    log::warn!("hub: esito di {} lungo {total} caratteri, oltre il limite di {TOOL_RESULT_MAX}", call.name);
+    output::oversized(&call.name, &content, TOOL_RESULT_MAX)
+}
+
 /// Esegue una chiamata validata attraverso l'host.
 async fn invoke<H: TurnHost>(host: &H, invocation: Invocation) -> Result<Value, String> {
     match invocation {
@@ -213,14 +223,21 @@ async fn invoke<H: TurnHost>(host: &H, invocation: Invocation) -> Result<Value, 
     }
 }
 
-/// Dopo un turno: esiti dei tool accorciati e al massimo `CONVERSATION_MAX`
-/// messaggi, a partire da un messaggio dell'utente.
+/// Dopo un turno: esiti dei tool oltre `TOOL_RESULT_KEPT` accorciati (vedi
+/// `output::shortened`: lunghezza intera, inizio e, per le letture, la
+/// chiamata da ripetere) e al massimo `CONVERSATION_MAX` messaggi, a partire
+/// da un messaggio dell'utente.
 pub fn compact(conversation: &mut Vec<ChatMessage>) {
+    let mut calls: HashMap<String, ToolCall> = HashMap::new();
     for message in conversation.iter_mut() {
-        if let ChatMessage::Tool { content, .. } = message {
-            if content.chars().count() > TOOL_RESULT_KEPT {
-                *content = clip_with_ellipsis(content, TOOL_RESULT_KEPT);
+        match message {
+            ChatMessage::Assistant { tool_calls, .. } => {
+                calls.extend(tool_calls.iter().map(|call| (call.id.clone(), call.clone())));
             }
+            ChatMessage::Tool { call_id, content } if content.chars().count() > TOOL_RESULT_KEPT => {
+                *content = output::shortened(content, calls.get(call_id), TOOL_RESULT_KEPT);
+            }
+            _ => {}
         }
     }
     if conversation.len() <= CONVERSATION_MAX {
