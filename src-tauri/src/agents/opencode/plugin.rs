@@ -100,7 +100,9 @@ mod tests {
         );
         assert!(index.contains(r#"const AGENT_ID = "opencode""#));
         assert!(index.contains(r#"const MCP_SERVER = "cli-companion""#));
-        assert!(index.contains(r#"const SKILL_IDS: string[] = ["task-intake","skill-wizard","project-setup"]"#));
+        assert!(index.contains(
+            r#"const SKILL_IDS: string[] = ["task-intake","skill-wizard","project-setup","code-answer","bug-fix"]"#
+        ));
         assert!(index.contains(r#"id: "cli-companion-notify","#));
         assert!(!index.contains("__"), "segnaposto rimasto");
         assert!(!index.contains('\r'));

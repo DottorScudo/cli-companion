@@ -32,6 +32,8 @@ pub static PRESETS: &[Preset] = &[
     Preset { id: "task-intake", name: "Task Intake", skill: include_str!("presets/task-intake.md") },
     Preset { id: "skill-wizard", name: "Skill Wizard", skill: include_str!("presets/skill-wizard.md") },
     Preset { id: "project-setup", name: "Project Setup", skill: include_str!("presets/project-setup.md") },
+    Preset { id: "code-answer", name: "Code Answer", skill: include_str!("presets/code-answer.md") },
+    Preset { id: "bug-fix", name: "Bug Fix", skill: include_str!("presets/bug-fix.md") },
 ];
 
 #[cfg(test)]
@@ -81,6 +83,90 @@ mod tests {
             assert_eq!(field("name:"), Some(p.id));
             assert!(field("description:").is_some_and(|d| !d.is_empty() && d.len() <= 1024));
             assert_eq!(field("description:").map(str::to_string), Some(p.description()));
+        }
+    }
+
+    /// The skills a worker loads from its bot: their description must keep them out of every
+    /// other session, where the agent lists them too.
+    const WORKER_SKILLS: &[&str] = &["code-answer", "bug-fix"];
+
+    /// The sections every worker skill has, in this order.
+    const WORKER_SKILL_SECTIONS: &[&str] = &["## When this applies", "## Rules", "## Workflow", "## Report"];
+
+    fn preset(id: &str) -> &'static Preset {
+        PRESETS.iter().find(|p| p.id == id).unwrap_or_else(|| panic!("no preset {id}"))
+    }
+
+    #[test]
+    fn worker_skills_apply_only_to_a_task_whose_bot_names_them() {
+        for id in WORKER_SKILLS {
+            let description = preset(id).description();
+            assert!(description.contains("cli-companion"), "{id}");
+            assert!(description.contains("task whose bot names this skill"), "{id}");
+            assert!(description.contains("never use it in any other session"), "{id}");
+        }
+    }
+
+    #[test]
+    fn worker_skills_have_the_common_sections_in_order() {
+        for id in WORKER_SKILLS {
+            let skill = preset(id).skill_text();
+            let positions: Vec<usize> = WORKER_SKILL_SECTIONS
+                .iter()
+                .map(|section| skill.find(section).unwrap_or_else(|| panic!("{id}: {section}")))
+                .collect();
+            assert!(positions.windows(2).all(|w| w[0] < w[1]), "{id}: sections out of order");
+        }
+    }
+
+    #[test]
+    fn worker_skills_do_not_repeat_the_worker_standard_or_the_delivery() {
+        for id in WORKER_SKILLS {
+            let skill = preset(id).skill_text();
+            for t in ["Engineering standard", "complete_task", "git rebase", "merge --ff-only"] {
+                assert!(!skill.contains(t), "{id}: {t}");
+            }
+        }
+    }
+
+    #[test]
+    fn code_answer_skill_answers_read_only() {
+        let p = preset("code-answer");
+        assert_eq!(p.name, "Code Answer");
+        assert!(p.description().contains("planning task"));
+        let skill = p.skill_text();
+        for t in [
+            "Read-only",
+            "git only to read",
+            "Do not propose tasks",
+            "starts with \"Answer:\"",
+            "at most 10 lines",
+            "language of the question",
+            "could not verify",
+        ] {
+            assert!(skill.contains(t), "{t}");
+        }
+    }
+
+    #[test]
+    fn bug_fix_skill_reproduces_before_fixing() {
+        let p = preset("bug-fix");
+        assert_eq!(p.name, "Bug Fix");
+        assert!(p.description().contains("work task"));
+        let skill = p.skill_text();
+        for t in [
+            "Reproduce before touching the code",
+            "documented steps",
+            "root cause, not the symptom",
+            "regression test",
+            "`ask_user`",
+            "`failed`",
+            "never fix it blindly",
+            "the cause",
+            "the fix",
+            "the test",
+        ] {
+            assert!(skill.contains(t), "{t}");
         }
     }
 

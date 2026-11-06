@@ -1140,7 +1140,7 @@ solo `skill_path`) contiene la skill di ogni preset (per Claude Code `skills/<id
 `orchestrate`/`workflow`: l'installazione rimuove le cartelle obsolete). Le skill non hanno voci rapide proprie
 (niente sottomenu “Avvia con…”): una sessione guidata da una skill del plugin parte solo
 come **Bot** (`bot:<id>`, `bots/launches.rs`), che porta agente, modello, effort e skill nella sua configurazione
-(`bots.json`); i Bot predefiniti `intake`, `setup` e `skill-wizard` usano le tre skill. Un Bot con una skill del plugin
+(`bots.json`); i Bot predefiniti `intake`, `setup` e `skill-wizard` usano le skill `task-intake`, `project-setup` e `skill-wizard`; `code-answer` e `bug-fix` sono skill da worker per i Bot della pool (vedi sotto). Un Bot con una skill del plugin
 richiede un agente che dichiara `plugin-skills`. Una skill non nomina mai un agente o un modello: li legge da
 `get_workspace_settings.agents`.
 - Migrazione: un `default_launch` salvato come `builtin:orchestrator` o `builtin:preset:task-intake` diventa `bot:intake`
@@ -1187,6 +1187,14 @@ richiede un agente che dichiara `plugin-skills`. Una skill non nomina mai un age
   richiesta esplicita. Spiega le modalità di consegna e che la configurazione dei worktree vale
   solo con le modalità parallele. Parla con l'utente nella sua lingua; regole e testi per i
   worker in inglese, salvo diversa richiesta.
+- **Skill da worker** (`code-answer` "Code Answer", `bug-fix` "Bug Fix"): le carica un worker il cui Bot le nomina
+  (vedi `get_task.skill`); la `description` limita l'attivazione a un task di cli-companion il cui Bot nomina la
+  skill, perché le skill del plugin compaiono anche nelle sessioni interattive. Sezioni `When this applies`, `Rules`,
+  `Workflow`, `Report`; non ripetono lo standard dei worker né le istruzioni di consegna (vedi POOL.MD §5).
+  `code-answer` (task `plan`): sola lettura, git solo in lettura, nessuna proposta, `summary` che inizia con
+  "Answer:" in al massimo 10 righe nella lingua della domanda. `bug-fix` (task `work`): riproduce prima (test che
+  fallisce o passi documentati), corregge la causa, la riproduzione resta come test di regressione; se il bug non si
+  riproduce `ask_user` o chiusura `failed` con i passi provati; report con causa, correzione e test.
 
 ## Fasce orarie (semplificate)
 
