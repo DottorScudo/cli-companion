@@ -74,6 +74,9 @@ pub fn dispatch<H: Host>(
         {
             planner::rpc_planner(st, host, session, method, params)
         }
+        Method::GetWorkspaceSettings if role == Role::Reviewer => {
+            review::rpc_reviewer(st, host, session, method, params)
+        }
         Method::ProposeTasks | Method::GetTaskDetails => match role {
             Role::Session => boards::rpc_session(st, host, session, method.name(), params),
             Role::Reviewer => review::rpc_reviewer(st, host, session, method, params),

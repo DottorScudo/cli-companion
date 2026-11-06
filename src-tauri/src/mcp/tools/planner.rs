@@ -2,7 +2,7 @@
 //! worker con `get_task` e `complete_task` propri, piu' la lettura della coda e
 //! delle impostazioni e `propose_tasks`. Niente E2E, niente modifiche.
 
-use super::{get_task_details_tool, list_tasks_tool, propose_tasks_tool, tool};
+use super::{get_task_details_tool, list_tasks_tool, propose_tasks_tool, read_settings_tool, tool};
 use serde_json::{json, Value};
 
 /// Istruzioni generali del server per il pianificatore (Agents HUB spento).
@@ -56,13 +56,7 @@ pub fn planner_tools() -> Vec<Value> {
         propose_tasks_tool(),
         list_tasks_tool(),
         get_task_details_tool(),
-        tool(
-            "get_workspace_settings",
-            "Read the workspace settings: the enabled agents (models, readiness), the Bots, the repositories with their \
-             configuration (e2e: null = none) and the pending settings proposals.",
-            json!({}),
-            &[],
-        ),
+        read_settings_tool(),
     ]
 }
 

@@ -40,6 +40,7 @@ pub(super) fn rpc_reviewer<H: Host>(
     match method {
         Method::ProposeTasks => propose_tasks(st, host, &ws, session, Some(task_id), params),
         Method::GetTaskDetails => task_details(st, host, &ws, params),
+        Method::GetWorkspaceSettings => Ok(settings::get_settings(st, host, &ws)),
         other => Err(misrouted(other)),
     }
 }

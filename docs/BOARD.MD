@@ -593,7 +593,8 @@ automated sessions" (a un worker); un tab di un workspace archiviato risponde "w
 | `ask_user` (solo con l'Agents HUB acceso) | sì | no | sì | no |
 | `run_e2e`, `get_e2e_result` | sì | sì | no | no |
 | `propose_tasks`, `get_task_details` | no | sì | sì | sì |
-| `list_tasks`, `get_workspace_settings` | no | no | sì | sì |
+| `list_tasks` | no | no | sì | sì |
+| `get_workspace_settings` | no | sì | sì | sì |
 | `update_task`, `delete_task`, `propose_settings` | no | no | no | sì |
 | `save_skill`, `list_skills`, `delete_skill` | no | no | no | sì |
 
@@ -638,8 +639,8 @@ Worker:
   `RPC_TIMEOUT` del server MCP; il chiamante ripete finché lo stato non è più `running`.
   Valore fuori range: "wait_seconds must be an integer from 0 to 25".
 
-Reviewer (worker di un task `review`; mai `update_task`, `delete_task`, `list_tasks`, tool di
-impostazioni o di skill; tutti gli altri metodi di sessione restano vietati):
+Reviewer (worker di un task `review`; mai `update_task`, `delete_task`, `list_tasks`,
+`propose_settings` o tool di skill; tutti gli altri metodi di sessione restano vietati):
 - `get_task` → `{ task, title, instructions, environment, reviewed_tasks, previous_attempt? }`.
   `instructions` sono quelle del reviewer, **senza `delivery`**. `reviewed_tasks` ha, per ogni
   dipendenza diretta, `{ id, title, status, summary (troncato), commit, pr_url, files_changed,
@@ -653,6 +654,9 @@ impostazioni o di skill; tutti gli altri metodi di sessione restano vietati):
   errore (`findings` ammessi).
 - `get_task_details { id }` e `propose_tasks { tasks }`: come per la sessione, ma la RPC li
   consente solo ai worker dei task `review`. I worker normali non vedono niente di nuovo.
+- `get_workspace_settings {}`: sola lettura, nel workspace del task (come per il planner, con la
+  descrizione che non cita `propose_settings`): il reviewer sceglie da `bots` il Bot e da
+  `agents[].models` l'eventuale `model` dei task di correzione e della nuova review.
 - `run_e2e` e `get_e2e_result`: gli stessi del worker, sulla cartella e sul task del reviewer
   (l'esecuzione sta in `Task.e2e_run` della review; non c'è blocco: il verdetto è del reviewer).
 

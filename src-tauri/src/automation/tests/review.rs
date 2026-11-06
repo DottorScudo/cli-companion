@@ -80,11 +80,11 @@ fn a_review_starts_after_its_dependencies_and_its_worker_is_a_reviewer() {
 }
 
 #[test]
-fn only_the_reviewer_gets_the_two_session_tools() {
+fn only_the_reviewer_gets_the_three_session_tools() {
     let (st, h, r) = reviewer(DeliveryMode::Commit, false);
     let a = session_of_done(&st, &h);
     // Un worker normale non le ha.
-    for m in ["get_task_details", "propose_tasks"] {
+    for m in ["get_task_details", "propose_tasks", "get_workspace_settings"] {
         let e = call(&st, &h, &a, m, json!({"id": "a"})).unwrap_err();
         assert!(e.contains("not available to automated sessions"), "{m}: {e}");
     }
@@ -95,17 +95,13 @@ fn only_the_reviewer_gets_the_two_session_tools() {
     let p = call(&st, &h, &r, "propose_tasks", json!({"tasks": [spec("fix", &[])]})).unwrap();
     assert_eq!(p["status"], "pending");
     assert!(call(&st, &h, &r, "get_task_details", json!({"id": "nope"})).unwrap_err().contains("task not found"));
+    // Legge i Bot e i modelli del workspace del suo task, senza poterli cambiare.
+    let s = call(&st, &h, &r, "get_workspace_settings", json!({})).unwrap();
+    assert!(s["bots"].is_array() && s["agents"].is_array(), "{s}");
     // Tutto il resto resta vietato.
-    for m in [
-        "list_tasks",
-        "update_task",
-        "delete_task",
-        "get_workspace_settings",
-        "propose_settings",
-        "list_skills",
-        "save_skill",
-        "delete_skill",
-    ] {
+    for m in
+        ["list_tasks", "update_task", "delete_task", "propose_settings", "list_skills", "save_skill", "delete_skill"]
+    {
         let e = call(&st, &h, &r, m, json!({"id": "a"})).unwrap_err();
         assert!(e.contains("not available to automated sessions"), "{m}: {e}");
     }

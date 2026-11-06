@@ -837,7 +837,8 @@ dati, consegna, scheduler, tool, UI): [BOARD.MD](BOARD.MD). Struttura a strati, 
   | `ask_user` (solo con l'Agents HUB acceso) | sì | no | sì | no |
   | `run_e2e`, `get_e2e_result` | sì | sì | no | no |
   | `propose_tasks`, `get_task_details` | no | sì | sì | sì |
-  | `list_tasks`, `get_workspace_settings` | no | no | sì | sì |
+  | `list_tasks` | no | no | sì | sì |
+  | `get_workspace_settings` | no | sì | sì | sì |
   | `update_task`, `delete_task`, `propose_settings` | no | no | no | sì |
   | `save_skill`, `list_skills`, `delete_skill` | no | no | no | sì |
 

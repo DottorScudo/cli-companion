@@ -78,8 +78,12 @@ const AUTOMATED: &[Role] = &[Role::Worker, Role::Reviewer, Role::Planner];
 const E2E_RUNNERS: &[Role] = &[Role::Worker, Role::Reviewer];
 /// Proposte e dettaglio dei task: il revisore e il pianificatore ne hanno bisogno.
 const PROPOSERS: &[Role] = &[Role::Session, Role::Reviewer, Role::Planner];
-/// Lettura della coda e delle impostazioni: anche il pianificatore.
+/// Lettura della coda: anche il pianificatore.
 const SESSION_AND_PLANNER: &[Role] = &[Role::Session, Role::Planner];
+/// Lettura delle impostazioni (Bot, agenti, modelli): anche il revisore, che deve
+/// scegliere Bot e modello dei task di correzione e della nuova revisione. Sola lettura:
+/// `propose_settings` resta della sessione.
+const SETTINGS_READERS: &[Role] = &[Role::Session, Role::Reviewer, Role::Planner];
 /// Strumenti dell'utente (coda, skill, impostazioni): vietati ai worker.
 const SESSION_ONLY: &[Role] = &[Role::Session];
 /// Chi puo' fare una domanda bloccante all'utente: il worker e il pianificatore.
@@ -141,7 +145,8 @@ impl Method {
             Method::AskUser => ASKERS,
             Method::RunE2e | Method::GetE2eResult => E2E_RUNNERS,
             Method::ProposeTasks | Method::GetTaskDetails => PROPOSERS,
-            Method::ListTasks | Method::GetWorkspaceSettings => SESSION_AND_PLANNER,
+            Method::ListTasks => SESSION_AND_PLANNER,
+            Method::GetWorkspaceSettings => SETTINGS_READERS,
             Method::UpdateTask
             | Method::DeleteTask
             | Method::SaveSkill
@@ -272,9 +277,8 @@ mod tests {
         for m in [Method::ProposeTasks, Method::GetTaskDetails] {
             assert_eq!(who(m), vec![Role::Session, Role::Reviewer, Role::Planner], "{}", m.name());
         }
-        for m in [Method::ListTasks, Method::GetWorkspaceSettings] {
-            assert_eq!(who(m), vec![Role::Session, Role::Planner], "{}", m.name());
-        }
+        assert_eq!(who(Method::ListTasks), vec![Role::Session, Role::Planner]);
+        assert_eq!(who(Method::GetWorkspaceSettings), vec![Role::Session, Role::Reviewer, Role::Planner]);
         for m in [
             Method::UpdateTask,
             Method::DeleteTask,

@@ -107,7 +107,7 @@ fn task_properties(with_id: bool) -> Value {
         "kind": {
             "type": "string",
             "enum": ["work", "review"],
-            "description": "review = a reviewer checks the integrated result of its depends_on (at least one) and proposes fixes. Default work."
+            "description": "review = a reviewer checks the integrated result of its depends_on (at least one). Default work."
         },
         "e2e": {
             "type": "boolean",
@@ -136,8 +136,8 @@ fn propose_tasks_tool() -> Value {
     tool(
         "propose_tasks",
         "Propose tasks for this workspace's queue. The user accepts or discards it in the app; nothing starts \
-         before and you get no answer: never wait. All-or-nothing validation: unique ids (also vs queue and pending \
-         proposals), valid dependencies, no cycles, existing repo. Max 20 tasks. Returns {proposal, status: \"pending\"}.",
+         before and you get no answer: never wait. All-or-nothing validation: unique ids (also vs queue and \
+         proposals), valid dependencies, no cycles, existing repo. Returns {proposal, status: \"pending\"}.",
         json!({
             "tasks": {
                 "type": "array",
@@ -162,6 +162,17 @@ fn get_task_details_tool() -> Value {
         "Full detail of one task: specification, dependencies, status, report, note, worktree.",
         json!({ "id": { "type": "string", "description": "Id of the task." } }),
         &["id"],
+    )
+}
+
+/// `get_workspace_settings` for the automated readers (planner, reviewer): read-only,
+/// so it does not mention `propose_settings`.
+fn read_settings_tool() -> Value {
+    tool(
+        "get_workspace_settings",
+        "Read the Bots, the enabled agents (models, readiness) and the repositories (e2e: null = none).",
+        json!({}),
+        &[],
     )
 }
 
@@ -387,18 +398,17 @@ fn e2e_tools() -> [Value; 2] {
     [
         tool(
             "run_e2e",
-            "Run the E2E tests of this repository through the app, in your working folder: the app runs the configured \
-             command and reads its JUnit report. Returns at once {run_id, status: \"running\"}; then call get_e2e_result. \
-             One run at a time per folder. Fails if the repository has no E2E configuration. Only the app's run counts \
-             for the E2E gate of complete_task.",
+            "Run the repository's configured E2E command through the app, in your working folder, and read its JUnit \
+             report. Returns at once {run_id, status: \"running\"}; then call get_e2e_result. One run at a time per \
+             folder. Fails without E2E configuration. Only the app's run counts for the E2E gate of complete_task.",
             json!({}),
             &[],
         ),
         tool(
             "get_e2e_result",
-            "Result of the last E2E run of your task: status running, passed, failed or error; totals (tests, passed, \
-             failed, skipped, flaky if reported); failed tests with file and message; duration, commit, JUnit path and, \
-             on error, the output tail. While it is running, call it again with wait_seconds.",
+            "Result of the last E2E run of your task: status running, passed, failed or error; totals, failed tests \
+             (file, message), duration, commit, JUnit path and, on error, the output tail. While running, call it again \
+             with wait_seconds.",
             json!({
                 "run_id": {
                     "type": "string",
@@ -466,7 +476,8 @@ pub fn worker_tools() -> Vec<Value> {
 }
 
 /// Tool del revisore: i due del worker (con `get_task` e `complete_task` propri)
-/// piu' quelli di sessione che gli servono, piu' i due E2E.
+/// piu' quelli di sessione che gli servono (anche la lettura delle impostazioni,
+/// per scegliere Bot e modello dei task di correzione), piu' i due E2E.
 pub fn reviewer_tools() -> Vec<Value> {
     let mut tools = vec![
         tool(
@@ -478,8 +489,8 @@ pub fn reviewer_tools() -> Vec<Value> {
         ),
         tool(
             "complete_task",
-            "ALWAYS call it at the end: completed with a verdict once the review is done (after propose_tasks for the fixes, if \
-             any), failed if the review could not be done. The tab closes by itself afterwards.",
+            "ALWAYS call it last: completed with a verdict once the review is done (after propose_tasks for the fixes, if \
+             any), failed if it could not be done. The tab then closes.",
             json!({
                 "status": {
                     "type": "string",
@@ -509,6 +520,7 @@ pub fn reviewer_tools() -> Vec<Value> {
         ),
         get_task_details_tool(),
         propose_tasks_tool(),
+        read_settings_tool(),
     ];
     tools.extend(e2e_tools());
     tools

@@ -34,6 +34,7 @@ const WORKER_TOOLS_CEILING: usize = 3_050;
 /// get_task_details and propose_tasks definitions.
 /// 5_200 = 4_050 plus run_e2e and get_e2e_result (measured 5_163).
 /// 5_300 = 5_200 plus the `bot` field and the model/agent override descriptions of propose_tasks (measured 5_244).
+/// The read-only get_workspace_settings joined the set under the same ceiling: other descriptions were shortened.
 const REVIEWER_TOOLS_CEILING: usize = 5_300;
 /// The worker set with the Agents HUB on: the hub-off set plus ask_user (measured 3_698).
 const WORKER_HUB_TOOLS_CEILING: usize = 3_750;
@@ -250,7 +251,15 @@ fn tools_list_depends_on_role() {
     let r = send(&s, &Fake::new("reviewer"), json!({"jsonrpc":"2.0","id":3,"method":"tools/list"})).unwrap();
     assert_eq!(
         names(&r),
-        ["get_task", "complete_task", "get_task_details", "propose_tasks", "run_e2e", "get_e2e_result"]
+        [
+            "get_task",
+            "complete_task",
+            "get_task_details",
+            "propose_tasks",
+            "get_workspace_settings",
+            "run_e2e",
+            "get_e2e_result"
+        ]
     );
     for t in r["result"]["tools"].as_array().unwrap() {
         assert!(!t["description"].as_str().unwrap().is_empty());
@@ -687,11 +696,10 @@ fn e2e_calls_are_gated_by_role_and_forwarded_for_workers() {
 }
 
 #[test]
-fn a_reviewer_cannot_call_the_queue_or_settings_tools() {
+fn a_reviewer_cannot_call_the_queue_or_settings_changing_tools() {
     let b = Fake::new("reviewer");
     let s = Server::default();
-    for name in ["list_tasks", "update_task", "delete_task", "save_skill", "get_workspace_settings", "propose_settings"]
-    {
+    for name in ["list_tasks", "update_task", "delete_task", "save_skill", "propose_settings"] {
         let r =
             send(&s, &b, json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":{}}}))
                 .unwrap();
@@ -703,6 +711,14 @@ fn a_reviewer_cannot_call_the_queue_or_settings_tools() {
         .unwrap();
     assert!(r["result"].get("isError").is_none());
     assert_eq!(b.calls().last().unwrap().0, "get_task_details");
+    let r = send(
+        &s,
+        &b,
+        json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_workspace_settings","arguments":{}}}),
+    )
+    .unwrap();
+    assert!(r["result"].get("isError").is_none());
+    assert_eq!(b.calls().last().unwrap().0, "get_workspace_settings");
 }
 
 #[test]
