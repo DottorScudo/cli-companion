@@ -14,15 +14,25 @@ interface Props {
   /** Immagine che si vede adesso (salvata o scelta), `null` se non ce n'è. */
   image: BotImage | null;
   disabled: boolean;
+  /** Nome mostrato finché `name` è vuoto (default: «segretario»). */
+  fallbackName?: string;
   onPick: (image: BotImage) => void;
   onRemove: () => void;
   onError: (message: string | null) => void;
 }
 
-/** Immagine del segretario: stessa pipeline pixel-art delle immagini dei bot, con anteprima prima di usarla. */
-export default function SecretaryImageField({ name, image, disabled, onPick, onRemove, onError }: Props) {
+/** Immagine del segretario o del Bot: stessa pipeline pixel-art delle immagini dei bot, con anteprima prima di usarla. */
+export default function SecretaryImageField({
+  name,
+  image,
+  disabled,
+  fallbackName = FALLBACK_NAME,
+  onPick,
+  onRemove,
+  onError,
+}: Props) {
   const picker = useBotImagePicker(onError);
-  const shownName = name.trim() === "" ? FALLBACK_NAME : name.trim();
+  const shownName = name.trim() === "" ? fallbackName : name.trim();
 
   const confirm = () => {
     if (!picker.candidate) return;
